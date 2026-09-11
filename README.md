@@ -1,4 +1,4 @@
-# Team V! — TAI × OpenAI 100-Hour Game Builder Challenge 2026
+# autoV — Team V! · TAI × OpenAI 100-Hour Game Builder Challenge 2026
 
 > **Track 2: Game Development Tools** — an AI-powered tool that changes how games are developed, tested, localized, operated or distributed.
 
@@ -33,8 +33,8 @@ TBD
 
 ## Setup
 ```bash
-git clone https://github.com/team-v-gbc2026/team-v.git
-cd team-v
+git clone https://github.com/team-v-gbc2026/autov.git
+cd autov
 cp .env.example .env.local   # add YOUR OWN OpenAI key (never commit it)
 npm install
 npm run dev
