@@ -51,8 +51,8 @@ This repo is **public**, so treat everything you commit as permanently readable 
 
 - **Never commit API keys or tokens.** GitHub's push protection will reject the push anyway — if that happens, remove the secret and rotate the key rather than working around it.
 - `main` is protected: no direct pushes, no force-push. Branch → PR → 1 approval → merge.
-- CodeQL scans every PR; a high-severity finding blocks the merge.
-- CodeRabbit reviews every PR automatically. Read its comments before merging.
+- Every PR is scanned by **gitleaks** and **CodeQL**. A high-severity CodeQL finding blocks the merge.
+- Want an AI review? Comment **`@coderabbitai review`** on your PR. (CodeRabbit's free tier only reviews automatically once a repo has 10+ stars, so we ask for it by hand.)
 - 2FA is required for every member of this org.
 
 Full rules and the reasoning behind them: [`SECURITY.md`](SECURITY.md) — 2 minutes, please read once.
