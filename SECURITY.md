@@ -11,12 +11,15 @@ You don't have to remember all of this. GitHub enforces most of it for you:
 |---|---|
 | Push protection | Rejects any push that contains an API key or token, before it reaches GitHub |
 | Secret scanning | Alerts us if a credential ever lands in the repo; major providers auto-revoke leaked keys |
+| gitleaks (CI) | Scans every PR for secrets GitHub's own patterns miss — homemade tokens, high-entropy strings |
 | CodeQL | Scans every PR for vulnerabilities — high severity blocks the merge |
 | Branch ruleset on `main` | No direct pushes, no force-push, no branch deletion |
-| CodeRabbit | Reviews every PR automatically |
 | Dependabot | Alerts and fix PRs for vulnerable dependencies |
 | 2FA | Required for every org member |
 | Interaction limits | Only repo collaborators can open PRs, issues or comments |
+
+CodeRabbit is the one thing that is **not** automatic: its free tier only
+auto-reviews repos with 10+ stars, so you have to ask for a review. See section 5.
 
 ## 1. Secrets
 
@@ -47,7 +50,7 @@ You don't have to remember all of this. GitHub enforces most of it for you:
 
 - Branch from `main`, keep the PR small, get one approval, merge.
 - New commits dismiss earlier approvals, so push everything before asking for review.
-- Read CodeRabbit's comments before merging. It is allowed to be wrong — say why and move on — but don't merge without reading it.
+- **Ask CodeRabbit for a review:** comment `@coderabbitai review` on your PR, then read what it says. It is allowed to be wrong — say why and move on — but don't merge a non-trivial PR without looking.
 - Don't commit binaries over 10 MB. Link to them instead.
 
 ## 6. After the event
