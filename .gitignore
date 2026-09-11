@@ -1,0 +1,17 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# node / next
+node_modules/
+.next/
+out/
+dist/
+*.log
+.vercel/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
