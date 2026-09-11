@@ -43,20 +43,33 @@ npm run dev
 ## Environment variables
 | Name | Where | Notes |
 |---|---|---|
-| `OPENAI_API_KEY` | `.env.local` (local) / Vercel env vars (prod) | Use your own key + your $100 hackathon credit locally. Production key lives only in Vercel. |
+| `OPENAI_API_KEY` | `.env.local` (local) / Vercel env vars (prod) | Use your own key + your own hackathon credit locally. The production key lives only in Vercel. |
+
+## Security — read this before your first push
+
+This repo is **public**, so treat everything you commit as permanently readable by anyone.
+
+- **Never commit API keys or tokens.** GitHub's push protection will reject the push anyway — if that happens, remove the secret and rotate the key rather than working around it.
+- `main` is protected: no direct pushes, no force-push. Branch → PR → 1 approval → merge.
+- CodeQL scans every PR; a high-severity finding blocks the merge.
+- CodeRabbit reviews every PR automatically. Read its comments before merging.
+- 2FA is required for every member of this org.
+
+Full rules and the reasoning behind them: [`SECURITY.md`](SECURITY.md) — 2 minutes, please read once.
 
 ## How we work (short version)
 - One task = one GitHub Issue. Board: **Projects → Team V! Board**.
-- `main` is deploy-to-prod. Work on a branch, open a small PR, get one 👍, merge.
+- `main` is deploy-to-prod. Work on a branch, open a small PR, get one approval, merge.
+- Pushing new commits dismisses earlier approvals — push everything before asking for review.
 - Stuck for 15–30 min? Post in `#dev` on Discord.
 - Decisions go in [`docs/DECISIONS.md`](docs/DECISIONS.md), not just chat.
-- Security rules: [`SECURITY.md`](SECURITY.md) — please read once (2 min).
 
 ## Team
 | Name | Role | GitHub |
 |---|---|---|
-| Taiki Kawa | Lead / PM | @TaikiKawa |
-| | | |
+| Taiki Kawa | Lead / PM | [@TaikiKawa](https://github.com/TaikiKawa) |
+| Eric Volkmann | Engineer | [@gd193](https://github.com/gd193) |
+| Rahul Ghosh | Engineer | [@SYBIOTE](https://github.com/SYBIOTE) |
 
 ## Future work
 TBD
