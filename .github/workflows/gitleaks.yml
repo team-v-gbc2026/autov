@@ -1,8 +1,13 @@
 name: secret-scan
+
 on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+
 jobs:
   gitleaks:
     runs-on: ubuntu-latest
@@ -10,6 +15,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # gitleaks-action@v2 needs a licence key for org-owned repos, so it never ran.
+      # The gitleaks CLI itself is MIT-licensed and free, so we run that directly.
+      - name: Install gitleaks
+        run: |
+          url=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | grep -oE '"browser_download_url": *"[^"]*linux_(x64|amd64)\.tar\.gz"' \
+            | head -1 | cut -d'"' -f4)
+          test -n "$url" || { echo "could not resolve gitleaks download url"; exit 1; }
+          echo "downloading $url"
+          curl -sSfL "$url" -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Scans the working tree and the branch history. Findings are redacted in the
+      # log, so a failing check never prints a live secret into a public build log.
+      - name: Scan for secrets
+        run: gitleaks git . --redact --no-banner
