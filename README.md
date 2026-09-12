@@ -43,8 +43,8 @@ aube run dev
 ## Vercel deploy (aube)
 
 This repo includes [vercel.json](/home/ghosh/github/autov/vercel.json) so Vercel uses `aube` for both install and build:
-- Install: `cd web && npm install -g aube && aube install`
-- Build: `cd web && aube run build`
+- Install: `cd web && npx -y aube@latest install`
+- Build: `cd web && npx -y aube@latest run build`
 
 ## Environment variables
 | Name | Where | Notes |

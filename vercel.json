@@ -1,5 +1,5 @@
 {
-  "installCommand": "cd web && npm install -g aube && aube install",
-  "buildCommand": "cd web && aube run build",
-  "devCommand": "cd web && aube run dev"
+  "installCommand": "cd web && npx -y aube@latest install",
+  "buildCommand": "cd web && npx -y aube@latest run build",
+  "devCommand": "cd web && npx -y aube@latest run dev"
 }
