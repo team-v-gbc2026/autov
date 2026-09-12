@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
-export type BoardItem = { x: number; y: number; name?: string };
+export type BoardItem = { x: number; y: number; name?: string; width?: number; height?: number };
 type Layout = Record<string, BoardItem>;
 const snapshots = new Map<string, string>();
 const EVENT = "autov:board-layout";
