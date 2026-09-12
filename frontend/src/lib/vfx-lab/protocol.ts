@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { KINDS, NUMERIC } from "./schema";
+import { KINDS, NUMERIC, LayerWireSchema } from "./schema";
 export const TextureRequestSchema = z
   .object({
     id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
@@ -118,6 +118,19 @@ export const EditSchema = z
     ]),
     value: z.union([z.number(), z.string().regex(/^#[0-9a-fA-F]{6}$/)]),
     explanation: z.string().max(500),
+  })
+  .strict();
+export const StructuralRefinementSchema = z
+  .object({
+    layers: z.array(LayerWireSchema).min(1).max(3),
+    post: z
+      .object({
+        bloom: z.number().min(0).max(2),
+        exposure: z.number().min(0.3).max(2),
+      })
+      .strict()
+      .nullable(),
+    explanation: z.string().max(700),
   })
   .strict();
 export const score = (r?: Review) =>

@@ -21,6 +21,26 @@ export type Transport = (
   body: Record<string, unknown>,
   signal: AbortSignal,
 ) => Promise<Record<string, unknown>>;
+function improves(next: Review | undefined, baseline: Review) {
+  if (!next?.sufficientEvidence) return false;
+  const noRegression =
+    baseline.observations.every(
+      (old) =>
+        old.result !== "pass" ||
+        next.observations.some(
+          (item) => item.criterion === old.criterion && item.result === "pass",
+        ),
+    ) &&
+    (["semantic", "motion", "hierarchy", "finish"] as const).every(
+      (axis) => next[axis] >= Math.min(3, baseline[axis]),
+    );
+  return (
+    score(next) > score(baseline) + 0.15 &&
+    noRegression &&
+    next.observations.filter((x) => x.result === "fail").length <=
+      baseline.observations.filter((x) => x.result === "fail").length
+  );
+}
 export async function generatePipeline(options: {
   prompt: string;
   references: string[];
@@ -28,7 +48,11 @@ export async function generatePipeline(options: {
   textures?: boolean;
   signal: AbortSignal;
   request: Transport;
-  capture: (doc: VfxDocument, solo?: string, diagnostic?: boolean) => Evidence | Promise<Evidence>;
+  capture: (
+    doc: VfxDocument,
+    solo?: string,
+    diagnostic?: boolean,
+  ) => Evidence | Promise<Evidence>;
   progress: (message: string) => void;
   candidate: (candidate: Candidate) => void;
 }): Promise<PipelineResult> {
@@ -63,13 +87,15 @@ export async function generatePipeline(options: {
   });
   const runId = planned.runId as string,
     plan = planned.plan as Plan;
-  for (const texture of options.textures ? (plan.textures || []) : []) {
+  for (const texture of options.textures ? plan.textures || [] : []) {
     try {
       step(`Creating reusable texture: ${texture.id}…`);
       await call({ action: "texture", runId, id: texture.id });
     } catch (error) {
       if (signal.aborted) throw error;
-      trace.push(`Texture unavailable; procedural materials retained: ${error instanceof Error ? error.message : "unknown"}`);
+      trace.push(
+        `Texture unavailable; procedural materials retained: ${error instanceof Error ? error.message : "unknown"}`,
+      );
     }
   }
   const count = options.mode === "quality" ? 3 : 1;
@@ -86,7 +112,8 @@ export async function generatePipeline(options: {
           evidence,
           origin: "generated",
         };
-      if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8) throw new Error("Rendered candidate has no visible effect pixels.");
+      if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8)
+        throw new Error("Rendered candidate has no visible effect pixels.");
       candidates.push(candidate);
       options.candidate({ ...candidate });
       if (options.mode === "quality") {
@@ -151,6 +178,19 @@ export async function generatePipeline(options: {
         });
         const document = validateDocument(result.document),
           evidence = await capture(document);
+        if (
+          evidence.renderedPixels !== undefined &&
+          evidence.renderedPixels < 8
+        )
+          throw Error("Refinement has no visible effect pixels.");
+        const refined: Candidate = {
+          id: `${runId}-refined`,
+          document,
+          evidence,
+          origin: "refined",
+        };
+        candidates.push(refined);
+        options.candidate({ ...refined });
         step("Re-rendering and checking the refinement…");
         const reviewed = await call({
           action: "review",
@@ -159,29 +199,9 @@ export async function generatePipeline(options: {
           sheet: evidence.sheet,
           times: evidence.times,
         });
-        const refined: Candidate = {
-          id: `${runId}-refined`,
-          document,
-          evidence,
-          review: reviewed.review as Review,
-          origin: "refined",
-        };
-        candidates.push(refined);
-        options.candidate(refined);
-        const noRegression = baseline.review!.observations.every(old =>
-          old.result !== "pass" || refined.review!.observations.some(next => next.criterion === old.criterion && next.result === "pass"),
-        ) && ["semantic", "motion", "hierarchy", "finish"].every(axis =>
-          refined.review![axis as "semantic"] >= Math.min(3, baseline.review![axis as "semantic"]),
-        );
-        const fewerFailures =
-          refined.review!.observations.filter((x) => x.result === "fail")
-            .length <=
-          baseline.review!.observations.filter((x) => x.result === "fail")
-            .length;
-        if (
-          score(refined.review) > score(baseline.review) + 0.15 &&
-          fewerFailures && noRegression
-        ) {
+        refined.review = reviewed.review as Review;
+        options.candidate({ ...refined });
+        if (improves(refined.review, baseline.review!)) {
           selected = refined;
           step("Refinement improved the review. Best valid state retained.");
         } else
@@ -193,6 +213,62 @@ export async function generatePipeline(options: {
       if (signal.aborted) throw error;
       trace.push(
         `Refinement rejected; best state retained: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
+  }
+  if (
+    options.mode === "quality" &&
+    selected.review?.sufficientEvidence &&
+    score(selected.review) < 3.5 &&
+    selected.review.diagnoses.some((d) =>
+      ["other", "timing", "misaligned"].includes(d.symptom),
+    )
+  ) {
+    const baseline = selected;
+    try {
+      step("Repairing the shape or timing of diagnosed layers, once…");
+      const result = await call({
+        action: "restructure",
+        runId,
+        document: baseline.document,
+        review: baseline.review,
+        sheet: baseline.evidence.sheet,
+      });
+      const document = validateDocument(result.document),
+        evidence = await capture(document);
+      if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8)
+        throw Error("Structural repair has no visible effect pixels.");
+      const repaired: Candidate = {
+        id: `${runId}-structural`,
+        document,
+        evidence,
+        origin: "refined",
+      };
+      candidates.push(repaired);
+      options.candidate({ ...repaired });
+      step("Checking the structural repair against the original references…");
+      const reviewed = await call({
+        action: "review",
+        runId,
+        document,
+        sheet: evidence.sheet,
+        times: evidence.times,
+      });
+      repaired.review = reviewed.review as Review;
+      options.candidate({ ...repaired });
+      if (improves(repaired.review, baseline.review!)) {
+        selected = repaired;
+        step(
+          "Structural repair improved the review. Best valid state retained.",
+        );
+      } else
+        step(
+          "Structural repair did not clearly improve the review. Previous best retained.",
+        );
+    } catch (error) {
+      if (signal.aborted) throw error;
+      trace.push(
+        `Structural repair unavailable; best retained: ${error instanceof Error ? error.message : "unknown"}`,
       );
     }
   }

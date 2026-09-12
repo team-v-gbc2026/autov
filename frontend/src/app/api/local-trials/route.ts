@@ -20,6 +20,7 @@ export async function GET(request: Request) {
       sheet: ["sheet.jpg", "image/jpeg"],
       video: ["video.webm", "video/webm"],
       player: ["player.html", "text/html"],
+      "reference-video": ["reference.mp4", "video/mp4"],
     };
     if (file && /^reference-[0-7]$/.test(file))
       names[file] = [file, "application/octet-stream"];

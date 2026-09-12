@@ -112,6 +112,24 @@
   gap: 32px;
   padding: 24px;
 }
+.trial-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: #333;
+}
+.trial-comparison > div {
+  background: #151b18;
+}
+.trial-comparison iframe,
+.trial-comparison video {
+  height: auto;
+  aspect-ratio: 16/9;
+}
+.trial-video-caption {
+  padding: 0 16px;
+  font-size: 12px;
+}
 .trial-prompt {
   white-space: pre-wrap;
 }
@@ -129,6 +147,9 @@
   font: inherit;
 }
 @media (max-width: 750px) {
+  .trial-comparison {
+    grid-template-columns: 1fr;
+  }
   .trials-gallery {
     padding: 16px;
   }

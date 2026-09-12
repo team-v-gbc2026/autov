@@ -35,6 +35,18 @@ try {
   await player.getByRole("button", { name: "Pause", exact: true }).click();
   await player.getByLabel("Playback position").fill("0.65");
   await page.screenshot({ path: path.join(out, "detail.png") });
+  const reference = page.getByLabel("Reference video", { exact: true });
+  await reference.waitFor();
+  await reference.evaluate(async (video) => {
+    if (video.readyState < 1)
+      await new Promise((resolve, reject) => {
+        video.addEventListener("loadedmetadata", resolve, { once: true });
+        video.addEventListener("error", reject, { once: true });
+      });
+    if (!(video.duration > 0 && video.videoWidth > 0))
+      throw Error("Invalid reference video");
+    video.currentTime = Math.min(0.5, video.duration / 2);
+  });
   const imageCount = await page.locator(".trial-references img").count();
   assert.ok(imageCount > 0);
   assert.equal(
@@ -63,6 +75,7 @@ try {
     player: true,
     references: imageCount,
     studioReopen: true,
+    referenceVideo: true,
     noOriginPostDenied: true,
     traversalDenied: true,
     errors,

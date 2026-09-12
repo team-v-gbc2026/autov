@@ -4,7 +4,10 @@ import {
 } from "@/lib/vfx-lab/reference-input";
 import { generateTexture, IMAGE_MODEL } from "@/lib/vfx-lab/textures";
 import { TEXTURE_LIBRARY } from "@/lib/vfx-lab/texture-library";
-import { applyRefinement } from "@/lib/vfx-lab/refine";
+import {
+  applyRefinement,
+  applyStructuralRefinement,
+} from "@/lib/vfx-lab/refine";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, chmod } from "node:fs/promises";
@@ -20,6 +23,7 @@ import {
   ReviewSchema,
   RefinementSchema,
   EditSchema,
+  StructuralRefinementSchema,
 } from "@/lib/vfx-lab/protocol";
 import { createPreset, RECIPES } from "@/lib/vfx-lab/recipes";
 import { budgetStatus } from "@/lib/vfx-lab/budget";
@@ -41,6 +45,15 @@ const imageSchema = z
   .max(2_000_000)
   .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/);
 const RequestSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("restructure"),
+      runId: z.string(),
+      document: DocumentSchema,
+      review: ReviewSchema,
+      sheet: imageSchema,
+    })
+    .strict(),
   z
     .object({
       action: z.literal("setup"),
@@ -242,7 +255,7 @@ export async function POST(request: Request) {
       return json({ ...result, budget: await budgetStatus() });
     }
     const run = await loadRun(body.runId);
-    if (run.calls >= 12)
+    if (run.calls >= 14)
       throw new Error(
         "Per-run call limit reached. Best valid result retained.",
       );
@@ -289,7 +302,7 @@ export async function POST(request: Request) {
         }),
         [...run.references, ...(run.assets || []).map((a) => a.data)],
         request.signal,
-        12500,
+        16000,
       );
       run.usages.push(result.usage);
       const attach = (value: typeof result.value) => {
@@ -337,7 +350,7 @@ export async function POST(request: Request) {
           }),
           [],
           request.signal,
-          12500,
+          16000,
         );
         run.usages.push(repair.usage);
         repairedUsage = repair.usage;
@@ -353,6 +366,54 @@ export async function POST(request: Request) {
       });
     }
     const doc = validateDocument(body.document);
+    if (body.action === "restructure") {
+      if (run.mode !== "quality" || run.structuralAttempted)
+        throw Error("Only one structural repair is allowed per quality run.");
+      const allowed = body.review.diagnoses
+        .map((d) => d.layerId)
+        .filter((id) => doc.layers.some((l) => l.id === id));
+      if (!allowed.length) throw Error("No diagnosed layers to repair.");
+      run.structuralAttempted = true;
+      await saveRun(run);
+      const allowPost = body.review.diagnoses.some(
+        (d) => d.symptom === "washed-out",
+      );
+      const result = await callModel(
+        StructuralRefinementSchema,
+        `${TECHNICAL_GUIDE}\nRepair a visible structural defect that scalar adjustments cannot solve. Return complete replacements for at most three DIAGNOSED layer IDs, preserving each ID. You may change their mesh, material, position/motion, start/end and local tracks within the existing duration. Do not add layers or assets, or change seed/global timing. Preserve components that already satisfy the prompt. For a connected directional beam, keep its emission endpoint anchored while length changes. For smoke wisps, choose a tapered crescent/ribbon silhouette rather than a noisy round blob. All replacements must have valid non-empty intervals and tracks. Set post=null unless diagnosed washout warrants LOWERING bloom/exposure; never increase either. The last image is the actual output; earlier images are appearance references.`,
+        JSON.stringify({
+          prompt: run.prompt,
+          allowedLayerIds: allowed,
+          allowPost,
+          document: {
+            ...doc,
+            textures: doc.textures?.map((a) => ({
+              id: a.id,
+              prompt: a.prompt,
+            })),
+          },
+          review: body.review,
+        }),
+        [...run.references, body.sheet],
+        request.signal,
+        8500,
+      );
+      const next = applyStructuralRefinement(
+        doc,
+        result.value,
+        allowed,
+        allowPost,
+      );
+      run.documents.push(next);
+      run.usages.push(result.usage);
+      await saveRun(run);
+      return json({
+        document: next,
+        explanation: result.value.explanation,
+        usage: result.usage,
+        budget: await budgetStatus(),
+      });
+    }
     if (body.action === "review") {
       const result = await callModel(
         ReviewSchema,

@@ -114,23 +114,46 @@ export default function TrialsGallery() {
                 Close ×
               </button>
             </header>
-            {selected.player ? (
-              <iframe
-                title="Interactive VFX player"
-                src={asset(selected.id, "player")}
-                sandbox="allow-scripts"
-              />
-            ) : selected.video ? (
-              <video src={asset(selected.id, "video")} controls loop />
-            ) : (
-              <Image
-                src={asset(selected.id, "sheet")}
-                width={1280}
-                height={606}
-                unoptimized
-                alt="Rendered frames"
-              />
-            )}
+            <div className={selected.referenceVideo ? "trial-comparison" : ""}>
+              <div>
+                {selected.referenceVideo && (
+                  <p className="trial-video-caption">
+                    Generated effect · editable real-time player
+                  </p>
+                )}
+                {selected.player ? (
+                  <iframe
+                    title="Interactive VFX player"
+                    src={asset(selected.id, "player")}
+                    sandbox="allow-scripts"
+                  />
+                ) : selected.video ? (
+                  <video src={asset(selected.id, "video")} controls loop />
+                ) : (
+                  <Image
+                    src={asset(selected.id, "sheet")}
+                    width={1280}
+                    height={606}
+                    unoptimized
+                    alt="Rendered frames"
+                  />
+                )}
+              </div>
+              {selected.referenceVideo && (
+                <div>
+                  <p className="trial-video-caption">
+                    Reference video · source timing may differ
+                  </p>
+                  <video
+                    aria-label="Reference video"
+                    src={asset(selected.id, "reference-video")}
+                    controls
+                    loop
+                    preload="metadata"
+                  />
+                </div>
+              )}
+            </div>
             <div className="trial-detail">
               <div>
                 <h3>Prompt</h3>

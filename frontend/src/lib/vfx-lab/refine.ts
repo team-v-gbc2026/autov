@@ -1,5 +1,5 @@
 import { type VfxDocument, validateDocument, RANGES } from "./schema";
-import { RefinementSchema } from "./protocol";
+import { RefinementSchema, StructuralRefinementSchema } from "./protocol";
 export function applyRefinement(
   doc: VfxDocument,
   input: unknown,
@@ -39,6 +39,36 @@ export function applyRefinement(
       ]);
     }
     layer.params[target] = value;
+  }
+  return validateDocument(next);
+}
+
+export function applyStructuralRefinement(
+  doc: VfxDocument,
+  input: unknown,
+  allowedLayerIds: string[],
+  allowPost = false,
+) {
+  const proposal = StructuralRefinementSchema.parse(input),
+    next = structuredClone(doc),
+    seen = new Set<string>();
+  for (const replacement of proposal.layers) {
+    if (seen.has(replacement.id) || !allowedLayerIds.includes(replacement.id))
+      throw Error("Structural repair exceeded diagnosed layer scope.");
+    seen.add(replacement.id);
+    const index = next.layers.findIndex((l) => l.id === replacement.id);
+    if (index < 0) throw Error("Structural repair referenced unknown layer.");
+    // Global document/seed/assets/other layers remain byte-for-byte equivalent data.
+    next.layers[index] = replacement as VfxDocument["layers"][number];
+  }
+  if (proposal.post) {
+    if (
+      !allowPost ||
+      proposal.post.bloom > doc.post.bloom ||
+      proposal.post.exposure > doc.post.exposure
+    )
+      throw Error("Post repair may only reduce diagnosed washout.");
+    next.post = { ...next.post, ...proposal.post };
   }
   return validateDocument(next);
 }

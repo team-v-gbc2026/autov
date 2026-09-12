@@ -126,3 +126,60 @@ test("abort prevents subsequent paid calls", async () => {
   );
   assert.equal(calls, 1);
 });
+
+test("one structural repair can improve shape/timing after scalar refinement stalls", async () => {
+  let reviews = 0,
+    structural = 0;
+  const result = await generatePipeline({
+    prompt: "beam",
+    references: [],
+    mode: "quality",
+    signal: new AbortController().signal,
+    capture,
+    progress: () => {},
+    candidate: () => {},
+    request: async (body) => {
+      if (body.action === "plan") return { runId: "test", plan: {} };
+      if (body.action === "candidate")
+        return { document: { ...doc, name: `candidate-${body.index}` } };
+      if (body.action === "refine")
+        return { document: { ...doc, name: "scalar" } };
+      if (body.action === "restructure") {
+        structural++;
+        return { document: { ...doc, name: "structural" } };
+      }
+      const value = review(++reviews === 5 ? 4 : 2.5);
+      value.diagnoses[0].symptom = "timing";
+      return { review: value };
+    },
+  });
+  assert.equal(structural, 1);
+  assert.equal(result.selected.document.name, "structural");
+  assert.equal(result.candidates.length, 5);
+  assert.equal(result.candidates[0].document.name, "candidate-0");
+});
+
+test("a rendered refinement stays archived even when its reviewer fails", async () => {
+  let reviews = 0;
+  const result = await generatePipeline({
+    prompt: "ring",
+    references: [],
+    mode: "quality",
+    signal: new AbortController().signal,
+    capture,
+    progress: () => {},
+    candidate: () => {},
+    request: async (body) => {
+      if (body.action === "plan") return { runId: "test", plan: {} };
+      if (body.action === "candidate") return { document: doc };
+      if (body.action === "refine")
+        return { document: { ...doc, name: "unreviewed-refinement" } };
+      if (++reviews === 4) throw Error("critic unavailable");
+      return { review: review(3) };
+    },
+  });
+  assert.equal(result.candidates.length, 4);
+  assert.equal(result.candidates[3].document.name, "unreviewed-refinement");
+  assert.equal(result.candidates[3].review, undefined);
+  assert.equal(result.selected.document.name, doc.name);
+});

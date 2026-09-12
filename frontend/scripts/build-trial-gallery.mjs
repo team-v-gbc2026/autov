@@ -9,6 +9,13 @@ const root = path.resolve(".autov-local/benchmarks"),
       "../../benchmark-verified-2026-09-13",
   );
 await mkdir(trialRoot, { recursive: true });
+// Evaluation media is attached only to the completed trial archive, never sent to generation.
+const specs = await readFile(
+  path.join(dataset, "evaluation/case_specs.json"),
+  "utf8",
+)
+  .then(JSON.parse)
+  .catch(() => []);
 const { chromium } = await import(
   process.env.AUTOV_PLAYWRIGHT_MODULE || "playwright"
 );
@@ -78,6 +85,14 @@ try {
         );
       }
       input.case_id = entry.name;
+      const sourceVideo = specs.find(
+        (s) => s.case_id === entry.name,
+      )?.source_video;
+      const referenceVideo =
+        typeof sourceVideo === "string" &&
+        /^references\/videos\/[A-Za-z0-9_-]+\.mp4$/.test(sourceVideo)
+          ? await readFile(path.join(dataset, sourceVideo)).catch(() => null)
+          : null;
       for (const candidate of pipeline.candidates) {
         if (!/^[a-zA-Z0-9-]{1,100}$/.test(candidate.id))
           throw Error("Invalid candidate ID");
@@ -86,9 +101,21 @@ try {
           const old = JSON.parse(
             await readFile(path.join(dest, "summary.json"), "utf8"),
           );
-          if (old.video && old.player && old.videoFps === 30) continue;
+          if (old.video && old.player && old.videoFps === 30) {
+            if (referenceVideo && !old.referenceVideo) {
+              await writeFile(path.join(dest, "reference.mp4"), referenceVideo);
+              old.referenceVideo = true;
+              await writeFile(
+                path.join(dest, "summary.json"),
+                JSON.stringify(old, null, 2),
+              );
+            }
+            continue;
+          }
         } catch {}
         await mkdir(dest, { recursive: true, mode: 0o700 });
+        if (referenceVideo)
+          await writeFile(path.join(dest, "reference.mp4"), referenceVideo);
         await writeFile(
           path.join(dest, "document.json"),
           JSON.stringify(candidate.document),
@@ -142,6 +169,7 @@ try {
           videoFps: videoCapture.fps,
           videoFrames: videoCapture.frames,
           player: true,
+          referenceVideo: Boolean(referenceVideo),
           run: run.name,
         };
         await writeFile(
@@ -186,7 +214,7 @@ try {
       .sort((a, b) => b.created.localeCompare(a.created))
       .map(
         (t) =>
-          `<article><img src="${t.id}/sheet.jpg"><div><small>${escape(t.caseId || "Studio")} · ${t.origin === "refined" ? "改善案" : "生成案"}</small><h2>${escape(t.name)}</h2><p>${t.duration}s · ${t.layers} layers</p><a href="${t.id}/player.html">3Dで再生・スクラブ ↗</a> · <a href="${t.id}/video.webm">動画 ↗</a> · <a href="${t.id}/document.json">JSON ↓</a><details><summary>プロンプト・参照</summary><p>${escape(t.prompt)}</p>${Array.from({ length: t.references }, (_, i) => `<img src="${t.id}/reference-${i}">`).join("")}</details><p>${escape(t.review?.verdict || "見た目の評価は未記入です。生成・描画の成功は再現度の合格を意味しません。")}</p></div></article>`,
+          `<article><img src="${t.id}/sheet.jpg"><div><small>${escape(t.caseId || "Studio")} · ${t.origin === "refined" ? "改善案" : "生成案"}</small><h2>${escape(t.name)}</h2><p>${t.duration}s · ${t.layers} layers</p><a href="${t.id}/player.html">3Dで再生・スクラブ ↗</a> · <a href="${t.id}/video.webm">動画 ↗</a> · <a href="${t.id}/document.json">JSON ↓</a>${t.referenceVideo ? ` · <a href="${t.id}/reference.mp4">元動画 ↗</a>` : ""}<details><summary>プロンプト・参照</summary><p>${escape(t.prompt)}</p>${Array.from({ length: t.references }, (_, i) => `<img src="${t.id}/reference-${i}">`).join("")}</details><p>${escape(t.review?.verdict || "見た目の評価は未記入です。生成・描画の成功は再現度の合格を意味しません。")}</p></div></article>`,
       )
       .join("")}</main></html>`,
   );

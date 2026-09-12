@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DocumentSchema, validateDocument } from "./schema";
 import { ReviewSchema } from "./protocol";
+import { exportHtml } from "./export";
 export const TRIALS_DIR = path.join(process.cwd(), ".autov-local", "trials");
 export const TrialInputSchema = z
   .object({
@@ -46,6 +47,7 @@ export type TrialSummary = {
   usageUsd?: number;
   video: boolean;
   player: boolean;
+  referenceVideo?: boolean;
 };
 export function trialDirectory(id: string) {
   if (!/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw Error("Invalid trial ID");
@@ -85,6 +87,7 @@ export async function saveTrial(input: unknown) {
     usageUsd: value.usageUsd,
     video: existing?.video || false,
     player: existing?.player || false,
+    referenceVideo: existing?.referenceVideo || false,
   };
   const binary = (data: string) =>
     Buffer.from(data.substring(data.indexOf(",") + 1), "base64");
@@ -107,6 +110,18 @@ export async function saveTrial(input: unknown) {
       binary(value.references[i]),
       { mode: 0o600 },
     );
+  const bundle = await readFile(
+    path.join(process.cwd(), "public", "vfx-runtime.js"),
+    "utf8",
+  ).catch(() => null);
+  if (bundle && !existing?.player) {
+    await writeFile(
+      path.join(dir, "player.html"),
+      await exportHtml(value.document, bundle),
+      { mode: 0o600 },
+    );
+    summary.player = true;
+  }
   await writeSummary(dir, summary);
   return summary;
 }
