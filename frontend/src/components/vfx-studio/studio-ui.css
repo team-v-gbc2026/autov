@@ -72,6 +72,51 @@
   width: 105px;
 }
 
+.lab .lab-preview-profile {
+  position: relative;
+}
+
+.lab .lab-preview-profile-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 7px;
+  color: #8b969e;
+}
+
+.lab .lab-preview-profile-trigger:hover {
+  background: #ffffff05;
+}
+
+.lab .lab-preview-profile-card {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 6px;
+  width: 240px;
+  max-width: calc(100vw - 30px);
+  padding: 16px;
+  border: 1px solid #ffffff18;
+  border-radius: 9px;
+  background: #22272b;
+  box-shadow: 0 12px 36px #0005;
+}
+
+.lab .lab-preview-profile-card span,
+.lab .lab-preview-profile-card small {
+  color: #85919a;
+  font-size: 9px;
+}
+
+.lab .lab-preview-profile-card strong {
+  color: #cdd5da;
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .lab .reference-panel {
   max-height: calc(100dvh - 160px);
 }

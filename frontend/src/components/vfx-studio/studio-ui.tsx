@@ -10,56 +10,12 @@ import PanelToggle from "@/components/studio/panel-toggle";
 import PlaybackPanel from "@/components/studio/playback-panel";
 import { usePlayback } from "@/components/studio/use-playback";
 import EmitterTimeline, { type PreviewLayer } from "./emitter-timeline";
+import sampleEffect from "./sample-effect.json";
 import "./studio-ui.css";
 
-const DURATION = 2.8;
-const INITIAL_LAYERS: PreviewLayer[] = [
-  {
-    id: "flash",
-    name: "Core flash",
-    kind: "sprite",
-    start: 0.42,
-    end: 0.82,
-    color: "#fff3c4",
-    enabled: true,
-  },
-  {
-    id: "arc",
-    name: "Energy arc",
-    kind: "ribbon",
-    start: 0.5,
-    end: 1.72,
-    color: "#ffb23e",
-    enabled: true,
-  },
-  {
-    id: "sparks",
-    name: "Contact sparks",
-    kind: "particles",
-    start: 0.56,
-    end: 1.48,
-    color: "#ff7352",
-    enabled: true,
-  },
-  {
-    id: "smoke",
-    name: "Smoke trail",
-    kind: "particles",
-    start: 0.74,
-    end: 2.55,
-    color: "#8d99a3",
-    enabled: true,
-  },
-];
-
-const PARAMETERS = [
-  ["Intensity", 76],
-  ["Radius", 44],
-  ["Opacity", 82],
-  ["Speed", 58],
-  ["Turbulence", 31],
-  ["Erosion", 24],
-] as const;
+const DURATION = sampleEffect.duration;
+const INITIAL_LAYERS: PreviewLayer[] = sampleEffect.layers;
+const PARAMETERS = sampleEffect.controls as [string, number][];
 
 export default function VfxStudioUi() {
   const [leftOpen, setLeftOpen] = useState(true);
@@ -70,6 +26,7 @@ export default function VfxStudioUi() {
   const [prompt, setPrompt] = useState("");
   const [notice, setNotice] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const playback = usePlayback(DURATION);
   const selected = layers.find((layer) => layer.id === selectedId) || layers[0];
 
@@ -208,6 +165,26 @@ export default function VfxStudioUi() {
           <button type="button" className="lab-action" disabled title="UI preview only">
             JSON ↓
           </button>
+          <span className="header-divider" />
+          <div className="lab-preview-profile">
+            <button
+              type="button"
+              className="lab-preview-profile-trigger"
+              aria-label="Your account"
+              aria-expanded={profileOpen}
+              onClick={() => setProfileOpen((open) => !open)}
+            >
+              <span className="avatar" aria-hidden="true">T</span>
+              <Icon name="chevron" size={12} />
+            </button>
+            {profileOpen && (
+              <div className="lab-preview-profile-card">
+                <span>Signed in as</span>
+                <strong>preview@autov.app</strong>
+                <small>UI preview · account actions disabled</small>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
