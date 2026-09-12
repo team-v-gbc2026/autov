@@ -3,14 +3,19 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import type { TrialSummary } from "@/lib/vfx-lab/trials";
+import { score } from "@/lib/vfx-lab/protocol";
 import "./trials-gallery.css";
 const asset = (id: string, file: string) =>
   `/api/local-trials?id=${encodeURIComponent(id)}&file=${file}`;
 export default function TrialsGallery() {
   const [trials, setTrials] = useState<TrialSummary[]>([]),
     [error, setError] = useState(""),
-    [selected, setSelected] = useState<TrialSummary | null>(null),
-    [filter, setFilter] = useState("");
+    [selectedSnapshot, setSelected] = useState<TrialSummary | null>(null),
+    [filter, setFilter] = useState(""),
+    [caseFilter, setCaseFilter] = useState(""),
+    [view, setView] = useState("all");
+  const selected =
+    trials.find((t) => t.id === selectedSnapshot?.id) || selectedSnapshot;
   useEffect(() => {
     let active = true;
     const refresh = () =>
@@ -31,10 +36,24 @@ export default function TrialsGallery() {
       clearInterval(timer);
     };
   }, []);
-  const visible = trials.filter((t) =>
-    (t.caseId + " " + t.name + " " + t.prompt)
-      .toLowerCase()
-      .includes(filter.toLowerCase()),
+  const caseIds = [
+    ...new Set(
+      trials.map((t) => t.caseId).filter((id): id is string => Boolean(id)),
+    ),
+  ].sort();
+  const latest = new Map<string, TrialSummary>();
+  for (const trial of trials) {
+    const key = trial.caseId || trial.id,
+      previous = latest.get(key);
+    if (!previous || (!previous.selected && trial.selected))
+      latest.set(key, trial);
+  }
+  const visible = (view === "latest" ? [...latest.values()] : trials).filter(
+    (t) =>
+      (!caseFilter || t.caseId === caseFilter) &&
+      (t.caseId + " " + t.name + " " + t.prompt)
+        .toLowerCase()
+        .includes(filter.toLowerCase()),
   );
   return (
     <main className="trials-gallery">
@@ -47,7 +66,9 @@ export default function TrialsGallery() {
             result, and reopen an editable effect.
           </p>
         </div>
-        <span>{trials.length} saved · on this device</span>
+        <span>
+          {trials.length} saved · {caseIds.length} cases · on this device
+        </span>
       </header>
       <input
         className="trial-search"
@@ -56,6 +77,33 @@ export default function TrialsGallery() {
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
+      <div className="trial-filters">
+        <label>
+          Show{" "}
+          <select
+            aria-label="Trial view"
+            value={view}
+            onChange={(e) => setView(e.target.value)}
+          >
+            <option value="all">All trials</option>
+            <option value="latest">Latest selected per case</option>
+          </select>
+        </label>
+        <label>
+          Case{" "}
+          <select
+            aria-label="Filter case"
+            value={caseFilter}
+            onChange={(e) => setCaseFilter(e.target.value)}
+          >
+            <option value="">All cases</option>
+            {caseIds.map((id) => (
+              <option key={id}>{id}</option>
+            ))}
+          </select>
+        </label>
+        <span>{visible.length} shown</span>
+      </div>
       {error && <p role="alert">{error}</p>}
       {!trials.length && !error && (
         <p>
@@ -86,6 +134,12 @@ export default function TrialsGallery() {
                 {t.duration.toFixed(1)} s · {t.layers} layers
                 {t.selected ? " · selected direction" : ""}
               </p>
+              {t.review?.sufficientEvidence && (
+                <p>
+                  AI review {score(t.review).toFixed(2)}/5 · human review
+                  pending
+                </p>
+              )}
               <button onClick={() => setSelected(t)}>Review trial ↗</button>
               <a href={asset(t.id, "document")} download={`${t.name}.json`}>
                 JSON ↓
@@ -114,6 +168,30 @@ export default function TrialsGallery() {
                 Close ×
               </button>
             </header>
+            {selected.caseId && (
+              <label className="trial-version">
+                Compare versions{" "}
+                <select
+                  aria-label="Trial version"
+                  value={selected.id}
+                  onChange={(e) =>
+                    setSelected(
+                      trials.find((t) => t.id === e.target.value) || null,
+                    )
+                  }
+                >
+                  {trials
+                    .filter((t) => t.caseId === selected.caseId)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} · {t.origin}
+                        {t.selected ? " · selected" : ""} ·{" "}
+                        {new Date(t.created).toLocaleTimeString()}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
             <div className={selected.referenceVideo ? "trial-comparison" : ""}>
               <div>
                 {selected.referenceVideo && (
@@ -178,6 +256,26 @@ export default function TrialsGallery() {
                   {selected.review?.verdict ||
                     "Visual review pending. Successful rendering alone does not establish reference fidelity."}
                 </p>
+                {selected.review && (
+                  <>
+                    <p>
+                      AI review · semantic {selected.review.semantic} / motion{" "}
+                      {selected.review.motion} / hierarchy{" "}
+                      {selected.review.hierarchy} / finish{" "}
+                      {selected.review.finish}
+                    </p>
+                    <details>
+                      <summary>Observed criteria</summary>
+                      {selected.review.observations.map((item, i) => (
+                        <p key={i}>
+                          <strong>{item.result}</strong> · {item.criterion}
+                          <br />
+                          {item.evidence}
+                        </p>
+                      ))}
+                    </details>
+                  </>
+                )}
                 <p>
                   {selected.source === "openai-live"
                     ? "Generated by the application using OpenAI."

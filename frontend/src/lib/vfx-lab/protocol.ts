@@ -5,7 +5,9 @@ export const TextureRequestSchema = z
     id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
     prompt: z.string().min(10).max(1500),
     layerIds: z.array(z.string().max(48)).min(1).max(8),
-    libraryAssetId: z.enum(["sigil", "smoke-lobe", "fire-plume"]).nullable(),
+    libraryAssetId: z
+      .enum(["sigil", "smoke-lobe", "smoke-curl", "fire-plume"])
+      .nullable(),
   })
   .strict();
 export const PlanSchema = z
@@ -17,6 +19,7 @@ export const PlanSchema = z
       "shockwave",
       "lightning",
       "projectile",
+      "water",
       "smoke",
       "beam",
       "portal",

@@ -13,6 +13,11 @@ export const TEXTURE_LIBRARY = {
     description:
       "One tall, connected, sculpted smoke lobe with rounded bulges and broad grayscale shading. Use several overlapping camera-facing sprite planes, normal blend, purple or pink tint. Width=2*radius, height=length.",
   },
+  "smoke-curl": {
+    file: "generated-smoke-curl.png",
+    description:
+      "An open C-shaped smoke curl: a thick rounded lower-left root, lobed outer rim, a taper curling clockwise to the upper-right and a large empty center. Broad grayscale shading, transparent background. Use small camera-facing sprite planes with surface smoke and normal blend for curling detached wisps. Rotate Z and drift gently; do not reuse the round main lobe for every wisp.",
+  },
   "fire-plume": {
     file: "generated-fire-plume.png",
     description:

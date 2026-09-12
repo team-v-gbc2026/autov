@@ -1,3 +1,4 @@
+import { browserOptions } from "./browser-options.mjs";
 // Re-render a saved document with the current renderer; never overwrite the original trial.
 import { readFile, writeFile, mkdir, access } from "node:fs/promises";
 import path from "node:path";
@@ -27,13 +28,7 @@ const bundle = await build({
   write: false,
   platform: "browser",
 });
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.AUTOV_CHROME_PATH
-    ? { executablePath: process.env.AUTOV_CHROME_PATH }
-    : {}),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-});
+const browser = await chromium.launch(browserOptions());
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   await page.goto(

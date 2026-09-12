@@ -72,6 +72,8 @@ export async function saveTrial(input: unknown) {
       );
   }
   const summary: TrialSummary = {
+    // Keep video verification and historical runtime metadata added by the archiver.
+    ...existing,
     id: value.id,
     name: value.document.name,
     created: existing?.created || new Date().toISOString(),

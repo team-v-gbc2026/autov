@@ -292,6 +292,32 @@ export default function VfxStudio() {
         setReport(null);
         setLastPrompt(prompt);
         setPlan(null);
+        let allTrialsSaved = true;
+        const saveCandidate = async (item: Candidate, selected = false) => {
+          try {
+            const saved = await fetch("/api/local-trials", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: item.id,
+                prompt,
+                references: images,
+                source: "openai-live",
+                origin: item.origin,
+                selected,
+                document: item.document,
+                sheet: item.evidence.sheet,
+                review: item.review,
+              }),
+            });
+            if (!saved.ok) throw Error("Trial save failed");
+          } catch {
+            allTrialsSaved = false;
+            setError(
+              "A trial could not be saved. Download generation evidence before closing this page.",
+            );
+          }
+        };
         const result = await generatePipeline({
           prompt,
           references: images,
@@ -304,39 +330,23 @@ export default function VfxStudio() {
             return runtime.current.capture(document, { solo, diagnostic });
           },
           progress: setNotice,
-          candidate: (candidate) => {
+          candidate: async (candidate) => {
             setCandidates((items) => {
               const index = items.findIndex((c) => c.id === candidate.id);
               return index < 0
                 ? [...items, candidate]
                 : items.map((c) => (c.id === candidate.id ? candidate : c));
             });
+            await saveCandidate(candidate);
           },
         });
         setNotice("Saving every generated direction to the trial gallery…");
-        for (const item of result.candidates) {
-          const saved = await fetch("/api/local-trials", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: item.id,
-              prompt,
-              references: images,
-              source: "openai-live",
-              origin: item.origin,
-              selected: item.id === result.selected.id,
-              document: item.document,
-              sheet: item.evidence.sheet,
-              review: item.review,
-            }),
-          });
-          if (!saved.ok)
-            setError(
-              "A trial could not be saved. Download generation evidence before closing this page.",
-            );
-        }
+        for (const item of result.candidates)
+          await saveCandidate(item, item.id === result.selected.id);
         setNotice(
-          "Saved to the trial gallery. Compare the directions or keep editing.",
+          allTrialsSaved
+            ? "Saved to the trial gallery. Compare the directions or keep editing."
+            : "Generated effects are available here; some could not be saved to the gallery.",
         );
         setReport(result);
         setPlan(result.plan);

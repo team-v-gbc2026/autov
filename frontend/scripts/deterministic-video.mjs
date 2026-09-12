@@ -20,7 +20,7 @@ export async function recordVideo(page, doc, filename, runtimeBundle) {
   });
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   if (runtimeBundle) await page.addScriptTag({ content: runtimeBundle });
-  await page.evaluate(
+  const captureInfo = await page.evaluate(
     async ({ doc, historical }) =>
       VideoCapture.begin(doc, historical ? AutoV.VfxRuntime : undefined),
     { doc, historical: Boolean(runtimeBundle) },
@@ -107,6 +107,7 @@ export async function recordVideo(page, doc, filename, runtimeBundle) {
     )
       throw Error("Encoded video frame count/rate mismatch");
     const result = {
+      renderer: captureInfo.renderer,
       fps,
       frames,
       width: probe.width,

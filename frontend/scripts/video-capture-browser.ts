@@ -15,7 +15,15 @@ export async function begin(input: VfxDocument, Runtime = VfxRuntime) {
   await runtime.prepare(doc);
   runtime.setDocument(doc);
   runtime.resetCamera();
-  return { width: 960, height: 540 };
+  const gl = runtime.renderer.getContext(),
+    debug = gl.getExtension("WEBGL_debug_renderer_info");
+  return {
+    width: 960,
+    height: 540,
+    renderer: String(
+      gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+    ),
+  };
 }
 export function frame(time: number) {
   if (!active) throw Error("Video capture has not started");

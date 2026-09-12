@@ -1,3 +1,4 @@
+import { browserOptions } from "./browser-options.mjs";
 import { readFile, writeFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
@@ -32,13 +33,7 @@ const built = await build({
   platform: "browser",
   minify: true,
 });
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.AUTOV_CHROME_PATH
-    ? { executablePath: process.env.AUTOV_CHROME_PATH }
-    : {}),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-});
+const browser = await chromium.launch(browserOptions());
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 await page.goto(
   new URL(
@@ -214,7 +209,7 @@ try {
       .sort((a, b) => b.created.localeCompare(a.created))
       .map(
         (t) =>
-          `<article><img src="${t.id}/sheet.jpg"><div><small>${escape(t.caseId || "Studio")} · ${t.origin === "refined" ? "改善案" : "生成案"}</small><h2>${escape(t.name)}</h2><p>${t.duration}s · ${t.layers} layers</p><a href="${t.id}/player.html">3Dで再生・スクラブ ↗</a> · <a href="${t.id}/video.webm">動画 ↗</a> · <a href="${t.id}/document.json">JSON ↓</a>${t.referenceVideo ? ` · <a href="${t.id}/reference.mp4">元動画 ↗</a>` : ""}<details><summary>プロンプト・参照</summary><p>${escape(t.prompt)}</p>${Array.from({ length: t.references }, (_, i) => `<img src="${t.id}/reference-${i}">`).join("")}</details><p>${escape(t.review?.verdict || "見た目の評価は未記入です。生成・描画の成功は再現度の合格を意味しません。")}</p></div></article>`,
+          `<article><img src="${t.id}/sheet.jpg"><div><small>${escape(t.caseId || "Studio")} · ${t.origin === "refined" ? "改善案" : "生成案"}</small><h2>${escape(t.name)}</h2><p>${t.duration}s · ${t.layers} layers</p>${t.player ? `<a href="${t.id}/player.html">3Dで再生・スクラブ ↗</a> · ` : ""}${t.video ? `<a href="${t.id}/video.webm">動画 ↗</a> · ` : ""} <a href="${t.id}/document.json">JSON ↓</a>${t.referenceVideo ? ` · <a href="${t.id}/reference.mp4">元動画 ↗</a>` : ""}<details><summary>プロンプト・参照</summary><p>${escape(t.prompt)}</p>${Array.from({ length: t.references }, (_, i) => `<img src="${t.id}/reference-${i}">`).join("")}</details><p>${escape(t.review?.verdict || "見た目の評価は未記入です。生成・描画の成功は再現度の合格を意味しません。")}</p></div></article>`,
       )
       .join("")}</main></html>`,
   );

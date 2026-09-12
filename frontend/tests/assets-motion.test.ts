@@ -168,3 +168,12 @@ test("many layered onsets cannot crowd the growth and breakup phases out of a co
   assert.equal(times.length, 12);
   for (const t of [1.05, 1.65, 2.4]) assert.ok(times.includes(t));
 });
+
+test("sustained effects include late-decay samples without exceeding the contact-sheet budget", async () => {
+  const { sampleTimes } = await import("../src/lib/vfx-lab/evaluate");
+  const doc = createPreset("water"),
+    times = sampleTimes(doc);
+  assert.ok(times.includes(3.6));
+  assert.ok(times.includes(3.84));
+  assert.equal(times.length, 12);
+});

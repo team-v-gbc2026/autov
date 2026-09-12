@@ -1,3 +1,4 @@
+import { textureAlphaBounds } from "./texture-bounds";
 import * as THREE from "three";
 import { buildGeometry } from "./geometry";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -80,6 +81,7 @@ export function createEffect(
     uniforms.uMesh = {
       value: layer.geometry && layer.geometry !== "auto" ? 1 : 0,
     };
+    uniforms.uStreamer = { value: layer.geometry === "streamer" ? 1 : 0 };
     uniforms.uTexture = {
       value: layer.textureId ? textures.get(layer.textureId) || null : null,
     };
@@ -92,7 +94,11 @@ export function createEffect(
       vertexShader: isParticles ? particleVertex : surfaceVertex,
       fragmentShader: isParticles ? particleFragment : surfaceFragment,
       transparent: true,
-      depthWrite: false,
+      // Solid water heads occlude membranes behind them; smoke and glow stay depth-soft.
+      depthWrite:
+        layer.params.blend === "normal" &&
+        layer.surface === "water" &&
+        ["teardrop", "cone", "crystal"].includes(layer.geometry || ""),
       side: THREE.DoubleSide,
       blending:
         layer.params.blend === "additive"
@@ -162,6 +168,7 @@ export function createEffect(
         } else if (
           layer.geometry === "cone" ||
           layer.geometry === "crystal" ||
+          layer.geometry === "streamer" ||
           layer.geometry === "teardrop"
         ) {
           mesh.scale.set(p.radius, p.length / 2, p.radius);
@@ -225,7 +232,26 @@ export function createEffect(
             }
           } else {
             if (!geometry.boundingBox) geometry.computeBoundingBox();
-            const local = geometry.boundingBox!;
+            const local = geometry.boundingBox!.clone();
+            const alpha =
+              layer.textureId &&
+              textures.get(layer.textureId)?.userData.alphaBounds;
+            if (
+              layer.geometry === "plane" &&
+              alpha &&
+              ["flame", "smoke"].includes(layer.surface || "")
+            ) {
+              const margin =
+                layer.surface === "flame" ? 0.07 * (0.5 + p.turbulence) : 0;
+              local.min.set(alpha.minX, Math.max(-1, alpha.minY - margin), 0);
+              local.max.set(alpha.maxX, Math.min(1, alpha.maxY + margin), 0);
+            }
+            if (layer.geometry === "streamer") {
+              local.min.x -= 0.24 * p.turbulence;
+              local.max.x += 0.24 * p.turbulence;
+              local.min.z -= 0.08 * p.turbulence;
+              local.max.z += 0.08 * p.turbulence;
+            }
             // Project oriented corners directly. World-axis boxes overestimate camera-facing cards.
             for (const x of [local.min.x, local.max.x])
               for (const y of [local.min.y, local.max.y])
@@ -289,7 +315,7 @@ export class VfxRuntime {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(0, 0.75, 0);
     this.controls.enableDamping = false;
-    this.controls.minDistance = 2;
+    this.controls.minDistance = 1.5;
     this.controls.maxDistance = 22;
     this.grid = new THREE.GridHelper(20, 40, 0x44494d, 0x292d31);
     this.grid.position.y = -0.72;
@@ -334,6 +360,18 @@ export class VfxRuntime {
       if (img.width > 1024 || img.height > 1024)
         throw new Error("Texture exceeds the 1024 pixel GPU limit.");
       const texture = new THREE.Texture(img);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.min(256, img.width);
+      canvas.height = Math.min(256, img.height);
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (context) {
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        texture.userData.alphaBounds = textureAlphaBounds(
+          context.getImageData(0, 0, canvas.width, canvas.height).data,
+          canvas.width,
+          canvas.height,
+        );
+      }
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
       texture.needsUpdate = true;
@@ -370,6 +408,13 @@ export class VfxRuntime {
     this.bloom.strength = doc.post.bloom;
     if (initialCamera) this.resetCamera();
   }
+  get rendererDescription() {
+    const gl = this.renderer.getContext(),
+      debug = gl.getExtension("WEBGL_debug_renderer_info");
+    return String(
+      gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+    );
+  }
   get assetTextureCount() {
     return this.textures.size;
   }
@@ -387,7 +432,7 @@ export class VfxRuntime {
       bounds && !bounds.isEmpty()
         ? bounds.getCenter(new THREE.Vector3()).applyMatrix4(basis)
         : new THREE.Vector3(0, 0.75, 0);
-    let distance = 3;
+    let distance = 1.5;
     if (bounds && !bounds.isEmpty()) {
       const size = bounds.getSize(new THREE.Vector3()),
         tan = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
@@ -462,10 +507,8 @@ export class VfxRuntime {
         times,
         width: 320,
         height: 180,
-        runtime: "autov.lab/1-three-r186-framing4",
-        renderer: this.renderer
-          .getContext()
-          .getParameter(this.renderer.getContext().RENDERER),
+        runtime: "autov.lab/1-three-r186-streamer5",
+        renderer: this.rendererDescription,
         camera: [
           ...this.camera.position.toArray(),
           ...this.controls.target.toArray(),

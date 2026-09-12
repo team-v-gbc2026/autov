@@ -1,3 +1,4 @@
+import { browserOptions } from "./browser-options.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -7,13 +8,7 @@ const { chromium } = await import(
 const out = path.resolve(".autov-local/gallery-verification");
 await mkdir(out, { recursive: true });
 const base = process.env.AUTOV_TEST_URL || "http://127.0.0.1:3031";
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.AUTOV_CHROME_PATH
-    ? { executablePath: process.env.AUTOV_CHROME_PATH }
-    : {}),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-});
+const browser = await chromium.launch(browserOptions());
 try {
   const page = await browser.newPage({
       viewport: { width: 1500, height: 1050 },
@@ -24,6 +19,11 @@ try {
   await page.getByRole("button", { name: "Review trial ↗" }).first().waitFor();
   const cards = await page.locator(".trial-grid article").count();
   assert.ok(cards > 0);
+  await page.getByLabel("Trial view").selectOption("latest");
+  const grouped = await page.locator(".trial-grid article").count();
+  assert.ok(grouped > 0 && grouped <= cards);
+  await page.getByLabel("Trial view").selectOption("all");
+  assert.equal(await page.locator(".trial-grid article").count(), cards);
   await page.screenshot({
     path: path.join(out, "gallery.png"),
     fullPage: true,
@@ -72,6 +72,7 @@ try {
   assert.deepEqual(errors, []);
   const result = {
     cards,
+    grouped,
     player: true,
     references: imageCount,
     studioReopen: true,

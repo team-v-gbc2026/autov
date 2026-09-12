@@ -86,6 +86,7 @@ export const GEOMETRIES = [
   "crystal",
   "torus",
   "ribbon",
+  "streamer",
   "lightning",
 ] as const;
 export const SURFACES = [
@@ -222,7 +223,9 @@ export function validateDocument(input: unknown): VfxDocument {
           v > hi ||
           (i > 0 && t <= track.keys[i - 1][0])
         )
-          throw new Error(`Invalid keyframe: ${layer.id}/${track.target}`);
+          throw new Error(
+            `Invalid keyframe: ${layer.id}/${track.target} key ${i}=[${t},${v}]; local time must be 0..${layer.end - layer.start}, strictly after previous key, and value ${lo}..${hi}.`,
+          );
       }
     }
     for (const o of layer.overrides) validateOverride(o, doc.duration);

@@ -38,6 +38,36 @@
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 22px;
 }
+.trial-filters {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.trial-filters label,
+.trial-version {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #b8c7c0;
+}
+.trial-filters select,
+.trial-version select {
+  background: #1b201e;
+  color: #e0e9e2;
+  border: 1px solid #ffffff30;
+  border-radius: 6px;
+  padding: 9px;
+  max-width: 100%;
+}
+.trial-version {
+  padding: 0 20px 16px;
+}
+.trial-version select {
+  min-width: 0;
+  flex: 1;
+}
 .trial-grid article {
   border: 1px solid #ffffff16;
   border-radius: 12px;

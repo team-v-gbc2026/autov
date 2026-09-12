@@ -10,23 +10,76 @@ export function buildGeometry(
   switch (layer.geometry) {
     case "plane":
       return new THREE.PlaneGeometry(2, 2);
-    case "teardrop":
-      return new THREE.LatheGeometry(
+    case "teardrop": {
+      const curve = new THREE.CatmullRomCurve3(
         [
-          new THREE.Vector2(0, -1),
-          new THREE.Vector2(0.22, -0.85),
-          new THREE.Vector2(0.68, -0.45),
-          new THREE.Vector2(0.95, 0),
-          new THREE.Vector2(0.85, 0.4),
-          new THREE.Vector2(0.52, 0.8),
-          new THREE.Vector2(0, 1),
+          new THREE.Vector3(0, -1, 0),
+          new THREE.Vector3(0.22, -0.85, 0),
+          new THREE.Vector3(0.68, -0.45, 0),
+          new THREE.Vector3(0.95, 0, 0),
+          new THREE.Vector3(0.85, 0.4, 0),
+          new THREE.Vector3(0.52, 0.8, 0),
+          new THREE.Vector3(0, 1, 0),
         ],
+        false,
+        "centripetal",
+      );
+      return new THREE.LatheGeometry(
+        curve
+          .getPoints(48)
+          .map((p) => new THREE.Vector2(Math.max(0, p.x), p.y)),
         40,
       );
+    }
     case "cone":
       return new THREE.ConeGeometry(1, 2, 24, 4, true);
     case "crystal":
       return new THREE.CylinderGeometry(0, 0.45, 2, 5, 1, false);
+    case "streamer": {
+      // An open membrane along local Y: broad connected root, rounded tapered tip.
+      // The vertex shader bends only the free end, with a conservative bounds envelope.
+      const positions: number[] = [],
+        uvs: number[] = [],
+        indices: number[] = [];
+      const rows = 40,
+        columns = 8;
+      for (let i = 0; i <= rows; i++) {
+        const t = i / rows;
+        const width = Math.max(
+          0.006,
+          Math.sqrt(1 - t) * (0.55 + 0.3 * Math.sin(t * Math.PI)),
+        );
+        for (let j = 0; j <= columns; j++) {
+          const across = (j / columns) * 2 - 1;
+          positions.push(
+            across * width,
+            t * 2 - 1,
+            0.14 * (1 - across * across) * Math.sin(t * Math.PI),
+          );
+          uvs.push(j / columns, t);
+          if (i < rows && j < columns) {
+            const k = i * (columns + 1) + j;
+            indices.push(
+              k,
+              k + 1,
+              k + columns + 1,
+              k + 1,
+              k + columns + 2,
+              k + columns + 1,
+            );
+          }
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      return geometry;
+    }
     case "torus":
       return new THREE.TorusGeometry(
         0.78,

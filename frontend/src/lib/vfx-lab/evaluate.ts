@@ -144,6 +144,15 @@ export function sampleTimes(doc: VfxDocument) {
     normalize(doc.duration * 0.8),
     normalize(doc.duration - 0.001),
   ]);
+  // Sustained bodies need visible late decay, not only an alive frame at 80% and a blank endpoint.
+  if (
+    doc.layers.some(
+      (l) => l.enabled && l.role === "primary" && l.end - l.start > 0.6,
+    )
+  ) {
+    selected.add(normalize(doc.duration * 0.9));
+    selected.add(normalize(doc.duration * 0.96));
+  }
   // Capture short primary events first; a later strike must not disappear between generic samples.
   const events = doc.layers.filter(
     (l) => l.enabled && (l.role === "primary" || l.role === "impact"),
@@ -153,7 +162,7 @@ export function sampleTimes(doc: VfxDocument) {
     impact + 0.02,
     ...events
       .filter((l) => l.end - l.start <= 0.5)
-      .map((l) => (l.start + l.end) / 2),
+      .map((l) => l.start + Math.min(0.08, (l.end - l.start) / 2)),
     impact + 0.08,
     impact * 0.5,
     impact + 0.18,

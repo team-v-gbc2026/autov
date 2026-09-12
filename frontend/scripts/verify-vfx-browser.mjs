@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { browserOptions } from "./browser-options.mjs";
 import { build } from "esbuild";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -22,13 +24,7 @@ const bundle = await build({
   platform: "browser",
   minify: true,
 });
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.AUTOV_CHROME_PATH
-    ? { executablePath: process.env.AUTOV_CHROME_PATH }
-    : {}),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-});
+const browser = await chromium.launch(browserOptions());
 const results = [];
 try {
   const page = await browser.newPage({
@@ -79,9 +75,45 @@ try {
       source: "authored_renderer_fixture",
       gates: result.gates,
       pixels: result.evidence.renderedPixels,
+      renderer: result.evidence.renderer,
       performance: result.performance,
     });
   }
+  const smokeDoc = await page.evaluate(() => Probe.createPreset("smoke"));
+  smokeDoc.name = "Two generated smoke masks — authored renderer fixture";
+  smokeDoc.textures = [];
+  for (const id of ["smoke-lobe", "smoke-curl"]) {
+    const bytes = await readFile(`public/textures/generated-${id}.png`);
+    smokeDoc.textures.push({
+      id,
+      data: `data:image/png;base64,${bytes.toString("base64")}`,
+      prompt: `Generated ${id} fixture`,
+      model: "Codex imagegen (model not exposed)",
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
+  }
+  smokeDoc.layers.forEach((layer, i) => {
+    layer.geometry = "plane";
+    layer.textureId = i < 3 ? "smoke-lobe" : "smoke-curl";
+    layer.params.length = 2;
+  });
+  const smokeResult = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    smokeDoc,
+  );
+  assert.ok(Object.values(smokeResult.gates).every(Boolean));
+  assert.equal(smokeResult.performance.assetTextures, 2);
+  await writeFile(
+    path.join(output, "generated-smoke-masks.jpg"),
+    Buffer.from(smokeResult.evidence.sheet.split(",")[1], "base64"),
+  );
+  results.push({
+    id: "two-generated-smoke-masks",
+    source: "authored_effect_with_codex_generated_textures",
+    gates: smokeResult.gates,
+    renderer: smokeResult.evidence.renderer,
+    performance: smokeResult.performance,
+  });
   const textureDoc = JSON.parse(
     await readFile("public/examples/generated-sigil.json", "utf8"),
   );
@@ -136,8 +168,8 @@ try {
         results,
         errors,
         benchmarkGeneration: false,
-        renderer:
-          "Chrome SwiftShader: correctness only, not hardware performance",
+        renderer: results[0]?.renderer,
+        performanceAcceptance: "not measured by this correctness suite",
       },
       null,
       2,

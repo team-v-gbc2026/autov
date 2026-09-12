@@ -99,7 +99,9 @@ test("all-invalid candidates never install a replacement", async () => {
           body.action === "plan" ? { runId: "x", plan: {} } : { document: {} },
         capture,
         progress: () => {},
-        candidate: () => installed++,
+        candidate: () => {
+          installed++;
+        },
       }),
     /No valid candidate/,
   );
@@ -127,37 +129,39 @@ test("abort prevents subsequent paid calls", async () => {
   assert.equal(calls, 1);
 });
 
-test("one structural repair can improve shape/timing after scalar refinement stalls", async () => {
-  let reviews = 0,
-    structural = 0;
-  const result = await generatePipeline({
-    prompt: "beam",
-    references: [],
-    mode: "quality",
-    signal: new AbortController().signal,
-    capture,
-    progress: () => {},
-    candidate: () => {},
-    request: async (body) => {
-      if (body.action === "plan") return { runId: "test", plan: {} };
-      if (body.action === "candidate")
-        return { document: { ...doc, name: `candidate-${body.index}` } };
-      if (body.action === "refine")
-        return { document: { ...doc, name: "scalar" } };
-      if (body.action === "restructure") {
-        structural++;
-        return { document: { ...doc, name: "structural" } };
-      }
-      const value = review(++reviews === 5 ? 4 : 2.5);
-      value.diagnoses[0].symptom = "timing";
-      return { review: value };
-    },
+for (const baseline of [2.5, 3.8])
+  test(`one structural repair can fix a failed criterion after scalar refinement stalls at ${baseline}`, async () => {
+    let reviews = 0,
+      structural = 0;
+    const result = await generatePipeline({
+      prompt: "beam",
+      references: [],
+      mode: "quality",
+      signal: new AbortController().signal,
+      capture,
+      progress: () => {},
+      candidate: () => {},
+      request: async (body) => {
+        if (body.action === "plan") return { runId: "test", plan: {} };
+        if (body.action === "candidate")
+          return { document: { ...doc, name: `candidate-${body.index}` } };
+        if (body.action === "refine")
+          return { document: { ...doc, name: "scalar" } };
+        if (body.action === "restructure") {
+          structural++;
+          return { document: { ...doc, name: "structural" } };
+        }
+        const value = review(++reviews === 5 ? 4.5 : baseline);
+        value.observations[0].result = reviews === 5 ? "pass" : "fail";
+        value.diagnoses[0].symptom = "timing";
+        return { review: value };
+      },
+    });
+    assert.equal(structural, 1);
+    assert.equal(result.selected.document.name, "structural");
+    assert.equal(result.candidates.length, 5);
+    assert.equal(result.candidates[0].document.name, "candidate-0");
   });
-  assert.equal(structural, 1);
-  assert.equal(result.selected.document.name, "structural");
-  assert.equal(result.candidates.length, 5);
-  assert.equal(result.candidates[0].document.name, "candidate-0");
-});
 
 test("a rendered refinement stays archived even when its reviewer fails", async () => {
   let reviews = 0;
@@ -182,4 +186,51 @@ test("a rendered refinement stays archived even when its reviewer fails", async 
   assert.equal(result.candidates[3].document.name, "unreviewed-refinement");
   assert.equal(result.candidates[3].review, undefined);
   assert.equal(result.selected.document.name, doc.name);
+});
+
+test("completed candidates are durably handed off before the next paid stage", async () => {
+  const doc = createPreset("slash"),
+    events: string[] = [];
+  await generatePipeline({
+    prompt: "x",
+    references: [],
+    mode: "quality",
+    signal: new AbortController().signal,
+    request: async (body) => {
+      events.push(String(body.action));
+      if (body.action === "plan")
+        return { runId: "durable", plan: { textures: [] } };
+      if (body.action === "candidate") return { document: doc };
+      return {
+        review: {
+          sufficientEvidence: false,
+          semantic: 0,
+          motion: 0,
+          hierarchy: 0,
+          finish: 0,
+          verdict: "unreadable",
+          observations: [],
+          diagnoses: [],
+        },
+      };
+    },
+    capture: () => ({
+      sheet: "x",
+      times: [0, 1],
+      width: 320,
+      height: 180,
+      runtime: "test",
+      renderer: "test",
+      camera: [],
+      layers: [],
+      observations: [],
+    }),
+    progress: () => {},
+    candidate: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      events.push("saved");
+    },
+  });
+  for (let i = 0; i < events.length; i++)
+    if (events[i] === "review") assert.equal(events[i - 1], "saved");
 });

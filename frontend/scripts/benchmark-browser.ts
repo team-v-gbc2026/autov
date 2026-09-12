@@ -12,7 +12,7 @@ function mount(Runtime = VfxRuntime) {
   return { runtime, host, errors };
 }
 export async function run(
-  input: { prompt: string; references: string[] },
+  input: { prompt: string; references: string[]; caseId?: string },
   options: { mode: "fast" | "quality"; textures: boolean },
 ) {
   const { runtime, host } = mount();
@@ -35,7 +35,29 @@ export async function run(
       capture: (doc, solo, diagnostic) =>
         runtime.capture(doc, { solo, diagnostic }),
       progress: (message) => console.log(`BENCHMARK: ${message}`),
-      candidate: () => {},
+      candidate: async (candidate) => {
+        const response = await fetch("/api/local-trials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: candidate.id,
+            prompt: input.prompt,
+            references: input.references,
+            caseId: input.caseId,
+            source: "openai-live",
+            origin: candidate.origin,
+            selected: false,
+            document: candidate.document,
+            sheet: candidate.evidence.sheet,
+            review: candidate.review,
+          }),
+        });
+        if (!response.ok)
+          throw Error(
+            "Candidate archive failed: " +
+              (await response.text()).slice(0, 300),
+          );
+      },
     });
   } finally {
     runtime.dispose();

@@ -5,7 +5,21 @@ float fbm(vec3 p){ return .57*noise3(p)+.28*noise3(p*2.03)+.15*noise3(p*4.07); }
 `;
 export const surfaceVertex = `
 varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
-void main(){ vUv=uv; vec4 mv=modelViewMatrix*vec4(position,1.); vNormal=normalize(normalMatrix*normal); vView=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }
+uniform float uTime,uTurbulence; uniform int uStreamer;
+void main(){
+  vUv=uv; vec3 pos=position,nrm=normal;
+  if(uStreamer==1){
+    float t=clamp((position.y+1.)*.5,0.,1.);
+    float envelope=t*t, derivative=t;
+    float phase=position.y*4.-uTime*3.5;
+    pos.x+=.24*uTurbulence*envelope*sin(phase);
+    pos.z+=.08*uTurbulence*envelope*cos(phase*.8);
+    float dx=.24*uTurbulence*(derivative*sin(phase)+envelope*4.*cos(phase));
+    float dz=.08*uTurbulence*(derivative*cos(phase*.8)-envelope*3.2*sin(phase*.8));
+    nrm.y-=dx*normal.x+dz*normal.z;
+  }
+  vec4 mv=modelViewMatrix*vec4(pos,1.); vNormal=normalize(normalMatrix*nrm); vView=normalize(-mv.xyz); gl_Position=projectionMatrix*mv;
+}
 `;
 export const surfaceFragment = `
 uniform vec3 uColor,uSecondary; uniform float uTime,uOpacity,uIntensity,uWidth,uRadius,uTurbulence,uErosion,uArc,uSpin; uniform int uKind,uSurface,uMesh,uHasTexture; uniform sampler2D uTexture;
@@ -55,8 +69,14 @@ void main(){
     mask*=smoothstep(.25+uErosion*.5,.6,flame+taper*.28);
     detail=flame;
   } else if(uSurface==2){
-    float waves=sin(p.x*22.+sin(p.y*9.-uTime*3.)*2.);
-    mask*=.45+.55*pow(waves*.5+.5,5.); detail=waves*.5+.5;
+    // Long smooth white bands over a continuous colored body, not a zigzag cutout.
+    float bend=sin(p.y*2.8-uTime*2.2)*.12*uTurbulence;
+    float waves=sin((p.x+bend)*9.5+p.y*.7);
+    float streak=smoothstep(.72,.92,waves)*(.65+.35*sin(p.y*2.-uTime*2.));
+    float facing=abs(dot(normalize(vNormal),normalize(vView)));
+    mask*=.88+.12*streak;
+    mask*=1.-smoothstep(.02,.98,uErosion);
+    detail=.16+.6*streak+.2*facing;
   } else if(uSurface==3){
     vec2 q=vUv*vec2(24.,12.); vec2 spacing=vec2(1.73205,3.);
     vec2 h1=mod(q,spacing)-spacing*.5, h2=mod(q-spacing*.5,spacing)-spacing*.5;
@@ -82,7 +102,7 @@ void main(){
   }
   if(uHasTexture==1){
     vec2 uv=vUv;
-    if(uSurface==1)uv.y+=sin(uv.x*14.-uTime*7.)*.018*smoothstep(.25,.8,uv.x);
+    if(uSurface==1)uv.y+=sin(uv.x*14.-uTime*7.)*.035*(.5+uTurbulence)*smoothstep(.25,.8,uv.x);
     if(uMesh==0 && uKind!=1){ float c=cos(uTime*uSpin), s=sin(uTime*uSpin); uv=mat2(c,-s,s,c)*(uv-.5)+.5; }
     vec4 texel=texture2D(uTexture,uv);
     float luminance=dot(texel.rgb,vec3(.2126,.7152,.0722));
@@ -98,6 +118,7 @@ void main(){
   mask*=uOpacity; if(mask<.003)discard;
   float colorMix=clamp(mask*.8+detail*.3,0.,1.);
   if(uSurface==4) colorMix=.25+detail*.7;
+  if(uSurface==2) colorMix=clamp(detail,0.,1.);
   if(uMesh==1 && uSurface==6) colorMix=.15+.85*pow(abs(dot(normalize(vNormal),normalize(vView))),4.);
   vec3 c=mix(uSecondary,uColor,colorMix)*uIntensity;
   gl_FragColor=vec4(c,clamp(mask,0.,1.));

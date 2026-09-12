@@ -54,7 +54,7 @@ export async function generatePipeline(options: {
     diagnostic?: boolean,
   ) => Evidence | Promise<Evidence>;
   progress: (message: string) => void;
-  candidate: (candidate: Candidate) => void;
+  candidate: (candidate: Candidate) => void | Promise<void>;
 }): Promise<PipelineResult> {
   const { signal, request, capture } = options,
     trace: string[] = [],
@@ -115,7 +115,7 @@ export async function generatePipeline(options: {
       if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8)
         throw new Error("Rendered candidate has no visible effect pixels.");
       candidates.push(candidate);
-      options.candidate({ ...candidate });
+      await options.candidate({ ...candidate });
       if (options.mode === "quality") {
         step(
           `Reviewing candidate ${i + 1}: intent, motion, hierarchy, finish…`,
@@ -137,7 +137,7 @@ export async function generatePipeline(options: {
               : "Visual review unavailable.";
           trace.push(candidate.error);
         }
-        options.candidate({ ...candidate });
+        await options.candidate({ ...candidate });
       }
     } catch (error) {
       if (signal.aborted) throw error;
@@ -190,7 +190,7 @@ export async function generatePipeline(options: {
           origin: "refined",
         };
         candidates.push(refined);
-        options.candidate({ ...refined });
+        await options.candidate({ ...refined });
         step("Re-rendering and checking the refinement…");
         const reviewed = await call({
           action: "review",
@@ -200,7 +200,7 @@ export async function generatePipeline(options: {
           times: evidence.times,
         });
         refined.review = reviewed.review as Review;
-        options.candidate({ ...refined });
+        await options.candidate({ ...refined });
         if (improves(refined.review, baseline.review!)) {
           selected = refined;
           step("Refinement improved the review. Best valid state retained.");
@@ -219,7 +219,8 @@ export async function generatePipeline(options: {
   if (
     options.mode === "quality" &&
     selected.review?.sufficientEvidence &&
-    score(selected.review) < 3.5 &&
+    (score(selected.review) < 3.5 ||
+      selected.review.observations.some((item) => item.result === "fail")) &&
     selected.review.diagnoses.some((d) =>
       ["other", "timing", "misaligned"].includes(d.symptom),
     )
@@ -245,7 +246,7 @@ export async function generatePipeline(options: {
         origin: "refined",
       };
       candidates.push(repaired);
-      options.candidate({ ...repaired });
+      await options.candidate({ ...repaired });
       step("Checking the structural repair against the original references…");
       const reviewed = await call({
         action: "review",
@@ -255,7 +256,7 @@ export async function generatePipeline(options: {
         times: evidence.times,
       });
       repaired.review = reviewed.review as Review;
-      options.candidate({ ...repaired });
+      await options.candidate({ ...repaired });
       if (improves(repaired.review, baseline.review!)) {
         selected = repaired;
         step(

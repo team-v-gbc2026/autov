@@ -1,3 +1,4 @@
+import { browserOptions } from "./browser-options.mjs";
 import {
   readFile,
   writeFile,
@@ -146,13 +147,7 @@ const built = await build({
   platform: "browser",
   minify: true,
 });
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.AUTOV_CHROME_PATH
-    ? { executablePath: process.env.AUTOV_CHROME_PATH }
-    : {}),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
-});
+const browser = await chromium.launch(browserOptions());
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   page.on("console", (msg) => {
@@ -191,7 +186,11 @@ try {
       const result = await page.evaluate(
         async ({ input, options }) => window.AutoVBenchmark.run(input, options),
         {
-          input: { prompt: c.data.prompt, references: c.references },
+          input: {
+            prompt: c.data.prompt,
+            references: c.references,
+            caseId: c.data.case_id,
+          },
           options: { mode, textures: report.textures },
         },
       );
