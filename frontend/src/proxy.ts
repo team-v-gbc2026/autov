@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { isSupabaseConfigured, supabaseConfig } from "@/lib/supabase/config";
+import { filterSupabaseCookies } from "@/lib/supabase/auth-cookies";
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
   if (isSupabaseConfigured()) {
     const { url, key } = supabaseConfig();
     const supabase = createServerClient(url, key, { cookies: {
-      getAll: () => request.cookies.getAll(),
+      getAll: () => filterSupabaseCookies(request.cookies.getAll(), url),
       setAll(values) {
         values.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
