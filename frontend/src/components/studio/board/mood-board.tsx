@@ -71,7 +71,7 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
       if (layout[ref.id]) continue;
       const view = transform.current?.state;
       let x = view ? (20 - view.positionX) / view.scale : 24;
-      let y = view ? (20 - view.positionY) / view.scale : 24;
+      const y = view ? (20 - view.positionY) / view.scale : 24;
       const width = sizes[ref.id].width + 2;
       const height = sizes[ref.id].height + 2;
       let collision;
