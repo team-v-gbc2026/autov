@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import Tooltip from "@/components/ui/tooltip";
 import ProjectName from "./project-name";
 import ProfileMenu from "./profile-menu";
@@ -8,9 +9,11 @@ import type { Project } from "@/lib/project-types";
 export default function StudioHeader({
   project,
   email,
+  actions,
 }: {
   project: Project;
   email: string;
+  actions?: ReactNode;
 }) {
   return (
     <header className="studio-header">
@@ -24,7 +27,10 @@ export default function StudioHeader({
         <span className="header-divider" />
         <ProjectName key={project.id} projectId={project.id} name={project.name} />
       </div>
-      <div className="header-actions"><ProfileMenu email={email} /></div>
+      <div className="header-actions">
+        {actions}
+        <ProfileMenu email={email} />
+      </div>
       
     </header>
   );

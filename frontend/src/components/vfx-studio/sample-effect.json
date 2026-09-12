@@ -1,0 +1,62 @@
+{
+  "name": "Amber rupture",
+  "duration": 2.8,
+  "layers": [
+    {
+      "id": "flash",
+      "name": "Core flash",
+      "kind": "sprite",
+      "start": 0.42,
+      "end": 0.82,
+      "color": "#fff3c4",
+      "secondaryColor": "#ffd37d",
+      "blend": "additive",
+      "enabled": true
+    },
+    {
+      "id": "arc",
+      "name": "Energy arc",
+      "kind": "ribbon",
+      "start": 0.5,
+      "end": 1.72,
+      "color": "#ffb23e",
+      "secondaryColor": "#ff6b3d",
+      "blend": "additive",
+      "enabled": true
+    },
+    {
+      "id": "sparks",
+      "name": "Contact sparks",
+      "kind": "particles",
+      "start": 0.56,
+      "end": 1.48,
+      "color": "#ff7352",
+      "secondaryColor": "#ffd071",
+      "blend": "additive",
+      "enabled": true
+    },
+    {
+      "id": "smoke",
+      "name": "Smoke trail",
+      "kind": "particles",
+      "start": 0.74,
+      "end": 2.55,
+      "color": "#8d99a3",
+      "secondaryColor": "#4d555f",
+      "blend": "normal",
+      "enabled": true
+    }
+  ],
+  "controls": [
+    ["Intensity", 76],
+    ["Radius", 44],
+    ["Opacity", 82],
+    ["Speed", 58],
+    ["Turbulence", 31],
+    ["Erosion", 24]
+  ],
+  "environment": {
+    "bloom": 64,
+    "exposure": 48
+  }
+}
