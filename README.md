@@ -42,9 +42,9 @@ npm --prefix web run dev
 
 ## Vercel deploy
 
-This repo includes [vercel.json](/home/ghosh/github/autov/vercel.json) so Vercel installs and builds the app from `web`:
-- Install: `cd web && npm ci`
-- Build: `cd web && npm run build`
+Set the Vercel project's **Root Directory** to `web`. Vercel will then detect the Next.js app and its lockfile correctly. The app-level `web/vercel.json` uses:
+- Install: `npm ci`
+- Build: `npm run build`
 
 ## Environment variables
 | Name | Where | Notes |
