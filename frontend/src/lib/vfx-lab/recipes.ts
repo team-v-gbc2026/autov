@@ -93,9 +93,35 @@ export const RECIPES = {
     knowledge:
       "Start a tiny charged core; impact synchronizes flash, expanding ground ring, and pressure shell. Ring radius must have rapid non-linear expansion. Stagger secondary ring by 50 ms. Sparks burst from near zero radius with radial motion and drag; smoke is softer and uses normal blending. Hierarchy: core > shock front > sparks > residual haze. Keep maximum exposure under control.",
   },
+  lightning: {
+    name: "Graphic lightning", subtitle: "One decisive angular strike.",
+    prompt: "A single cyan lightning bolt, with a white core, a brief anticipation and a fading ground ring.",
+    knowledge: "Use geometry lightning with surface solid on a beam-kind layer. A single short primary interval is a strike; never repeat it unless requested. Low turbulence removes extra branches. Width in meters controls silhouette. Use separate ground ring and a few short-lived sparks. Keep primary count exact and ground centers aligned.",
+  },
+  projectile: {
+    name: "Elemental projectile", subtitle: "A shaped head and a directional wake.",
+    prompt: "A streamlined fire projectile pointing left, with a hot compact head and a layered orange tail extending right.",
+    knowledge: "Use cone or shell head with flame/water surfaces. A cone points along local +Y; rotation.z=pi/2 points left. Use motion waypoints for travel only when requested; a stationary showcase stays centered. Build tail as 2-3 progressively wider, dimmer surfaces behind the head. Avoid radial explosions and random rings. Keep water smooth, smoke low contrast, flame sharply tapered.",
+  },
+  smoke: {
+    name: "Rising smoke", subtitle: "Layered billows with a clean silhouette.",
+    prompt: "A rounded violet smoke burst rising from one point, with pink lower billows and separate fading wisps.",
+    knowledge: "Compose 3-5 overlapping low-intensity normal-blended lobes rather than a single fuzzy ball. Move them upward with local motion keys, scale differently, and erode at different rates. A generated smoke mask can improve silhouette and shaded lobes. Preserve the requested palette without additive whitening. Detached wisps start after the main rise.",
+  },
+  beam: {
+    name: "Sustained beam", subtitle: "Charge, extend, sustain, release.",
+    prompt: "A horizontal magenta energy beam from right to left, charging first, sustaining, then fading into a particle wake.",
+    knowledge: "Use beam auto with rotation.z=pi/2 for a horizontal camera-plane beam. Animate length during extension; move the center by half the length change to keep the emission point anchored. Use at least two layers for colored edge and narrow white core, separate endpoint flare, and a late residue layer. Do not substitute a radial burst for a continuous connected beam.",
+  },
+  portal: {
+    name: "Amber portal", subtitle: "A rectangular opening with moving mist.",
+    prompt: "One upright amber rectangular portal, with a luminous rim, softly moving translucent interior and golden edge sparks.",
+    knowledge: "Use geometry plane, surface portal, kind decal. Width=2*radius, height=length. The procedural portal surface provides a rectangular rim and moving mist; do not use the circular default decal. The opening stays recognizable during sustain; fade opacity at both boundaries. Do not add doorway architecture or a destination scene.",
+  },
 } as const;
 export type RecipeId = keyof typeof RECIPES;
 export function createPreset(id: RecipeId): VfxDocument {
+  if (!["slash", "magic", "shockwave"].includes(id)) return createConstructionPreset(id);
   const base: VfxDocument = {
     schemaVersion: "autov.lab/1",
     name: RECIPES[id].name,
@@ -514,5 +540,30 @@ export function createPreset(id: RecipeId): VfxDocument {
         },
       ),
     ];
+  return validateDocument(base);
+}
+
+// Small authored construction examples. These are renderer fixtures, not benchmark generation results.
+function createConstructionPreset(id: RecipeId): VfxDocument {
+  const duration = ["beam","portal"].includes(id) ? 5 : 3;
+  const base: VfxDocument = {schemaVersion:"autov.lab/1",name:RECIPES[id].name,description:RECIPES[id].prompt,seed:419,duration,impact:.4,post:{bloom:.4,exposure:.9,background:"#101112"},layers:[]};
+  const add = (value: Layer) => { base.layers.push(value); return value; };
+  if (id === "lightning") {
+    add(layer("charge","Charge","sprite","anticipation",0,.4,{radius:.2,intensity:1.2,position:[0,-.7,0]},[fade(.4,.15)]));
+    const bolt=add(layer("bolt","Lightning silhouette","beam","primary",.4,.6,{length:3.5,width:.035,color:"#e9ffff",secondaryColor:"#129fff",position:[0,1.05,0],turbulence:.15,intensity:1.6},[fade(.2,.015)]));bolt.geometry="lightning";bolt.surface="solid";
+    add(layer("ring","Ground ring","ring","residue",.45,1.7,{position:[0,-.7,0],rotation:[-Math.PI/2,0,0],color:"#2cdfff",intensity:1,width:.018},[curve("radius",[[0,.1],[.6,1.4],[1.25,1.7]]),fade(1.25,.05)]));
+  } else if (id === "projectile") {
+    const head=add(layer("head","Flame head","shell","primary",.1,2.8,{radius:.65,length:1.8,rotation:[0,0,Math.PI/2],position:[-.5,0,0],color:"#fff19b",secondaryColor:"#ff520d",intensity:1.1},[fade(2.7,.25)]));head.geometry="teardrop";head.surface="flame";
+    for(let i=0;i<3;i++) {const tail=add(layer(`tail-${i}`,"Flame wake","shell","secondary",.1,2.8,{radius:.38-i*.08,length:2.5-i*.3,rotation:[0,0,-Math.PI/2],position:[.6+i*.3,0,0],color:"#ff9d20",secondaryColor:"#b82204",intensity:.6,erosion:i*.1},[fade(2.7,.3)]));tail.geometry="cone";tail.surface="flame";}
+  } else if (id === "smoke") {
+    for(let i=0;i<5;i++) {const puff=add(layer(`puff-${i}`,"Smoke billow","sprite",i<3?"primary":"residue",.15+i*.08,2.9,{radius:.5+i*.06,color:i<2?"#dc70ce":"#8563b7",secondaryColor:"#422947",intensity:.85,blend:"normal",turbulence:1,position:[(i%2?1:-1)*i*.17,-.4,0]},[fade(2.75-i*.08,.2),curve("radius",[[0,.3],[.8,1.1+i*.09],[2.75-i*.08,1.4+i*.1]]),curve("erosion",[[0,0],[1.5,.1],[2.75-i*.08,.9]])]));puff.surface="smoke";puff.motion={keys:[[0,0,0,0],[2.75-i*.08,i*.08,1.5+i*.15,0]],ease:"linear"};}
+  } else if (id === "beam") {
+    base.impact=1;
+    for(let i=0;i<2;i++)add(layer(`beam-${i}`,i?"White core":"Magenta beam","beam","primary",1,4,{rotation:[0,0,Math.PI/2],width:i?.04:.18,length:5,color:i?"#fff4ff":"#dd32f7",secondaryColor:"#741099",intensity:i?1.8:1.1},[fade(3,.2),curve("length",[[0,.02],[.2,5],[2.5,5],[3,.02]])]));
+    add(layer("charge","Emitter charge","sprite","anticipation",0,1.2,{position:[2.5,0,0],radius:.35,color:"#c472ff",intensity:1.4},[fade(1.2,.35)]));
+  } else {
+    base.impact=.7;
+    const portal=add(layer("opening","Amber opening","decal","primary",0,5,{radius:1,length:3.2,color:"#ffd46e",secondaryColor:"#bf710e",intensity:1.2,rotation:[0,.25,0]},[fade(5,.7)]));portal.geometry="plane";portal.surface="portal";
+  }
   return validateDocument(base);
 }

@@ -25,10 +25,12 @@ export default function Viewport({
       frame = 0;
     let runtime: VfxRuntime | undefined;
     import("@/lib/vfx-lab/runtime")
-      .then(({ VfxRuntime }) => {
+      .then(async ({ VfxRuntime }) => {
         if (cancelled || !host.current) return;
         runtime = new VfxRuntime(host.current, setError);
         instance.current = runtime;
+        await runtime.prepare(latest.current.doc);
+        if (cancelled) return;
         runtime.setDocument(latest.current.doc);
         latest.current.onReady(runtime);
         const draw = () => {
@@ -56,14 +58,14 @@ export default function Viewport({
       latest.current.onReady(null);
     };
   }, []);
-  // Synchronize GPU resources with the document; report external renderer failures.
+  // Decode assets before installing the document; ignore superseded async work.
   useEffect(() => {
-    try {
-      instance.current?.setDocument(doc);
-    } catch (e) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Report a failure of the external GPU resource update.
-      setError(e instanceof Error ? e.message : "Invalid effect.");
-    }
+    let cancelled = false;
+    const current = instance.current;
+    if (current) void current.prepare(doc).then(() => {
+      if (!cancelled) current.setDocument(doc);
+    }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Invalid effect."); });
+    return () => { cancelled = true; };
   }, [doc]);
   return (
     <div className="scene-container scene-interactive">

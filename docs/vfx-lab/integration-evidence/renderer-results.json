@@ -1,0 +1,160 @@
+{
+  "results": [
+    {
+      "id": "slash",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 278550,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 10,
+        "textures": 13
+      }
+    },
+    {
+      "id": "magic",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 46448,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 11,
+        "textures": 13
+      }
+    },
+    {
+      "id": "shockwave",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 204799,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 11,
+        "textures": 13
+      }
+    },
+    {
+      "id": "lightning",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 39594,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 5,
+        "textures": 13
+      }
+    },
+    {
+      "id": "projectile",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 174600,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 6,
+        "textures": 13
+      }
+    },
+    {
+      "id": "smoke",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 17755,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 7,
+        "textures": 13
+      }
+    },
+    {
+      "id": "beam",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 9479,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 5,
+        "textures": 13
+      }
+    },
+    {
+      "id": "portal",
+      "source": "authored_renderer_fixture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "pixels": 33811,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 3,
+        "textures": 13
+      }
+    },
+    {
+      "id": "generated-texture",
+      "source": "authored_effect_with_codex_generated_texture",
+      "gates": {
+        "schema": true,
+        "seekDeterministic": true,
+        "extinguishedAtEnd": true,
+        "noShaderErrors": true
+      },
+      "offlineExport": true,
+      "performance": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 11,
+        "textures": 14
+      }
+    }
+  ],
+  "errors": [],
+  "benchmarkGeneration": false,
+  "renderer": "Chrome SwiftShader: correctness only, not hardware performance"
+}

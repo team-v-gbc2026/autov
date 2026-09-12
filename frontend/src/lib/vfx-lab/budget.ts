@@ -75,6 +75,9 @@ export async function budgetStatus() {
 export const cost = (input: number, output: number) =>
   (input * 12.5 + output * 50) / 1_000_000;
 export async function reserve(inputUpperBound: number, maxOutput: number) {
+  return reserveUsd(cost(inputUpperBound, maxOutput), inputUpperBound, maxOutput);
+}
+export async function reserveUsd(usd: number, inputUpperBound = 0, maxOutput = 0) {
   return locked(async () => {
     const ledger = await read();
     if (ledger.halted)
@@ -82,10 +85,9 @@ export async function reserve(inputUpperBound: number, maxOutput: number) {
         "Budget accounting requires review; generation is stopped.",
       );
     if (
-      ![inputUpperBound, maxOutput].every((n) => Number.isFinite(n) && n >= 0)
+      ![usd, inputUpperBound, maxOutput].every((n) => Number.isFinite(n) && n >= 0)
     )
       throw new Error("Invalid token reservation.");
-    const usd = cost(inputUpperBound, maxOutput);
     if (ledger.entries.reduce((n, e) => n + e.usd, 0) + usd > SPEND_LIMIT_USD)
       throw new Error(
         "The $30 local spending limit would be exceeded. Generation stopped.",
@@ -104,14 +106,17 @@ export async function reserve(inputUpperBound: number, maxOutput: number) {
   });
 }
 export async function settle(id: string, input: number, output: number) {
+  return settleUsd(id, cost(input, output), input, output);
+}
+export async function settleUsd(id: string, actual: number, input = 0, output = 0) {
   await locked(async () => {
     const ledger = await read(),
       entry = ledger.entries.find((e) => e.id === id);
     if (!entry || entry.state !== "reserved")
       throw new Error("Unknown budget reservation.");
-    const actual = cost(input, output);
     if (
       !Number.isFinite(actual) ||
+      actual < 0 ||
       input < 0 ||
       output < 0 ||
       actual > entry.usd

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPreset } from "../src/lib/vfx-lab/recipes";
+import { RECIPES, createPreset } from "../src/lib/vfx-lab/recipes";
 import {
   validateDocument,
   validateGeneratedDocument,
@@ -27,7 +27,7 @@ test("transparent generated placeholders are rejected before paid visual review"
     validateGeneratedDocument(createPreset("shockwave")),
   );
 });
-for (const id of ["slash", "magic", "shockwave"] as const)
+for (const id of Object.keys(RECIPES) as (keyof typeof RECIPES)[])
   test(`${id}: valid self-contained recipe and bounded samples`, () => {
     const doc = createPreset(id);
     assert.deepEqual(validateDocument(doc), doc);

@@ -1,13 +1,19 @@
 import { z } from "zod";
 import { KINDS, NUMERIC } from "./schema";
+export const TextureRequestSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
+  prompt: z.string().min(10).max(1500),
+  layerIds: z.array(z.string().max(48)).min(1).max(8),
+}).strict();
 export const PlanSchema = z
   .object({
     name: z.string().max(100),
-    recipe: z.enum(["slash", "magic", "shockwave"]),
+    recipe: z.enum(["slash", "magic", "shockwave", "lightning", "projectile", "smoke", "beam", "portal"]),
     intent: z.string().max(1400),
     palette: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).length(3),
-    duration: z.number().min(1).max(8),
-    impact: z.number().min(0.1).max(4),
+    duration: z.number().min(.5).max(12),
+    textures: z.array(TextureRequestSchema).max(2),
+    impact: z.number().min(0).max(12),
     motion: z
       .object({
         emissionShape: z.string().max(300),
@@ -25,8 +31,8 @@ export const PlanSchema = z
           })
           .strict(),
       )
-      .min(4)
-      .max(12),
+      .min(1)
+      .max(18),
     criteria: z.array(z.string().max(200)).min(3).max(6),
   })
   .strict();

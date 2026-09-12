@@ -10,6 +10,7 @@ export default function EmitterTimeline({
   onSelect,
   onSolo,
   onToggle,
+  onAdd,
 }: {
   layers: VfxDocument["layers"];
   duration: number;
@@ -20,8 +21,13 @@ export default function EmitterTimeline({
   onSelect: (id: string) => void;
   onSolo: (id: string) => void;
   onToggle: (id: string) => void;
+  onAdd: () => void;
 }) {
   return (
+    <div className="lab-emitter-timeline">
+      <div className="lab-emitter-heading"><span>Emitters · {layers.length}</span>
+        <button type="button" className="lab-add-emitter" onClick={onAdd} disabled={busy || layers.length >= 18}>+ Add emitter</button>
+      </div>
     <div className="lab-emitter-tracks" aria-label="Emitter timeline">
       {layers.map((layer) => (
         <div
@@ -72,13 +78,19 @@ export default function EmitterTimeline({
                 left: `${(layer.start / duration) * 100}%`,
                 width: `${((layer.end - layer.start) / duration) * 100}%`,
                 borderColor: layer.params.color,
-                opacity: layer.enabled ? 1 : 0.35,
+                opacity: !layer.enabled || (solo !== undefined && solo !== layer.id) ? 0.3 : 1,
               }}
             >
               <span>
                 {layer.start.toFixed(2)}–{layer.end.toFixed(2)} s
               </span>
             </button>
+            {layer.overrides.map((edit, index) => (
+              <button key={index} type="button" className="lab-scoped-edit"
+                aria-label={`${layer.name} edit: ${edit.start.toFixed(2)} to ${edit.end.toFixed(2)} seconds, ${edit.target}`}
+                title={`${edit.target} → ${edit.value}`} disabled={busy} onClick={() => onSelect(layer.id)}
+                style={{ left: `${edit.start / duration * 100}%`, width: `${(edit.end - edit.start) / duration * 100}%` }} />
+            ))}
             <div
               className="lab-emitter-playhead"
               style={{ left: `${(time / duration) * 100}%` }}
@@ -86,6 +98,7 @@ export default function EmitterTimeline({
           </div>
         </div>
       ))}
+    </div>
     </div>
   );
 }

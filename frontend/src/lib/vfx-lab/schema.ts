@@ -78,6 +78,21 @@ export const OverrideSchema = z
     fade: scalar(0, 1),
   })
   .strict();
+export const GEOMETRIES = ["auto", "plane", "teardrop", "cone", "crystal", "torus", "ribbon", "lightning"] as const;
+export const SURFACES = ["default", "flame", "water", "hexagon", "smoke", "star", "solid", "portal"] as const;
+export const MotionSchema = z.object({
+  // Local seconds, then XYZ offsets in meters from params.position.
+  keys: z.array(z.tuple([scalar(0, 12), scalar(-12, 12), scalar(-12, 12), scalar(-12, 12)])).min(2).max(8),
+  ease: z.enum(["linear", "smooth"]),
+}).strict();
+export const TextureAssetSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
+  data: z.string().max(3_000_000).regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/),
+  prompt: z.string().max(2500),
+  model: z.string().max(100),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export type TextureAsset = z.infer<typeof TextureAssetSchema>;
 export const LayerSchema = z
   .object({
     id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
@@ -88,6 +103,10 @@ export const LayerSchema = z
     end: scalar(0, 12),
     enabled: z.boolean(),
     params: ParamsSchema,
+    geometry: z.enum(GEOMETRIES).nullable().optional(),
+    surface: z.enum(SURFACES).nullable().optional(),
+    motion: MotionSchema.nullable().optional(),
+    textureId: z.string().max(48).nullable().optional(),
     tracks: z.array(TrackSchema).max(12),
     overrides: z.array(OverrideSchema).max(64),
   })
@@ -101,6 +120,7 @@ export const DocumentSchema = z
     duration: scalar(0.5, 12),
     impact: scalar(0, 12),
     layers: z.array(LayerSchema).min(1).max(18),
+    textures: z.array(TextureAssetSchema).max(2).optional(),
     post: z
       .object({
         bloom: scalar(0, 2),
@@ -119,11 +139,23 @@ export function validateDocument(input: unknown): VfxDocument {
   const doc = DocumentSchema.parse(input);
   if (doc.impact >= doc.duration)
     throw new Error("Impact must be before the end.");
+  const assets = new Set<string>();
+  for (const asset of doc.textures || []) {
+    if (assets.has(asset.id)) throw new Error("Duplicate texture ID.");
+    assets.add(asset.id);
+  }
   const ids = new Set<string>();
   let particles = 0;
   for (const layer of doc.layers) {
     if (ids.has(layer.id)) throw new Error(`Duplicate layer: ${layer.id}`);
     ids.add(layer.id);
+    if (layer.textureId && !assets.has(layer.textureId)) throw new Error(`Missing texture: ${layer.textureId}`);
+    if (layer.kind === "particles" && layer.textureId) throw new Error("Generated textures require a surface layer.");
+    if (layer.kind === "particles" && layer.geometry && layer.geometry !== "auto") throw new Error("Particles use instanced billboards; use a surface layer for meshes.");
+    if (layer.motion) for (let i = 0; i < layer.motion.keys.length; i++) {
+      const t = layer.motion.keys[i][0];
+      if (t > layer.end - layer.start + 1e-6 || (i > 0 && t <= layer.motion.keys[i-1][0])) throw new Error(`Invalid motion keys: ${layer.id}`);
+    }
     if (layer.start >= layer.end || layer.end > doc.duration)
       throw new Error(`Invalid interval: ${layer.id}`);
     if (layer.kind === "particles") particles += layer.params.count;
@@ -186,10 +218,14 @@ export function validateOverride(input: unknown, duration: number): Override {
   return o;
 }
 // Structured Outputs uses homogeneous arrays; tuples remain in the validated runtime contract.
-export const DocumentWireSchema = DocumentSchema.extend({
+export const DocumentWireSchema = DocumentSchema.omit({ textures: true }).extend({
   layers: z
     .array(
       LayerSchema.extend({
+        geometry: z.enum(GEOMETRIES).nullable(),
+        surface: z.enum(SURFACES).nullable(),
+        motion: MotionSchema.extend({ keys: z.array(z.array(z.number()).length(4)).min(2).max(8) }).nullable(),
+        textureId: z.string().max(48).nullable(),
         params: ParamsSchema.extend({
           position: z.array(z.number()).length(3),
           rotation: z.array(z.number()).length(3),

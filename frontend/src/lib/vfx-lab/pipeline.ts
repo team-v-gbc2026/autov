@@ -25,9 +25,10 @@ export async function generatePipeline(options: {
   prompt: string;
   references: string[];
   mode: "fast" | "quality";
+  textures?: boolean;
   signal: AbortSignal;
   request: Transport;
-  capture: (doc: VfxDocument, solo?: string, diagnostic?: boolean) => Evidence;
+  capture: (doc: VfxDocument, solo?: string, diagnostic?: boolean) => Evidence | Promise<Evidence>;
   progress: (message: string) => void;
   candidate: (candidate: Candidate) => void;
 }): Promise<PipelineResult> {
@@ -58,9 +59,19 @@ export async function generatePipeline(options: {
     prompt: options.prompt,
     references: options.references,
     mode: options.mode,
+    textures: options.textures ?? false,
   });
   const runId = planned.runId as string,
     plan = planned.plan as Plan;
+  for (const texture of options.textures ? (plan.textures || []) : []) {
+    try {
+      step(`Creating reusable texture: ${texture.id}…`);
+      await call({ action: "texture", runId, id: texture.id });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      trace.push(`Texture unavailable; procedural materials retained: ${error instanceof Error ? error.message : "unknown"}`);
+    }
+  }
   const count = options.mode === "quality" ? 3 : 1;
   for (let i = 0; i < count; i++) {
     try {
@@ -68,13 +79,14 @@ export async function generatePipeline(options: {
       const result = await call({ action: "candidate", runId, index: i });
       const document = validateDocument(result.document);
       step(`Rendering candidate ${i + 1} at twelve event-timed moments…`);
-      const evidence = capture(document),
+      const evidence = await capture(document),
         candidate: Candidate = {
           id: `${runId}-${i}`,
           document,
           evidence,
           origin: "generated",
         };
+      if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8) throw new Error("Rendered candidate has no visible effect pixels.");
       candidates.push(candidate);
       options.candidate({ ...candidate });
       if (options.mode === "quality") {
@@ -128,7 +140,7 @@ export async function generatePipeline(options: {
         baseline.document.layers.some((l) => l.id === d.layerId),
       )?.layerId;
       if (layerId) {
-        const diagnostic = capture(baseline.document, layerId, true);
+        const diagnostic = await capture(baseline.document, layerId, true);
         step("Applying one bounded refinement…");
         const result = await call({
           action: "refine",
@@ -138,7 +150,7 @@ export async function generatePipeline(options: {
           diagnostic: diagnostic.sheet,
         });
         const document = validateDocument(result.document),
-          evidence = capture(document);
+          evidence = await capture(document);
         step("Re-rendering and checking the refinement…");
         const reviewed = await call({
           action: "review",
@@ -156,6 +168,11 @@ export async function generatePipeline(options: {
         };
         candidates.push(refined);
         options.candidate(refined);
+        const noRegression = baseline.review!.observations.every(old =>
+          old.result !== "pass" || refined.review!.observations.some(next => next.criterion === old.criterion && next.result === "pass"),
+        ) && ["semantic", "motion", "hierarchy", "finish"].every(axis =>
+          refined.review![axis as "semantic"] >= Math.min(3, baseline.review![axis as "semantic"]),
+        );
         const fewerFailures =
           refined.review!.observations.filter((x) => x.result === "fail")
             .length <=
@@ -163,7 +180,7 @@ export async function generatePipeline(options: {
             .length;
         if (
           score(refined.review) > score(baseline.review) + 0.15 &&
-          fewerFailures
+          fewerFailures && noRegression
         ) {
           selected = refined;
           step("Refinement improved the review. Best valid state retained.");

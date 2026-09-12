@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { buildGeometry } from "./geometry";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -23,6 +24,7 @@ export type Evidence = {
   camera: number[];
   layers: string[];
   observations: { time: number; visible: string[] }[];
+  renderedPixels?: number;
 };
 const kindIndex = {
   ring: 0,
@@ -33,7 +35,7 @@ const kindIndex = {
   particles: 4,
   decal: 5,
 };
-export function createEffect(doc: VfxDocument, camera: THREE.Camera) {
+export function createEffect(doc: VfxDocument, camera: THREE.Camera, textures = new Map<string, THREE.Texture>()) {
   const group = new THREE.Group();
   const objects = doc.layers.map((layer) => {
     const uniforms: Record<string, THREE.IUniform> = {};
@@ -59,6 +61,10 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera) {
     uniforms.uColor = { value: new THREE.Color() };
     uniforms.uSecondary = { value: new THREE.Color() };
     uniforms.uKind = { value: kindIndex[layer.kind] };
+    uniforms.uSurface = { value: ["default", "flame", "water", "hexagon", "smoke", "star", "solid", "portal"].indexOf(layer.surface || "default") };
+    uniforms.uMesh = { value: layer.geometry && layer.geometry !== "auto" ? 1 : 0 };
+    uniforms.uTexture = { value: layer.textureId ? textures.get(layer.textureId) || null : null };
+    uniforms.uHasTexture = { value: layer.textureId && textures.has(layer.textureId) ? 1 : 0 };
     const isParticles = layer.kind === "particles";
     const material = new THREE.ShaderMaterial({
       uniforms,
@@ -100,10 +106,7 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera) {
       instanced.instanceCount = layer.params.count;
       geometry = instanced;
     } else
-      geometry =
-        layer.kind === "shell"
-          ? new THREE.SphereGeometry(1, 64, 40)
-          : new THREE.PlaneGeometry(2, 2);
+      geometry = buildGeometry(layer, doc.seed);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = layer.id;
     mesh.frustumCulled = false;
@@ -121,11 +124,19 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera) {
         if (!mesh.visible) continue;
         mesh.position.fromArray(p.position);
         mesh.rotation.set(...p.rotation);
-        if (layer.kind === "sprite") mesh.quaternion.copy(camera.quaternion);
-        if (layer.kind === "beam") {
+        if (layer.kind === "sprite" && (!layer.geometry || layer.geometry === "auto")) mesh.quaternion.copy(camera.quaternion);
+        if (layer.geometry === "plane") {
+          mesh.scale.set(p.radius, p.length / 2, 1);
+        } else if (layer.geometry === "lightning") {
+          mesh.scale.set(p.width / layer.params.width, p.length / 2, p.width / layer.params.width);
+        } else if (layer.geometry === "cone" || layer.geometry === "crystal" || layer.geometry === "teardrop") {
+          mesh.scale.set(p.radius, p.length / 2, p.radius);
+        } else if (layer.kind === "beam" && (!layer.geometry || layer.geometry === "auto")) {
           mesh.quaternion.copy(camera.quaternion);
+          mesh.rotateZ(p.rotation[2]);
           mesh.scale.set(p.width * 2, p.length / 2, 1);
         } else if (layer.kind !== "particles") mesh.scale.setScalar(p.radius);
+        if (["ribbon", "torus"].includes(layer.geometry || "")) mesh.rotateZ(age * p.spin);
         material.uniforms.uTime.value = age;
         for (const key of [
           "opacity",
@@ -170,6 +181,8 @@ export class VfxRuntime {
   private doc?: VfxDocument;
   private observer: ResizeObserver;
   private disposed = false;
+  private textures = new Map<string, THREE.Texture>();
+  private textureSources = new Map<string, string>();
   private grid: THREE.GridHelper;
   constructor(
     readonly host: HTMLElement,
@@ -228,9 +241,30 @@ export class VfxRuntime {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
+  async prepare(input: VfxDocument) {
+    const doc = validateDocument(input);
+    for (const asset of doc.textures || []) {
+      if (this.textureSources.get(asset.id) === asset.data) continue;
+      const img = new Image();
+      img.src = asset.data;
+      await img.decode();
+      if (this.disposed) throw new Error("Renderer disposed.");
+      if (img.width > 1024 || img.height > 1024) throw new Error("Texture exceeds the 1024 pixel GPU limit.");
+      const texture = new THREE.Texture(img);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+      this.textures.get(asset.id)?.dispose();
+      this.textures.set(asset.id, texture);
+      this.textureSources.set(asset.id, asset.data);
+    }
+  }
   setDocument(input: VfxDocument) {
     const doc = validateDocument(input);
-    const next = createEffect(doc, this.camera);
+    for (const asset of doc.textures || []) {
+      if (this.textureSources.get(asset.id) !== asset.data) throw new Error("Prepare textures before installing this effect.");
+    }
+    const next = createEffect(doc, this.camera, this.textures);
     if (this.effect) {
       this.scene.remove(this.effect.group);
       this.effect.dispose();
@@ -238,6 +272,10 @@ export class VfxRuntime {
     this.effect = next;
     this.scene.add(next.group);
     this.doc = doc;
+    const keep = new Set((doc.textures || []).map(a => a.id));
+    for (const [id, texture] of this.textures) if (!keep.has(id)) {
+      texture.dispose(); this.textures.delete(id); this.textureSources.delete(id);
+    }
     this.scene.background = new THREE.Color(doc.post.background);
     this.renderer.toneMappingExposure = doc.post.exposure;
     this.bloom.strength = doc.post.bloom;
@@ -253,10 +291,11 @@ export class VfxRuntime {
     this.bloom.enabled = !diagnostic;
     this.composer.render(0);
   }
-  capture(
+  async capture(
     doc: VfxDocument,
     options: { solo?: string; diagnostic?: boolean } = {},
-  ): Evidence {
+  ): Promise<Evidence> {
+    await this.prepare(doc);
     const previous = this.doc,
       camera = this.camera.position.clone(),
       quaternion = this.camera.quaternion.clone(),
@@ -268,6 +307,7 @@ export class VfxRuntime {
     const ctx = sheet.getContext("2d");
     if (!ctx) throw new Error("Capture unavailable.");
     const times = sampleTimes(doc);
+    let renderedPixels = 0;
     try {
       this.renderer.setPixelRatio(1);
       this.composer.setPixelRatio(1);
@@ -282,11 +322,16 @@ export class VfxRuntime {
         const x = (index % 4) * 320,
           y = Math.floor(index / 4) * 202;
         ctx.drawImage(this.renderer.domElement, x, y, 320, 180);
+        const pixels = ctx.getImageData(x, y, 320, 180).data;
+        // Compare against the actual corner background, before adding timestamp text.
+        const background = [pixels[0], pixels[1], pixels[2]];
+        for (let p=0; p<pixels.length; p+=4) if (Math.max(...background.map((v,c)=>Math.abs(pixels[p+c]-v))) > 12) renderedPixels++;
         ctx.fillStyle = "#bdc5cc";
         ctx.font = "11px monospace";
         ctx.fillText(`${time.toFixed(3)} s`, x + 12, y + 195);
       });
       return {
+        renderedPixels,
         sheet: sheet.toDataURL("image/jpeg", 0.88),
         times,
         width: 320,
@@ -305,7 +350,7 @@ export class VfxRuntime {
         })),
       };
     } finally {
-      if (previous) this.setDocument(previous);
+      if (previous) { await this.prepare(previous); this.setDocument(previous); }
       this.camera.position.copy(camera);
       this.camera.quaternion.copy(quaternion);
       this.controls.target.copy(target);
@@ -322,6 +367,9 @@ export class VfxRuntime {
     this.observer.disconnect();
     this.controls.dispose();
     this.effect?.dispose();
+    this.textures.forEach(texture => texture.dispose());
+    this.textures.clear();
+    this.textureSources.clear();
     this.grid.geometry.dispose();
     this.grid.material.dispose();
     for (const pass of this.composer.passes) pass.dispose();

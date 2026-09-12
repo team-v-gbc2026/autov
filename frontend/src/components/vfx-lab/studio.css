@@ -494,3 +494,4 @@
   top: 14px;
   left: 16px;
 }
+.lab-texture-option { display: flex; align-items: center; gap: 7px; color: #9aa6ad; font-size: 10px; padding: 6px 0; }
