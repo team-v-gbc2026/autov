@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, writeFile, mkdir, readdir, access } from "node:fs/promises";
 import path from "node:path";
 const archive = path.resolve(".autov-local/trials"),
   out = path.resolve(
@@ -84,6 +85,27 @@ const latestBudget = completed.sort((a, b) =>
 const visualNotes = await readFile(path.join(out, "visual-notes.json"), "utf8")
   .then(JSON.parse)
   .catch(() => ({}));
+const latestAttempts = new Map();
+for (const report of [...completed].sort((a, b) =>
+  b.created.localeCompare(a.created),
+))
+  for (const c of report.cases || [])
+    if (!latestAttempts.has(c.caseId))
+      latestAttempts.set(c.caseId, { ...c, attempted: report.created });
+const failedReason = (attempt) =>
+  /max_output_tokens/.test(attempt?.error || "")
+    ? "構成案や生成データが出力上限に達しました。"
+    : /timed out|timeout/i.test(attempt?.error || "")
+      ? "API応答が時間内に完了しませんでした。"
+      : /limit|budget|spend/i.test(attempt?.error || "")
+        ? "利用上限で停止しました。"
+        : "試行が完了しませんでした。保存できた結果は残しています。";
+const profile = await readFile(
+  path.resolve(".autov-local/final-playback-profile.json"),
+  "utf8",
+)
+  .then(JSON.parse)
+  .catch(() => undefined);
 const cards = [];
 let covered = 0;
 for (const id of cases) {
@@ -91,13 +113,32 @@ for (const id of cases) {
     .filter((t) => t.caseId === id)
     .sort((a, b) => b.created.localeCompare(a.created));
   const chosen = trials.find((t) => t.selected) || trials[0];
+  const latestAttempt = latestAttempts.get(id);
   if (!chosen) {
     cards.push(
-      `<article><div><small>${esc(id)}</small><h2>生成待ち</h2><p class="muted">まだ実生成の記録はありません。</p></div></article>`,
+      `<article><div><small>${esc(id)}</small><h2>${latestAttempt?.status === "failed" ? "生成が未完了" : "生成待ち"}</h2><p class="muted">${latestAttempt?.status === "failed" ? esc(failedReason(latestAttempt)) : "まだ実生成の記録はありません。"}</p></div></article>`,
     );
     continue;
   }
   covered++;
+  const failedNotice =
+    latestAttempt?.status === "failed" &&
+    latestAttempt.attempted > chosen.created
+      ? `<p class="muted">最新の試行は未完了です。直前の保存案を表示しています。${esc(failedReason(latestAttempt))}</p>`
+      : "";
+  const poster = await access(path.join(archive, chosen.id, "poster.jpg"))
+    .then(() => "poster.jpg")
+    .catch(() => "sheet.jpg");
+  const measurement = profile?.results?.find((r) =>
+    r.file.endsWith(`/${chosen.id}/document.json`),
+  );
+  const documentHash = createHash("sha256")
+    .update(await readFile(path.join(archive, chosen.id, "document.json")))
+    .digest("hex");
+  const performanceNote =
+    measurement?.documentSha256 === documentHash
+      ? `<h2>この端末での再生測定</h2><p>${measurement.measuredPlaybackFps.toFixed(1)} fps · ${measurement.resolution.join(" × ")} · 描画時間95%点 ${measurement.renderP95Ms.toFixed(2)} ms</p><small>このJSONを現行エンジン ${esc(measurement.runtime)} で再生した測定です。保存動画の符号化fpsや他の端末の性能保証とは異なります。${esc(measurement.renderer)}</small>`
+      : "";
   const input = JSON.parse(
     await readFile(
       path.join(dataset, "inputs/cases", id, "text_image.json"),
@@ -124,11 +165,11 @@ for (const id of cases) {
     path.join(out, `${id}.html`),
     page(
       id,
-      `<a href="index.html">← 全ケース</a><h1>${esc(id)}</h1><p>${esc(chosen.name)} · ${trials.length}案保存 · ${esc(input.split)}</p>${comparison}${visualNote}${review}<p class="muted">自動評価は候補選択の補助です。再現度の合格や人による承認を意味しません。</p><h2>最初の案と比較</h2><p>${baseline.video ? `<a href="${link(baseline, "video.webm")}">初回生成の動画 ↗</a>` : ""} · <a href="${link(baseline, "player.html")}">初回生成の3D再生 ↗</a></p><h2>保存した全バージョン</h2><table><thead><tr><th>案</th><th>AI評価</th><th>開く</th></tr></thead><tbody>${versions}</tbody></table><details><summary>入力プロンプト・参照画像</summary><p class="prompt">${esc(chosen.prompt)}</p><div class="refs">${Array.from({ length: chosen.references }, (_, i) => `<img src="${link(chosen, `reference-${i}`)}" alt="入力参照 ${i + 1}">`).join("")}</div></details>`,
+      `<a href="index.html">← 全ケース</a><h1>${esc(id)}</h1><p>${esc(chosen.name)} · ${trials.length}案保存 · ${esc(input.split)}</p>${failedNotice}${comparison}${visualNote}${review}${performanceNote}<p class="muted">自動評価は候補選択の補助です。再現度の合格や人による承認を意味しません。</p><h2>最初の案と比較</h2><p>${baseline.video ? `<a href="${link(baseline, "video.webm")}">初回生成の動画 ↗</a>` : ""} · <a href="${link(baseline, "player.html")}">初回生成の3D再生 ↗</a></p><h2>保存した全バージョン</h2><table><thead><tr><th>案</th><th>AI評価</th><th>開く</th></tr></thead><tbody>${versions}</tbody></table><details><summary>入力プロンプト・参照画像</summary><p class="prompt">${esc(chosen.prompt)}</p><div class="refs">${Array.from({ length: chosen.references }, (_, i) => `<img src="${link(chosen, `reference-${i}`)}" alt="入力参照 ${i + 1}">`).join("")}</div></details>`,
     ),
   );
   cards.push(
-    `<article><a href="${id}.html"><img src="${link(chosen, "sheet.jpg")}" alt="${esc(chosen.name)}の実描画フレーム"></a><div><small>${esc(id)} · ${esc(input.split)}</small><h2>${esc(chosen.name)}</h2><p>${trials.length}案 · 自動評価 ${weighted(chosen.review)}${chosen.review?.sufficientEvidence ? "/5" : ""}</p><a class="pill" href="${id}.html">生成動画と元動画を比較 ↗</a></div></article>`,
+    `<article><a href="${id}.html"><img src="${link(chosen, poster)}" alt="${esc(chosen.name)}の実描画フレーム"></a><div><small>${esc(id)} · ${esc(input.split)}</small><h2>${esc(chosen.name)}</h2>${failedNotice}<p>${trials.length}案 · 自動評価 ${weighted(chosen.review)}${chosen.review?.sufficientEvidence ? "/5" : ""}</p><a class="pill" href="${id}.html">生成動画と元動画を比較 ↗</a></div></article>`,
   );
 }
 await writeFile(

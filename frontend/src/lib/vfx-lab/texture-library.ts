@@ -13,6 +13,11 @@ export const TEXTURE_LIBRARY = {
     description:
       "Fine white concentric magical sigil, ornamental circular lines, transparent square mask. Use on a decal.",
   },
+  "smoke-column": {
+    file: "generated-smoke-column.png",
+    description:
+      "ONE continuous rising smoke column with three large merged billows and an upper curl, broad grayscale shading, transparent background. Prefer one main camera-facing sprite plane, surface smoke, normal blend, purple tint; animate its height, opacity, low turbulence and late erosion. This replaces a stack of repeated small round puffs. Add separate small smoke-curl wisps and a restrained pink foot accent. The visible mask occupies about50% of plane width and76% of plane height; width=2*radius and height=length. Its root is near centerY-.38*length: coordinate position/motion with height growth to keep the foot anchored. Do not reuse the whole column as each small wisp.",
+  },
   "smoke-lobe": {
     file: "generated-smoke-lobe.png",
     description:

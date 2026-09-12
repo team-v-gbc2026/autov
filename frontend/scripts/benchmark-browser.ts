@@ -13,7 +13,11 @@ function mount(Runtime = VfxRuntime) {
 }
 export async function run(
   input: { prompt: string; references: string[]; caseId?: string },
-  options: { mode: "fast" | "quality"; textures: boolean },
+  options: {
+    mode: "fast" | "quality";
+    textures: boolean;
+    candidateCount?: 1 | 2 | 3;
+  },
 ) {
   const { runtime, host } = mount();
   try {
@@ -74,7 +78,14 @@ export async function render(
   try {
     await runtime.prepare(doc);
     runtime.setDocument(doc);
-    const evidence = await runtime.capture(doc);
+    const grid = runtime.scene.children.find(
+      (object) => object.type === "GridHelper",
+    );
+    if (!grid) throw new Error("Reference grid missing");
+    grid.visible = false;
+    const evidence = await runtime.capture(doc),
+      capturePreservesHiddenGrid = !grid.visible;
+    grid.visible = true;
     const frame = (t: number) => {
       runtime.render(t);
       return runtime.renderer.domElement.toDataURL("image/png");
@@ -146,6 +157,7 @@ export async function render(
       performance: performanceInfo,
       gates: {
         schema: true,
+        capturePreservesHiddenGrid,
         seekDeterministic: first === second,
         extinguishedAtEnd: doc.layers.every(
           (l) => !evaluateLayer(l, doc.duration).visible,

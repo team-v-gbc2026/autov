@@ -266,3 +266,55 @@ test("a promising unadopted scalar proposal can be repaired without weakening fi
   assert.equal(result.selected.document.name, "clear-bolt-and-visible-sparks");
   assert.equal(result.candidates[0].document.name, "accepted");
 });
+
+test("focused quality still critiques its sole candidate and rejects a worse repair", async () => {
+  const calls: string[] = [];
+  let reviews = 0;
+  const result = await generatePipeline({
+    prompt: "one shockwave",
+    references: [],
+    mode: "quality",
+    candidateCount: 1,
+    signal: new AbortController().signal,
+    capture,
+    progress: () => {},
+    candidate: () => {},
+    request: async (body) => {
+      calls.push(String(body.action));
+      if (body.action === "plan") return { runId: "focused", plan: {} };
+      if (body.action === "candidate")
+        return { document: { ...doc, name: "original" } };
+      if (body.action === "review")
+        return { review: review(++reviews === 1 ? 3.8 : 2) };
+      if (body.action === "refine")
+        return { document: { ...doc, name: "worse" } };
+      throw Error("unexpected request");
+    },
+  });
+  assert.deepEqual(calls, ["plan", "candidate", "review", "refine", "review"]);
+  assert.equal(result.selected.document.name, "original");
+  assert.equal(result.candidates.length, 2);
+});
+
+test("invalid candidate counts are rejected before a paid request", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () =>
+      generatePipeline({
+        prompt: "x",
+        references: [],
+        mode: "quality",
+        candidateCount: 0 as 1,
+        signal: new AbortController().signal,
+        capture,
+        progress: () => {},
+        candidate: () => {},
+        request: async () => {
+          calls++;
+          return {};
+        },
+      }),
+    /Candidate count/,
+  );
+  assert.equal(calls, 0);
+});

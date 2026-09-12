@@ -103,7 +103,7 @@ Water construction adds a bounded `streamer` membrane: the root stays attached w
 
 The representation follows the separation of body, splash meshes and material motion described in [1MAFX's water projectile breakdown](https://www.1mafx.com/blog/water-projectile-vfx-breakdown). Its [fire projectile breakdown](https://www.1mafx.com/blog/fire-projectile-vfx-breakdown) also separates a stretched body, deformation and flame/smoke trails. We implement the mesh and deformation locally; no tutorial asset or shader source is copied. The smoothing uses the existing Three.js [CatmullRomCurve3](https://threejs.org/docs/pages/CatmullRomCurve3.html) and lathe geometry.
 
-Candidates are now saved immediately after each successful render, before further paid review/generation steps. The studio and benchmark browser use the same archive API, so an interrupted later stage does not erase completed candidates. Long-lived primary shapes also receive two late-decay samples in the bounded twelve-frame contact sheet, while short strikes retain early active samples.
+Candidates are now saved immediately after each successful render, before further paid review/generation steps. The studio and benchmark browser use the same archive API, so an interrupted later stage does not erase completed candidates. Long-lived primary shapes also receive two late-decay samples in the bounded event-timed contact sheet, while short strikes retain early active samples.
 
 The texture planner may select up to two distinct masks when needed. The generated smoke-curl asset supplies an open hook for separated wisps while smoke-lobe supplies the main column. Camera fitting uses the alpha extent of textured smoke/flame planes, with a conservative animation margin, so transparent padding does not shrink the visible effect. Historical trial documents, sheets and renderer snapshots are retained.
 
@@ -122,3 +122,19 @@ Ice-area trials exposed another representation limit: several individually gener
 `Presets → Generated smoke example` opens a real API-generated smoke candidate from the overnight quality loop, with both generated masks embedded and all10 layers editable. Its public document/provenance are under `frontend/public/examples/`. This intentionally shared output contains no benchmark reference images, source video, evaluator data or private usage ledger. It is an example, not a fidelity pass; the complete historical trial remains in the private archive.
 
 The beam-edge library mask is another actual Codex-generated asset: two torn strips with an empty center, bound to a tinted plane alongside a separate continuous core. It addresses the smooth-bar silhouette seen in live beam trials. Water membranes now have rounded roots and view-dependent shading so head disappearance does not expose a rectangular cut. Morning case pages can include Japanese review notes keyed to the exact saved candidate, keeping historical observations separate from later variants.
+
+## Focused refinement and temporal diagnostics
+
+A quality run can now use `--candidate-count 1` (or 2) in the benchmark runner. This reduces the initial search breadth while retaining rendered critique, the scalar correction, and the bounded structural correction with the same rollback conditions. The studio's default quality mode still creates three initial candidates. Reports record the actual initial candidate count; focused runs should not be described as three-candidate searches.
+
+Capture now also measures rendered RGB activity at 30 samples per second, at 160×90, against the final extinguished frame. The critic receives a bounded normalized curve and possible weak intervals or sudden drops alongside the 16-frame contact sheet. A weak interval is not proof of invisibility, and a deliberate impact can legitimately drop sharply. These measurements inform timing diagnosis; they neither certify smooth motion nor measure realtime FPS. Capture restores the previous grid visibility.
+
+The generated `smoke-column` mask supplies one continuous primary plume with large merged billows. It complements the separate `smoke-curl` asset, reducing the need to stack many identical small puffs. Both the original mask and its preparation/provenance remain distinct from actual generated benchmark candidates. The director can select the column through the same texture stage and stable bindings as other library masks.
+
+The composition-plan output allowance is 6,000 tokens, after a complex case exhausted the earlier 3,500-token allowance before producing an effect. Model requests have a bounded 240-second timeout and no SDK retries. Timeout reservations remain in the cumulative ledger because their remote billing is uncertain.
+
+Morning review cards can use a frame extracted from the actual saved video. Failed retries are distinguished from completed generation. Optional playback measurements are displayed only when the measured JSON hash matches the selected document, and identify the renderer version and local device separately from the saved video's encoded frame rate.
+
+## Secret-scan CI
+
+The previous `gitleaks-action` launcher stopped before scanning because organization repositories require an Action license. CI now invokes the [MIT-licensed upstream Gitleaks CLI](https://github.com/gitleaks/gitleaks), version 8.30.1, with a pinned release SHA256, read-only repository permissions and redacted full-history scanning. No scan rules are disabled. This avoids introducing an organization license requirement for the separate Action; see the [Action's licensing documentation](https://github.com/gitleaks/gitleaks-action).

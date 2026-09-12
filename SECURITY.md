@@ -5,7 +5,7 @@ We're strangers building together for 4 days. These rules keep everyone (and eve
 ## 1. Secrets
 - **Never commit API keys, tokens or passwords.** Keys live only in `.env.local` (git-ignored) and in Vercel environment variables.
 - **Never paste a key into Discord, Issues or PRs.** If it happens: say so immediately, we revoke it, no blame.
-- Every PR is scanned by `gitleaks` (GitHub Action). A red check = a secret slipped in → remove it *and* rotate the key.
+- Every PR runs the checksum-pinned upstream `gitleaks` CLI in GitHub Actions, with redacted output. A failed check can indicate a secret finding or a scanner setup failure; inspect its logs. For an actual exposed secret, remove it **and** rotate the key.
 - Use **your own** OpenAI key + your own $100 hackathon credit for local dev. The production key is set once in Vercel by the lead and is not shared.
 
 ## 2. Accounts & access

@@ -83,6 +83,14 @@ try {
       `${id}: ${JSON.stringify(result.gates)}`,
     );
     assert.ok(result.evidence.renderedPixels > 20, `${id}: no visible effect`);
+    assert.equal(
+      result.evidence.temporal.frames,
+      Math.ceil(result.doc.duration * 30) + 1,
+    );
+    assert.equal(result.evidence.temporal.activityCurve.at(-1)[1], 0);
+    assert.ok(
+      result.evidence.temporal.activityCurve.some(([, value]) => value > 0),
+    );
     await writeFile(
       path.join(output, `${id}.jpg`),
       Buffer.from(result.evidence.sheet.split(",")[1], "base64"),

@@ -46,6 +46,7 @@ export async function generatePipeline(options: {
   references: string[];
   mode: "fast" | "quality";
   textures?: boolean;
+  candidateCount?: 1 | 2 | 3;
   signal: AbortSignal;
   request: Transport;
   capture: (
@@ -56,6 +57,12 @@ export async function generatePipeline(options: {
   progress: (message: string) => void;
   candidate: (candidate: Candidate) => void | Promise<void>;
 }): Promise<PipelineResult> {
+  if (
+    options.candidateCount !== undefined &&
+    (![1, 2, 3].includes(options.candidateCount) ||
+      (options.mode === "fast" && options.candidateCount !== 1))
+  )
+    throw new Error("Candidate count must be 1..3 for quality, or 1 for fast.");
   const { signal, request, capture } = options,
     trace: string[] = [],
     usages: Usage[] = [],
@@ -98,7 +105,7 @@ export async function generatePipeline(options: {
       );
     }
   }
-  const count = options.mode === "quality" ? 3 : 1;
+  const count = options.mode === "quality" ? (options.candidateCount ?? 3) : 1;
   for (let i = 0; i < count; i++) {
     try {
       step(`Building candidate ${i + 1} of ${count}…`);
@@ -127,6 +134,7 @@ export async function generatePipeline(options: {
             document,
             sheet: evidence.sheet,
             times: evidence.times,
+            temporal: evidence.temporal,
           });
           candidate.review = reviewed.review as Review;
         } catch (error) {
@@ -198,6 +206,7 @@ export async function generatePipeline(options: {
           document,
           sheet: evidence.sheet,
           times: evidence.times,
+          temporal: evidence.temporal,
         });
         refined.review = reviewed.review as Review;
         await options.candidate({ ...refined });
@@ -264,6 +273,7 @@ export async function generatePipeline(options: {
         document,
         sheet: evidence.sheet,
         times: evidence.times,
+        temporal: evidence.temporal,
       });
       repaired.review = reviewed.review as Review;
       await options.candidate({ ...repaired });

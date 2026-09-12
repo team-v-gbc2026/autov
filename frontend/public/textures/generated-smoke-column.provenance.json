@@ -1,0 +1,28 @@
+{
+  "generated": "2026-09-12T21:28:30.185Z",
+  "tool": "Codex imagegen",
+  "model": "not exposed by tool",
+  "original": "/Users/taiki/.codex/generated_images/01a096b1-27f8-7953-80b7-3c9a22f55df9/exec-a5553d1d-d29c-4d93-896f-12f24121df7a.png",
+  "originalDimensions": [
+    1254,
+    1254
+  ],
+  "file": "generated-smoke-column.png",
+  "dimensions": [
+    512,
+    512
+  ],
+  "sha256": "2bd6c48986cb1a521288733e0b2707689e824114ab62bcdfb202c703876c0a84",
+  "processing": "Aspect-preserving downsample to448x448 with transparent contain, plus32px transparent border; generated alpha and grayscale retained. No reference image copied.",
+  "description": "One continuous S-shaped rising smoke column, large merged billows and broad grayscale shading, transparent background. A primary full plume sprite rather than repeated small ball sprites.",
+  "alpha": {
+    "outerEdgeMax": 0,
+    "visiblePixels": 47733,
+    "bbox": [
+      133,
+      62,
+      387,
+      450
+    ]
+  }
+}

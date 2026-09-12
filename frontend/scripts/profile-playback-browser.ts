@@ -1,4 +1,4 @@
-import { VfxRuntime } from "../src/lib/vfx-lab/runtime";
+import { VfxRuntime, RUNTIME_VERSION } from "../src/lib/vfx-lab/runtime";
 import { validateDocument, type VfxDocument } from "../src/lib/vfx-lab/schema";
 export async function profile(input: VfxDocument, seconds?: number) {
   const doc = validateDocument(input),
@@ -57,6 +57,7 @@ export async function profile(input: VfxDocument, seconds?: number) {
         !software && /Apple|NVIDIA|AMD|Intel|Radeon|GeForce/i.test(renderer);
     return {
       name: doc.name,
+      runtime: RUNTIME_VERSION,
       renderer,
       software,
       hardwareKnown,

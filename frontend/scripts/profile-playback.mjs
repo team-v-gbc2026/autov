@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { build } from "esbuild";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -42,9 +43,14 @@ try {
   );
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   for (const file of files) {
-    const doc = JSON.parse(await readFile(file, "utf8"));
+    const raw = await readFile(file, "utf8"),
+      doc = JSON.parse(raw);
     const result = await page.evaluate((doc) => Profiler.profile(doc), doc);
-    results.push({ file, ...result });
+    results.push({
+      file,
+      documentSha256: createHash("sha256").update(raw).digest("hex"),
+      ...result,
+    });
     console.log(JSON.stringify(results.at(-1)));
   }
 } finally {

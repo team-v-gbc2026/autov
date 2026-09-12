@@ -36,6 +36,14 @@ if (
   !args.includes("--final-evaluation")
 )
   throw Error("Holdout requires --final-evaluation on a frozen implementation");
+const candidateCount = Number(
+  arg("--candidate-count", mode === "quality" ? "3" : "1"),
+);
+if (
+  ![1, 2, 3].includes(candidateCount) ||
+  (mode === "fast" && candidateCount !== 1)
+)
+  throw Error("Invalid candidate count");
 const ids = arg("--cases", "").split(",").filter(Boolean),
   max = Number(arg("--max-cases", "2")),
   base = arg("--url", "http://127.0.0.1:3031");
@@ -107,6 +115,7 @@ const report = {
     execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim(),
   ),
   mode,
+  candidateCount,
   textures: args.includes("--textures"),
   live,
   cases: [],
@@ -191,7 +200,7 @@ try {
             references: c.references,
             caseId: c.data.case_id,
           },
-          options: { mode, textures: report.textures },
+          options: { mode, textures: report.textures, candidateCount },
         },
       );
       await writeFile(

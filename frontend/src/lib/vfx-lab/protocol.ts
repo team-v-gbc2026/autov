@@ -9,6 +9,7 @@ export const TextureRequestSchema = z
       .enum([
         "sigil",
         "smoke-lobe",
+        "smoke-column",
         "smoke-curl",
         "fire-plume",
         "energy-ribbons",
@@ -58,6 +59,30 @@ export const PlanSchema = z
   })
   .strict();
 export type Plan = z.infer<typeof PlanSchema>;
+export const TemporalDiagnosticsSchema = z
+  .object({
+    sampleRate: z.number().min(1).max(60),
+    frames: z.number().int().min(2).max(721),
+    lowActivityIntervals: z
+      .array(z.tuple([z.number().min(0).max(12), z.number().min(0).max(12)]))
+      .max(24),
+    abruptDrops: z
+      .array(
+        z
+          .object({
+            time: z.number().min(0).max(12),
+            before: z.number().min(0).max(1),
+            after: z.number().min(0).max(1),
+          })
+          .strict(),
+      )
+      .max(24),
+    activityCurve: z
+      .array(z.tuple([z.number().min(0).max(12), z.number().min(0).max(1)]))
+      .min(2)
+      .max(41),
+  })
+  .strict();
 export const ReviewSchema = z
   .object({
     sufficientEvidence: z.boolean(),

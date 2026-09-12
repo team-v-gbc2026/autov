@@ -1,3 +1,8 @@
+import {
+  summarizeActivity,
+  measureFrameActivity,
+  type TemporalDiagnostics,
+} from "./temporal";
 import { textureAlphaBounds } from "./texture-bounds";
 import * as THREE from "three";
 import { buildGeometry } from "./geometry";
@@ -15,6 +20,7 @@ import {
   particleFragment,
 } from "./shaders";
 
+export const RUNTIME_VERSION = "autov.lab/1-three-r186-flow9";
 export type Evidence = {
   sheet: string;
   times: number[];
@@ -26,6 +32,7 @@ export type Evidence = {
   layers: string[];
   observations: { time: number; visible: string[] }[];
   renderedPixels?: number;
+  temporal?: TemporalDiagnostics;
 };
 const kindIndex = {
   ring: 0,
@@ -495,7 +502,8 @@ export class VfxRuntime {
       camera = this.camera.position.clone(),
       quaternion = this.camera.quaternion.clone(),
       target = this.controls.target.clone();
-    const ratio = this.renderer.getPixelRatio();
+    const ratio = this.renderer.getPixelRatio(),
+      gridVisible = this.grid.visible;
     const sheet = document.createElement("canvas");
     sheet.width = 1280;
     const times = sampleTimes(doc);
@@ -530,13 +538,40 @@ export class VfxRuntime {
         ctx.font = "11px monospace";
         ctx.fillText(`${time.toFixed(3)} s`, x + 12, y + 195);
       });
+      let temporal: TemporalDiagnostics | undefined;
+      if (!options.diagnostic) {
+        const activityCanvas = document.createElement("canvas");
+        activityCanvas.width = 160;
+        activityCanvas.height = 90;
+        const activityContext = activityCanvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+        if (!activityContext) throw new Error("Activity capture unavailable.");
+        this.render(doc.duration, options.solo);
+        activityContext.drawImage(this.renderer.domElement, 0, 0, 160, 90);
+        const baseline = activityContext.getImageData(0, 0, 160, 90).data;
+        const energies: number[] = [],
+          steps = Math.ceil(doc.duration * 30);
+        for (let i = 0; i <= steps; i++) {
+          this.render(Math.min(doc.duration, i / 30), options.solo);
+          activityContext.drawImage(this.renderer.domElement, 0, 0, 160, 90);
+          energies.push(
+            measureFrameActivity(
+              activityContext.getImageData(0, 0, 160, 90).data,
+              baseline,
+            ),
+          );
+        }
+        temporal = summarizeActivity(energies, 30, doc.duration);
+      }
       return {
         renderedPixels,
+        temporal,
         sheet: sheet.toDataURL("image/jpeg", 0.88),
         times,
         width: 320,
         height: 180,
-        runtime: "autov.lab/1-three-r186-flow8",
+        runtime: RUNTIME_VERSION,
         renderer: this.rendererDescription,
         camera: [
           ...this.camera.position.toArray(),
@@ -558,7 +593,7 @@ export class VfxRuntime {
       this.camera.position.copy(camera);
       this.camera.quaternion.copy(quaternion);
       this.controls.target.copy(target);
-      this.grid.visible = true;
+      this.grid.visible = gridVisible;
       this.renderer.setPixelRatio(ratio);
       this.composer.setPixelRatio(ratio);
       this.resize();
