@@ -33,8 +33,67 @@ export function buildGeometry(
     }
     case "cone":
       return new THREE.ConeGeometry(1, 2, 24, 4, true);
-    case "crystal":
-      return new THREE.CylinderGeometry(0, 0.45, 2, 5, 1, false);
+    case "crystal": {
+      const indexed = new THREE.CylinderGeometry(0, 0.45, 2, 5, 1, false);
+      const geometry = indexed.toNonIndexed();
+      indexed.dispose();
+      geometry.computeVertexNormals();
+      return geometry;
+    }
+    case "crystal-cluster": {
+      const positions: number[] = [],
+        axes: number[] = [],
+        offsets: number[] = [],
+        uvs: number[] = [];
+      const count = Math.min(32, layer.params.count),
+        ratio = layer.params.width / layer.params.radius;
+      const indexed = new THREE.ConeGeometry(1, 2, 5, 1, false);
+      const base = indexed.toNonIndexed();
+      indexed.dispose();
+      const source = base.getAttribute("position"),
+        uv = base.getAttribute("uv");
+      for (let i = 0; i < count; i++) {
+        const angle =
+          i * 2.399963 + random(seed, layer.id, i, "cluster-angle") * 0.25;
+        const distance =
+          i === 0 ? 0 : 0.22 + 0.72 * Math.sqrt(i / Math.max(1, count - 1));
+        const height =
+          i === 0
+            ? 1
+            : 0.45 + random(seed, layer.id, i, "cluster-height") * 0.45;
+        const thickness =
+          0.65 + random(seed, layer.id, i, "cluster-width") * 0.35;
+        const lean = distance * 0.24;
+        for (let j = 0; j < source.count; j++) {
+          const y = (source.getY(j) + 1) * height;
+          const x = Math.cos(angle) * (distance + lean * y);
+          const z = Math.sin(angle) * (distance + lean * y);
+          const ox = source.getX(j) * thickness,
+            oz = source.getZ(j) * thickness;
+          axes.push(x, y, z);
+          offsets.push(ox, oz);
+          positions.push(x + ox * ratio, y, z + oz * ratio);
+          uvs.push(uv.getX(j), uv.getY(j));
+        }
+      }
+      base.dispose();
+      const result = new THREE.BufferGeometry();
+      result.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      result.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      result.setAttribute(
+        "aClusterAxis",
+        new THREE.Float32BufferAttribute(axes, 3),
+      );
+      result.setAttribute(
+        "aClusterOffset",
+        new THREE.Float32BufferAttribute(offsets, 2),
+      );
+      result.computeVertexNormals();
+      return result;
+    }
     case "streamer": {
       // An open membrane along local Y: broad connected root, rounded tapered tip.
       // The vertex shader bends only the free end, with a conservative bounds envelope.

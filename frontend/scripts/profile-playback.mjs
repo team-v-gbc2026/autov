@@ -27,7 +27,9 @@ const browser = await chromium.launch({
     : {}),
   args: software
     ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
-    : ["--use-angle=metal"],
+    : process.platform === "darwin"
+      ? ["--use-angle=metal"]
+      : [],
 });
 const results = [];
 try {

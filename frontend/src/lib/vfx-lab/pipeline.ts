@@ -104,7 +104,7 @@ export async function generatePipeline(options: {
       step(`Building candidate ${i + 1} of ${count}…`);
       const result = await call({ action: "candidate", runId, index: i });
       const document = validateDocument(result.document);
-      step(`Rendering candidate ${i + 1} at twelve event-timed moments…`);
+      step(`Rendering candidate ${i + 1} at sixteen event-timed moments…`);
       const evidence = await capture(document),
         candidate: Candidate = {
           id: `${runId}-${i}`,

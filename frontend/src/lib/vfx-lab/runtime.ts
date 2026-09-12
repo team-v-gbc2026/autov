@@ -77,11 +77,17 @@ export function createEffect(
         "solid",
         "portal",
         "water-streaks",
+        "energy-ribbon",
+        "circle-eyes",
+        "ice",
+        "sparkle",
       ].indexOf(layer.surface || "default"),
     };
     uniforms.uMesh = {
       value: layer.geometry && layer.geometry !== "auto" ? 1 : 0,
     };
+    uniforms.uCluster = { value: layer.geometry === "crystal-cluster" ? 1 : 0 };
+    uniforms.uFlat = { value: layer.geometry === "plane" ? 1 : 0 };
     uniforms.uStreamer = { value: layer.geometry === "streamer" ? 1 : 0 };
     uniforms.uTexture = {
       value: layer.textureId ? textures.get(layer.textureId) || null : null,
@@ -95,11 +101,13 @@ export function createEffect(
       vertexShader: isParticles ? particleVertex : surfaceVertex,
       fragmentShader: isParticles ? particleFragment : surfaceFragment,
       transparent: true,
-      // Solid water heads occlude membranes behind them; smoke and glow stay depth-soft.
+      // Resolve front/back self-occlusion on normally blended solid meshes.
       depthWrite:
         layer.params.blend === "normal" &&
-        layer.surface === "water" &&
-        ["teardrop", "cone", "crystal"].includes(layer.geometry || ""),
+        ["water", "solid", "ice"].includes(layer.surface || "") &&
+        ["teardrop", "cone", "crystal", "crystal-cluster"].includes(
+          layer.geometry || "",
+        ),
       side: THREE.DoubleSide,
       blending:
         layer.params.blend === "additive"
@@ -169,6 +177,7 @@ export function createEffect(
         } else if (
           layer.geometry === "cone" ||
           layer.geometry === "crystal" ||
+          layer.geometry === "crystal-cluster" ||
           layer.geometry === "streamer" ||
           layer.geometry === "teardrop"
         ) {
@@ -234,6 +243,25 @@ export function createEffect(
           } else {
             if (!geometry.boundingBox) geometry.computeBoundingBox();
             const local = geometry.boundingBox!.clone();
+            if (layer.geometry === "crystal-cluster") {
+              const axis = geometry.getAttribute("aClusterAxis"),
+                offset = geometry.getAttribute("aClusterOffset");
+              const ratio = p.width / p.radius;
+              // Project actual cluster vertices: a tall center and low outer spikes
+              // do not occupy the empty upper corners of a whole-cluster box.
+              for (let i = 0; i < axis.count; i++) {
+                point
+                  .set(
+                    axis.getX(i) + offset.getX(i) * ratio,
+                    axis.getY(i),
+                    axis.getZ(i) + offset.getY(i) * ratio,
+                  )
+                  .applyMatrix4(mesh.matrixWorld)
+                  .applyMatrix4(viewMatrix);
+                box.expandByPoint(point);
+              }
+              continue;
+            }
             const alpha =
               layer.textureId &&
               textures.get(layer.textureId)?.userData.alphaBounds;
@@ -470,10 +498,10 @@ export class VfxRuntime {
     const ratio = this.renderer.getPixelRatio();
     const sheet = document.createElement("canvas");
     sheet.width = 1280;
-    sheet.height = 606;
+    const times = sampleTimes(doc);
+    sheet.height = Math.ceil(times.length / 4) * 202;
     const ctx = sheet.getContext("2d");
     if (!ctx) throw new Error("Capture unavailable.");
-    const times = sampleTimes(doc);
     let renderedPixels = 0;
     try {
       this.renderer.setPixelRatio(1);
@@ -508,7 +536,7 @@ export class VfxRuntime {
         times,
         width: 320,
         height: 180,
-        runtime: "autov.lab/1-three-r186-flow6",
+        runtime: "autov.lab/1-three-r186-flow7",
         renderer: this.rendererDescription,
         camera: [
           ...this.camera.position.toArray(),

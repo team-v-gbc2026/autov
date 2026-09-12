@@ -163,5 +163,5 @@ test("event sampling captures real flash onset despite inconsistent impact metad
   const times = sampleTimes(doc);
   assert.ok(times.includes(0.57));
   assert.ok(times.includes(0.63));
-  assert.ok(times.length <= 12);
+  assert.ok(times.length <= 16);
 });

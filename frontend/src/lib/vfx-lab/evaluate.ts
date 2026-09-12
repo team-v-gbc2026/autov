@@ -163,6 +163,21 @@ export function sampleTimes(doc: VfxDocument) {
     ...events
       .filter((l) => l.end - l.start <= 0.5)
       .map((l) => l.start + Math.min(0.08, (l.end - l.start) / 2)),
+    ...doc.layers
+      .filter(
+        (l) =>
+          l.enabled &&
+          l.role === "anticipation" &&
+          l.start < impact &&
+          Math.min(l.end, impact) - l.start > 0.2,
+      )
+      .slice(0, 2)
+      .flatMap((l) =>
+        [0.25, 0.5, 0.75].map(
+          (fraction) =>
+            l.start + (Math.min(l.end, impact) - l.start) * fraction,
+        ),
+      ),
     impact + 0.08,
     impact * 0.5,
     impact + 0.18,
@@ -173,10 +188,10 @@ export function sampleTimes(doc: VfxDocument) {
     doc.duration * 0.82,
   ];
   for (const time of priority) {
-    if (selected.size >= 12) break;
+    if (selected.size >= 16) break;
     selected.add(normalize(time));
   }
-  for (let i = 1; selected.size < 12 && i < 24; i++)
+  for (let i = 1; selected.size < 16 && i < 24; i++)
     selected.add(normalize((doc.duration * i) / 24));
   return [...selected].sort((a, b) => a - b);
 }

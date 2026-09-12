@@ -94,7 +94,7 @@ const RequestSchema = z.discriminatedUnion("action", [
       runId: z.string(),
       document: DocumentSchema,
       sheet: imageSchema,
-      times: z.array(z.number().min(0).max(12)).min(1).max(12),
+      times: z.array(z.number().min(0).max(12)).min(1).max(16),
     })
     .strict(),
   z

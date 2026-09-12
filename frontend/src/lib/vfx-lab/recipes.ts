@@ -131,7 +131,7 @@ export const RECIPES = {
     prompt:
       "A horizontal magenta energy beam from right to left, charging first, sustaining, then fading into a particle wake.",
     knowledge:
-      "Use beam auto with rotation.z=pi/2 for a horizontal camera-plane beam. Animate length during extension; move the center by half the length change to keep the emission point anchored. Use at least two layers for colored edge and narrow white core, separate endpoint flare, and a late residue layer. Do not substitute a radial burst for a continuous connected beam.",
+      "Use beam auto with rotation.z=pi/2 for a horizontal camera-plane beam. Animate length during extension; move the center by half the length change to keep the emission point anchored. Prefer surface energy-ribbon with white color and saturated secondaryColor: it supplies a continuous white core and sharp colored sides without cloud holes. Add a separate endpoint flare and a late residue layer; extra beam layers should only serve a distinct visible purpose. Do not substitute a radial burst for a continuous connected beam.",
   },
   portal: {
     name: "Amber portal",
@@ -139,7 +139,7 @@ export const RECIPES = {
     prompt:
       "One upright amber rectangular portal, with a luminous rim, softly moving translucent interior and golden edge sparks.",
     knowledge:
-      "Use geometry plane, surface portal, kind decal. Width=2*radius, height=length. The procedural portal surface provides a rectangular rim and moving mist; do not use the circular default decal. The opening stays recognizable during sustain; fade opacity at both boundaries. Do not add doorway architecture or a destination scene.",
+      "Use geometry plane, surface portal, kind decal. Width=2*radius, height=length. The procedural portal surface provides a rectangular rim and moving mist; params.width controls rim thickness in meters, usually .05-.12; do not use the circular default decal. The opening stays recognizable during sustain; fade opacity at both boundaries. Do not add doorway architecture or a destination scene.",
   },
 } as const;
 export type RecipeId = keyof typeof RECIPES;

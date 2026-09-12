@@ -113,7 +113,7 @@ test("staggered short strikes are each sampled before they disappear", async () 
     end: start + 0.2,
   }));
   const times = sampleTimes(doc);
-  assert.ok(times.length <= 12);
+  assert.ok(times.length <= 16);
   for (const layer of doc.layers)
     assert.ok(times.some((t) => t > layer.start && t < layer.end));
 });
@@ -165,7 +165,7 @@ test("many layered onsets cannot crowd the growth and breakup phases out of a co
     end: 2.8,
   }));
   const times = sampleTimes(doc);
-  assert.equal(times.length, 12);
+  assert.equal(times.length, 16);
   for (const t of [1.05, 1.65, 2.4]) assert.ok(times.includes(t));
 });
 
@@ -175,5 +175,24 @@ test("sustained effects include late-decay samples without exceeding the contact
     times = sampleTimes(doc);
   assert.ok(times.includes(3.6));
   assert.ok(times.includes(3.84));
-  assert.equal(times.length, 12);
+  assert.equal(times.length, 16);
+});
+
+test("crystal clusters reject counts beyond their mesh budget", () => {
+  const doc = createPreset("slash");
+  doc.layers[0].geometry = "crystal-cluster";
+  doc.layers[0].params.count = 33;
+  assert.throws(() => validateDocument(doc), /at most 32/);
+  doc.layers[0].params.count = 18;
+  assert.doesNotThrow(() => validateDocument(doc));
+});
+
+test("long anticipation is sampled before the main activation", async () => {
+  const { sampleTimes } = await import("../src/lib/vfx-lab/evaluate");
+  const doc = createPreset("beam");
+  doc.impact = 1.2;
+  doc.layers = [structuredClone(doc.layers.find((l) => l.id === "charge")!)];
+  doc.layers[0].end = 1.2;
+  const times = sampleTimes(doc);
+  for (const t of [0.3, 0.6, 0.9]) assert.ok(times.includes(t));
 });

@@ -1,6 +1,6 @@
 import { VfxRuntime } from "../src/lib/vfx-lab/runtime";
 import { validateDocument, type VfxDocument } from "../src/lib/vfx-lab/schema";
-export async function profile(input: VfxDocument, seconds = 6) {
+export async function profile(input: VfxDocument, seconds?: number) {
   const doc = validateDocument(input),
     host = document.createElement("div"),
     errors: string[] = [];
@@ -19,6 +19,7 @@ export async function profile(input: VfxDocument, seconds = 6) {
     gl.finish();
     const samples: number[] = [],
       intervals: number[] = [];
+    const duration = Math.max(seconds ?? 6, doc.duration + 0.6);
     const start = performance.now();
     let previous = start,
       maxCalls = 0,
@@ -40,7 +41,7 @@ export async function profile(input: VfxDocument, seconds = 6) {
           maxTriangles,
           runtime.renderer.info.render.triangles,
         );
-        if (t < seconds) requestAnimationFrame(tick);
+        if (t < duration) requestAnimationFrame(tick);
         else resolve();
       };
       requestAnimationFrame(tick);
@@ -60,6 +61,7 @@ export async function profile(input: VfxDocument, seconds = 6) {
       software,
       hardwareKnown,
       resolution: [960, 540],
+      durationSeconds: duration,
       devicePixelRatio: runtime.renderer.getPixelRatio(),
       samples: samples.length,
       measuredPlaybackFps:

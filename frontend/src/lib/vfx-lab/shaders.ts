@@ -3,11 +3,25 @@ float hash(vec3 p){ p=fract(p*.3183099+vec3(.1,.2,.3)); p*=17.; return fract(p.x
 float noise3(vec3 p){ vec3 i=floor(p),f=fract(p); f=f*f*(3.-2.*f); return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z); }
 float fbm(vec3 p){ return .57*noise3(p)+.28*noise3(p*2.03)+.15*noise3(p*4.07); }
 `;
+export const starMask = `
+float pointedShape(vec2 p,float arms,float outerRadius,float innerRadius){
+  float angle=atan(p.y,p.x), halfAngle=3.14159265/arms;
+  float q=abs(mod(angle-1.570796+halfAngle,halfAngle*2.)-halfAngle);
+  vec2 outer=vec2(outerRadius,0.), inner=innerRadius*vec2(cos(halfAngle),sin(halfAngle));
+  vec2 ray=vec2(cos(q),sin(q)), edge=inner-outer;
+  float boundary=(outer.x*inner.y)/(ray.x*edge.y-ray.y*edge.x);
+  return 1.-smoothstep(boundary-.008,boundary+.008,length(p));
+}
+float pointedStar(vec2 p){return pointedShape(p,5.,.78,.31);}
+float pointedSparkle(vec2 p){return pointedShape(p,4.,.9,.09);}
+`;
 export const surfaceVertex = `
 varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
-uniform float uTime,uTurbulence; uniform int uStreamer;
+uniform float uTime,uTurbulence,uWidth,uRadius; uniform int uStreamer,uCluster;
+attribute vec3 aClusterAxis; attribute vec2 aClusterOffset;
 void main(){
   vUv=uv; vec3 pos=position,nrm=normal;
+  if(uCluster==1){pos=aClusterAxis;pos.xz+=aClusterOffset*(uWidth/max(.01,uRadius));}
   if(uStreamer==1){
     float t=clamp((position.y+1.)*.5,0.,1.);
     float envelope=t*t, derivative=t;
@@ -22,16 +36,17 @@ void main(){
 }
 `;
 export const surfaceFragment = `
-uniform vec3 uColor,uSecondary; uniform float uTime,uOpacity,uIntensity,uWidth,uRadius,uTurbulence,uErosion,uArc,uSpin; uniform int uKind,uSurface,uMesh,uHasTexture; uniform sampler2D uTexture;
+uniform vec3 uColor,uSecondary; uniform float uTime,uOpacity,uIntensity,uWidth,uRadius,uLength,uTurbulence,uErosion,uArc,uSpin; uniform int uKind,uSurface,uMesh,uFlat,uHasTexture; uniform sampler2D uTexture;
 varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
 ${noise}
+${starMask}
 void main(){
   vec2 p=vUv*2.-1.; float r=length(p),a=atan(p.y,p.x)+uTime*uSpin;
   float n=fbm(vec3(p*5.,uTime*.65)); float mask=0.; float detail=1.;
   if(uKind==0){
     float d=abs(r-.78+sin(a*17.+uTime*3.)*.006*uTurbulence+(n-.5)*.035*uTurbulence);
     float w=max(.002,uWidth/max(uRadius,.01)*.65);
-    mask=exp(-pow(d/w,2.))* .8+exp(-d/(w*4.))*.13;
+    mask=(exp(-pow(d/w,2.))* .8+exp(-d/(w*4.))*.13)*(1.-smoothstep(.93,1.,r));
     detail=.65+.35*pow(sin(a*24.)*.5+.5,4.);
     // Erosion removes coherent angular segments instead of only fading an intact ring.
     float segmentField=.15+.7*noise3(vec3(cos(a)*4.,sin(a)*4.,0.));
@@ -65,7 +80,8 @@ void main(){
     float ornament=exp(-abs(r-(.29+.06*cos(a*6.)))*190.);
     mask=ring1+ring2*.55+ring3*.65+marks*.8+spokes*.6+ornament;
   }
-  if(uMesh==1) mask=1.;
+  // Flat carriers preserve their kind mask; explicit solid planes remain filled.
+  if(uMesh==1 && (uFlat==0 || (uSurface==6 && uKind!=0))) mask=1.;
   if(uSurface==1){
     float flame=fbm(vec3(p.x*4.,p.y*3.-uTime*2.,uTime*.6));
     float taper=1.-smoothstep(-.9,1.,p.y);
@@ -95,14 +111,46 @@ void main(){
     if(uKind==4)mask=silhouette*smoothstep(.12+uErosion*.65,.45+uErosion*.5,cloud)*.85;
     else mask*=smoothstep(uErosion*.8,uErosion*.8+.15,cloud+.25);
     detail=floor(clamp(cloud+.2-p.y*.12,0.,1.)*4.)/4.;
-  } else if(uSurface==5){
-    float star=.40+.20*cos(a*5.); mask=1.-smoothstep(star-.02,star+.02,r);
+  } else if(uSurface==5 || uSurface==12){
+    float spinAngle=uTime*uSpin;
+    vec2 symbol=mat2(cos(spinAngle),-sin(spinAngle),sin(spinAngle),cos(spinAngle))*p;
+    mask=uSurface==12?pointedSparkle(symbol):pointedStar(symbol);
   }
   if(uSurface==7){
-    float border=1.-smoothstep(.02,.065,min(1.-abs(p.x),1.-abs(p.y)));
+    // Distance in world meters keeps top and side rim thickness equal.
+    float edgeDistance=min((1.-abs(p.x))*uRadius,(1.-abs(p.y))*uLength*.5);
+    float rimWidth=max(.001,uWidth);
+    float border=1.-smoothstep(rimWidth*.65,rimWidth*1.15,edgeDistance);
     float mist=fbm(vec3(p*3.,uTime*.35));
     mask=border*.8+(.08+.22*mist)*(1.-border);
     detail=border;
+  }
+  if(uSurface==9){
+    // Continuous core with a narrow moving edge; no longitudinal cloud holes.
+    float edge=.48+.035*uTurbulence*sin(p.y*18.-uTime*10.);
+    float side=1.-smoothstep(edge-.025,edge+.025,abs(p.x));
+    float ends=1.-smoothstep(.94,1.,abs(p.y));
+    mask=side*ends*(1.-uErosion);
+    detail=1.-smoothstep(.17,.23,abs(p.x));
+  }
+  if(uSurface==10){
+    // A compound symbol keeps its two eyes attached during rotation and motion.
+    float rim=1.-smoothstep(.035,.055,abs(r-.7));
+    float turn=uTime*uSpin;
+    vec2 facePoint=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*p;
+    vec2 eyePoint=vec2(abs(facePoint.x)-.23,facePoint.y-.12);
+    float eyes=1.-smoothstep(.9,1.,length(eyePoint/vec2(.13,.18)));
+    float pupils=1.-smoothstep(.85,1.,length(eyePoint/vec2(.05,.085)));
+    float fill=(1.-smoothstep(.67,.7,r))*.12;
+    mask=max(rim,max(eyes,fill))*(1.-pupils)*(1.-uErosion);
+    detail=1.-eyes;
+  }
+  if(uSurface==11){
+    float face=abs(dot(normalize(vNormal),normalize(vView)));
+    float field=noise3(vec3(vUv*vec2(12.,6.),1.));
+    float veins=1.-smoothstep(.012,.03,abs(field-.5));
+    detail=clamp(.08+.4*pow(1.-face,2.)+.78*veins,0.,1.);
+    mask=1.-smoothstep(.02,.98,uErosion);
   }
   if(uHasTexture==1){
     vec2 uv=vUv;
@@ -124,6 +172,7 @@ void main(){
   if(uSurface==4) colorMix=.25+detail*.7;
   if(uSurface==2) colorMix=clamp(detail,0.,1.);
   if(uSurface==8) colorMix=1.;
+  if(uSurface==7 || uSurface==9 || uSurface==10 || uSurface==11) colorMix=detail;
   if(uMesh==1 && uSurface==6) colorMix=.15+.85*pow(abs(dot(normalize(vNormal),normalize(vView))),4.);
   vec3 c=mix(uSecondary,uColor,colorMix)*uIntensity;
   gl_FragColor=vec4(c,clamp(mask,0.,1.));
@@ -153,6 +202,7 @@ void main(){
 }
 `;
 export const particleFragment = `
-uniform vec3 uColor,uSecondary; uniform float uIntensity; varying vec2 vUv; varying float vAlpha; varying float vHeat;
-void main(){ vec2 p=vUv*2.-1.; float a=exp(-dot(p,p)*3.)*(1.-smoothstep(.7,1.,length(p)))*vAlpha; if(a<.004)discard; gl_FragColor=vec4(mix(uSecondary,uColor,vHeat)*uIntensity,a); }
+uniform vec3 uColor,uSecondary; uniform float uIntensity; uniform int uSurface; varying vec2 vUv; varying float vAlpha; varying float vHeat;
+${starMask}
+void main(){ vec2 p=vUv*2.-1.; float silhouette=uSurface==12?pointedSparkle(p):uSurface==5?pointedStar(p):exp(-dot(p,p)*3.)*(1.-smoothstep(.7,1.,length(p))); float a=silhouette*vAlpha; if(a<.004)discard; gl_FragColor=vec4(mix(uSecondary,uColor,vHeat)*uIntensity,a); }
 `;

@@ -84,6 +84,7 @@ export const GEOMETRIES = [
   "teardrop",
   "cone",
   "crystal",
+  "crystal-cluster",
   "torus",
   "ribbon",
   "streamer",
@@ -99,6 +100,10 @@ export const SURFACES = [
   "solid",
   "portal",
   "water-streaks",
+  "energy-ribbon",
+  "circle-eyes",
+  "ice",
+  "sparkle",
 ] as const;
 export const MotionSchema = z
   .object({
@@ -198,6 +203,8 @@ export function validateDocument(input: unknown): VfxDocument {
       throw new Error(
         "Particles use instanced billboards; use a surface layer for meshes.",
       );
+    if (layer.geometry === "crystal-cluster" && layer.params.count > 32)
+      throw new Error("Crystal clusters allow at most 32 crystals per layer.");
     if (layer.motion)
       for (let i = 0; i < layer.motion.keys.length; i++) {
         const t = layer.motion.keys[i][0];

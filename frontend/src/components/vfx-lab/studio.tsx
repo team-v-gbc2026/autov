@@ -442,19 +442,31 @@ export default function VfxStudio() {
             disabled={busy}
             value=""
             onChange={async (e) => {
-              if (e.target.value !== "texture-demo") {
+              const example =
+                e.target.value === "texture-demo"
+                  ? "generated-sigil.json"
+                  : e.target.value === "smoke-trial"
+                    ? "generated-smoke-trial.json"
+                    : null;
+              if (!example) {
                 choosePreset(e.target.value as RecipeId);
                 return;
               }
               try {
-                const response = await fetch("/examples/generated-sigil.json");
-                if (!response.ok) throw new Error("Texture demo unavailable.");
+                const response = await fetch(`/examples/${example}`);
+                if (!response.ok) throw new Error("Example unavailable.");
                 const next = validateDocument(await response.json());
                 commit(next);
                 setSelected(next.layers[0].id);
                 setSolo(undefined);
+                composer.current?.setText(next.description);
+                playback.setTime(Math.min(next.duration, next.impact + 0.2));
+                setCandidates([]);
+                setPlan(null);
                 setNotice(
-                  "Authored demonstration using a Codex-generated texture. This is not a live generation result.",
+                  example === "generated-smoke-trial.json"
+                    ? "Saved API-generated smoke example. Replay it or edit its layers."
+                    : "Authored demonstration using a Codex-generated texture. This is not a live generation result.",
                 );
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Demo failed.");
@@ -465,6 +477,7 @@ export default function VfxStudio() {
               Presets
             </option>
             <option value="texture-demo">Generated texture demo</option>
+            <option value="smoke-trial">Generated smoke example</option>
             {Object.entries(RECIPES).map(([id, recipe]) => (
               <option key={id} value={id}>
                 {recipe.name}
@@ -599,7 +612,7 @@ export default function VfxStudio() {
                     <Image
                       unoptimized
                       width={1280}
-                      height={606}
+                      height={Math.ceil(c.evidence.times.length / 4) * 202}
                       src={c.evidence.sheet}
                       alt={`Candidate ${i + 1}, timestamped render contact sheet`}
                     />
@@ -900,8 +913,12 @@ export default function VfxStudio() {
                     disabled={busy}
                     onChange={(e) => {
                       const next = structuredClone(doc);
-                      next.layers.find((l) => l.id === layer.id)!.geometry = e
-                        .target.value as typeof layer.geometry;
+                      const target = next.layers.find(
+                        (l) => l.id === layer.id,
+                      )!;
+                      target.geometry = e.target.value as typeof layer.geometry;
+                      if (target.geometry === "crystal-cluster")
+                        target.params.count = Math.min(32, target.params.count);
                       commit(next);
                     }}
                   >
@@ -912,6 +929,30 @@ export default function VfxStudio() {
                     ))}
                   </select>
                 </label>
+                {layer.geometry === "crystal-cluster" && (
+                  <label className="lab-field">
+                    Crystals
+                    <input
+                      aria-label="Crystal count"
+                      type="number"
+                      min={1}
+                      max={32}
+                      step={1}
+                      value={layer.params.count}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const count = Number(e.target.value);
+                        if (!Number.isInteger(count) || count < 1 || count > 32)
+                          return;
+                        const next = structuredClone(doc);
+                        next.layers.find(
+                          (l) => l.id === layer.id,
+                        )!.params.count = count;
+                        commit(next);
+                      }}
+                    />
+                  </label>
+                )}
                 <label className="lab-field">
                   Surface
                   <select

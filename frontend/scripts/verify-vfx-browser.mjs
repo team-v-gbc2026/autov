@@ -49,6 +49,27 @@ try {
     .click();
   await page.getByLabel("Layer color", { exact: true }).fill("#44ccff");
   await page.screenshot({ path: path.join(output, "controls.png") });
+  await page
+    .getByLabel("Load preset", { exact: true })
+    .selectOption("smoke-trial");
+  await page
+    .getByText(
+      "Saved API-generated smoke example. Replay it or edit its layers.",
+    )
+    .waitFor();
+  assert.equal(await page.locator(".lab-emitter-row").count(), 10);
+  await page.getByLabel("Playback position", { exact: true }).fill("1.2");
+  await page.screenshot({
+    path: path.join(output, "generated-smoke-example.png"),
+  });
+  await page
+    .getByLabel("Layer mesh", { exact: true })
+    .selectOption("crystal-cluster");
+  await page.getByLabel("Crystal count", { exact: true }).fill("12");
+  assert.equal(
+    await page.getByLabel("Crystal count", { exact: true }).inputValue(),
+    "12",
+  );
   await page.goto(new URL("/api/local-vfx", page.url()).href);
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   const ids = await page.evaluate(() => Object.keys(Probe.RECIPES));
@@ -127,6 +148,208 @@ try {
     gates: erosionResult.gates,
     erosionChangesPixels: true,
     renderer: erosionResult.evidence.renderer,
+  });
+  const portalDoc = await page.evaluate(() => {
+    const doc = Probe.createPreset("portal");
+    doc.name = "Portal rim width — authored renderer fixture";
+    doc.layers[0].params.width = 0.01;
+    return doc;
+  });
+  const thinPortal = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    portalDoc,
+  );
+  portalDoc.layers[0].params.width = 0.15;
+  const thickPortal = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    portalDoc,
+  );
+  assert.ok(Object.values(thickPortal.gates).every(Boolean));
+  assert.notEqual(
+    thinPortal.frames[3].png,
+    thickPortal.frames[3].png,
+    "Portal rim width must affect rendered pixels, not just stored parameters",
+  );
+  await writeFile(
+    path.join(output, "portal-width.jpg"),
+    Buffer.from(thickPortal.evidence.sheet.split(",")[1], "base64"),
+  );
+  results.push({
+    id: "portal-width",
+    source: "authored_renderer_fixture",
+    gates: thickPortal.gates,
+    widthChangesPixels: true,
+    renderer: thickPortal.evidence.renderer,
+  });
+  const energyDoc = await page.evaluate(() => {
+    const doc = Probe.createPreset("beam");
+    doc.name = "Sharp energy ribbon — authored renderer fixture";
+    doc.layers = doc.layers.filter((l) => l.id === "beam-0");
+    const beam = doc.layers[0];
+    beam.surface = "energy-ribbon";
+    beam.params.color = "#FFFFFF";
+    beam.params.secondaryColor = "#E600A8";
+    beam.params.intensity = 1.3;
+    beam.params.turbulence = 0.5;
+    doc.post.bloom = 0.15;
+    return doc;
+  });
+  const energyResult = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    energyDoc,
+  );
+  assert.ok(Object.values(energyResult.gates).every(Boolean));
+  assert.ok(energyResult.evidence.renderedPixels > 20);
+  await writeFile(
+    path.join(output, "energy-ribbon.jpg"),
+    Buffer.from(energyResult.evidence.sheet.split(",")[1], "base64"),
+  );
+  results.push({
+    id: "energy-ribbon",
+    source: "authored_renderer_fixture",
+    gates: energyResult.gates,
+    renderer: energyResult.evidence.renderer,
+  });
+  const symbolDocs = await page.evaluate(() => {
+    const ringDoc = Probe.createPreset("lightning"),
+      ring = ringDoc.layers.find((l) => l.kind === "ring");
+    ringDoc.layers = [ring];
+    ringDoc.name = "Ring plane silhouette — authored renderer fixture";
+    ring.params.rotation = [0, 0, 0];
+    ring.params.turbulence = 0;
+    ring.params.opacity = 1;
+    ring.params.radius = 1;
+    ring.params.width = 0.28;
+    ring.start = 0;
+    ring.end = ringDoc.duration;
+    ring.tracks = [];
+    ring.geometry = "plane";
+    ring.surface = "solid";
+    const starDoc = structuredClone(ringDoc);
+    starDoc.name = "Pointed stars — authored renderer fixture";
+    starDoc.layers[0].kind = "sprite";
+    starDoc.layers[0].surface = "star";
+    starDoc.layers[0].params.color = "#FF238A";
+    starDoc.layers[0].params.secondaryColor = "#D20A65";
+    starDoc.post.bloom = 0.1;
+    const faceDoc = structuredClone(starDoc);
+    faceDoc.name = "Circle and attached eyes — authored renderer fixture";
+    faceDoc.layers[0].surface = "circle-eyes";
+    faceDoc.layers[0].params.secondaryColor = "#FFF5FA";
+    faceDoc.layers[0].params.spin = 0;
+    const auraDoc = structuredClone(starDoc);
+    auraDoc.name = "Soft upright glow — authored renderer fixture";
+    auraDoc.layers[0].surface = "default";
+    auraDoc.layers[0].params.color = "#60E850";
+    auraDoc.layers[0].params.secondaryColor = "#25872E";
+    auraDoc.layers[0].params.length = 3;
+    auraDoc.layers[0].params.opacity = 0.35;
+    const glintDoc = structuredClone(starDoc);
+    glintDoc.name = "Four point sparkle — authored renderer fixture";
+    glintDoc.layers[0].surface = "sparkle";
+    return [ringDoc, starDoc, faceDoc, auraDoc, glintDoc];
+  });
+  for (const [i, doc] of symbolDocs.entries()) {
+    const result = await page.evaluate((doc) => Probe.render(doc, false), doc);
+    assert.ok(Object.values(result.gates).every(Boolean));
+    const id = [
+      "ring-plane",
+      "pointed-stars",
+      "circle-eyes",
+      "soft-plane-aura",
+      "four-point-sparkle",
+    ][i];
+    await writeFile(
+      path.join(output, `${id}.jpg`),
+      Buffer.from(result.evidence.sheet.split(",")[1], "base64"),
+    );
+    results.push({
+      id,
+      source: "authored_renderer_fixture",
+      gates: result.gates,
+      renderer: result.evidence.renderer,
+    });
+  }
+  const crystalDoc = await page.evaluate(() => {
+    const doc = Probe.createPreset("lightning"),
+      layer = doc.layers[0];
+    doc.name = "Faceted crystal crown — authored renderer fixture";
+    doc.duration = 3;
+    doc.impact = 0.6;
+    doc.layers = [layer];
+    layer.kind = "sprite";
+    layer.geometry = "crystal-cluster";
+    layer.surface = "ice";
+    layer.start = 0;
+    layer.end = 3;
+    Object.assign(layer.params, {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      count: 18,
+      radius: 1.2,
+      width: 0.24,
+      length: 1.8,
+      color: "#DFFAFF",
+      secondaryColor: "#148AC2",
+      intensity: 1,
+      opacity: 1,
+      blend: "normal",
+    });
+    layer.tracks = [
+      {
+        target: "length",
+        keys: [
+          [0, 0.01],
+          [0.6, 1.8],
+          [2.3, 1.8],
+          [3, 0.1],
+        ],
+        ease: "smooth",
+      },
+      {
+        target: "width",
+        keys: [
+          [0, 0.01],
+          [0.6, 0.24],
+          [2.3, 0.24],
+          [3, 0.01],
+        ],
+        ease: "smooth",
+      },
+      {
+        target: "opacity",
+        keys: [
+          [0, 0],
+          [0.1, 1],
+          [2.3, 1],
+          [3, 0],
+        ],
+        ease: "smooth",
+      },
+    ];
+    doc.post.bloom = 0.1;
+    return doc;
+  });
+  const crystalResult = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    crystalDoc,
+  );
+  assert.ok(Object.values(crystalResult.gates).every(Boolean));
+  assert.ok(crystalResult.performance.triangles > 100);
+  await writeFile(
+    path.join(output, "crystal-cluster.jpg"),
+    Buffer.from(crystalResult.evidence.sheet.split(",")[1], "base64"),
+  );
+  await writeFile(
+    path.join(output, "crystal-cluster.json"),
+    JSON.stringify(crystalDoc, null, 2),
+  );
+  results.push({
+    id: "crystal-cluster",
+    source: "authored_renderer_fixture",
+    gates: crystalResult.gates,
+    performance: crystalResult.performance,
+    renderer: crystalResult.evidence.renderer,
   });
   const smokeDoc = await page.evaluate(() => Probe.createPreset("smoke"));
   smokeDoc.name = "Two generated smoke masks — authored renderer fixture";
@@ -217,6 +440,8 @@ try {
         results,
         errors,
         benchmarkGeneration: false,
+        savedGeneratedExampleLoaded: true,
+        crystalCountEditable: true,
         renderer: results[0]?.renderer,
         performanceAcceptance: "not measured by this correctness suite",
       },

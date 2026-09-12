@@ -1,0 +1,9 @@
+{
+  "source": "Actual autoV quality pipeline generation with input references, followed by bounded refinement",
+  "generator": "gpt-6-astra",
+  "created": "2026-09-12T20:03:26.634Z",
+  "sourceImplementation": "193edf66966ad525e50be0123d3a88ebcbba3d9e",
+  "textures": "Two Codex-generated reusable smoke masks embedded in the document",
+  "documentSha256": "0c8a0cc31e1fb034257e0187a61a238cbac1fe6d2ca603b0192211ca0f35a76c",
+  "notice": "Editable generated example. Source reference images, source video, evaluation criteria and private usage records are not included. This is not a claim of benchmark acceptance. Current editor rendering may differ from the archived original runtime."
+}
