@@ -1,5 +1,5 @@
 {
-  "installCommand": "npx -y aube@latest install",
-  "buildCommand": "npx -y aube@latest run build",
-  "devCommand": "npx -y aube@latest run dev"
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev"
 }

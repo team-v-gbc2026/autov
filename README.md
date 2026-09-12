@@ -36,15 +36,15 @@ TBD
 git clone https://github.com/team-v-gbc2026/autov.git
 cd autov
 cp .env.example .env.local   # add YOUR OWN OpenAI key (never commit it)
-aube install
-aube run dev
+npm --prefix web ci
+npm --prefix web run dev
 ```
 
-## Vercel deploy (aube)
+## Vercel deploy
 
-This repo includes [vercel.json](/home/ghosh/github/autov/vercel.json) so Vercel uses `aube` for both install and build:
-- Install: `cd web && npx -y aube@latest install`
-- Build: `cd web && npx -y aube@latest run build`
+This repo includes [vercel.json](/home/ghosh/github/autov/vercel.json) so Vercel installs and builds the app from `web`:
+- Install: `cd web && npm ci`
+- Build: `cd web && npm run build`
 
 ## Environment variables
 | Name | Where | Notes |
