@@ -1,0 +1,10 @@
+import Link from "next/link";
+import ParticleScene from "@/components/particle-scene";
+
+export default function Home() {
+  const workspace = process.env.NEXT_PUBLIC_APP_URL || "/workspace";
+  return <main className="landing"><header className="landing-nav"><Link href="/" className="wordmark"><span className="brand-symbol">a</span>autov<span className="wordmark-dot">.</span></Link><span className="nav-caption">A NEW MEDIUM FOR YOUR IMAGINATION</span><Link href={workspace} className="nav-link">Enter workspace <span>↗</span></Link></header>
+    <section className="hero"><div className="hero-art"><ParticleScene animated /></div><div className="hero-copy"><span className="eyebrow"><i /> IDEAS INTO ATMOSPHERE</span><h1>Imagine it.<br />Set it <em>in motion.</em></h1><p>A creative workspace for visual effects.<br />Bring your references, describe your vision,<br />and explore what comes to life.</p><Link className="primary-link" href={workspace}>Open the workspace <span>↗</span></Link><span className="hero-note">EARLY PREVIEW / BUILT FOR EXPLORATION</span></div><div className="art-caption"><span>STUDY NO. 001</span><p>Order, on the edge of chaos.</p><span>PARTICLES / LIGHT / POSSIBILITY</span></div><span className="hero-coordinate">X 0.000 &nbsp; Y 0.000 &nbsp; Z 0.000</span></section>
+    <section className="landing-bottom"><div className="manifesto"><span className="eyebrow">LESS FRICTION. MORE FEELING.</span><h2>Your imagination.<br />A new way to play.</h2></div><div className="process-item"><span>01 / REFERENCE</span><p>Start with a spark.</p><small>Collect the textures, movements, and moments that inspire you.</small></div><div className="process-item"><span>02 / DESCRIBE</span><p>Put it into words.</p><small>A place to shape your vision, one conversation at a time.</small></div><div className="process-item"><span>03 / EXPLORE</span><p>Make room for discovery.</p><small>Play, pause, and find the moment that feels just right.</small></div></section><footer className="landing-footer"><span>autov. / An independent space for extraordinary ideas.</span><span>THE FIRST FRAME IS JUST THE BEGINNING.</span></footer>
+  </main>;
+}
