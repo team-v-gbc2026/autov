@@ -386,6 +386,68 @@ try {
     renderer: smokeResult.evidence.renderer,
     performance: smokeResult.performance,
   });
+  const energyTextureDoc = await page.evaluate(() => {
+    const doc = Probe.createPreset("beam");
+    doc.name = "Generated torn energy edges — authored renderer fixture";
+    doc.layers = doc.layers.filter((l) => l.id === "beam-0");
+    const core = doc.layers[0];
+    core.surface = "energy-ribbon";
+    Object.assign(core.params, {
+      width: 0.09,
+      color: "#FFFFFF",
+      secondaryColor: "#FFFFFF",
+      intensity: 1.05,
+    });
+    const edges = structuredClone(core);
+    edges.id = "textured-energy-edges";
+    edges.kind = "sprite";
+    edges.geometry = "plane";
+    edges.surface = "solid";
+    edges.textureId = "energy-edges";
+    Object.assign(edges.params, {
+      radius: 0.4,
+      color: "#D900E8",
+      secondaryColor: "#D900E8",
+      intensity: 1.1,
+    });
+    edges.tracks = edges.tracks.map((t) =>
+      t.target === "length"
+        ? { ...t, keys: t.keys.map(([time, value]) => [time, value * 1.25]) }
+        : t,
+    );
+    doc.layers.push(edges);
+    doc.post.bloom = 0.12;
+    return doc;
+  });
+  const energyBytes = await readFile(
+    "public/textures/generated-energy-ribbons.png",
+  );
+  energyTextureDoc.textures = [
+    {
+      id: "energy-edges",
+      data: `data:image/png;base64,${energyBytes.toString("base64")}`,
+      prompt: "Codex-generated torn energy edge mask",
+      model: "Codex imagegen (model not exposed)",
+      sha256: createHash("sha256").update(energyBytes).digest("hex"),
+    },
+  ];
+  const texturedEnergy = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    energyTextureDoc,
+  );
+  assert.ok(Object.values(texturedEnergy.gates).every(Boolean));
+  assert.equal(texturedEnergy.performance.assetTextures, 1);
+  await writeFile(
+    path.join(output, "generated-energy-edges.jpg"),
+    Buffer.from(texturedEnergy.evidence.sheet.split(",")[1], "base64"),
+  );
+  results.push({
+    id: "generated-energy-edges",
+    source: "authored_effect_with_codex_generated_texture",
+    gates: texturedEnergy.gates,
+    renderer: texturedEnergy.evidence.renderer,
+    performance: texturedEnergy.performance,
+  });
   const textureDoc = JSON.parse(
     await readFile("public/examples/generated-sigil.json", "utf8"),
   );

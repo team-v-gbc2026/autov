@@ -3,6 +3,11 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { TextureAssetSchema } from "./schema";
 export const TEXTURE_LIBRARY = {
+  "energy-ribbons": {
+    file: "generated-energy-ribbons.png",
+    description:
+      "Two separate VERTICAL white torn energy strips with a transparent central channel. Sharp asymmetric slivers, not a complete beam/core. Use one camera-facing sprite with geometry plane, surface solid, and this texture; color and secondaryColor both saturated magenta (or the desired edge hue). Rotate Z=pi/2 for a horizontal beam. Mask spans about50% of plane width and80% of plane height; plane length about1.25 times the desired beam length. Keep a separate continuous white core aligned to the same center/rotation and extension motion; a core roughly.2m thick pairs with edge-plane radius around.4m. Animate length/opacity/intensity and keep the emission endpoint anchored. For linear beams only, not circular sigils or smoke.",
+  },
   sigil: {
     file: "generated-sigil.png",
     description:

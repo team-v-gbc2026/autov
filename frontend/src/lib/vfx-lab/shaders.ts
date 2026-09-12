@@ -42,7 +42,7 @@ ${noise}
 ${starMask}
 void main(){
   vec2 p=vUv*2.-1.; float r=length(p),a=atan(p.y,p.x)+uTime*uSpin;
-  float n=fbm(vec3(p*5.,uTime*.65)); float mask=0.; float detail=1.;
+  float n=fbm(vec3(p*5.,uTime*.65)); float mask=0.; float detail=1.; float lighting=1.,specular=0.;
   if(uKind==0){
     float d=abs(r-.78+sin(a*17.+uTime*3.)*.006*uTurbulence+(n-.5)*.035*uTurbulence);
     float w=max(.002,uWidth/max(uRadius,.01)*.65);
@@ -97,6 +97,11 @@ void main(){
     mask*=uSurface==8?streak:.88+.12*streak;
     mask*=1.-smoothstep(.02,.98,uErosion);
     detail=.12+.48*broadHighlight+.5*streak;
+    if(uSurface==2){
+      lighting=.42+.58*broadHighlight;
+      vec3 halfDirection=normalize(normalize(vView)+normalize(vec3(-.35,.65,1.)));
+      specular=pow(max(0.,dot(normalDirection,halfDirection)),32.);
+    }
   } else if(uSurface==3){
     vec2 q=vUv*vec2(24.,12.); vec2 spacing=vec2(1.73205,3.);
     vec2 h1=mod(q,spacing)-spacing*.5, h2=mod(q-spacing*.5,spacing)-spacing*.5;
@@ -174,7 +179,7 @@ void main(){
   if(uSurface==8) colorMix=1.;
   if(uSurface==7 || uSurface==9 || uSurface==10 || uSurface==11) colorMix=detail;
   if(uMesh==1 && uSurface==6) colorMix=.15+.85*pow(abs(dot(normalize(vNormal),normalize(vView))),4.);
-  vec3 c=mix(uSecondary,uColor,colorMix)*uIntensity;
+  vec3 c=mix(uSecondary,uColor,colorMix)*uIntensity*lighting+vec3(specular*.3*uIntensity);
   gl_FragColor=vec4(c,clamp(mask,0.,1.));
 }
 `;

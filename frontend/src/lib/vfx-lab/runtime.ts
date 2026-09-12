@@ -536,7 +536,7 @@ export class VfxRuntime {
         times,
         width: 320,
         height: 180,
-        runtime: "autov.lab/1-three-r186-flow7",
+        runtime: "autov.lab/1-three-r186-flow8",
         renderer: this.rendererDescription,
         camera: [
           ...this.camera.position.toArray(),

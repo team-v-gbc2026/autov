@@ -1,0 +1,18 @@
+{
+  "provider": "Codex built-in image generation",
+  "model": "not exposed by tool",
+  "created": "2026-09-12T21:00:34.126Z",
+  "processing": "Downsample within448x448, preserve alpha, add32px transparent padding. No recoloring.",
+  "originalFilename": "exec-c40fdf1d-df7c-4465-afb5-76e0ceee04a7.png",
+  "sha256": "7fa2bcf7fd4fc88c4bfba568bca9bb7a82582c13d4bccf2eb596ab2db434bca8",
+  "width": 512,
+  "height": 512,
+  "outerEdgeMaxAlpha": 0,
+  "alphaBounds": {
+    "minX": 131,
+    "minY": 50,
+    "maxX": 381,
+    "maxY": 461
+  },
+  "promptSummary": "Two separate vertical white torn energy ribbons, asymmetric elongated spear-like slivers with angular breaks and an empty central channel. Transparent padding; no scene, text, colors, glow or particles."
+}

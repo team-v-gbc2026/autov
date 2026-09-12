@@ -95,7 +95,8 @@ export function buildGeometry(
       return result;
     }
     case "streamer": {
-      // An open membrane along local Y: broad connected root, rounded tapered tip.
+      // An open membrane along local Y; water has rounded ends so head shutdown
+      // does not expose a straight rectangular root.
       // The vertex shader bends only the free end, with a conservative bounds envelope.
       const positions: number[] = [],
         uvs: number[] = [],
@@ -105,11 +106,13 @@ export function buildGeometry(
       for (let i = 0; i <= rows; i++) {
         const t = i / rows;
         const cap = Math.max(0, (t - 0.65) / 0.35);
+        const rootCap = Math.max(0, 1 - t / 0.16);
         const width = Math.max(
           0.006,
           ["water", "water-streaks"].includes(layer.surface || "")
             ? (0.55 + 0.15 * Math.sin(t * Math.PI)) *
-                Math.sqrt(Math.max(0, 1 - cap * cap))
+                Math.sqrt(Math.max(0, 1 - cap * cap)) *
+                Math.sqrt(Math.max(0, 1 - rootCap * rootCap))
             : Math.sqrt(1 - t) * (0.55 + 0.3 * Math.sin(t * Math.PI)),
         );
         for (let j = 0; j <= columns; j++) {

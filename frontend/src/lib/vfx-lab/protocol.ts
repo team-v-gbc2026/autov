@@ -6,7 +6,13 @@ export const TextureRequestSchema = z
     prompt: z.string().min(10).max(1500),
     layerIds: z.array(z.string().max(48)).min(1).max(8),
     libraryAssetId: z
-      .enum(["sigil", "smoke-lobe", "smoke-curl", "fire-plume"])
+      .enum([
+        "sigil",
+        "smoke-lobe",
+        "smoke-curl",
+        "fire-plume",
+        "energy-ribbons",
+      ])
       .nullable(),
   })
   .strict();

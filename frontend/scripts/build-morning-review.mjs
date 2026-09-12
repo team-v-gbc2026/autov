@@ -81,6 +81,9 @@ for (const entry of await readdir(path.resolve(".autov-local/benchmarks"), {
 const latestBudget = completed.sort((a, b) =>
   b.created.localeCompare(a.created),
 )[0]?.endBudget;
+const visualNotes = await readFile(path.join(out, "visual-notes.json"), "utf8")
+  .then(JSON.parse)
+  .catch(() => ({}));
 const cards = [];
 let covered = 0;
 for (const id of cases) {
@@ -110,6 +113,10 @@ for (const id of cases) {
     )
     .join("");
   const comparison = `${chosen.video && chosen.referenceVideo ? `<p><button id="play-both">両方を先頭から再生</button> <button id="pause-both">両方を停止</button></p>` : ""}<div class="compare"><section><h2>生成結果 · ${chosen.selected ? "最新の採用案" : "最新の保存案（選定中）"}</h2>${chosen.video ? `<video controls loop preload="metadata" src="${link(chosen, "video.webm")}"></video>` : `<img style="width:100%" src="${link(chosen, "sheet.jpg")}">`}<p>${chosen.player ? `<a class="pill" href="${link(chosen, "player.html")}">インタラクティブに再生・スクラブ ↗</a>` : ""}<a class="pill" href="${link(chosen, "document.json")}">編集用JSON</a></p></section><section><h2>元のエフェクト</h2>${chosen.referenceVideo ? `<video controls loop preload="metadata" src="${link(chosen, "reference.mp4")}"></video><p class="muted">元動画と生成側では尺・時刻が異なる場合があります。生成側のタイミングは入力プロンプトに従います。</p>` : `<p class="muted">このケースの元動画はアーカイブにありません。下の入力画像と比較してください。</p>`}</section></div><script>document.getElementById('play-both')?.addEventListener('click',()=>{for(const v of document.querySelectorAll('video')){v.currentTime=0;v.play().catch(()=>{});}});document.getElementById('pause-both')?.addEventListener('click',()=>{for(const v of document.querySelectorAll('video'))v.pause();});</script>`;
+  const note = visualNotes[chosen.id];
+  const visualNote = note
+    ? `<h2>確認メモ</h2><p>${esc(note.finding)}</p><p><b>残る差：</b>${esc(note.remaining)}</p><small>${esc(note.reviewer)} · ${esc(note.scope)}</small>`
+    : "";
   const review = chosen.review
     ? `<h2>自動レビュー</h2><p>${esc(chosen.review.verdict)}</p><p>意味 ${chosen.review.semantic} / 動き ${chosen.review.motion} / 視線誘導 ${chosen.review.hierarchy} / 仕上げ ${chosen.review.finish} · 重み付き ${weighted(chosen.review)}/5</p><details><summary>条件ごとの観測</summary>${chosen.review.observations.map((x) => `<p><b>${esc(x.result)}</b> · ${esc(x.criterion)}<br>${esc(x.evidence)}</p>`).join("")}</details>`
     : `<p>この案は視覚的な自動レビュー未実施です。</p>`;
@@ -117,7 +124,7 @@ for (const id of cases) {
     path.join(out, `${id}.html`),
     page(
       id,
-      `<a href="index.html">← 全ケース</a><h1>${esc(id)}</h1><p>${esc(chosen.name)} · ${trials.length}案保存 · ${esc(input.split)}</p>${comparison}${review}<p class="muted">自動評価は候補選択の補助です。再現度の合格や人による承認を意味しません。</p><h2>最初の案と比較</h2><p>${baseline.video ? `<a href="${link(baseline, "video.webm")}">初回生成の動画 ↗</a>` : ""} · <a href="${link(baseline, "player.html")}">初回生成の3D再生 ↗</a></p><h2>保存した全バージョン</h2><table><thead><tr><th>案</th><th>AI評価</th><th>開く</th></tr></thead><tbody>${versions}</tbody></table><details><summary>入力プロンプト・参照画像</summary><p class="prompt">${esc(chosen.prompt)}</p><div class="refs">${Array.from({ length: chosen.references }, (_, i) => `<img src="${link(chosen, `reference-${i}`)}" alt="入力参照 ${i + 1}">`).join("")}</div></details>`,
+      `<a href="index.html">← 全ケース</a><h1>${esc(id)}</h1><p>${esc(chosen.name)} · ${trials.length}案保存 · ${esc(input.split)}</p>${comparison}${visualNote}${review}<p class="muted">自動評価は候補選択の補助です。再現度の合格や人による承認を意味しません。</p><h2>最初の案と比較</h2><p>${baseline.video ? `<a href="${link(baseline, "video.webm")}">初回生成の動画 ↗</a>` : ""} · <a href="${link(baseline, "player.html")}">初回生成の3D再生 ↗</a></p><h2>保存した全バージョン</h2><table><thead><tr><th>案</th><th>AI評価</th><th>開く</th></tr></thead><tbody>${versions}</tbody></table><details><summary>入力プロンプト・参照画像</summary><p class="prompt">${esc(chosen.prompt)}</p><div class="refs">${Array.from({ length: chosen.references }, (_, i) => `<img src="${link(chosen, `reference-${i}`)}" alt="入力参照 ${i + 1}">`).join("")}</div></details>`,
     ),
   );
   cards.push(
