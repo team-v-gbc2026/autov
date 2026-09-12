@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <div className="account-grid"><section className="account-intro"><span className="eyebrow">YOUR NEXT EFFECT STARTS HERE</span><h1>A little spark.<br /><em>Entire worlds.</em></h1><p>A home for your references, experiments, and everything you haven’t imagined yet.</p><span className="account-index">01 — YOUR CREATIVE SPACE</span></section>
     <section className="account-card"><span className="eyebrow">WELCOME TO AUTOV</span><h2>Make room for an idea.</h2><p>Sign in to keep your work together.</p>
       {error && <p role="alert" className="error-text">The confirmation link could not be verified. Try signing in, or request a new confirmation email.</p>}
-      {configured ? <AuthForm /> : <p role="alert" className="account-notice">Login is awaiting Supabase configuration. Set the project URL and publishable key in web/.env.local.</p>}
+      {configured ? <AuthForm /> : <p role="alert" className="account-notice">Login is awaiting Supabase configuration. Set the project URL and publishable key in frontend/.env.local.</p>}
     </section></div>
   </main>;
 }

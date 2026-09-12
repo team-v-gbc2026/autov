@@ -5,7 +5,7 @@ The app owns authentication, projects, image uploads, prompt history, and saved 
 ## Local app
 
 ```bash
-cd web
+cd frontend
 npm ci
 cp .env.example .env.local # only when no local environment file exists
 # Fill NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY from Supabase → Settings → API.
@@ -52,7 +52,7 @@ npx supabase db advisors --linked --project-ref tkjstnitmfwgmedipcvs
 
 The SQL test creates two temporary users inside a transaction and rolls back all fixtures. It checks project isolation, reference ownership, transactional failure, client write restrictions, archived reference behavior, and anonymous denial.
 
-App checks: `cd web && npm run build && npm run lint`.
+App checks: `cd frontend && npm run build && npm run lint`.
 
 ## Verification notes
 

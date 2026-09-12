@@ -13,10 +13,10 @@ The studio currently saves prompts as **drafts** and displays a **sample particl
 
 ## What’s left for Eric
 
-1. **Connect generation.** After `savePrompt()` in `web/src/app/workspace/actions.ts` saves a draft, invoke your backend with its generation ID. Read the prompt and ordered `generation_inputs`; resolve the private reference images through `assets` and signed URLs.
+1. **Connect generation.** After `savePrompt()` in `frontend/src/app/workspace/actions.ts` saves a draft, invoke your backend with its generation ID. Read the prompt and ordered `generation_inputs`; resolve the private reference images through `assets` and signed URLs.
 2. **Define and validate the effect JSON.** The database accepts a JSON object without prescribing its internal VFX format. Your generator and renderer should agree on the schema and version.
 3. **Save results and status.** From trusted backend code, update the generation’s status and insert an `effect_versions` row containing `project_id`, `generation_id`, `schema_version`, and `definition`. Keep privileged Supabase keys server-side and verify project ownership.
-4. **Connect the preview.** Load the selected effect definition into your Three.js runtime through `web/src/components/particle-scene.tsx`. Wire result selection and progress updates into `web/src/components/studio.tsx`; results currently appear after a refresh.
+4. **Connect the preview.** Load the selected effect definition into your Three.js runtime through `frontend/src/components/particle-scene.tsx`. Wire result selection and progress updates into `frontend/src/components/studio.tsx`; results currently appear after a refresh.
 5. **Test the complete flow.** Image + prompt → generation → interactive VFX → saved JSON → reopen/download. Define storage for any generated textures or models your effects require.
 
 ## Before the demo

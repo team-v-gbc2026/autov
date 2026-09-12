@@ -35,14 +35,14 @@ TBD
 ```bash
 git clone https://github.com/team-v-gbc2026/autov.git
 cd autov
-cp .env.example .env.local   # add YOUR OWN OpenAI key (never commit it)
-npm --prefix web ci
-npm --prefix web run dev
+cp frontend/.env.example frontend/.env.local
+npm --prefix frontend ci
+npm --prefix frontend run dev
 ```
 
 ## Vercel deploy
 
-Set the Vercel project's **Root Directory** to `web`. Vercel will then detect the Next.js app and its lockfile correctly. The app-level `web/vercel.json` uses:
+Set the Vercel project's **Root Directory** to `frontend`. Vercel will then detect the Next.js app and its lockfile correctly. The app-level `frontend/vercel.json` uses:
 - Install: `npm ci`
 - Build: `npm run build`
 
@@ -69,4 +69,4 @@ TBD
 
 ## App, login, and database
 
-The Next.js app lives in `web/`. See [app/database setup and generation integration](docs/APP_DATABASE.md) for environment variables, authentication, migrations, and the generation-team contract.
+The Next.js app lives in `frontend/`. See [app/database setup and generation integration](docs/APP_DATABASE.md) for environment variables, authentication, migrations, and the generation-team contract.
