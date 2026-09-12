@@ -1,0 +1,24 @@
+.panel { position: absolute; left: 20px; top: 96px; width: 268px; height: min(540px, calc(100% - 154px)); display: flex; flex-direction: column; z-index: 4; }
+.expanded { width: min(850px, calc(100vw - 40px)); height: calc(100% - 150px); z-index: 9; }
+.viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; background: radial-gradient(circle, #ffffff14 1px, transparent 1px) 0 0 / 18px 18px, #151a1ddd; cursor: grab; }
+.viewport:active { cursor: grabbing; }
+.dropping { outline: 1px solid #b0c4ce; outline-offset: -4px; }
+.plane { position: relative; width: 100%; height: 100%; }
+.card { position: absolute; top: 0; left: 0; width: 160px; height: 150px; border-radius: 7px; background: #282f34; box-shadow: 0 5px 18px #0005; border: 1px solid #ffffff1a; touch-action: none; cursor: grab; }
+.card:focus-within { z-index: 3; }
+.imageButton { display: block; padding: 0; width: 100%; cursor: grab; }
+.imageButton img { display: block; width: 158px; height: 114px; object-fit: cover; border-radius: 6px 6px 0 0; user-select: none; pointer-events: none; }
+.cardFooter { display: flex; align-items: center; justify-content: space-between; gap: 5px; height: 34px; padding: 0 5px 0 9px; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; text-align: left; color: #c0ccd3; }
+.mention { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 4px; color: #93a8b5; font-size: 13px; }
+.mention:hover { background: #ffffff0a; }.smallButton { width: 25px; height: 25px; color: #93a2ac; }
+.toolbar { height: 38px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-top: 1px solid #ffffff0b; color: #98a6af; font-size: 9px; }
+.toolbar > div { display: flex; align-items: center; gap: 8px; }.toolbar button { padding: 5px; }.toolbar span { min-width: 31px; text-align: center; }
+.empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; flex-direction: column; gap: 9px; width: 180px; color: #a2b0ba; font-size: 12px; }.empty > span { font-size: 29px; font-weight: 200; color: #788994; }.empty small { font-size: 10px; color: #62737e; }
+.notice { font-size: 10px; line-height: 1.5; padding: 8px 12px; color: #beaaa1; border-top: 1px solid #ffffff0c; }
+.preview { margin: auto; width: min(760px, calc(100vw - 30px)); max-height: 90dvh; padding: 25px; background: #1e252a; color: #c8d2d9; border: 1px solid #ffffff22; border-radius: 11px; }
+.preview::backdrop { background: #080b0dcc; backdrop-filter: blur(6px); }.preview > img { width: 100%; height: min(55dvh, 500px); object-fit: contain; background: #11171b; border-radius: 7px; }.previewClose { display: block; margin: -13px -9px 5px auto; font-size: 22px; width: 28px; }
+.preview form { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 18px; margin-top: 18px; }.preview label { display: grid; gap: 7px; font-size: 10px; color: #85959f; flex: 1; }.preview input { width: 100%; min-width: 140px; background: #12191e; border: 1px solid #ffffff22; color: #c8d2d9; padding: 9px; border-radius: 4px; font-size: 12px; }.preview form > button { background: #d1dade; color: #1d272e; padding: 10px 12px; border-radius: 5px; font-size: 11px; }.previewFooter { display: flex; gap: 14px; align-items: center; margin-top: 20px; font-size: 10px; color: #b5938e; }
+@media (max-width: 1100px) { .panel { left: 15px; width: 225px; }.expanded { width: calc(100vw - 30px); } }
+@media (max-width: 800px) { .panel { top: 80px; height: calc(100% - 325px); }.expanded { height: calc(100% - 100px); } }
+@media (max-width: 480px) { .panel { width: calc(100% - 30px); } }
