@@ -1,0 +1,29 @@
+.root { position: relative; display: inline-flex; align-items: center; }
+.trigger { display: inline-flex; align-items: center; }
+.bubble {
+  position: absolute;
+  z-index: 100;
+  width: max-content;
+  max-width: min(260px, 80vw);
+  padding: 7px 10px;
+  border: 1px solid #ffffff1c;
+  border-radius: 5px;
+  background: #292e32;
+  color: #d9dfe3;
+  box-shadow: 0 4px 16px #0005;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-align: center;
+  pointer-events: auto;
+}
+.bubble::before { content: ""; position: absolute; }
+.top { bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); }
+.bottom { top: calc(100% + 8px); left: 50%; transform: translateX(-50%); }
+.top::before { top: 100%; left: 0; width: 100%; height: 8px; }
+.bottom::before { bottom: 100%; left: 0; width: 100%; height: 8px; }
+.left { right: calc(100% + 8px); top: 50%; transform: translateY(-50%); }
+.right { left: calc(100% + 8px); top: 50%; transform: translateY(-50%); }
+.left::before { left: 100%; top: 0; height: 100%; width: 8px; }
+.right::before { right: 100%; top: 0; height: 100%; width: 8px; }

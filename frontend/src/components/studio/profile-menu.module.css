@@ -1,0 +1,9 @@
+.root { position: relative; }
+.trigger { display: inline-flex; align-items: center; gap: 8px; padding: 5px; border-radius: 7px; color: #8b969e; }
+.trigger:hover { background: #ffffff05; }
+.dropdown { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 240px; max-width: calc(100vw - 30px); padding: 5px; border: 1px solid #ffffff18; border-radius: 9px; background: #22272b; box-shadow: 0 12px 36px #0005; }
+.identity { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px 15px; margin-bottom: 4px; border-bottom: 1px solid #ffffff0c; }
+.identity > span { color: #85919a; font-size: 10px; }
+.identity strong { color: #cdd5da; font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
+.signOut { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 10px; border-radius: 5px; text-align: left; font-size: 11px; color: #b5bfc6; }
+.signOut:hover:not(:disabled) { background: #ffffff06; }
