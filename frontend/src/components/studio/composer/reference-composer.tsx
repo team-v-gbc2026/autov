@@ -14,9 +14,8 @@ import styles from "./composer.module.css";
 
 export type ComposerHandle = { mention: (reference: Reference) => void; setText: (text: string) => void };
 export default function ReferenceComposer({ ref, references, busy, saving, uploadFile, onSend, sendLabel = "Save prompt" }: {
-  sendLabel?: string;
   ref: Ref<ComposerHandle>; references: Reference[]; busy: boolean; saving: boolean;
-  uploadFile: (file: File) => Promise<Reference>; onSend: (prompt: string, ids: string[]) => Promise<boolean>;
+  uploadFile: (file: File) => Promise<Reference>; onSend: (prompt: string, ids: string[]) => Promise<boolean>; sendLabel?: string;
 }) {
   const latest = useRef(references);
   useEffect(() => { latest.current = references; }, [references]);
@@ -126,7 +125,7 @@ export default function ReferenceComposer({ ref, references, busy, saving, uploa
         <Tooltip content="Upload reference images" side="top"><button type="button" className="icon-button" disabled={saving || busy || uploading} aria-label="Upload reference images" onMouseDown={event => event.preventDefault()} onClick={() => fileInput.current?.click()}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 12 7-7a3 3 0 0 1 4 4L9 19a5 5 0 0 1-7-7L12 2M6 14l9-9" /></svg></button></Tooltip>
         <Tooltip content="Choose from board" side="top"><button type="button" className="icon-button" aria-label="Choose from board" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" @").run()}>@</button></Tooltip>
         <span role="status">{uploading ? "Uploading..." : saving ? (sendLabel === "Save prompt" ? "Saving..." : "Working...") : ""}</span>
-      </div><button type="submit" className="send-button" disabled={!hasText || saving || busy || uploading} aria-label={sendLabel}><Icon name="arrow" /></button></div>
+      </div><button type="submit" className="send-button" disabled={!hasText || saving || busy || uploading} aria-label={sendLabel} title={sendLabel}><Icon name="arrow" /></button></div>
       <input hidden ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { void filesSelected(event.target.files); event.target.value = ""; }} />
       {error && <p className={styles.error} role="alert">{error}</p>}
     </form>

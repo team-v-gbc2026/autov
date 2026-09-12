@@ -28,6 +28,7 @@ export default function PlaybackPanel({
   const [timelineOpen, setTimelineOpen] = useState(true);
   const panel = useRef<HTMLElement>(null);
   const hasTracks = Boolean(tracks);
+
   useEffect(() => {
     const node = panel.current;
     const studio = node?.closest<HTMLElement>(".lab");
@@ -45,6 +46,7 @@ export default function PlaybackPanel({
       studio.style.setProperty("--timeline-height", "0px");
     };
   }, [timelineOpen, hasTracks]);
+
   return (
     <>
       {!timelineOpen && (
@@ -89,7 +91,7 @@ export default function PlaybackPanel({
               )}
             </div>
             <span className="time-code">
-              {time.toFixed(2).padStart(5, "0")}{" "}
+              {time.toFixed(2).padStart(5, "0")} {" "}
               <span>/ {duration.toFixed(2).padStart(5, "0")}</span>
             </span>
             <button
@@ -106,9 +108,7 @@ export default function PlaybackPanel({
           <div className="timeline">
             <div className="time-ruler">
               {[0, duration / 4, duration / 2, duration * 0.75, duration].map(
-                (t) => (
-                  <span key={t}>{t.toFixed(2)}</span>
-                ),
+                (value) => <span key={value}>{value.toFixed(2)}</span>,
               )}
             </div>
             <div className="timeline-track">
@@ -142,9 +142,9 @@ export default function PlaybackPanel({
               }
             >
               <span>
-                <Icon name="sliders" size={14} /> Effect controls{" "}
+                <Icon name="sliders" size={14} /> Effect controls
               </span>
-              <span className={controls ? "rotated" : ""}>
+              <span className={controls === "effect" ? "rotated" : ""}>
                 <Icon name="chevron" size={15} />
               </span>
             </button>
@@ -159,7 +159,7 @@ export default function PlaybackPanel({
                   )
                 }
               >
-                {environmentLabel}
+                <span>{environmentLabel}</span>
                 <Icon name="sliders" size={14} />
               </button>
             )}

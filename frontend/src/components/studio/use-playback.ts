@@ -30,7 +30,8 @@ function reduce(state: State, action: Action): State {
     return {
       ...state,
       time,
-      playing: time === action.duration && !state.loop ? false : state.playing,
+      playing:
+        time === action.duration && !state.loop ? false : state.playing,
     };
   }
   const value =
@@ -52,7 +53,8 @@ export function usePlayback(duration = 8) {
     [duration],
   );
   const setPlaying = useCallback(
-    (value: SetStateAction<boolean>) => dispatch({ type: "playing", value }),
+    (value: SetStateAction<boolean>) =>
+      dispatch({ type: "playing", value }),
     [],
   );
   const setLoop = useCallback(
