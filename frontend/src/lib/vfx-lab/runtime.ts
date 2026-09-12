@@ -6,7 +6,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { type VfxDocument, validateDocument } from "./schema";
-import { evaluateLayer, random, sampleTimes } from "./evaluate";
+import { evaluateLayer, particleAt, random, sampleTimes } from "./evaluate";
 import {
   surfaceVertex,
   surfaceFragment,
@@ -35,7 +35,11 @@ const kindIndex = {
   particles: 4,
   decal: 5,
 };
-export function createEffect(doc: VfxDocument, camera: THREE.Camera, textures = new Map<string, THREE.Texture>()) {
+export function createEffect(
+  doc: VfxDocument,
+  camera: THREE.Camera,
+  textures = new Map<string, THREE.Texture>(),
+) {
   const group = new THREE.Group();
   const objects = doc.layers.map((layer) => {
     const uniforms: Record<string, THREE.IUniform> = {};
@@ -61,10 +65,27 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera, textures = 
     uniforms.uColor = { value: new THREE.Color() };
     uniforms.uSecondary = { value: new THREE.Color() };
     uniforms.uKind = { value: kindIndex[layer.kind] };
-    uniforms.uSurface = { value: ["default", "flame", "water", "hexagon", "smoke", "star", "solid", "portal"].indexOf(layer.surface || "default") };
-    uniforms.uMesh = { value: layer.geometry && layer.geometry !== "auto" ? 1 : 0 };
-    uniforms.uTexture = { value: layer.textureId ? textures.get(layer.textureId) || null : null };
-    uniforms.uHasTexture = { value: layer.textureId && textures.has(layer.textureId) ? 1 : 0 };
+    uniforms.uSurface = {
+      value: [
+        "default",
+        "flame",
+        "water",
+        "hexagon",
+        "smoke",
+        "star",
+        "solid",
+        "portal",
+      ].indexOf(layer.surface || "default"),
+    };
+    uniforms.uMesh = {
+      value: layer.geometry && layer.geometry !== "auto" ? 1 : 0,
+    };
+    uniforms.uTexture = {
+      value: layer.textureId ? textures.get(layer.textureId) || null : null,
+    };
+    uniforms.uHasTexture = {
+      value: layer.textureId && textures.has(layer.textureId) ? 1 : 0,
+    };
     const isParticles = layer.kind === "particles";
     const material = new THREE.ShaderMaterial({
       uniforms,
@@ -105,8 +126,7 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera, textures = 
       );
       instanced.instanceCount = layer.params.count;
       geometry = instanced;
-    } else
-      geometry = buildGeometry(layer, doc.seed);
+    } else geometry = buildGeometry(layer, doc.seed);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = layer.id;
     mesh.frustumCulled = false;
@@ -124,19 +144,37 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera, textures = 
         if (!mesh.visible) continue;
         mesh.position.fromArray(p.position);
         mesh.rotation.set(...p.rotation);
-        if (layer.kind === "sprite" && (!layer.geometry || layer.geometry === "auto")) mesh.quaternion.copy(camera.quaternion);
+        if (
+          layer.kind === "sprite" &&
+          (!layer.geometry || ["auto", "plane"].includes(layer.geometry))
+        ) {
+          mesh.quaternion.copy(camera.quaternion);
+          mesh.rotateZ(p.rotation[2]);
+        }
         if (layer.geometry === "plane") {
           mesh.scale.set(p.radius, p.length / 2, 1);
         } else if (layer.geometry === "lightning") {
-          mesh.scale.set(p.width / layer.params.width, p.length / 2, p.width / layer.params.width);
-        } else if (layer.geometry === "cone" || layer.geometry === "crystal" || layer.geometry === "teardrop") {
+          mesh.scale.set(
+            p.width / layer.params.width,
+            p.length / 2,
+            p.width / layer.params.width,
+          );
+        } else if (
+          layer.geometry === "cone" ||
+          layer.geometry === "crystal" ||
+          layer.geometry === "teardrop"
+        ) {
           mesh.scale.set(p.radius, p.length / 2, p.radius);
-        } else if (layer.kind === "beam" && (!layer.geometry || layer.geometry === "auto")) {
+        } else if (
+          layer.kind === "beam" &&
+          (!layer.geometry || layer.geometry === "auto")
+        ) {
           mesh.quaternion.copy(camera.quaternion);
           mesh.rotateZ(p.rotation[2]);
           mesh.scale.set(p.width * 2, p.length / 2, 1);
         } else if (layer.kind !== "particles") mesh.scale.setScalar(p.radius);
-        if (["ribbon", "torus"].includes(layer.geometry || "")) mesh.rotateZ(age * p.spin);
+        if (["ribbon", "torus"].includes(layer.geometry || ""))
+          mesh.rotateZ(age * p.spin);
         material.uniforms.uTime.value = age;
         for (const key of [
           "opacity",
@@ -160,6 +198,48 @@ export function createEffect(doc: VfxDocument, camera: THREE.Camera, textures = 
         material.uniforms.uColor.value.set(p.color);
         material.uniforms.uSecondary.value.set(p.secondaryColor);
       }
+    },
+    bounds(viewMatrix = new THREE.Matrix4()) {
+      const box = new THREE.Box3(),
+        point = new THREE.Vector3();
+      const times = [
+        ...sampleTimes(doc),
+        ...Array.from({ length: 25 }, (_, i) => (doc.duration * i) / 25),
+      ];
+      for (const time of times) {
+        this.update(time);
+        group.updateMatrixWorld(true);
+        for (const { layer, mesh, geometry } of objects) {
+          const p = evaluateLayer(layer, time).params;
+          if (!mesh.visible || p.opacity < 0.04 || p.intensity < 0.04) continue;
+          if (layer.kind === "particles") {
+            // Evaluate actual deterministic particles rather than bounding the untransformed unit billboard.
+            for (let i = 0; i < layer.params.count; i++) {
+              const particle = particleAt(doc, layer, i, time);
+              if (!particle.alive) continue;
+              point
+                .fromArray(particle.position)
+                .applyMatrix4(mesh.matrixWorld)
+                .applyMatrix4(viewMatrix);
+              box.expandByPoint(point);
+            }
+          } else {
+            if (!geometry.boundingBox) geometry.computeBoundingBox();
+            const local = geometry.boundingBox!;
+            // Project oriented corners directly. World-axis boxes overestimate camera-facing cards.
+            for (const x of [local.min.x, local.max.x])
+              for (const y of [local.min.y, local.max.y])
+                for (const z of [local.min.z, local.max.z]) {
+                  point
+                    .set(x, y, z)
+                    .applyMatrix4(mesh.matrixWorld)
+                    .applyMatrix4(viewMatrix);
+                  box.expandByPoint(point);
+                }
+          }
+        }
+      }
+      return box;
     },
     dispose() {
       for (const o of objects) {
@@ -195,6 +275,7 @@ export class VfxRuntime {
       powerPreference: "high-performance",
     });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    this.renderer.info.autoReset = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.domElement.setAttribute(
@@ -203,9 +284,10 @@ export class VfxRuntime {
     );
     this.renderer.domElement.className = "webgpu-canvas";
     host.appendChild(this.renderer.domElement);
-    this.camera.position.set(5, 3.1, 7);
-    this.camera.lookAt(0, 0, 0);
+    this.camera.position.set(5, 3.85, 7);
+    this.camera.lookAt(0, 0.75, 0);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.target.set(0, 0.75, 0);
     this.controls.enableDamping = false;
     this.controls.minDistance = 2;
     this.controls.maxDistance = 22;
@@ -249,7 +331,8 @@ export class VfxRuntime {
       img.src = asset.data;
       await img.decode();
       if (this.disposed) throw new Error("Renderer disposed.");
-      if (img.width > 1024 || img.height > 1024) throw new Error("Texture exceeds the 1024 pixel GPU limit.");
+      if (img.width > 1024 || img.height > 1024)
+        throw new Error("Texture exceeds the 1024 pixel GPU limit.");
       const texture = new THREE.Texture(img);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -261,8 +344,11 @@ export class VfxRuntime {
   }
   setDocument(input: VfxDocument) {
     const doc = validateDocument(input);
+    const initialCamera =
+      !this.doc || this.doc.name !== doc.name || this.doc.seed !== doc.seed;
     for (const asset of doc.textures || []) {
-      if (this.textureSources.get(asset.id) !== asset.data) throw new Error("Prepare textures before installing this effect.");
+      if (this.textureSources.get(asset.id) !== asset.data)
+        throw new Error("Prepare textures before installing this effect.");
     }
     const next = createEffect(doc, this.camera, this.textures);
     if (this.effect) {
@@ -272,23 +358,58 @@ export class VfxRuntime {
     this.effect = next;
     this.scene.add(next.group);
     this.doc = doc;
-    const keep = new Set((doc.textures || []).map(a => a.id));
-    for (const [id, texture] of this.textures) if (!keep.has(id)) {
-      texture.dispose(); this.textures.delete(id); this.textureSources.delete(id);
-    }
+    const keep = new Set((doc.textures || []).map((a) => a.id));
+    for (const [id, texture] of this.textures)
+      if (!keep.has(id)) {
+        texture.dispose();
+        this.textures.delete(id);
+        this.textureSources.delete(id);
+      }
     this.scene.background = new THREE.Color(doc.post.background);
     this.renderer.toneMappingExposure = doc.post.exposure;
     this.bloom.strength = doc.post.bloom;
+    if (initialCamera) this.resetCamera();
+  }
+  get assetTextureCount() {
+    return this.textures.size;
   }
   resetCamera() {
-    this.camera.position.set(5, 3.1, 7);
-    this.controls.target.set(0, 0, 0);
+    const direction = new THREE.Vector3(5, 3.1, 7).normalize();
+    const right = new THREE.Vector3()
+      .crossVectors(new THREE.Vector3(0, 1, 0), direction)
+      .normalize();
+    const up = new THREE.Vector3().crossVectors(direction, right).normalize();
+    const basis = new THREE.Matrix4().makeBasis(right, up, direction);
+    this.camera.position.copy(direction);
+    this.camera.lookAt(0, 0, 0);
+    const bounds = this.effect?.bounds(basis.clone().transpose());
+    const center =
+      bounds && !bounds.isEmpty()
+        ? bounds.getCenter(new THREE.Vector3()).applyMatrix4(basis)
+        : new THREE.Vector3(0, 0.75, 0);
+    let distance = 3;
+    if (bounds && !bounds.isEmpty()) {
+      const size = bounds.getSize(new THREE.Vector3()),
+        tan = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+      distance = Math.max(
+        distance,
+        size.z / 2 +
+          Math.max(
+            size.y / (2 * tan),
+            size.x / (2 * tan * this.camera.aspect),
+          ) *
+            1.15,
+      );
+    }
+    this.camera.position.copy(center).addScaledVector(direction, distance);
+    this.controls.target.copy(center);
     this.controls.update();
   }
   render(time: number, solo?: string, diagnostic = false) {
     if (this.disposed) return;
     this.effect?.update(time, solo);
     this.bloom.enabled = !diagnostic;
+    this.renderer.info.reset();
     this.composer.render(0);
   }
   async capture(
@@ -312,9 +433,9 @@ export class VfxRuntime {
       this.renderer.setPixelRatio(1);
       this.composer.setPixelRatio(1);
       this.resize(320, 180);
-      this.resetCamera();
       this.grid.visible = false;
       this.setDocument(doc);
+      this.resetCamera();
       ctx.fillStyle = "#101112";
       ctx.fillRect(0, 0, sheet.width, sheet.height);
       times.forEach((time, index) => {
@@ -325,7 +446,12 @@ export class VfxRuntime {
         const pixels = ctx.getImageData(x, y, 320, 180).data;
         // Compare against the actual corner background, before adding timestamp text.
         const background = [pixels[0], pixels[1], pixels[2]];
-        for (let p=0; p<pixels.length; p+=4) if (Math.max(...background.map((v,c)=>Math.abs(pixels[p+c]-v))) > 12) renderedPixels++;
+        for (let p = 0; p < pixels.length; p += 4)
+          if (
+            Math.max(...background.map((v, c) => Math.abs(pixels[p + c] - v))) >
+            12
+          )
+            renderedPixels++;
         ctx.fillStyle = "#bdc5cc";
         ctx.font = "11px monospace";
         ctx.fillText(`${time.toFixed(3)} s`, x + 12, y + 195);
@@ -336,11 +462,14 @@ export class VfxRuntime {
         times,
         width: 320,
         height: 180,
-        runtime: "autov.lab/1-three-r186",
+        runtime: "autov.lab/1-three-r186-framing4",
         renderer: this.renderer
           .getContext()
           .getParameter(this.renderer.getContext().RENDERER),
-        camera: [5, 3.1, 7, 0, 0, 0],
+        camera: [
+          ...this.camera.position.toArray(),
+          ...this.controls.target.toArray(),
+        ],
         layers: options.solo ? [options.solo] : doc.layers.map((l) => l.id),
         observations: times.map((time) => ({
           time,
@@ -350,7 +479,10 @@ export class VfxRuntime {
         })),
       };
     } finally {
-      if (previous) { await this.prepare(previous); this.setDocument(previous); }
+      if (previous) {
+        await this.prepare(previous);
+        this.setDocument(previous);
+      }
       this.camera.position.copy(camera);
       this.camera.quaternion.copy(quaternion);
       this.controls.target.copy(target);
@@ -367,7 +499,7 @@ export class VfxRuntime {
     this.observer.disconnect();
     this.controls.dispose();
     this.effect?.dispose();
-    this.textures.forEach(texture => texture.dispose());
+    this.textures.forEach((texture) => texture.dispose());
     this.textures.clear();
     this.textureSources.clear();
     this.grid.geometry.dispose();

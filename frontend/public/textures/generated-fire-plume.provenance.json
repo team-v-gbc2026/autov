@@ -1,0 +1,8 @@
+{
+  "provider": "Codex built-in image generation",
+  "model": "not exposed by tool",
+  "originalFilename": "exec-bf448f5d-9467-41a3-b60a-17232d1cc4fa.png",
+  "created": "2026-09-13",
+  "prompt": "Create ONE production texture for an animated real-time game fire projectile. A grayscale stylized flame silhouette flowing horizontally from a broad rounded luminous head on the LEFT into three long curled tapering tongues on the RIGHT. The head and tongues form one continuous connected shape. White-hot small interior on left, medium gray outer flame bodies, dark gray secondary folds. Smooth bold 2D graphic contours and pointed backward curl tips. Actual transparent background, square canvas, generous transparent padding 12 percent on all edges. Whole horizontal silhouette occupies 75 percent of canvas width and 32 percent of canvas height. Only one connected flame body. No embers outside, no glow outside the alpha boundary, no ground, no scene, no colored pixels, no text, no checkerboard. This is an unlit flat reusable shader mask, NOT a finished effect screenshot.",
+  "processing": "Downsample inside448square;32pixelclearalpha padding"
+}

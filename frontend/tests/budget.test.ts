@@ -16,7 +16,15 @@ test("$30 cumulative ledger survives processes and reserves before calls", async
         "-e",
         `import {reserve,settle,budgetStatus} from ${JSON.stringify(budgetModule)}; (async()=>{${code}})().catch(e=>{console.error(e.message);process.exit(1)})`,
       ],
-      { cwd, encoding: "utf8" },
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AUTOV_DATA_DIR: join(cwd, ".autov-local"),
+          OPENAI_VFX_BUDGET_USD: "30",
+        },
+      },
     );
   try {
     assert.equal(
@@ -48,6 +56,56 @@ test("$30 cumulative ledger survives processes and reserves before calls", async
     );
     assert.equal(halted.halted, true);
     assert.equal(halted.remaining, 0);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("authorized $60 increase preserves previous usage and pending reservations", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "autov-budget-upgrade-"));
+  const testModule = resolve("src/lib/vfx-lab/budget.ts"),
+    tsx = resolve("node_modules/tsx/dist/cli.mjs");
+  const execute = (limit: string, code: string) =>
+    spawnSync(
+      process.execPath,
+      [
+        tsx,
+        "-e",
+        `import {reserveUsd,budgetStatus} from ${JSON.stringify(testModule)};(async()=>{${code}})().catch(e=>{console.error(e.message);process.exit(1)})`,
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AUTOV_DATA_DIR: join(cwd, "shared"),
+          OPENAI_VFX_BUDGET_USD: limit,
+        },
+      },
+    );
+  try {
+    assert.equal(execute("30", "await reserveUsd(29)").status, 0);
+    const upgraded = execute(
+      "60",
+      "await reserveUsd(30);console.log(JSON.stringify(await budgetStatus()))",
+    );
+    assert.equal(upgraded.status, 0, upgraded.stderr);
+    assert.deepEqual(JSON.parse(upgraded.stdout), {
+      limit: 60,
+      used: 59,
+      remaining: 1,
+      halted: false,
+      calls: 2,
+      pending: 2,
+    });
+    assert.equal(execute("60", "await reserveUsd(2)").status, 1);
+    const lowered = JSON.parse(
+      execute("30", "console.log(JSON.stringify(await budgetStatus()))").stdout,
+    );
+    assert.equal(lowered.used, 59);
+    assert.equal(lowered.remaining, 0);
+    for (const invalid of ["61", "0", "NaN", "Infinity"])
+      assert.equal(execute(invalid, "await reserveUsd(1)").status, 1);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

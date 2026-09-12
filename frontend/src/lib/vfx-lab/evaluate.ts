@@ -46,7 +46,10 @@ export function evaluateLayer(
   layer: Layer,
   time: number,
 ): { visible: boolean; params: Params; age: number } {
-  const p = { ...layer.params, position: [...layer.params.position] as Params["position"] };
+  const p = {
+    ...layer.params,
+    position: [...layer.params.position] as Params["position"],
+  };
   const age = time - layer.start;
   for (const track of layer.tracks) {
     const keys = track.keys;
@@ -68,16 +71,20 @@ export function evaluateLayer(
   if (layer.motion) {
     const keys = layer.motion.keys;
     let offset = keys[0].slice(1);
-    if (age >= keys[keys.length - 1][0]) offset = keys[keys.length - 1].slice(1);
-    else for (let i = 1; i < keys.length; i++) {
-      if (age <= keys[i][0]) {
-        let u = clamp((age - keys[i-1][0]) / (keys[i][0] - keys[i-1][0]));
-        if (layer.motion.ease === "smooth") u = u*u*(3-2*u);
-        offset = [1,2,3].map(j => keys[i-1][j] + (keys[i][j] - keys[i-1][j])*u);
-        break;
+    if (age >= keys[keys.length - 1][0])
+      offset = keys[keys.length - 1].slice(1);
+    else
+      for (let i = 1; i < keys.length; i++) {
+        if (age <= keys[i][0]) {
+          let u = clamp((age - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
+          if (layer.motion.ease === "smooth") u = u * u * (3 - 2 * u);
+          offset = [1, 2, 3].map(
+            (j) => keys[i - 1][j] + (keys[i][j] - keys[i - 1][j]) * u,
+          );
+          break;
+        }
       }
-    }
-    p.position = p.position.map((v,i) => v + offset[i]) as Params["position"];
+    p.position = p.position.map((v, i) => v + offset[i]) as Params["position"];
   }
   for (const o of layer.overrides) {
     const w = windowWeight(o, time);
@@ -126,19 +133,43 @@ export function sampleTimes(doc: VfxDocument) {
     .filter((l) => l.enabled && l.role === "impact")
     .map((l) => l.start);
   const impact = impacts.length ? Math.min(...impacts) : doc.impact;
-  const normalize = (t: number) => Math.round(clamp(t, 0, doc.duration - .001)*1000)/1000;
-  const selected = new Set<number>([0, normalize(doc.duration-.001)]);
+  const normalize = (t: number) =>
+    Math.round(clamp(t, 0, doc.duration - 0.001) * 1000) / 1000;
+  const selected = new Set<number>([
+    0,
+    normalize(doc.duration * 0.1),
+    normalize(doc.duration * 0.2),
+    normalize(doc.duration * 0.35),
+    normalize(doc.duration * 0.55),
+    normalize(doc.duration * 0.8),
+    normalize(doc.duration - 0.001),
+  ]);
   // Capture short primary events first; a later strike must not disappear between generic samples.
-  const events=doc.layers.filter(l=>l.enabled && (l.role==="primary" || l.role==="impact"));
-  const priority=[
-    Math.max(0,impact-.02),impact+.02,
-    ...events.filter(l=>l.end-l.start<=.5).map(l=>(l.start+l.end)/2),
-    ...events.map(l=>l.start+Math.min(.08,(l.end-l.start)*.3)),
-    impact*.5,impact+.18,impact+.35,impact+.65,doc.duration*.35,doc.duration*.65,doc.duration*.82,
+  const events = doc.layers.filter(
+    (l) => l.enabled && (l.role === "primary" || l.role === "impact"),
+  );
+  const priority = [
+    Math.max(0, impact - 0.02),
+    impact + 0.02,
+    ...events
+      .filter((l) => l.end - l.start <= 0.5)
+      .map((l) => (l.start + l.end) / 2),
+    impact + 0.08,
+    impact * 0.5,
+    impact + 0.18,
+    impact + 0.35,
+    impact + 0.65,
+    doc.duration * 0.35,
+    doc.duration * 0.65,
+    doc.duration * 0.82,
   ];
-  for(const time of priority){if(selected.size>=12)break;selected.add(normalize(time));}
-  for(let i=1;selected.size<12 && i<24;i++)selected.add(normalize(doc.duration*i/24));
-  return [...selected].sort((a,b)=>a-b);
+  for (const time of priority) {
+    if (selected.size >= 12) break;
+    selected.add(normalize(time));
+  }
+  for (let i = 1; selected.size < 12 && i < 24; i++)
+    selected.add(normalize((doc.duration * i) / 24));
+  return [...selected].sort((a, b) => a - b);
 }
 // CPU oracle matching the analytic particle shader (before object rotation / translation).
 export function particleAt(

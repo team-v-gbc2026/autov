@@ -13,7 +13,7 @@ export default function LocalSettings() {
         <h2>Connect OpenAI</h2>
         <p>
           Your key stays in this computer’s .env.local. This local tool stops
-          new API calls before its cumulative $30 budget is exceeded.
+          new API calls when its configured cumulative budget is exhausted.
         </p>
         <form
           className="account-form"

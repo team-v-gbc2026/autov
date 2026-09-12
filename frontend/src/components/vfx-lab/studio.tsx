@@ -155,6 +155,23 @@ export default function VfxStudio() {
     } catch {
       /* History is optional. */
     }
+    const trialId = new URLSearchParams(window.location.search).get("trial");
+    if (trialId)
+      void fetch(
+        `/api/local-trials?id=${encodeURIComponent(trialId)}&file=document`,
+      )
+        .then(async (r) => {
+          if (!r.ok) throw new Error("Saved trial unavailable.");
+          const imported = validateDocument(await r.json());
+          setDoc(imported);
+          setSelected(imported.layers[0].id);
+          setNotice(
+            "Saved trial opened. Changes do not overwrite the original trial.",
+          );
+        })
+        .catch((e) =>
+          setError(e instanceof Error ? e.message : "Trial unavailable."),
+        );
     setReady(true);
     void refreshStatus();
     if (window.matchMedia("(max-width:800px)").matches) setLeft(false);
@@ -296,6 +313,31 @@ export default function VfxStudio() {
             });
           },
         });
+        setNotice("Saving every generated direction to the trial gallery…");
+        for (const item of result.candidates) {
+          const saved = await fetch("/api/local-trials", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: item.id,
+              prompt,
+              references: images,
+              source: "openai-live",
+              origin: item.origin,
+              selected: item.id === result.selected.id,
+              document: item.document,
+              sheet: item.evidence.sheet,
+              review: item.review,
+            }),
+          });
+          if (!saved.ok)
+            setError(
+              "A trial could not be saved. Download generation evidence before closing this page.",
+            );
+        }
+        setNotice(
+          "Saved to the trial gallery. Compare the directions or keep editing.",
+        );
         setReport(result);
         setPlan(result.plan);
         commit(result.selected.document);
@@ -361,12 +403,12 @@ export default function VfxStudio() {
     >
       <div className="viewport-grid" />
       <div className="lab-preview-stage">
-      <Viewport
-        doc={doc}
-        time={playback.time}
-        solo={solo}
-        onReady={onRuntimeReady}
-      />
+        <Viewport
+          doc={doc}
+          time={playback.time}
+          solo={solo}
+          onReady={onRuntimeReady}
+        />
       </div>
       <header className="studio-header">
         <div className="project-heading">
@@ -381,19 +423,32 @@ export default function VfxStudio() {
           <span className="lab-badge">LOCAL · SAVED ON THIS DEVICE</span>
         </div>
         <div className="header-actions">
+          <Link className="lab-action" href="/local/trials">
+            Trials ↗
+          </Link>
           <select
             aria-label="Load preset"
             className="lab-mode"
             disabled={busy}
             value=""
             onChange={async (e) => {
-              if (e.target.value !== "texture-demo") { choosePreset(e.target.value as RecipeId); return; }
+              if (e.target.value !== "texture-demo") {
+                choosePreset(e.target.value as RecipeId);
+                return;
+              }
               try {
                 const response = await fetch("/examples/generated-sigil.json");
                 if (!response.ok) throw new Error("Texture demo unavailable.");
-                const next = validateDocument(await response.json());commit(next);setSelected(next.layers[0].id);setSolo(undefined);
-                setNotice("Authored demonstration using a Codex-generated texture. This is not a live generation result.");
-              } catch (e) { setError(e instanceof Error ? e.message : "Demo failed."); }
+                const next = validateDocument(await response.json());
+                commit(next);
+                setSelected(next.layers[0].id);
+                setSolo(undefined);
+                setNotice(
+                  "Authored demonstration using a Codex-generated texture. This is not a live generation result.",
+                );
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Demo failed.");
+              }
             }}
           >
             <option value="" disabled>
@@ -663,7 +718,17 @@ export default function VfxStudio() {
                 </select>
               )}
             </div>
-            {!editMode && <label className="lab-texture-option"><input type="checkbox" checked={textures} disabled={busy} onChange={e => setTextures(e.target.checked)} /> Generate texture when useful</label>}
+            {!editMode && (
+              <label className="lab-texture-option">
+                <input
+                  type="checkbox"
+                  checked={textures}
+                  disabled={busy}
+                  onChange={(e) => setTextures(e.target.checked)}
+                />{" "}
+                Use generated textures when useful
+              </label>
+            )}
             {editMode && (
               <>
                 <label className="lab-field">
@@ -732,7 +797,8 @@ export default function VfxStudio() {
           <div className="chat-footnote">
             {status ? (
               <span className="lab-budget">
-                ${status.budget.used.toFixed(2)} / $30 local limit ·{" "}
+                ${status.budget.used.toFixed(2)} / $
+                {status.budget.limit.toFixed(0)} local limit ·{" "}
                 {status.budget.pending
                   ? "includes reserved calls"
                   : "conservative usage"}
@@ -758,19 +824,30 @@ export default function VfxStudio() {
             onAdd={() => {
               if (doc.layers.length >= 18) return;
               const next = structuredClone(doc);
-              const emitter = structuredClone(createPreset("shockwave").layers.find(l => l.kind === "particles")!);
+              const emitter = structuredClone(
+                createPreset("shockwave").layers.find(
+                  (l) => l.kind === "particles",
+                )!,
+              );
               emitter.id = `emitter-${crypto.randomUUID()}`;
               emitter.name = `Emitter ${doc.layers.length + 1}`;
               emitter.start = 0;
               emitter.end = doc.duration;
               emitter.tracks = [];
               emitter.overrides = [];
-              emitter.params.emission = Math.min(.3, doc.duration / 4);
+              emitter.params.emission = Math.min(0.3, doc.duration / 4);
               emitter.params.life = Math.min(1, doc.duration / 2);
               emitter.params.count = 240;
               next.layers.push(emitter);
-              try { commit(next); setSelected(emitter.id); setSolo(undefined); }
-              catch (e) { setError(e instanceof Error ? e.message : "Emitter limit reached."); }
+              try {
+                commit(next);
+                setSelected(emitter.id);
+                setSolo(undefined);
+              } catch (e) {
+                setError(
+                  e instanceof Error ? e.message : "Emitter limit reached.",
+                );
+              }
             }}
             onSelect={selectLayer}
             onSolo={(id) => setSolo(solo === id ? undefined : id)}
@@ -803,17 +880,71 @@ export default function VfxStudio() {
             >
               Edit this layer in chat ↗
             </button>
-            {layer.kind !== "particles" && <>
-              <label className="lab-field">Mesh<select aria-label="Layer mesh" value={layer.geometry || "auto"} disabled={busy} onChange={e => {
-                const next=structuredClone(doc);next.layers.find(l=>l.id===layer.id)!.geometry=e.target.value as typeof layer.geometry;commit(next);
-              }}>{GEOMETRIES.map(value=><option key={value} value={value}>{value}</option>)}</select></label>
-              <label className="lab-field">Surface<select aria-label="Layer surface" value={layer.surface || "default"} disabled={busy} onChange={e => {
-                const next=structuredClone(doc);next.layers.find(l=>l.id===layer.id)!.surface=e.target.value as typeof layer.surface;commit(next);
-              }}>{SURFACES.map(value=><option key={value} value={value}>{value}</option>)}</select></label>
-              <label className="lab-field">Texture<select aria-label="Layer texture" value={layer.textureId || ""} disabled={busy} onChange={e => {
-                const next=structuredClone(doc);next.layers.find(l=>l.id===layer.id)!.textureId=e.target.value || null;commit(next);
-              }}><option value="">Procedural</option>{(doc.textures||[]).map(a=><option key={a.id} value={a.id}>{a.id}</option>)}</select></label>
-            </>}
+            {layer.kind !== "particles" && (
+              <>
+                <label className="lab-field">
+                  Mesh
+                  <select
+                    aria-label="Layer mesh"
+                    value={layer.geometry || "auto"}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = structuredClone(doc);
+                      next.layers.find((l) => l.id === layer.id)!.geometry = e
+                        .target.value as typeof layer.geometry;
+                      commit(next);
+                    }}
+                  >
+                    {GEOMETRIES.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="lab-field">
+                  Surface
+                  <select
+                    aria-label="Layer surface"
+                    value={layer.surface || "default"}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = structuredClone(doc);
+                      next.layers.find((l) => l.id === layer.id)!.surface = e
+                        .target.value as typeof layer.surface;
+                      commit(next);
+                    }}
+                  >
+                    {SURFACES.map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="lab-field">
+                  Texture
+                  <select
+                    aria-label="Layer texture"
+                    value={layer.textureId || ""}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const next = structuredClone(doc);
+                      next.layers.find((l) => l.id === layer.id)!.textureId =
+                        e.target.value || null;
+                      commit(next);
+                    }}
+                  >
+                    <option value="">Procedural</option>
+                    {(doc.textures || []).map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
             <label className="lab-field">
               Color
               <input
@@ -983,12 +1114,15 @@ export default function VfxStudio() {
           </button>
           <button
             className="lab-action"
-            onClick={() => {
+            onClick={async () => {
               if (runtime.current)
                 download(
                   "autov-contact-sheet.json",
                   JSON.stringify(
-                    { document: doc, evidence: runtime.current.capture(doc) },
+                    {
+                      document: doc,
+                      evidence: await runtime.current.capture(doc),
+                    },
                     null,
                     2,
                   ),

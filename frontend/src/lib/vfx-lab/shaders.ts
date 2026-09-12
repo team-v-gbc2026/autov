@@ -68,7 +68,8 @@ void main(){
     float cloud=fbm(vec3(p*4.,uTime*.5));
     float boundary=.73+(cloud-.4)*.25;
     float silhouette=1.-smoothstep(boundary-.06,boundary+.025,r);
-    mask=silhouette*smoothstep(.12+uErosion*.65,.45+uErosion*.5,cloud)*.85;
+    if(uKind==4)mask=silhouette*smoothstep(.12+uErosion*.65,.45+uErosion*.5,cloud)*.85;
+    else mask*=smoothstep(uErosion*.8,uErosion*.8+.15,cloud+.25);
     detail=floor(clamp(cloud+.2-p.y*.12,0.,1.)*4.)/4.;
   } else if(uSurface==5){
     float star=.40+.20*cos(a*5.); mask=1.-smoothstep(star-.02,star+.02,r);
@@ -81,13 +82,18 @@ void main(){
   }
   if(uHasTexture==1){
     vec2 uv=vUv;
+    if(uSurface==1)uv.y+=sin(uv.x*14.-uTime*7.)*.018*smoothstep(.25,.8,uv.x);
     if(uMesh==0 && uKind!=1){ float c=cos(uTime*uSpin), s=sin(uTime*uSpin); uv=mat2(c,-s,s,c)*(uv-.5)+.5; }
     vec4 texel=texture2D(uTexture,uv);
     float luminance=dot(texel.rgb,vec3(.2126,.7152,.0722));
     float edge=step(0.,uv.x)*step(0.,uv.y)*step(uv.x,1.)*step(uv.y,1.);
     float texMask=texel.a*luminance*edge;
     // Decals use the generated pattern itself; other surfaces modulate their silhouette.
-    mask=(uKind==5 ? texMask : mask*texMask)*smoothstep(uErosion,uErosion+.08,texMask);
+    if(uSurface==4){
+      // The authored smoke texture already supplies its silhouette and broad shading.
+      // Multiplying it by procedural cloud holes destroys that form.
+      mask=(uKind==2?mask:1.)*texel.a*edge*smoothstep(uErosion,uErosion+.08,luminance);detail=luminance;
+    }else {mask=(uKind==5||uSurface==1 ? texMask : mask*texMask)*smoothstep(uErosion,uErosion+.08,texMask);if(uSurface==1)detail=luminance;}
   }
   mask*=uOpacity; if(mask<.003)discard;
   float colorMix=clamp(mask*.8+detail*.3,0.,1.);

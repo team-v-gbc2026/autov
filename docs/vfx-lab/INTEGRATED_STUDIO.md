@@ -26,10 +26,24 @@ The real renderer now uses the newer timeline presentation, Add emitter, selecti
 - Image API defaults to `gpt-image-2.5-sunburst`; `OPENAI_IMAGE_MODEL=gpt-image-2.5-flare` is also supported. An unavailable image model or invalid texture does not destroy the procedural candidate. No automatic model substitution or paid retry is performed.
 - Critic now receives the input reference images **and** the output contact sheet, clearly separated. It previously received only the sheet. Sampling includes each short primary event, reducing missed staggered strikes. Blank rendered outputs are rejected.
 - A refinement may replace the best candidate only if the weighted score improves, passed criteria remain passed, failures do not increase, and no formerly adequate axis falls below 3. The previous valid candidate remains available after failures.
+- The fixed oblique camera is fitted to the sampled animation envelope. Oriented geometry is projected directly into camera coordinates, avoiding excessively loose bounds for billboards. It does not follow the effect during playback. Capture times cover growth, sustain, breakup and decay as well as brief primary events.
+- Codex-generated sigil, sculpted smoke and connected fire masks form a reusable library. The planner selects a compatible asset or requests a custom Image API asset. `OPENAI_IMAGE_MODE=library` explicitly limits this stage to existing assets when the key lacks image permissions. Provenance distinguishes reuse from a new API image; no successful image API call is implied by fallback. Textured smoke preserves its alpha and broad shading, and procedural smoke shading preserves crescent geometry for wisps.
+
+## Local trial gallery
+
+Open `/local/trials` or follow **Trials** in the studio. All generated candidates, including rejected refinements, retain their input prompt, references, document, sheet and review. Reopen an effect in the editor or download its JSON. The benchmark archive also produces videos and self-contained interactive players.
+
+```sh
+# Run from frontend; FFmpeg and ffprobe must be installed.
+node scripts/build-trial-gallery.mjs
+node scripts/verify-trials.mjs
+```
+
+The static `.autov-local/trials/index.html` works from the filesystem after the server stops. Each benchmark run keeps a snapshot of its renderer, so subsequent rendering changes do not silently rewrite historical trials. Video export samples the actual runtime at `n/30` seconds and verifies the encoded frame count/rate with ffprobe. This produces 30fps comparison videos even on slow software rendering; it is **not** a claim of 30fps real-time hardware performance. Private benchmark media and trial data stay out of Git; the gallery implementation and reusable generated texture library are shared.
 
 ## Spending and assets
 
-Text and image calls use the same cumulative local $30 ledger. Images reserve $2 before sending a request; settlement uses returned token usage and official input/output rates. This is a conservative application reservation, **not** a provider-enforced billing cap. Missing usage and interrupted requests remain reserved. A reservation overrun halts further generation. Set account-side spending controls as appropriate for your account.
+Text and image calls use one cumulative local ledger, defaulting to $30. `OPENAI_VFX_BUDGET_USD` can configure an explicitly authorized limit up to $60. Changing the limit preserves all prior entries and pending reservations. `AUTOV_DATA_DIR` can point multiple local checkouts to the same ledger. Images reserve $2 before sending a request; settlement uses returned token usage and official input/output rates. Definitive authorization/validation rejections settle at zero; missing usage and interrupted requests stay reserved. A reservation overrun halts further generation. This is an application reservation, **not** a provider-enforced billing cap.
 
 Do not copy a new empty ledger over a used one. A separate checkout has a separate `.autov-local` directory; preserve the intended cumulative ledger when moving an existing API configuration. Keys, source benchmark media, per-run results and ledgers are ignored by Git.
 
@@ -64,7 +78,7 @@ npm run verify:runtime
 npm run verify:browser
 ```
 
-Checkpoint validation: **51 tests passed**, typecheck and lint passed, production build passed, self-contained runtime passed. **9 browser fixtures passed**, including the real generated texture and offline HTML. These are functional renderer checks, not 17 successful live benchmark generations.
+First checkpoint: 51 unit tests and 9 browser fixtures passed. The subsequent trial-gallery checkpoint adds persistence/path validation and cumulative-budget migration checks. Actual live dev trials are now saved locally; their model reviews have identified remaining size, accent hierarchy and late-wisp defects. No 17-case fidelity pass is claimed. Use the current test output and private trial reports for the latest counts.
 
 ![Generated texture in the actual realtime renderer](integration-evidence/generated-texture.jpg)
 
@@ -76,5 +90,7 @@ Checkpoint validation: **51 tests passed**, typecheck and lint passed, productio
 - [ParticleGen](https://arxiv.org/html/2608.00629v1): motivates separating composition, rendering and bounded visual refinement. No claim that its Niagara results transfer quantitatively to this Three.js implementation.
 - [KinemaFX](https://arxiv.org/html/2507.19782v1): motivates explicitly representing motion rather than relying on appearance words alone.
 - [Three.js documentation](https://threejs.org/docs/): existing Three.js primitives and custom BufferGeometry. No additional 3D model-generation runtime has been installed.
+- [Riot VFX style guide, Shapes](https://nexus.leagueoflegends.com/wp-content/uploads/2017/10/VFX_Styleguide_final_public_hidpjqwx7lqyx0pjj3ss.pdf): readable silhouettes and concise texture detail inform the mask design. No copyrighted texture assets were copied.
+- [Alex's toon-smoke shader tutorial](https://blog.ldev.app/building-a-toon-smoke-particle-shader-in-shader-graph/): broad highlight/shadow regions and local-space deformation inform the separation of silhouette, shading and motion. This implementation uses its own shaders and generated masks, not the downloadable Unity graph.
 
 The procedural smoke/fire examples are editable construction guides, not proof of reference fidelity. Meshes and alpha masks widen the available representation; particle collision, fluid simulation, world-space trailing and arbitrary model synthesis remain outside this renderer. No OSS dependency is claimed to be absolutely safe; the change uses existing Three.js and adds explicit pinned Sharp (already transitively present) plus Playwright for verification.
