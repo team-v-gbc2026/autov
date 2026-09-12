@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useBoardLayout, referenceName } from "./studio/board/board-store";
+import type { ComposerHandle } from "./studio/composer/reference-composer";
 import ParticleScene from "./particle-scene";
 import StudioHeader from "./studio/studio-header";
 import ReferencesPanel from "./studio/references-panel";
@@ -39,6 +41,12 @@ export default function Studio({
   const playback = usePlayback();
   const references = useReferences(project.id, userId, initialReferences);
 
+  const { layout } = useBoardLayout(project.id);
+  const chat = useRef<ComposerHandle>(null);
+  const displayReferences = useMemo(() => references.references.map(ref => ({ ...ref, name: layout[ref.id]?.name || referenceName(ref.name) })), [references.references, layout]);
+  const boardState = { ...references, references: displayReferences };
+  const mention = (reference: Reference) => { setRight(true); chat.current?.mention(reference); };
+
   return (
     <main
       className={`studio ${left ? "left-open" : ""} ${right ? "right-open" : ""}`}
@@ -60,14 +68,16 @@ export default function Studio({
         <PanelToggle side="right" label="Chat" onOpen={() => setRight(true)} />
       )}
       <div hidden={!left}>
-        <ReferencesPanel state={references} onCollapse={() => setLeft(false)} />
+        <ReferencesPanel projectId={project.id} state={boardState} onMention={mention} locked={saving} onCollapse={() => setLeft(false)} />
       </div>
       <div hidden={!right}>
         <ChatPanel
           projectId={project.id}
           initialGenerations={initialGenerations}
           versions={versions}
-          referenceIds={references.references.map((ref) => ref.id)}
+          ref={chat}
+          references={displayReferences}
+          uploadFile={references.uploadFile}
           busy={references.busy}
           saving={saving}
           setSaving={setSaving}
