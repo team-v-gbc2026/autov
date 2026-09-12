@@ -66,3 +66,7 @@ This repo includes [vercel.json](/home/ghosh/github/autov/vercel.json) so Vercel
 
 ## Future work
 TBD
+
+## App, login, and database
+
+The Next.js app lives in `web/`. See [app/database setup and generation integration](docs/APP_DATABASE.md) for environment variables, authentication, migrations, and the generation-team contract.
