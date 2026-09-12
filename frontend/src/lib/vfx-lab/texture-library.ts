@@ -3,6 +3,11 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { TextureAssetSchema } from "./schema";
 export const TEXTURE_LIBRARY = {
+  "vortex-cloud": {
+    file: "generated-vortex-cloud.png",
+    description:
+      "A broad atmospheric spiral cloud disc, white curling ridges and dark open channels, soft transparent outer haze. Use kind decal, geometry plane, surface solid with this texture as the actual pattern; tint color warm yellow-orange and secondaryColor deep red. Put the plane in the world with rotation.x around-.9 for an oblique suspended disc. width=2*radius and height=length; keep them equal for a circular local disc. UV spin animates the cloud: negative spin around-.2 is clockwise on a frontal plane. A second larger low-opacity layer with slower spin can supply outer haze and depth. Keep a separate central glow SMALL and restrained so the dark spiral remains legible; use normal blend, low bloom, and avoid rigid torus rings or repeated round smoke blobs. Add dark normal-blended flecks only sparingly.",
+  },
   "energy-ribbons": {
     file: "generated-energy-ribbons.png",
     description:

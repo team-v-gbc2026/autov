@@ -456,6 +456,167 @@ try {
     renderer: texturedEnergy.evidence.renderer,
     performance: texturedEnergy.performance,
   });
+  // A hex grid must form connected shared edges, not isolated three-sided marks.
+  const hexDoc = await page.evaluate(() => {
+    const doc = Probe.createPreset("magic"),
+      layer = doc.layers[0];
+    doc.name = "Connected hex grid fixture";
+    doc.duration = 2;
+    doc.impact = 0.2;
+    doc.post = { bloom: 0, exposure: 1, background: "#000000" };
+    doc.textures = [];
+    layer.id = "hex-grid-fixture";
+    layer.kind = "sprite";
+    layer.geometry = "plane";
+    layer.surface = "hexagon";
+    layer.start = 0;
+    layer.end = 2;
+    layer.tracks = [];
+    layer.overrides = [];
+    layer.motion = null;
+    layer.textureId = null;
+    Object.assign(layer.params, {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      radius: 1.5,
+      length: 3,
+      color: "#FFFFFF",
+      secondaryColor: "#000000",
+      opacity: 1,
+      intensity: 1,
+      turbulence: 0,
+      erosion: 0,
+      blend: "normal",
+    });
+    doc.layers = [layer];
+    return doc;
+  });
+  const hexResult = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    hexDoc,
+  );
+  const hexPng = Buffer.from(hexResult.frames[2].png.split(",")[1], "base64");
+  const sharp = (await import("sharp")).default;
+  const { data: hexPixels, info: hexInfo } = await sharp(hexPng)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const n = hexInfo.width * hexInfo.height,
+    bright = new Uint8Array(n),
+    visited = new Uint8Array(n),
+    queue = new Int32Array(n);
+  let total = 0,
+    largest = 0;
+  for (let i = 0; i < n; i++)
+    if (hexPixels[i * 3] + hexPixels[i * 3 + 1] + hexPixels[i * 3 + 2] > 360) {
+      bright[i] = 1;
+      total++;
+    }
+  for (let i = 0; i < n; i++)
+    if (bright[i] && !visited[i]) {
+      let head = 0,
+        tail = 1;
+      queue[0] = i;
+      visited[i] = 1;
+      while (head < tail) {
+        const at = queue[head++],
+          x = at % hexInfo.width,
+          y = Math.floor(at / hexInfo.width);
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx,
+              yy = y + dy;
+            if (xx < 0 || xx >= hexInfo.width || yy < 0 || yy >= hexInfo.height)
+              continue;
+            const next = yy * hexInfo.width + xx;
+            if (bright[next] && !visited[next]) {
+              visited[next] = 1;
+              queue[tail++] = next;
+            }
+          }
+      }
+      largest = Math.max(largest, tail);
+    }
+  assert.ok(Object.values(hexResult.gates).every(Boolean));
+  assert.ok(
+    total > 1000 && largest / total > 0.85,
+    `Disconnected hex grid: ${largest}/${total}`,
+  );
+  await writeFile(path.join(output, "connected-hex-grid.png"), hexPng);
+  results.push({
+    id: "connected-hex-grid",
+    source: "authored_renderer_fixture",
+    gates: hexResult.gates,
+    brightPixels: total,
+    largestConnectedFraction: largest / total,
+    renderer: hexResult.evidence.renderer,
+  });
+  const vortexDoc = structuredClone(hexDoc),
+    vortexLayer = vortexDoc.layers[0];
+  vortexDoc.name = "Generated cloud vortex material fixture";
+  vortexDoc.duration = 6;
+  vortexDoc.impact = 1;
+  vortexDoc.post = { bloom: 0.12, exposure: 0.9, background: "#0E0808" };
+  vortexLayer.kind = "decal";
+  vortexLayer.surface = "solid";
+  vortexLayer.end = 6;
+  vortexLayer.textureId = "vortex-cloud";
+  Object.assign(vortexLayer.params, {
+    position: [0, 2, 0],
+    rotation: [-0.9, 0, 0],
+    radius: 2,
+    length: 4,
+    color: "#FFB35C",
+    secondaryColor: "#78170C",
+    spin: -0.24,
+    intensity: 0.9,
+    opacity: 0.85,
+  });
+  vortexLayer.tracks = [
+    {
+      target: "opacity",
+      keys: [
+        [0, 0],
+        [0.9, 0.85],
+        [4.8, 0.85],
+        [6, 0],
+      ],
+      ease: "smooth",
+    },
+  ];
+  const vortexBytes = await readFile(
+    "public/textures/generated-vortex-cloud.png",
+  );
+  vortexDoc.textures = [
+    {
+      id: "vortex-cloud",
+      data: `data:image/png;base64,${vortexBytes.toString("base64")}`,
+      prompt: "Generated grayscale atmospheric spiral cloud",
+      model: "Codex imagegen (model not exposed)",
+      sha256: createHash("sha256").update(vortexBytes).digest("hex"),
+    },
+  ];
+  const vortexResult = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    vortexDoc,
+  );
+  assert.ok(Object.values(vortexResult.gates).every(Boolean));
+  assert.equal(vortexResult.performance.assetTextures, 1);
+  assert.ok(
+    vortexResult.frames[2].png !== vortexResult.frames[3].png,
+    "Textured plane spin must change the rendered spiral",
+  );
+  await writeFile(
+    path.join(output, "generated-vortex-cloud.jpg"),
+    Buffer.from(vortexResult.evidence.sheet.split(",")[1], "base64"),
+  );
+  results.push({
+    id: "generated-vortex-cloud",
+    source: "authored_effect_with_codex_generated_texture",
+    gates: vortexResult.gates,
+    renderer: vortexResult.evidence.renderer,
+    performance: vortexResult.performance,
+  });
   const textureDoc = JSON.parse(
     await readFile("public/examples/generated-sigil.json", "utf8"),
   );

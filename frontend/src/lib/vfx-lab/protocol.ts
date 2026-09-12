@@ -13,6 +13,7 @@ export const TextureRequestSchema = z
         "smoke-curl",
         "fire-plume",
         "energy-ribbons",
+        "vortex-cloud",
       ])
       .nullable(),
   })

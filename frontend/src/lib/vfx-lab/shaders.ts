@@ -106,7 +106,8 @@ void main(){
     vec2 q=vUv*vec2(24.,12.); vec2 spacing=vec2(1.73205,3.);
     vec2 h1=mod(q,spacing)-spacing*.5, h2=mod(q-spacing*.5,spacing)-spacing*.5;
     vec2 h=dot(h1,h1)<dot(h2,h2)?h1:h2;
-    float edge=abs(max(abs(h.x)*.866025+abs(h.y)*.5,abs(h.y))-.95);
+    // Voronoi cell planes must match the triangular lattice: neighbors at (sqrt(3),0) and (sqrt(3)/2,1.5).
+    float edge=abs(max(abs(h.x),abs(h.x)*.5+abs(h.y)*.866025)-.866025);
     float grid=1.-smoothstep(.035,.10,edge);
     mask=max(mask*.35,grid*.65); detail=grid;
   } else if(uSurface==4){
@@ -160,7 +161,7 @@ void main(){
   if(uHasTexture==1){
     vec2 uv=vUv;
     if(uSurface==1)uv.y+=sin(uv.x*14.-uTime*7.)*.035*(.5+uTurbulence)*smoothstep(.25,.8,uv.x);
-    if(uMesh==0 && uKind!=1){ float c=cos(uTime*uSpin), s=sin(uTime*uSpin); uv=mat2(c,-s,s,c)*(uv-.5)+.5; }
+    if((uMesh==0 || uFlat==1) && uKind!=1){ float c=cos(uTime*uSpin), s=sin(uTime*uSpin); uv=mat2(c,-s,s,c)*(uv-.5)+.5; }
     vec4 texel=texture2D(uTexture,uv);
     float luminance=dot(texel.rgb,vec3(.2126,.7152,.0722));
     float edge=step(0.,uv.x)*step(0.,uv.y)*step(uv.x,1.)*step(uv.y,1.);

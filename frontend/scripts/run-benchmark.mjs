@@ -102,6 +102,11 @@ for (const id of (await readdir(path.join(root, "inputs/cases"))).sort()) {
     },
   });
 }
+// Explicit case lists also define execution priority.
+if (ids.length)
+  cases.sort(
+    (a, b) => ids.indexOf(a.data.case_id) - ids.indexOf(b.data.case_id),
+  );
 const selected = cases.slice(0, max);
 if (!selected.length) throw Error("No cases selected");
 await mkdir(output, { recursive: true });
