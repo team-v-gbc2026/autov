@@ -98,6 +98,7 @@ export const SURFACES = [
   "star",
   "solid",
   "portal",
+  "water-streaks",
 ] as const;
 export const MotionSchema = z
   .object({

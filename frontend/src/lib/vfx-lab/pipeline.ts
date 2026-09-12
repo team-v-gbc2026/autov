@@ -216,13 +216,23 @@ export async function generatePipeline(options: {
       );
     }
   }
+  // A scalar proposal may improve the overall result but regress one criterion.
+  // Keep it as a repair starting point without adopting it; the final comparison
+  // still uses the immutable accepted candidate and its complete criteria.
+  const structuralSource = candidates.reduce(
+    (best, candidate) =>
+      score(candidate.review) > score(best.review) ? candidate : best,
+    selected,
+  );
   if (
     options.mode === "quality" &&
     selected.review?.sufficientEvidence &&
     (score(selected.review) < 3.5 ||
       selected.review.observations.some((item) => item.result === "fail")) &&
-    selected.review.diagnoses.some((d) =>
-      ["other", "timing", "misaligned"].includes(d.symptom),
+    structuralSource.review?.diagnoses.some(
+      (d) =>
+        ["other", "timing", "misaligned"].includes(d.symptom) ||
+        structuralSource !== selected,
     )
   ) {
     const baseline = selected;
@@ -231,9 +241,9 @@ export async function generatePipeline(options: {
       const result = await call({
         action: "restructure",
         runId,
-        document: baseline.document,
-        review: baseline.review,
-        sheet: baseline.evidence.sheet,
+        document: structuralSource.document,
+        review: structuralSource.review,
+        sheet: structuralSource.evidence.sheet,
       });
       const document = validateDocument(result.document),
         evidence = await capture(document);

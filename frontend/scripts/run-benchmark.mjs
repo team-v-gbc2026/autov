@@ -276,6 +276,10 @@ try {
       AUTOV_TEST_URL: `${base}/local`,
     },
   });
+  execFileSync(process.execPath, ["scripts/build-morning-review.mjs"], {
+    stdio: "inherit",
+    env: { ...process.env, AUTOV_BENCHMARK_DATASET: root },
+  });
 } catch {
   console.error(
     "Gallery export needs retry; the generated pipeline and evidence remain saved.",

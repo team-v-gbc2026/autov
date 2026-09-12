@@ -115,7 +115,7 @@ export const RECIPES = {
     prompt:
       "One left-facing pale-cyan water projectile with a rounded head, smooth white streaks, a connected blue membrane flowing right and a few rounded droplets. Keep the head stationary, then dissolve head first and droplets last.",
     knowledge:
-      "Build a rounded teardrop head with surface water, normal blend, low bloom. Join 2 overlapping streamer membranes to its rear: streamer extends along local Y from a fixed root at -length/2 to a free tip at +length/2; rotation.z=-pi/2 makes its tip flow right. The vertex shader animates the tip while holding the root fixed; turbulence .5-1 controls this sway. Place each root INSIDE the rear half of the head and keep the membrane narrower and darker than the head. Streamer is a straight flowing membrane, unlike the crescent geometry ribbon. Use a few small teardrop meshes with rightward motion for ROUND droplets, no radial spark burst. Fade the head before the final droplets. Keep surface streaks broad and continuous, preserve deep blue tail contrast.",
+      "Build a rounded teardrop head with surface water, normal blend, low bloom. For additional WHITE surface streaks, use surface water-streaks on a 1.015x enlarged copy with exactly matched center, rotation, motion and turbulence; never overlay a full opaque water shell for highlights. Join 2 overlapping streamer membranes to its rear: streamer extends along local Y from a fixed root at -length/2 to a free tip at +length/2; rotation.z=-pi/2 makes its tip flow right. The vertex shader animates the tip while holding the root fixed; turbulence .5-1 controls this sway. Place each root INSIDE the rear half of the head and keep the membrane narrower and darker than the head. Streamer is a straight flowing membrane, unlike the crescent geometry ribbon. Use a few small teardrop meshes with rightward motion for ROUND droplets, no radial spark burst. Fade the head before the final droplets. Keep surface streaks broad and continuous, preserve deep blue tail contrast.",
   },
   smoke: {
     name: "Rising smoke",
@@ -782,6 +782,17 @@ function createConstructionPreset(id: RecipeId): VfxDocument {
     );
     head.geometry = "teardrop";
     head.surface = "water";
+    const streaks = structuredClone(head);
+    streaks.id = "head-highlights";
+    streaks.name = "White water streaks";
+    streaks.role = "secondary";
+    streaks.surface = "water-streaks";
+    streaks.params.radius *= 1.015;
+    streaks.params.length *= 1.015;
+    streaks.params.color = "#f5ffff";
+    streaks.params.intensity = 0.95;
+    add(streaks);
+
     for (let i = 0; i < 2; i++) {
       const tail = add(
         layer(

@@ -76,6 +76,7 @@ export function createEffect(
         "star",
         "solid",
         "portal",
+        "water-streaks",
       ].indexOf(layer.surface || "default"),
     };
     uniforms.uMesh = {
@@ -247,10 +248,10 @@ export function createEffect(
               local.max.set(alpha.maxX, Math.min(1, alpha.maxY + margin), 0);
             }
             if (layer.geometry === "streamer") {
-              local.min.x -= 0.24 * p.turbulence;
-              local.max.x += 0.24 * p.turbulence;
-              local.min.z -= 0.08 * p.turbulence;
-              local.max.z += 0.08 * p.turbulence;
+              local.min.x -= 0.65 * p.turbulence;
+              local.max.x += 0.65 * p.turbulence;
+              local.min.z -= 0.2 * p.turbulence;
+              local.max.z += 0.2 * p.turbulence;
             }
             // Project oriented corners directly. World-axis boxes overestimate camera-facing cards.
             for (const x of [local.min.x, local.max.x])
@@ -507,7 +508,7 @@ export class VfxRuntime {
         times,
         width: 320,
         height: 180,
-        runtime: "autov.lab/1-three-r186-streamer5",
+        runtime: "autov.lab/1-three-r186-flow6",
         renderer: this.rendererDescription,
         camera: [
           ...this.camera.position.toArray(),

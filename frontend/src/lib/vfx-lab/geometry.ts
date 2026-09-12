@@ -45,9 +45,13 @@ export function buildGeometry(
         columns = 8;
       for (let i = 0; i <= rows; i++) {
         const t = i / rows;
+        const cap = Math.max(0, (t - 0.65) / 0.35);
         const width = Math.max(
           0.006,
-          Math.sqrt(1 - t) * (0.55 + 0.3 * Math.sin(t * Math.PI)),
+          ["water", "water-streaks"].includes(layer.surface || "")
+            ? (0.55 + 0.15 * Math.sin(t * Math.PI)) *
+                Math.sqrt(Math.max(0, 1 - cap * cap))
+            : Math.sqrt(1 - t) * (0.55 + 0.3 * Math.sin(t * Math.PI)),
         );
         for (let j = 0; j <= columns; j++) {
           const across = (j / columns) * 2 - 1;

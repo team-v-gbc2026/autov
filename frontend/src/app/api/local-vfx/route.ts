@@ -21,6 +21,7 @@ import {
 import {
   PlanSchema,
   ReviewSchema,
+  validateReviewCriteria,
   RefinementSchema,
   EditSchema,
   StructuralRefinementSchema,
@@ -431,12 +432,12 @@ export async function POST(request: Request) {
         }),
         [...run.references, body.sheet],
         request.signal,
-        8500,
+        12000,
       );
       run.usages.push(result.usage);
       await saveRun(run);
       return json({
-        review: result.value,
+        review: validateReviewCriteria(result.value, run.plan.criteria),
         usage: result.usage,
         budget: await budgetStatus(),
       });

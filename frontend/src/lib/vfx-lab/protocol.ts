@@ -92,6 +92,21 @@ export const ReviewSchema = z
   })
   .strict();
 export type Review = z.infer<typeof ReviewSchema>;
+export function validateReviewCriteria(
+  input: unknown,
+  criteria: string[],
+): Review {
+  const review = ReviewSchema.parse(input);
+  if (
+    review.observations.length !== criteria.length ||
+    review.observations.some((item, i) => item.criterion !== criteria[i])
+  )
+    throw Error(
+      "Visual review did not evaluate the complete original criteria in order.",
+    );
+  return review;
+}
+
 export const RefinementSchema = z
   .object({
     changes: z

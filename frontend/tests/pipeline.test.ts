@@ -234,3 +234,35 @@ test("completed candidates are durably handed off before the next paid stage", a
   for (let i = 0; i < events.length; i++)
     if (events[i] === "review") assert.equal(events[i - 1], "saved");
 });
+
+test("a promising unadopted scalar proposal can be repaired without weakening final acceptance", async () => {
+  let reviews = 0,
+    startingName = "";
+  const result = await generatePipeline({
+    prompt: "lightning",
+    references: [],
+    mode: "quality",
+    signal: new AbortController().signal,
+    capture,
+    progress: () => {},
+    candidate: () => {},
+    request: async (body) => {
+      if (body.action === "plan") return { runId: "lookahead", plan: {} };
+      if (body.action === "candidate")
+        return { document: { ...doc, name: "accepted" } };
+      if (body.action === "refine")
+        return { document: { ...doc, name: "clearer-bolt-with-faint-sparks" } };
+      if (body.action === "restructure") {
+        startingName = (body.document as typeof doc).name;
+        return { document: { ...doc, name: "clear-bolt-and-visible-sparks" } };
+      }
+      const r = review(++reviews === 5 ? 4.5 : reviews === 4 ? 4 : 3);
+      r.diagnoses[0].symptom = "other";
+      if (reviews === 4) r.observations[0].result = "fail";
+      return { review: r };
+    },
+  });
+  assert.equal(startingName, "clearer-bolt-with-faint-sparks");
+  assert.equal(result.selected.document.name, "clear-bolt-and-visible-sparks");
+  assert.equal(result.candidates[0].document.name, "accepted");
+});

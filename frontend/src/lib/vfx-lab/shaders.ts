@@ -12,10 +12,10 @@ void main(){
     float t=clamp((position.y+1.)*.5,0.,1.);
     float envelope=t*t, derivative=t;
     float phase=position.y*4.-uTime*3.5;
-    pos.x+=.24*uTurbulence*envelope*sin(phase);
-    pos.z+=.08*uTurbulence*envelope*cos(phase*.8);
-    float dx=.24*uTurbulence*(derivative*sin(phase)+envelope*4.*cos(phase));
-    float dz=.08*uTurbulence*(derivative*cos(phase*.8)-envelope*3.2*sin(phase*.8));
+    pos.x+=.65*uTurbulence*envelope*sin(phase);
+    pos.z+=.20*uTurbulence*envelope*cos(phase*.8);
+    float dx=.65*uTurbulence*(derivative*sin(phase)+envelope*4.*cos(phase));
+    float dz=.20*uTurbulence*(derivative*cos(phase*.8)-envelope*3.2*sin(phase*.8));
     nrm.y-=dx*normal.x+dz*normal.z;
   }
   vec4 mv=modelViewMatrix*vec4(pos,1.); vNormal=normalize(normalMatrix*nrm); vView=normalize(-mv.xyz); gl_Position=projectionMatrix*mv;
@@ -33,6 +33,9 @@ void main(){
     float w=max(.002,uWidth/max(uRadius,.01)*.65);
     mask=exp(-pow(d/w,2.))* .8+exp(-d/(w*4.))*.13;
     detail=.65+.35*pow(sin(a*24.)*.5+.5,4.);
+    // Erosion removes coherent angular segments instead of only fading an intact ring.
+    float segmentField=.15+.7*noise3(vec3(cos(a)*4.,sin(a)*4.,0.));
+    mask*=smoothstep(uErosion-.05,uErosion+.05,segmentField);
   } else if(uKind==1){
     float fresnel=pow(1.-abs(dot(normalize(vNormal),normalize(vView))),2.4);
     float cloud=fbm(vec3(vUv*vec2(20.,10.),uTime*.8));
@@ -68,15 +71,16 @@ void main(){
     float taper=1.-smoothstep(-.9,1.,p.y);
     mask*=smoothstep(.25+uErosion*.5,.6,flame+taper*.28);
     detail=flame;
-  } else if(uSurface==2){
+  } else if(uSurface==2 || uSurface==8){
     // Long smooth white bands over a continuous colored body, not a zigzag cutout.
     float bend=sin(p.y*2.8-uTime*2.2)*.12*uTurbulence;
     float waves=sin((p.x+bend)*9.5+p.y*.7);
     float streak=smoothstep(.72,.92,waves)*(.65+.35*sin(p.y*2.-uTime*2.));
-    float facing=abs(dot(normalize(vNormal),normalize(vView)));
-    mask*=.88+.12*streak;
+    vec3 normalDirection=normalize(vNormal)*(gl_FrontFacing?1.:-1.);
+    float broadHighlight=smoothstep(.25,.9,dot(normalDirection,normalize(vec3(-.35,.65,1.))));
+    mask*=uSurface==8?streak:.88+.12*streak;
     mask*=1.-smoothstep(.02,.98,uErosion);
-    detail=.16+.6*streak+.2*facing;
+    detail=.12+.48*broadHighlight+.5*streak;
   } else if(uSurface==3){
     vec2 q=vUv*vec2(24.,12.); vec2 spacing=vec2(1.73205,3.);
     vec2 h1=mod(q,spacing)-spacing*.5, h2=mod(q-spacing*.5,spacing)-spacing*.5;
@@ -119,6 +123,7 @@ void main(){
   float colorMix=clamp(mask*.8+detail*.3,0.,1.);
   if(uSurface==4) colorMix=.25+detail*.7;
   if(uSurface==2) colorMix=clamp(detail,0.,1.);
+  if(uSurface==8) colorMix=1.;
   if(uMesh==1 && uSurface==6) colorMix=.15+.85*pow(abs(dot(normalize(vNormal),normalize(vView))),4.);
   vec3 c=mix(uSecondary,uColor,colorMix)*uIntensity;
   gl_FragColor=vec4(c,clamp(mask,0.,1.));

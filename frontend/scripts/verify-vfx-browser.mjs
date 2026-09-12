@@ -79,6 +79,55 @@ try {
       performance: result.performance,
     });
   }
+  const erosionDoc = await page.evaluate(() => {
+    const doc = Probe.createPreset("lightning"),
+      ring = doc.layers.find((l) => l.kind === "ring");
+    doc.duration = 2;
+    doc.impact = 0.5;
+    doc.name = "Segmented ring erosion — authored renderer fixture";
+    doc.post.bloom = 0;
+    ring.start = 0;
+    ring.end = 2;
+    ring.params.opacity = 1;
+    ring.params.radius = 1;
+    ring.params.spin = 0;
+    ring.params.turbulence = 0;
+    ring.tracks = [
+      {
+        target: "erosion",
+        keys: [
+          [0, 0],
+          [0.6, 0],
+          [1.2, 0.7],
+          [2, 1],
+        ],
+        ease: "linear",
+      },
+    ];
+    doc.layers = [ring];
+    return doc;
+  });
+  const erosionResult = await page.evaluate(
+    (doc) => Probe.render(doc, false),
+    erosionDoc,
+  );
+  assert.ok(Object.values(erosionResult.gates).every(Boolean));
+  assert.notEqual(
+    erosionResult.frames[2].png,
+    erosionResult.frames[4].png,
+    "Ring erosion must change rendered pixels with every other animated parameter fixed",
+  );
+  await writeFile(
+    path.join(output, "ring-erosion.jpg"),
+    Buffer.from(erosionResult.evidence.sheet.split(",")[1], "base64"),
+  );
+  results.push({
+    id: "ring-erosion",
+    source: "authored_renderer_fixture",
+    gates: erosionResult.gates,
+    erosionChangesPixels: true,
+    renderer: erosionResult.evidence.renderer,
+  });
   const smokeDoc = await page.evaluate(() => Probe.createPreset("smoke"));
   smokeDoc.name = "Two generated smoke masks — authored renderer fixture";
   smokeDoc.textures = [];
