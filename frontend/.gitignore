@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local generation secrets, evidence, cumulative spend ledger
+.autov-local/
+test-results/
+playwright-report/
+public/vfx-runtime.js
+public/vfx-runtime.js.LICENSE.txt

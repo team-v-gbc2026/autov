@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "public/vfx-runtime.js",
+    ".autov-local/**",
+    "test-results/**",
+    "playwright-report/**",
   ]),
 ]);
 

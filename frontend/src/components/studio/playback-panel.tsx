@@ -1,10 +1,20 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Icon from "./icon";
 import { iconButton as button } from "./icon-button";
 import type { Playback } from "./use-playback";
 
-export default function PlaybackPanel({ playback }: { playback: Playback }) {
+export default function PlaybackPanel({
+  playback,
+  duration = 8,
+  name = "Particle study",
+  children,
+}: {
+  playback: Playback;
+  duration?: number;
+  name?: string;
+  children?: ReactNode;
+}) {
   const { playing, setPlaying, time, setTime, loop, setLoop } = playback;
   const [controls, setControls] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(true);
@@ -37,7 +47,7 @@ export default function PlaybackPanel({ playback }: { playback: Playback }) {
                 className="play-button"
                 aria-label={playing ? "Pause" : "Play"}
                 onClick={() => {
-                  if (time >= 8) setTime(0);
+                  if (time >= duration) setTime(0);
                   setPlaying(!playing);
                 }}
               >
@@ -51,7 +61,8 @@ export default function PlaybackPanel({ playback }: { playback: Playback }) {
               )}
             </div>
             <span className="time-code">
-              {time.toFixed(2).padStart(5, "0")} <span>/ 08.00</span>
+              {time.toFixed(2).padStart(5, "0")}{" "}
+              <span>/ {duration.toFixed(2).padStart(5, "0")}</span>
             </span>
             <button
               className="icon-button timeline-collapse"
@@ -66,24 +77,26 @@ export default function PlaybackPanel({ playback }: { playback: Playback }) {
           </div>
           <div className="timeline">
             <div className="time-ruler">
-              {[0, 2, 4, 6, 8].map((t) => (
-                <span key={t}>{t.toFixed(2)}</span>
-              ))}
+              {[0, duration / 4, duration / 2, duration * 0.75, duration].map(
+                (t) => (
+                  <span key={t}>{t.toFixed(2)}</span>
+                ),
+              )}
             </div>
             <div className="timeline-track">
               <div className="effect-clip">
-                <span>Particle study</span>
-                <span>8.0s</span>
+                <span>{name}</span>
+                <span>{duration.toFixed(1)}s</span>
               </div>
               <div
                 className="playhead"
-                style={{ left: `${(time / 8) * 100}%` }}
+                style={{ left: `${(time / duration) * 100}%` }}
               />
               <input
                 aria-label="Playback position"
                 type="range"
                 min="0"
-                max="8"
+                max={duration}
                 step="0.01"
                 value={time}
                 onChange={(e) => setTime(Number(e.target.value))}
@@ -105,7 +118,7 @@ export default function PlaybackPanel({ playback }: { playback: Playback }) {
           </button>
           {controls && (
             <div id="effect-controls" className="control-shelf">
-              <p>No effect controls available.</p>
+              {children || <p>No effect controls available.</p>}
             </div>
           )}
         </section>
