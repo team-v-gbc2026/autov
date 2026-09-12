@@ -1,3 +1,7 @@
+import {
+  MAX_PROMPT_CHARACTERS,
+  MAX_PROMPT_REFERENCES,
+} from "@/lib/vfx-lab/reference-input";
 import { applyRefinement } from "@/lib/vfx-lab/refine";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -48,8 +52,8 @@ const RequestSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("plan"),
-      prompt: z.string().min(3).max(5000),
-      references: z.array(imageSchema).max(3),
+      prompt: z.string().min(3).max(MAX_PROMPT_CHARACTERS),
+      references: z.array(imageSchema).max(MAX_PROMPT_REFERENCES),
       mode: z.enum(["fast", "quality"]),
     })
     .strict(),
@@ -81,8 +85,9 @@ const RequestSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("edit"),
-      prompt: z.string().min(2).max(2000),
+      prompt: z.string().min(2).max(MAX_PROMPT_CHARACTERS),
       document: DocumentSchema,
+      references: z.array(imageSchema).max(MAX_PROMPT_REFERENCES).default([]),
       layerId: z.string().max(48),
     })
     .strict(),
@@ -116,7 +121,7 @@ async function boundedBody(request: Request) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.length;
-    if (size > 6_500_000) {
+    if (size > 17_000_000) {
       await reader.cancel();
       throw new Error("Request too large.");
     }
@@ -197,7 +202,7 @@ export async function POST(request: Request) {
         EditSchema,
         `${TECHNICAL_GUIDE}\nTranslate the user's instruction into ONE appearance target and an absolute value for the explicitly selected layer. You cannot change selection or time window. Explain in the user's language.`,
         JSON.stringify({ prompt: body.prompt, layer }),
-        [],
+        body.references,
         request.signal,
         2000,
       );

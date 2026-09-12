@@ -1,8 +1,19 @@
 "use client";
+// @refresh reset
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import Icon from "@/components/studio/icon";
+import ReferencesPanel from "@/components/studio/references-panel";
+import ReferenceComposer, {
+  type ComposerHandle,
+} from "@/components/studio/composer/reference-composer";
+import { displayPrompt } from "@/components/studio/composer/prompt-format";
+import {
+  useBoardLayout,
+  referenceName,
+} from "@/components/studio/board/board-store";
+import { useLocalReferences, prepareReference } from "./use-local-references";
+import EmitterTimeline from "./emitter-timeline";
 import ChatEmptyState from "@/components/studio/chat-empty-state";
 import PanelToggle from "@/components/studio/panel-toggle";
 import PlaybackPanel from "@/components/studio/playback-panel";
@@ -17,6 +28,7 @@ import {
   type NumericTarget,
   RANGES,
 } from "@/lib/vfx-lab/schema";
+import { referenceInput } from "@/lib/vfx-lab/reference-input";
 import { applyScopedEdit } from "@/lib/vfx-lab/evaluate";
 import {
   generatePipeline,
@@ -38,7 +50,6 @@ type Status = {
     pending: number;
   };
 };
-type LocalReference = { id: string; name: string; url: string };
 const STORAGE = "autov.local.document.v1";
 function download(name: string, content: string, type = "application/json") {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -48,39 +59,27 @@ function download(name: string, content: string, type = "application/json") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
-async function resizeImage(file: File): Promise<string> {
-  if (
-    !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
-    file.size > 20 * 1024 * 1024
-  )
-    throw new Error("Use a PNG, JPEG or WebP image up to 20 MB.");
-  const bitmap = await createImageBitmap(file);
-  try {
-    const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Image preparation failed.");
-    ctx.fillStyle = "#101112";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.87);
-  } finally {
-    bitmap.close();
-  }
-}
 export default function VfxStudio() {
   const [doc, setDoc] = useState(() => createPreset("slash")),
     [ready, setReady] = useState(false),
     [status, setStatus] = useState<Status | null>(null);
   const [left, setLeft] = useState(true),
-    [right, setRight] = useState(true),
-    [leftTab, setLeftTab] = useState<"references" | "layers">("references");
-  const [references, setReferences] = useState<LocalReference[]>([]),
-    [uploading, setUploading] = useState(false);
-  const [prompt, setPrompt] = useState(""),
-    [mode, setMode] = useState<"fast" | "quality">("quality"),
+    [right, setRight] = useState(true);
+  const referenceState = useLocalReferences();
+  const { layout } = useBoardLayout("local");
+  const references = referenceState.references.map((r) => ({
+    ...r,
+    name: layout[r.id]?.name || referenceName(r.name),
+  }));
+  const composer = useRef<ComposerHandle>(null);
+  const [history, setHistory] = useState<
+    { id: string; text: string; kind: string }[]
+  >([]);
+  const record = (kind: string, text: string) =>
+    setHistory((items) =>
+      [...items, { id: crypto.randomUUID(), kind, text }].slice(-100),
+    );
+  const [mode, setMode] = useState<"fast" | "quality">("quality"),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
     [error, setError] = useState("");
@@ -102,11 +101,17 @@ export default function VfxStudio() {
     } | null>(null);
   const runtime = useRef<VfxRuntime | null>(null),
     abort = useRef<AbortController | null>(null),
-    fileInput = useRef<HTMLInputElement>(null),
     importInput = useRef<HTMLInputElement>(null);
   const [report, setReport] = useState<PipelineResult | null>(null);
   const playback = usePlayback(doc.duration),
     layer = doc.layers.find((l) => l.id === selected) || doc.layers[0];
+  const selectLayer = (id: string) => {
+    const item = doc.layers.find((l) => l.id === id);
+    if (!item) return;
+    setSelected(id);
+    setStart(Number(item.start.toFixed(3)));
+    setEnd(Number(item.end.toFixed(3)));
+  };
   const refreshStatus = useCallback(async () => {
     try {
       const r = await fetch("/api/local-vfx");
@@ -126,6 +131,26 @@ export default function VfxStudio() {
     } catch {
       setError("Saved document could not be loaded. A valid preset is shown.");
     }
+    try {
+      const raw = localStorage.getItem("autov.local.chat.v1");
+      if (raw) {
+        const items: unknown = JSON.parse(raw);
+        if (Array.isArray(items))
+          setHistory(
+            items
+              .filter(
+                (e) =>
+                  e &&
+                  typeof e.id === "string" &&
+                  typeof e.text === "string" &&
+                  typeof e.kind === "string",
+              )
+              .slice(-100),
+          );
+      }
+    } catch {
+      /* History is optional. */
+    }
     setReady(true);
     void refreshStatus();
     if (window.matchMedia("(max-width:800px)").matches) setLeft(false);
@@ -139,6 +164,14 @@ export default function VfxStudio() {
         setError("Browser storage is full. Export JSON to save this effect.");
       }
   }, [doc, ready]);
+  useEffect(() => {
+    if (ready)
+      try {
+        localStorage.setItem("autov.local.chat.v1", JSON.stringify(history));
+      } catch {
+        setError("Chat history could not be saved. Browser storage is full.");
+      }
+  }, [history, ready]);
   /* eslint-enable react-hooks/set-state-in-effect */
   const commit = (next: VfxDocument) => {
     validateDocument(next);
@@ -153,7 +186,7 @@ export default function VfxStudio() {
     commit(next);
     setSelected(next.layers.find((l) => l.role === "primary")!.id);
     setSolo(undefined);
-    setPrompt(RECIPES[id].prompt);
+    composer.current?.setText(RECIPES[id].prompt);
     playback.setTime(next.impact + 0.2);
     setCandidates([]);
     setPlan(null);
@@ -176,8 +209,16 @@ export default function VfxStudio() {
     if (!response.ok) throw new Error(data.error || "Generation failed.");
     return data;
   };
-  const submit = async () => {
-    if (!prompt.trim() || busy || !runtime.current) return;
+  const submit = async (prompt: string, ids: string[]) => {
+    if (!prompt.trim() || busy || !runtime.current || !status?.configured)
+      return false;
+    let input: ReturnType<typeof referenceInput>;
+    try {
+      input = referenceInput(prompt, ids, references);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Invalid references.");
+      return false;
+    }
     setError("");
     setBusy(true);
     setProposal(null);
@@ -185,7 +226,16 @@ export default function VfxStudio() {
     const controller = new AbortController();
     abort.current = controller;
     playback.setPlaying(false);
+    record(
+      editMode
+        ? `Edit ${layer.name} · ${start.toFixed(2)}–${end.toFixed(2)} s`
+        : "Generate effect",
+      displayPrompt(prompt),
+    );
     try {
+      const images = await Promise.all(
+        input.selected.map((r) => prepareReference(r.url)),
+      );
       if (editMode) {
         if (start < 0 || end > doc.duration || start >= end)
           throw new Error("Choose a valid time range within the effect.");
@@ -193,7 +243,13 @@ export default function VfxStudio() {
           `Preparing an edit for ${layer.name}, ${start.toFixed(2)}–${end.toFixed(2)} s…`,
         );
         const result = await request(
-          { action: "edit", prompt, document: doc, layerId: layer.id },
+          {
+            action: "edit",
+            prompt,
+            references: images,
+            document: doc,
+            layerId: layer.id,
+          },
           controller.signal,
         );
         const override: Override = {
@@ -217,7 +273,7 @@ export default function VfxStudio() {
         setPlan(null);
         const result = await generatePipeline({
           prompt,
-          references: references.map((r) => r.url),
+          references: images,
           mode,
           signal: controller.signal,
           request,
@@ -245,8 +301,18 @@ export default function VfxStudio() {
         );
         playback.setTime(result.selected.document.impact + 0.15);
         playback.setPlaying(true);
+        record("Generated effect", result.selected.document.name);
       }
+      return true;
     } catch (e) {
+      record(
+        "Request failed",
+        controller.signal.aborted
+          ? "Stopped"
+          : e instanceof Error
+            ? e.message
+            : "Generation failed",
+      );
       setError(
         controller.signal.aborted
           ? "Stopped. Your current effect is preserved; completed candidates remain available."
@@ -254,30 +320,11 @@ export default function VfxStudio() {
             ? e.message
             : "Generation failed. Previous effect preserved.",
       );
+      return false;
     } finally {
       setBusy(false);
       abort.current = null;
       void refreshStatus();
-    }
-  };
-  const addFiles = async (files: FileList | null) => {
-    if (!files || uploading) return;
-    setUploading(true);
-    try {
-      if (references.length + files.length > 3)
-        throw new Error("Use up to three references per generation.");
-      const prepared = await Promise.all(
-        Array.from(files).map(async (file) => ({
-          id: crypto.randomUUID(),
-          name: file.name,
-          url: await resizeImage(file),
-        })),
-      );
-      setReferences((items) => [...items, ...prepared]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Image import failed.");
-    } finally {
-      setUploading(false);
     }
   };
   const parameter = (target: NumericTarget, value: number) => {
@@ -305,6 +352,7 @@ export default function VfxStudio() {
   return (
     <main
       className={`studio lab ${left ? "left-open" : ""} ${right ? "right-open" : ""}`}
+      style={{ background: doc.post.background }}
     >
       <div className="viewport-grid" />
       <Viewport
@@ -326,6 +374,22 @@ export default function VfxStudio() {
           <span className="lab-badge">LOCAL · SAVED ON THIS DEVICE</span>
         </div>
         <div className="header-actions">
+          <select
+            aria-label="Load preset"
+            className="lab-mode"
+            disabled={busy}
+            value=""
+            onChange={(e) => choosePreset(e.target.value as RecipeId)}
+          >
+            <option value="" disabled>
+              Presets
+            </option>
+            {Object.entries(RECIPES).map(([id, recipe]) => (
+              <option key={id} value={id}>
+                {recipe.name}
+              </option>
+            ))}
+          </select>
           <button
             className="lab-action"
             onClick={() => importInput.current?.click()}
@@ -370,248 +434,24 @@ export default function VfxStudio() {
         }}
       />
       {!left && (
-        <PanelToggle
-          side="left"
-          label="References & layers"
-          onOpen={() => setLeft(true)}
-        />
+        <PanelToggle side="left" label="Board" onOpen={() => setLeft(true)} />
       )}
       {!right && (
         <PanelToggle side="right" label="Chat" onOpen={() => setRight(true)} />
       )}
-      {left && (
-        <aside className="glass reference-panel">
-          <div className="panel-heading">
-            <div>
-              <Icon name="image" />
-              <h2>{leftTab === "references" ? "References" : "Layers"}</h2>
-              <span className="count">
-                {(leftTab === "references"
-                  ? references.length
-                  : doc.layers.length
-                )
-                  .toString()
-                  .padStart(2, "0")}
-              </span>
-            </div>
-            {button("panel", "Collapse references", () => setLeft(false))}
-          </div>
-          <div
-            className="lab-tabs"
-            role="tablist"
-            aria-label="Reference and layer panels"
-          >
-            <button
-              role="tab"
-              aria-selected={leftTab === "references"}
-              onClick={() => setLeftTab("references")}
-            >
-              References
-            </button>
-            <button
-              role="tab"
-              aria-selected={leftTab === "layers"}
-              onClick={() => setLeftTab("layers")}
-            >
-              Layers
-            </button>
-          </div>
-          <div className="panel-body lab-scroll">
-            {leftTab === "references" ? (
-              <>
-                <button
-                  className="drop-zone"
-                  disabled={busy || uploading}
-                  onClick={() => fileInput.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (!busy) void addFiles(e.dataTransfer.files);
-                  }}
-                >
-                  <span className="upload-icon">
-                    <Icon name="plus" size={22} />
-                  </span>
-                  <strong>Add references</strong>
-                  <span>Drop images or browse</span>
-                  <small>
-                    {uploading ? "PREPARING…" : "IMAGES · UP TO 20 MB · MAX 3"}
-                  </small>
-                </button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  aria-label="Add reference images"
-                  accept="image/png,image/jpeg,image/webp"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    void addFiles(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-                <div className="reference-list">
-                  {references.map((ref) => (
-                    <div className="reference-item" key={ref.id}>
-                      <Image
-                        unoptimized
-                        width={240}
-                        height={160}
-                        src={ref.url}
-                        alt={ref.name}
-                      />
-                      <div>
-                        <span>{ref.name}</span>
-                        {button("close", `Remove ${ref.name}`, () =>
-                          setReferences((items) =>
-                            items.filter((r) => r.id !== ref.id),
-                          ),
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="lab-hint">
-                  References guide color, shape and atmosphere. Motion comes
-                  from your prompt. Uploaded references are sent to OpenAI when
-                  you generate.
-                </p>
-                <h3 className="lab-section-label">Start with an effect</h3>
-                <div className="lab-presets">
-                  {(Object.keys(RECIPES) as RecipeId[]).map((id) => (
-                    <button
-                      className="lab-preset"
-                      key={id}
-                      disabled={busy}
-                      onClick={() => choosePreset(id)}
-                    >
-                      <strong>
-                        {RECIPES[id].name} <span>↗</span>
-                      </strong>
-                      <small>{RECIPES[id].subtitle}</small>
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                {doc.layers.map((l) => (
-                  <div
-                    key={l.id}
-                    className={`lab-layer ${l.id === layer.id ? "selected" : ""}`}
-                  >
-                    <button
-                      disabled={busy}
-                      aria-label={`${l.enabled ? "Hide" : "Show"} ${l.name}`}
-                      onClick={() => {
-                        const next = structuredClone(doc);
-                        next.layers.find((x) => x.id === l.id)!.enabled =
-                          !l.enabled;
-                        try {
-                          commit(next);
-                        } catch (e) {
-                          setError(
-                            e instanceof Error
-                              ? e.message
-                              : "Invalid layer selection.",
-                          );
-                        }
-                      }}
-                    >
-                      <span
-                        className="lab-layer-dot"
-                        style={{
-                          background: l.enabled ? l.params.color : "#45494b",
-                        }}
-                      />
-                    </button>
-                    <button onClick={() => setSelected(l.id)}>
-                      {l.name}
-                      <small>
-                        {l.kind} · {l.start.toFixed(2)}–{l.end.toFixed(2)} s
-                      </small>
-                    </button>
-                    <button
-                      className="lab-tiny"
-                      aria-label={`Solo ${l.name}`}
-                      aria-pressed={solo === l.id}
-                      onClick={() => setSolo(solo === l.id ? undefined : l.id)}
-                    >
-                      {solo === l.id ? "●" : "S"}
-                    </button>
-                  </div>
-                ))}
-                <div className="lab-controls">
-                  <h3 className="lab-section-label">{layer.name}</h3>
-                  <label className="lab-field">
-                    Color
-                    <input
-                      type="color"
-                      aria-label="Layer color"
-                      value={layer.params.color}
-                      disabled={busy}
-                      onChange={(e) => {
-                        const next = structuredClone(doc);
-                        next.layers.find(
-                          (l) => l.id === layer.id,
-                        )!.params.color = e.target.value;
-                        commit(next);
-                      }}
-                    />
-                  </label>
-                  {(
-                    [
-                      "intensity",
-                      "radius",
-                      "width",
-                      "opacity",
-                    ] as NumericTarget[]
-                  ).map((target) => (
-                    <label className="lab-field" key={target}>
-                      <span>
-                        {target}
-                        <output>{layer.params[target].toFixed(2)}</output>
-                      </span>
-                      <input
-                        aria-label={`Layer ${target}`}
-                        type="range"
-                        min={RANGES[target][0]}
-                        max={
-                          target === "radius"
-                            ? 4
-                            : target === "width"
-                              ? 0.5
-                              : RANGES[target][1]
-                        }
-                        step="0.01"
-                        value={layer.params[target]}
-                        disabled={busy}
-                        onChange={(e) =>
-                          parameter(target, Number(e.target.value))
-                        }
-                      />
-                    </label>
-                  ))}
-                  <p className="lab-hint">
-                    Manual sliders replace this parameter’s animation. Use a
-                    scoped chat edit to preserve it outside a time window.
-                  </p>
-                  <button
-                    className="lab-action"
-                    onClick={() => {
-                      setEditMode(true);
-                      setRight(true);
-                    }}
-                  >
-                    Edit this layer in chat ↗
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </aside>
-      )}
-      {right && (
+      <div hidden={!left}>
+        <ReferencesPanel
+          projectId="local"
+          state={{ ...referenceState, references }}
+          locked={busy}
+          onCollapse={() => setLeft(false)}
+          onMention={(ref) => {
+            setRight(true);
+            composer.current?.mention(ref);
+          }}
+        />
+      </div>
+      <div hidden={!right}>
         <aside className="glass chat-panel">
           <div className="panel-heading">
             <div>
@@ -623,10 +463,18 @@ export default function VfxStudio() {
           </div>
           <div className="chat-content">
             <div className="messages" aria-live="polite">
-              {!lastPrompt && !notice && (
-                <ChatEmptyState disabled={busy} onSelect={setPrompt} />
+              {!history.length && !lastPrompt && !notice && (
+                <ChatEmptyState
+                  disabled={busy}
+                  onSelect={(text) => composer.current?.setText(text)}
+                />
               )}
-              {lastPrompt && <p className="user-message">{lastPrompt}</p>}
+              {history.map((entry) => (
+                <div key={entry.id} className="lab-history-entry">
+                  <small>{entry.kind}</small>
+                  <p className="user-message">{entry.text}</p>
+                </div>
+              ))}
               {notice && (
                 <div className="lab-progress" role="status">
                   <span>
@@ -639,9 +487,11 @@ export default function VfxStudio() {
                     {notice}
                   </span>
                   <small>
-                    {mode === "quality"
-                      ? "Plan → 3 candidates → render → review → bounded refinement"
-                      : "Plan → candidate → render"}
+                    {editMode
+                      ? "Selected emitter → scoped edit → review → apply"
+                      : mode === "quality"
+                        ? "Plan → 3 candidates → render → review → bounded refinement"
+                        : "Plan → candidate → render"}
                   </small>
                 </div>
               )}
@@ -725,7 +575,10 @@ export default function VfxStudio() {
                           setNotice(
                             "Edit applied. Other layers and times outside this window are unchanged.",
                           );
-                          setPrompt("");
+                          record(
+                            "Edit applied",
+                            `${doc.layers.find((l) => l.id === proposal.layerId)?.name} · ${proposal.override.start.toFixed(2)}–${proposal.override.end.toFixed(2)} s · ${proposal.override.target} → ${proposal.override.value}`,
+                          );
                         } catch (e) {
                           setError(
                             e instanceof Error ? e.message : "Edit rejected.",
@@ -769,13 +622,7 @@ export default function VfxStudio() {
               )}
             </div>
           </div>
-          <form
-            className="composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submit();
-            }}
-          >
+          <div className="lab-chat-options">
             <div className="lab-control-row" style={{ marginBottom: 9 }}>
               <select
                 className="lab-mode"
@@ -808,7 +655,7 @@ export default function VfxStudio() {
                     aria-label="Edit layer"
                     value={layer.id}
                     disabled={busy}
-                    onChange={(e) => setSelected(e.target.value)}
+                    onChange={(e) => selectLayer(e.target.value)}
                   >
                     {doc.layers.map((l) => (
                       <option key={l.id} value={l.id}>
@@ -825,7 +672,7 @@ export default function VfxStudio() {
                       type="number"
                       min="0"
                       max={doc.duration}
-                      step="0.05"
+                      step="0.001"
                       value={start}
                       disabled={busy}
                       onChange={(e) => setStart(Number(e.target.value))}
@@ -838,7 +685,7 @@ export default function VfxStudio() {
                       type="number"
                       min="0"
                       max={doc.duration}
-                      step="0.05"
+                      step="0.001"
                       value={end}
                       disabled={busy}
                       onChange={(e) => setEnd(Number(e.target.value))}
@@ -847,45 +694,24 @@ export default function VfxStudio() {
                 </div>
               </>
             )}
-            <textarea
-              aria-label="Describe your effect"
-              placeholder={
-                editMode
-                  ? "Make only this layer warmer and brighter…"
-                  : "Describe your effect…"
-              }
-              rows={3}
-              value={prompt}
-              maxLength={5000}
-              disabled={busy}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-            <div className="composer-toolbar">
-              <span className="lab-tiny">
-                {busy ? (
-                  <button type="button" onClick={() => abort.current?.abort()}>
-                    Stop generation
-                  </button>
-                ) : status?.configured ? (
-                  "OpenAI · gpt-6-astra"
-                ) : (
-                  "OpenAI not connected"
-                )}
-              </span>
-              <button
-                type="submit"
-                className="send-button"
-                aria-label={
-                  editMode ? "Prepare scoped edit" : "Generate effect"
-                }
-                disabled={
-                  busy || uploading || !prompt.trim() || !status?.configured
-                }
-              >
-                <Icon name="arrow" />
-              </button>
-            </div>
-          </form>
+          </div>
+          <ReferenceComposer
+            ref={composer}
+            references={references}
+            busy={referenceState.busy || !status?.configured}
+            saving={busy}
+            uploadFile={referenceState.uploadFile}
+            onSend={submit}
+            sendLabel={editMode ? "Prepare scoped edit" : "Generate effect"}
+          />
+          {busy && (
+            <button
+              className="lab-action"
+              onClick={() => abort.current?.abort()}
+            >
+              Stop generation
+            </button>
+          )}
           <div className="chat-footnote">
             {status ? (
               <span className="lab-budget">
@@ -899,11 +725,135 @@ export default function VfxStudio() {
             )}
           </div>
         </aside>
-      )}
+      </div>
       <PlaybackPanel
         playback={playback}
         duration={doc.duration}
         name={doc.name}
+        tracks={
+          <EmitterTimeline
+            layers={doc.layers}
+            duration={doc.duration}
+            time={playback.time}
+            selected={layer.id}
+            solo={solo}
+            busy={busy}
+            onSelect={selectLayer}
+            onSolo={(id) => setSolo(solo === id ? undefined : id)}
+            onToggle={(id) => {
+              const next = structuredClone(doc);
+              const item = next.layers.find((l) => l.id === id)!;
+              item.enabled = !item.enabled;
+              try {
+                commit(next);
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Invalid selection");
+              }
+            }}
+          />
+        }
+        effectControls={
+          <div className="lab-controls lab-emitter-controls">
+            <h3 className="lab-section-label lab-wide">
+              {layer.name} · {layer.kind} · {layer.start.toFixed(2)}–
+              {layer.end.toFixed(2)} s
+            </h3>
+            <button
+              className="lab-action lab-wide"
+              onClick={() => {
+                setEditMode(true);
+                setStart(Number(layer.start.toFixed(3)));
+                setEnd(Number(layer.end.toFixed(3)));
+                setRight(true);
+              }}
+            >
+              Edit this layer in chat ↗
+            </button>
+            <label className="lab-field">
+              Color
+              <input
+                type="color"
+                aria-label="Layer color"
+                value={layer.params.color}
+                disabled={busy}
+                onChange={(e) => {
+                  const next = structuredClone(doc);
+                  next.layers.find((l) => l.id === layer.id)!.params.color =
+                    e.target.value;
+                  commit(next);
+                }}
+              />
+            </label>
+            <label className="lab-field">
+              Secondary color
+              <input
+                type="color"
+                aria-label="Layer secondary color"
+                value={layer.params.secondaryColor}
+                disabled={busy}
+                onChange={(e) => {
+                  const next = structuredClone(doc);
+                  next.layers.find(
+                    (l) => l.id === layer.id,
+                  )!.params.secondaryColor = e.target.value;
+                  commit(next);
+                }}
+              />
+            </label>
+            <label className="lab-field">
+              Blend
+              <select
+                aria-label="Layer blend"
+                value={layer.params.blend}
+                disabled={busy}
+                onChange={(e) => {
+                  const next = structuredClone(doc);
+                  next.layers.find((l) => l.id === layer.id)!.params.blend = e
+                    .target.value as "additive" | "normal";
+                  commit(next);
+                }}
+              >
+                <option value="additive">Additive</option>
+                <option value="normal">Normal</option>
+              </select>
+            </label>
+            {(
+              [
+                "intensity",
+                "radius",
+                "width",
+                "opacity",
+                "length",
+                "speed",
+                "turbulence",
+                "erosion",
+                "spin",
+              ] as NumericTarget[]
+            ).map((target) => (
+              <label className="lab-field" key={target}>
+                <span>
+                  {target}
+                  <output>{layer.params[target].toFixed(2)}</output>
+                </span>
+                <input
+                  aria-label={`Layer ${target}`}
+                  type="range"
+                  min={RANGES[target][0]}
+                  max={RANGES[target][1]}
+                  step="0.001"
+                  value={layer.params[target]}
+                  disabled={busy}
+                  onChange={(e) => parameter(target, Number(e.target.value))}
+                />
+              </label>
+            ))}
+            <p className="lab-hint lab-wide">
+              Manual sliders replace this parameter’s animation. Use a scoped
+              chat edit to preserve it outside a time window.
+            </p>
+          </div>
+        }
+        environmentLabel="Environment settings"
       >
         <div className="lab-shelf">
           <div>
@@ -962,6 +912,8 @@ export default function VfxStudio() {
               setRedo((items) => [...items, doc]);
               setUndo((items) => items.slice(0, -1));
               setDoc(previous);
+              record("Undo", previous.name);
+              setNotice("Undid the last document change.");
               setProposal(null);
               setSelectedCandidate("");
             }}
@@ -976,6 +928,8 @@ export default function VfxStudio() {
               setUndo((items) => [...items, doc]);
               setRedo((items) => items.slice(0, -1));
               setDoc(next);
+              record("Redo", next.name);
+              setNotice("Restored the undone document change.");
               setProposal(null);
               setSelectedCandidate("");
             }}

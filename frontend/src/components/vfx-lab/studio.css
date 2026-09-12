@@ -320,3 +320,177 @@
     max-height: calc(100dvh - 340px);
   }
 }
+/* Main Board and composer are shared; the timeline owns emitter selection. */
+.lab .lab-control-tabs {
+  display: flex;
+}
+.lab .lab-control-tabs > button {
+  flex: 1;
+  min-width: 0;
+}
+.lab .lab-control-tabs > button[aria-expanded="true"] {
+  color: #e0e7e5;
+  background: #ffffff08;
+}
+.lab .lab-emitter-tracks {
+  max-height: 156px;
+  overflow: auto;
+  scrollbar-width: thin;
+  margin-top: 8px;
+}
+.lab .lab-emitter-row {
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr);
+  height: 29px;
+  border-radius: 4px;
+}
+.lab .lab-emitter-row.selected {
+  background: #ffffff0c;
+}
+.lab .lab-emitter-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-right: 8px;
+}
+.lab .lab-emitter-label button {
+  padding: 3px;
+}
+.lab .lab-emitter-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+}
+.lab .lab-emitter-lane {
+  position: relative;
+  background: repeating-linear-gradient(
+    90deg,
+    #ffffff09 0 1px,
+    transparent 1px 25%
+  );
+}
+.lab .lab-emitter-bar {
+  position: absolute;
+  top: 4px;
+  height: 21px;
+  min-width: 2px;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: 3px;
+  background: #ffffff10;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 8px;
+}
+.lab .lab-emitter-bar[aria-pressed="true"] {
+  background: #ffffff22;
+}
+.lab .lab-emitter-playhead {
+  position: absolute;
+  width: 1px;
+  top: 0;
+  bottom: 0;
+  background: #e4eeee;
+  pointer-events: none;
+}
+.lab .timeline > .time-ruler,
+.lab .timeline > .timeline-track {
+  margin-left: 145px;
+}
+.lab .timeline > .timeline-track {
+  height: 15px;
+}
+.lab .timeline > .timeline-track .effect-clip {
+  font-size: 7px;
+  padding: 0 4px;
+}
+.lab .lab-emitter-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0;
+}
+.lab .lab-wide {
+  grid-column: 1/-1;
+  margin: 0;
+}
+.lab .control-shelf {
+  max-height: 210px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.lab .lab-chat-options {
+  margin: 0 12px 8px;
+}
+.lab .lab-history-entry small {
+  font-size: 9px;
+  color: #9eadaf;
+}
+.lab .lab-history-entry p {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lab .header-actions {
+  max-width: 50%;
+}
+.lab .header-actions select {
+  width: 95px;
+}
+@media (max-width: 800px) {
+  .lab .lab-emitter-tracks {
+    max-height: 110px;
+  }
+  .lab .lab-emitter-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lab .control-shelf {
+    max-height: 160px;
+  }
+  .lab .lab-emitter-row {
+    grid-template-columns: 115px minmax(0, 1fr);
+  }
+  .lab .timeline > .time-ruler,
+  .lab .timeline > .timeline-track {
+    margin-left: 115px;
+  }
+}
+.lab .lab-emitter-tracks {
+  max-height: 116px;
+}
+.lab .control-shelf {
+  max-height: 148px;
+  padding: 12px 18px;
+}
+.lab .timeline {
+  padding-bottom: 12px;
+}
+.lab .lab-emitter-controls > .lab-action {
+  text-align: left;
+  padding: 6px 8px;
+}
+@media (max-height: 700px) {
+  .lab .lab-emitter-tracks {
+    max-height: 87px;
+  }
+  .lab .control-shelf {
+    max-height: 130px;
+  }
+}
+/* Keep the live preview above the measured timeline, including open controls. */
+.lab .scene-container {
+  top: 76px;
+  left: var(--left-space);
+  right: var(--right-space);
+  bottom: calc(var(--timeline-height, 235px) + 75px);
+  min-height: 100px;
+}
+.lab .scene-navigation-hint {
+  top: 14px;
+  left: 16px;
+}

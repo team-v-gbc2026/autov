@@ -1,5 +1,5 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Icon from "./icon";
 import { iconButton as button } from "./icon-button";
 import type { Playback } from "./use-playback";
@@ -9,15 +9,42 @@ export default function PlaybackPanel({
   duration = 8,
   name = "Particle study",
   children,
+  tracks,
+  effectControls,
+  environmentLabel,
 }: {
   playback: Playback;
   duration?: number;
   name?: string;
   children?: ReactNode;
+  tracks?: ReactNode;
+  effectControls?: ReactNode;
+  environmentLabel?: string;
 }) {
   const { playing, setPlaying, time, setTime, loop, setLoop } = playback;
-  const [controls, setControls] = useState(false);
+  const [controls, setControls] = useState<false | "effect" | "environment">(
+    false,
+  );
   const [timelineOpen, setTimelineOpen] = useState(true);
+  const panel = useRef<HTMLElement>(null);
+  const hasTracks = Boolean(tracks);
+  useEffect(() => {
+    const node = panel.current;
+    const studio = node?.closest<HTMLElement>(".lab");
+    if (!node || !studio || !hasTracks) return;
+    const measure = () =>
+      studio.style.setProperty(
+        "--timeline-height",
+        `${node.getBoundingClientRect().height}px`,
+      );
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return () => {
+      observer.disconnect();
+      studio.style.setProperty("--timeline-height", "0px");
+    };
+  }, [timelineOpen, hasTracks]);
   return (
     <>
       {!timelineOpen && (
@@ -36,6 +63,7 @@ export default function PlaybackPanel({
       )}
       {timelineOpen && (
         <section
+          ref={panel}
           id="playback-timeline"
           className="glass transport"
           aria-label="Playback and effect controls"
@@ -102,23 +130,45 @@ export default function PlaybackPanel({
                 onChange={(e) => setTime(Number(e.target.value))}
               />
             </div>
+            {tracks}
           </div>
-          <button
-            className="controls-toggle"
-            aria-expanded={controls}
-            aria-controls="effect-controls"
-            onClick={() => setControls(!controls)}
-          >
-            <span>
-              <Icon name="sliders" size={14} /> Effect controls{" "}
-            </span>
-            <span className={controls ? "rotated" : ""}>
-              <Icon name="chevron" size={15} />
-            </span>
-          </button>
+          <div className="lab-control-tabs">
+            <button
+              className="controls-toggle"
+              aria-expanded={controls === "effect"}
+              aria-controls="effect-controls"
+              onClick={() =>
+                setControls(controls === "effect" ? false : "effect")
+              }
+            >
+              <span>
+                <Icon name="sliders" size={14} /> Effect controls{" "}
+              </span>
+              <span className={controls ? "rotated" : ""}>
+                <Icon name="chevron" size={15} />
+              </span>
+            </button>
+            {environmentLabel && (
+              <button
+                className="controls-toggle"
+                aria-expanded={controls === "environment"}
+                aria-controls="effect-controls"
+                onClick={() =>
+                  setControls(
+                    controls === "environment" ? false : "environment",
+                  )
+                }
+              >
+                {environmentLabel}
+                <Icon name="sliders" size={14} />
+              </button>
+            )}
+          </div>
           {controls && (
             <div id="effect-controls" className="control-shelf">
-              {children || <p>No effect controls available.</p>}
+              {(controls === "effect"
+                ? effectControls || children
+                : children) || <p>No effect controls available.</p>}
             </div>
           )}
         </section>

@@ -74,6 +74,12 @@ export function usePlayback(duration = 8) {
     return () => cancelAnimationFrame(frame);
   }, [state.playing, duration]);
 
-  return { ...state, setTime, setPlaying, setLoop };
+  return {
+    ...state,
+    time: Math.min(state.time, duration),
+    setTime,
+    setPlaying,
+    setLoop,
+  };
 }
 export type Playback = ReturnType<typeof usePlayback>;
