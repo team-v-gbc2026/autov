@@ -1,0 +1,9 @@
+.empty { display: flex; flex-direction: column; justify-content: flex-end; flex: 1; gap: 24px; padding: 20px 0 4px; }
+.intro { display: flex; flex-direction: column; align-items: flex-start; }
+.intro > span { margin: 0 0 15px; }
+.intro h3 { margin: 0 0 7px; font-size: 17px; font-weight: 450; letter-spacing: -.4px; color: #d5dce0; }
+.intro p { margin: 0; font-size: 11px; line-height: 1.7; color: #85919a; }
+.prompts { display: flex; flex-direction: column; gap: 7px; }
+.prompts button { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 11px 12px; border: 1px solid #ffffff10; border-radius: 6px; background: #ffffff02; text-align: left; font-size: 10px; line-height: 1.6; color: #adb8bf; }
+.prompts button:hover:not(:disabled) { background: #ffffff06; border-color: #ffffff22; }
+.arrow { color: #67757f; flex-shrink: 0; }
