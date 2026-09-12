@@ -192,6 +192,9 @@ export default function TrialsGallery() {
                 </select>
               </label>
             )}
+            {selected.renderCorrection && (
+              <p className="trial-video-caption">{selected.renderCorrection}</p>
+            )}
             <div className={selected.referenceVideo ? "trial-comparison" : ""}>
               <div>
                 {selected.referenceVideo && (

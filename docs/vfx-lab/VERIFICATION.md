@@ -1,4 +1,6 @@
-# Verification record — 2026-09-12
+# Historical verification record — 2026-09-12
+
+This records the earlier generation-only checkpoint. For the integrated UI, current benchmark work and later checks, see [INTEGRATED_STUDIO.md](INTEGRATED_STUDIO.md) and [OVERNIGHT_RESULTS.md](OVERNIGHT_RESULTS.md).
 
 Local branch: `codex/vfx-generation-studio`. No push or deployment.
 

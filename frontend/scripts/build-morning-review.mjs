@@ -85,6 +85,12 @@ const latestBudget = completed.sort((a, b) =>
 const visualNotes = await readFile(path.join(out, "visual-notes.json"), "utf8")
   .then(JSON.parse)
   .catch(() => ({}));
+const rendererComparisons = await readFile(
+  path.join(out, "renderer-comparisons.json"),
+  "utf8",
+)
+  .then(JSON.parse)
+  .catch(() => ({}));
 const latestAttempts = new Map();
 for (const report of [...completed].sort((a, b) =>
   b.created.localeCompare(a.created),
@@ -135,6 +141,24 @@ for (const id of cases) {
   const documentHash = createHash("sha256")
     .update(await readFile(path.join(archive, chosen.id, "document.json")))
     .digest("hex");
+  const replay = rendererComparisons[chosen.id];
+  const replayDirectory =
+    replay && /^[a-zA-Z0-9-]+$/.test(replay.directory)
+      ? replay.directory
+      : undefined;
+  const replayLink = (file) =>
+    esc(
+      encodeURI(
+        path.relative(
+          out,
+          path.resolve(".autov-local/comparisons", replayDirectory, file),
+        ),
+      ),
+    );
+  const replayNote =
+    replayDirectory && replay.documentSha256 === documentHash
+      ? `<h2>同じ生成データを更新後の描画で確認</h2><p>${esc(replay.note)}</p><p><a href="${replayLink("video.webm")}">更新後の動画</a> · <a href="${replayLink("player.html")}">更新後の3D再生</a></p><small>生成データは同一です。追加のAPI生成や自動再評価ではありません。元の生成動画は上に残しています。</small>`
+      : "";
   const performanceNote =
     measurement?.documentSha256 === documentHash
       ? `<h2>この端末での再生測定</h2><p>${measurement.measuredPlaybackFps.toFixed(1)} fps · ${measurement.resolution.join(" × ")} · 描画時間95%点 ${measurement.renderP95Ms.toFixed(2)} ms</p><small>このJSONを現行エンジン ${esc(measurement.runtime)} で再生した測定です。保存動画の符号化fpsや他の端末の性能保証とは異なります。${esc(measurement.renderer)}</small>`
@@ -150,10 +174,19 @@ for (const id of cases) {
   const versions = trials
     .map(
       (t) =>
-        `<tr><td>${esc(t.name)}<br><small>${variant(t)} · ${esc(timeLabel(t))}${t.id === chosen.id ? " · 現在の採用案" : t.selected ? " · 過去の試行内採用" : ""}</small></td><td>${weighted(t.review)}</td><td>${t.video ? `<a href="${link(t, "video.webm")}">動画</a> · ` : ""}${t.player ? `<a href="${link(t, "player.html")}">3D再生</a> · ` : ""}<a href="${link(t, "document.json")}">JSON</a></td></tr>`,
+        `<tr><td>${esc(t.name)}<br><small>${variant(t)} · ${esc(timeLabel(t))}${t.renderCorrection ? " · 描画修正版" : ""}${t.id === chosen.id ? " · 現在の採用案" : t.selected ? " · 過去の試行内採用" : ""}</small></td><td>${weighted(t.review)}</td><td>${t.video ? `<a href="${link(t, "video.webm")}">動画</a> · ` : ""}${t.player ? `<a href="${link(t, "player.html")}">3D再生</a> · ` : ""}<a href="${link(t, "document.json")}">JSON</a></td></tr>`,
     )
     .join("");
   const comparison = `${chosen.video && chosen.referenceVideo ? `<p><button id="play-both">両方を先頭から再生</button> <button id="pause-both">両方を停止</button></p>` : ""}<div class="compare"><section><h2>生成結果 · ${chosen.selected ? "最新の採用案" : "最新の保存案（選定中）"}</h2>${chosen.video ? `<video controls loop preload="metadata" src="${link(chosen, "video.webm")}"></video>` : `<img style="width:100%" src="${link(chosen, "sheet.jpg")}">`}<p>${chosen.player ? `<a class="pill" href="${link(chosen, "player.html")}">インタラクティブに再生・スクラブ ↗</a>` : ""}<a class="pill" href="${link(chosen, "document.json")}">編集用JSON</a></p></section><section><h2>元のエフェクト</h2>${chosen.referenceVideo ? `<video controls loop preload="metadata" src="${link(chosen, "reference.mp4")}"></video><p class="muted">元動画と生成側では尺・時刻が異なる場合があります。生成側のタイミングは入力プロンプトに従います。</p>` : `<p class="muted">このケースの元動画はアーカイブにありません。下の入力画像と比較してください。</p>`}</section></div><script>document.getElementById('play-both')?.addEventListener('click',()=>{for(const v of document.querySelectorAll('video')){v.currentTime=0;v.play().catch(()=>{});}});document.getElementById('pause-both')?.addEventListener('click',()=>{for(const v of document.querySelectorAll('video'))v.pause();});</script>`;
+  const videoRepair = await readFile(
+    path.join(archive, chosen.id, "video-repair.json"),
+    "utf8",
+  )
+    .then(JSON.parse)
+    .catch(() => undefined);
+  const repairNotice = videoRepair
+    ? `<p class="muted">表示中の動画・3Dプレイヤーは、粒子の消滅時に画面が黒くなる描画不具合を直した版です。同じ生成JSONを使っています。<a href="${link(chosen, "video.original-snapshot.webm")}">修正前の保存動画</a> · <a href="${link(chosen, "player.original.html")}">修正前の3D再生</a></p>`
+    : "";
   const note = visualNotes[chosen.id];
   const visualNote = note
     ? `<h2>確認メモ</h2><p>${esc(note.finding)}</p><p><b>残る差：</b>${esc(note.remaining)}</p><small>${esc(note.reviewer)} · ${esc(note.scope)}</small>`
@@ -165,7 +198,7 @@ for (const id of cases) {
     path.join(out, `${id}.html`),
     page(
       id,
-      `<a href="index.html">← 全ケース</a><h1>${esc(id)}</h1><p>${esc(chosen.name)} · ${trials.length}案保存 · ${esc(input.split)}</p>${failedNotice}${comparison}${visualNote}${review}${performanceNote}<p class="muted">自動評価は候補選択の補助です。再現度の合格や人による承認を意味しません。</p><h2>最初の案と比較</h2><p>${baseline.video ? `<a href="${link(baseline, "video.webm")}">初回生成の動画 ↗</a>` : ""} · <a href="${link(baseline, "player.html")}">初回生成の3D再生 ↗</a></p><h2>保存した全バージョン</h2><table><thead><tr><th>案</th><th>AI評価</th><th>開く</th></tr></thead><tbody>${versions}</tbody></table><details><summary>入力プロンプト・参照画像</summary><p class="prompt">${esc(chosen.prompt)}</p><div class="refs">${Array.from({ length: chosen.references }, (_, i) => `<img src="${link(chosen, `reference-${i}`)}" alt="入力参照 ${i + 1}">`).join("")}</div></details>`,
+      `<a href="index.html">← 全ケース</a><h1>${esc(id)}</h1><p>${esc(chosen.name)} · ${trials.length}案保存 · ${esc(input.split)}</p>${failedNotice}${repairNotice}${comparison}${visualNote}${replayNote}${review}${performanceNote}<p class="muted">自動評価は候補選択の補助です。再現度の合格や人による承認を意味しません。</p><h2>最初の案と比較</h2><p>${baseline.video ? `<a href="${link(baseline, "video.webm")}">初回生成の動画 ↗</a>` : ""} · <a href="${link(baseline, "player.html")}">初回生成の3D再生 ↗</a></p><h2>保存した全バージョン</h2><table><thead><tr><th>案</th><th>AI評価</th><th>開く</th></tr></thead><tbody>${versions}</tbody></table><details><summary>入力プロンプト・参照画像</summary><p class="prompt">${esc(chosen.prompt)}</p><div class="refs">${Array.from({ length: chosen.references }, (_, i) => `<img src="${link(chosen, `reference-${i}`)}" alt="入力参照 ${i + 1}">`).join("")}</div></details>`,
     ),
   );
   cards.push(

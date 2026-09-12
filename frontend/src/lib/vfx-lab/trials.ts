@@ -48,6 +48,7 @@ export type TrialSummary = {
   video: boolean;
   player: boolean;
   referenceVideo?: boolean;
+  renderCorrection?: string;
 };
 export function trialDirectory(id: string) {
   if (!/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw Error("Invalid trial ID");

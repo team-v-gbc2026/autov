@@ -52,7 +52,7 @@ void main(){
     float segmentField=.15+.7*noise3(vec3(cos(a)*4.,sin(a)*4.,0.));
     mask*=smoothstep(uErosion-.05,uErosion+.05,segmentField);
   } else if(uKind==1){
-    float fresnel=pow(1.-abs(dot(normalize(vNormal),normalize(vView))),2.4);
+    float fresnel=pow(max(0.,1.-abs(dot(normalize(vNormal),normalize(vView)))),2.4);
     float cloud=fbm(vec3(vUv*vec2(20.,10.),uTime*.8));
     mask=fresnel*(.3+cloud*.7)*smoothstep(uErosion,uErosion+.17,cloud);
     detail=.5+.5*noise3(vec3(vUv*40.,uTime));
@@ -190,8 +190,11 @@ uniform float uTime,uLife,uEmission,uSpeed,uRadius,uSpread,uGravity,uDrag,uWidth
 varying vec2 vUv; varying float vAlpha; varying float vHeat;
 void main(){
   vUv=uv; float age=uTime-aSeed.x*uEmission; float life=uLife*(.65+aSeed.y*.35);
-  float t=clamp(age,0.,life),u=t/life;
-  float a=aSeed.z*6.283185, y=(aSeed.w*2.-1.)*uSpread, r=sqrt(1.-y*y);
+  // Retired particles must not evaluate fractional powers at a rounded negative base.
+  // A single NaN color can contaminate the fullscreen bloom pass.
+  if(age<0. || age>=life){gl_Position=vec4(2.,2.,2.,1.);vAlpha=0.;vHeat=0.;return;}
+  float t=clamp(age,0.,life),u=clamp(t/max(life,.0001),0.,1.);
+  float a=aSeed.z*6.283185, y=(aSeed.w*2.-1.)*uSpread, r=sqrt(max(0.,1.-y*y));
   float v=uSpeed*(.4+aExtra.x*.6);
   float d=uDrag<.001?t:(1.-exp(-uDrag*t))/uDrag;
   vec3 dir=vec3(cos(a)*r,y,sin(a)*r);
@@ -203,7 +206,7 @@ void main(){
   float size=uWidth*(.6+aExtra.z*.8)*(1.-u*.55);
   mv.xy+=across*position.x*size+along*position.y*(size+uLength*(1.-u));
   gl_Position=projectionMatrix*mv;
-  vAlpha=step(0.,age)*(1.-step(life,age))*pow(1.-u,1.4)*min(age/.025,1.)*uOpacity;
+  vAlpha=step(0.,age)*(1.-step(life,age))*pow(max(0.,1.-u),1.4)*clamp(age/.025,0.,1.)*uOpacity;
   vHeat=1.-u;
 }
 `;

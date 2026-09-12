@@ -1,6 +1,8 @@
 # Integrated VFX studio
 
-This branch retains the VFX generation pipeline from `codex/vfx-generation-studio` and merges the emitter timeline UI from `feature/vfx-studio-ui-add-emitter-timeline`. At integration, `main` was `0b97b55` and already an ancestor of the generation branch (`a75ddbc`). The UI source was `98086ce`. Both histories are preserved by a merge, not file replacement.
+For the final overnight counts, measurements and limitations, see [OVERNIGHT_RESULTS.md](OVERNIGHT_RESULTS.md).
+
+This branch retains the VFX generation pipeline from `codex/vfx-generation-studio` and merges the emitter timeline UI from `feature/vfx-studio-ui-add-emitter-timeline`. At integration, `main` was `0b97b55` and already an ancestor of the generation branch (`a75ddbc`). The initial UI source was `98086ce`; its subsequent update `c82e94f` is also merged. Both histories are preserved by a merge, not file replacement.
 
 ## Run and review
 
@@ -105,7 +107,7 @@ The representation follows the separation of body, splash meshes and material mo
 
 Candidates are now saved immediately after each successful render, before further paid review/generation steps. The studio and benchmark browser use the same archive API, so an interrupted later stage does not erase completed candidates. Long-lived primary shapes also receive two late-decay samples in the bounded event-timed contact sheet, while short strikes retain early active samples.
 
-The texture planner may select up to two distinct masks when needed. The generated smoke-curl asset supplies an open hook for separated wisps while smoke-lobe supplies the main column. Camera fitting uses the alpha extent of textured smoke/flame planes, with a conservative animation margin, so transparent padding does not shrink the visible effect. Historical trial documents, sheets and renderer snapshots are retained.
+The texture planner may select up to two distinct masks when needed. The generated smoke-curl asset supplies an open hook for separated wisps while smoke-lobe supplies compact secondary billows and smoke-column supplies a continuous main plume. Camera fitting uses the alpha extent of textured smoke/flame planes, with a conservative animation margin, so transparent padding does not shrink the visible effect. Historical trial documents, sheets and renderer snapshots are retained.
 
 On macOS the browser tools now prefer Metal; `AUTOV_BROWSER_ANGLE=swiftshader` explicitly selects software rendering. `node scripts/profile-playback.mjs /path/to/effect.json` records the actual renderer, resolution, animation-frame intervals and synchronous render times. This is separate from deterministic video encoding. A local Apple M3 Pro probe of the generated fire trial measured approximately 60fps at 960×540; this one scene/device result is not a general performance guarantee.
 
@@ -119,7 +121,7 @@ The flow7 renderer addresses defects observed in live trials: wide ring glow fad
 
 Ice-area trials exposed another representation limit: several individually generated needle meshes left most of the target area empty. `crystal-cluster` adds up to32 deterministic faceted crystals in one surface layer, with a fixed ground origin, editable footprint, individual width, height and count. Its bounded vertex data and camera envelope agree during width/radius/length animation. `ice` adds blue faces and white fracture contours. Normal-blended solid crystal/head meshes write depth so back faces do not overwrite front faces. No external asset download or 3D inference service is required.
 
-`Presets → Generated smoke example` opens a real API-generated smoke candidate from the overnight quality loop, with both generated masks embedded and all10 layers editable. Its public document/provenance are under `frontend/public/examples/`. This intentionally shared output contains no benchmark reference images, source video, evaluator data or private usage ledger. It is an example, not a fidelity pass; the complete historical trial remains in the private archive.
+`Presets → Generated smoke example` opens a real API-generated smoke candidate from the overnight development loop, with both generated masks embedded and all eight layers editable. The current example is a single-candidate fast probe using the continuous column and curl masks; it was visually compared but not automatically critiqued in that run. Its public document/provenance are under `frontend/public/examples/`. This intentionally shared output contains no benchmark reference images, source video, evaluator data or private usage ledger. It is an example, not a fidelity pass; the complete historical trial remains in the private archive.
 
 The beam-edge library mask is another actual Codex-generated asset: two torn strips with an empty center, bound to a tinted plane alongside a separate continuous core. It addresses the smooth-bar silhouette seen in live beam trials. Water membranes now have rounded roots and view-dependent shading so head disappearance does not expose a rectangular cut. Morning case pages can include Japanese review notes keyed to the exact saved candidate, keeping historical observations separate from later variants.
 
@@ -138,3 +140,15 @@ Morning review cards can use a frame extracted from the actual saved video. Fail
 ## Secret-scan CI
 
 The previous `gitleaks-action` launcher stopped before scanning because organization repositories require an Action license. CI now invokes the [MIT-licensed upstream Gitleaks CLI](https://github.com/gitleaks/gitleaks), version 8.30.1, with a pinned release SHA256, read-only repository permissions and redacted full-history scanning. No scan rules are disabled. This avoids introducing an organization license requirement for the separate Action; see the [Action's licensing documentation](https://github.com/gitleaks/gitleaks-action).
+
+## Connected shields and cloud spirals
+
+The hexagonal surface now uses the shared Voronoi boundaries of its triangular cell lattice. A connected-pixel browser fixture catches the previously disconnected lines. Textured explicit planes now honor UV spin as billboards do; three-dimensional meshes retain their geometric rotation. A two-time render check exercises a generated spiral mask and catches static UVs.
+
+The new Codex-generated `vortex-cloud` mask supplies continuous broad spiral ridges, darker channels and a soft outer silhouette. Its library guide specifies plane orientation, physical aspect ratio, color contrast and rotation. It is a reusable material, not a benchmark output by itself. Explicit `--cases` lists preserve their requested execution order, allowing bounded remaining budgets to prioritize the most informative trials.
+
+The offline review builder can link a hash-matched re-render of a historical document beside its original saved video. Such comparisons are labeled as renderer changes, not new API generations or re-scored benchmark candidates.
+
+`node scripts/verify-morning-review.mjs` checks every offline case page, local links, video metadata and paired playback with external HTTP(S) blocked. `AUTOV_REVIEW_ENTRY` may point to a local launch/redirect HTML file.
+
+Particle expiry now exits the vertex shader before fractional-power calculations; lifetime ratios, square-root and Fresnel bases have safe numeric domains. A 181-frame GPU fixture catches bloom contamination from invalid values. Video capture reads the completed framebuffer and reports GL errors. Corrected historical re-renders are labeled, retain original media and do not replace generation-time reviews.

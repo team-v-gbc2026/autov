@@ -14,7 +14,7 @@ const { chromium } = await import(
 const bundle = await build({
   stdin: {
     contents:
-      'export {render} from "./scripts/benchmark-browser"; export {createPreset,RECIPES} from "./src/lib/vfx-lab/recipes"; export {exportHtml} from "./src/lib/vfx-lab/export";',
+      'export {verifyParticleExpiry} from "./scripts/particle-expiry-browser"; export {render} from "./scripts/benchmark-browser"; export {createPreset,RECIPES} from "./src/lib/vfx-lab/recipes"; export {exportHtml} from "./src/lib/vfx-lab/export";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -57,7 +57,7 @@ try {
       "Saved API-generated smoke example. Replay it or edit its layers.",
     )
     .waitFor();
-  assert.equal(await page.locator(".lab-emitter-row").count(), 10);
+  assert.equal(await page.locator(".lab-emitter-row").count(), 8);
   await page.getByLabel("Playback position", { exact: true }).fill("1.2");
   await page.screenshot({
     path: path.join(output, "generated-smoke-example.png"),
@@ -72,6 +72,17 @@ try {
   );
   await page.goto(new URL("/api/local-vfx", page.url()).href);
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const expiry = await page.evaluate(() => Probe.verifyParticleExpiry());
+  assert.ok(
+    expiry.minimumBackground > 3,
+    "Expired particles must not turn the bloom framebuffer black",
+  );
+  assert.deepEqual(expiry.errors, []);
+  results.push({
+    id: "retired-particles-bloom",
+    source: "authored_renderer_fixture",
+    ...expiry,
+  });
   const ids = await page.evaluate(() => Object.keys(Probe.RECIPES));
   for (const id of ids) {
     const result = await page.evaluate(async (id) => {
