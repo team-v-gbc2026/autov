@@ -250,8 +250,8 @@ export async function POST(request: Request) {
         body.prompt,
         body.references,
         request.signal,
-        6000,
-        schema === "v2" ? "high" : "medium",
+        schema === "v2" ? 12000 : 6000,
+        "medium",
       );
       if (result.value.impact >= result.value.duration)
         throw new Error("Invalid planned timing; please retry.");
