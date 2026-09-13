@@ -62,6 +62,11 @@ const cards = [
     body: "Teal hex shield with a gold band spike served from dev-assets/vfx-v2/spike-shield.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-beam",
+    title: "Toolbox v2 spike — sustained energy beam",
+    body: "Purple/white horizontal energy beam spike served from dev-assets/vfx-v2/spike-beam.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
