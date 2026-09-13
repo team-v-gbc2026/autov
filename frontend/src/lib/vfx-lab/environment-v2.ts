@@ -7,7 +7,10 @@ import type { VfxDocumentV2 } from "./schema-v2";
 // that keeps the grid readable while the effect's own lights flicker.
 // ---------------------------------------------------------------------------
 
-/** Fill light strength; the grid reads as a lit surface rather than a decal. */
+/**
+ * Fill light strength at environment.ambient = 1; the grid reads as a lit
+ * surface rather than a decal. The document scales it from there.
+ */
 const HEMISPHERE_INTENSITY = 5;
 const GROUND_SIZE = 60;
 
@@ -79,6 +82,7 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
       material.color.set(doc.environment.groundColor);
       ground.position.y = doc.environment.groundY;
       ground.visible = showGround && doc.environment.ground !== "none";
+      fill.intensity = HEMISPHERE_INTENSITY * doc.environment.ambient;
       fill.visible = showGround;
     },
     dispose() {

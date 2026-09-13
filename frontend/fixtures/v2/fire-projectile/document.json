@@ -15,6 +15,7 @@
     "ground": "grid",
     "groundColor": "#4a4952",
     "groundReflect": 0,
+    "ambient": 1,
     "groundY": 0,
     "fog": {
       "color": "#1b1a1f",
@@ -51,16 +52,28 @@
   "layers": [
     {
       "id": "smoke-puffs",
-      "name": "Smoke plume — dense puffs",
+      "name": "Smoke plume \u2014 dense puffs",
       "role": "residue",
       "kind": "particles",
       "start": 0,
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [0.105007, 0.634941, -0.267173],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          0.105007,
+          0.634941,
+          -0.267173
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -94,8 +107,14 @@
         "opacity": 1,
         "mask": {
           "textureId": "smoke-puff-01",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": true,
           "atlas": null,
@@ -103,17 +122,35 @@
         },
         "noise": {
           "textureId": "noise-cloud-tile-01",
-          "uvScale": [1.2, 1.2],
-          "uvPan": [0.03, 0.12],
+          "uvScale": [
+            1.2,
+            1.2
+          ],
+          "uvPan": [
+            0.03,
+            0.12
+          ],
           "distortion": 0.22,
-          "distortionPan": [0.03, 0.12]
+          "distortionPan": [
+            0.03,
+            0.12
+          ]
         },
         "erosion": {
           "curve": {
             "keys": [
-              [0, 0.05],
-              [0.5, 0.2],
-              [1, 0.8]
+              [
+                0,
+                0.05
+              ],
+              [
+                0.5,
+                0.2
+              ],
+              [
+                1,
+                0.8
+              ]
             ],
             "ease": "smooth"
           },
@@ -132,14 +169,26 @@
         "count": 200,
         "shape": {
           "type": "line",
-          "axis": [0.82942, 0.09993, -0.549615],
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
           "length": 1.9,
           "radius": 0.22,
           "innerRadius": 0,
           "angle": 0,
-          "size": [1, 1, 1],
+          "size": [
+            1,
+            1,
+            1
+          ],
           "surfaceOnly": false,
-          "bias": [0, 0, 0]
+          "bias": [
+            0,
+            0,
+            0
+          ]
         },
         "spawn": {
           "mode": "continuous",
@@ -150,15 +199,29 @@
         },
         "velocity": {
           "mode": "cone",
-          "speed": [0.35, 0.8],
-          "direction": [0.786378, 0.331771, -0.521093],
+          "speed": [
+            0.35,
+            0.8
+          ],
+          "direction": [
+            0.786378,
+            0.331771,
+            -0.521093
+          ],
           "angle": 0.35,
           "inherit": 0,
           "speedCurve": null
         },
-        "life": [1.1, 1.9],
+        "life": [
+          1.1,
+          1.9
+        ],
         "forces": {
-          "gravity": [0, 0.1, 0],
+          "gravity": [
+            0,
+            0.1,
+            0
+          ],
           "drag": 1.6,
           "curl": {
             "strength": 0.3,
@@ -166,15 +229,28 @@
             "speed": 0.5,
             "envelope": {
               "keys": [
-                [0, 0],
-                [0.25, 1],
-                [1, 1]
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
               ],
               "ease": "smooth"
             }
           },
           "vortex": null,
-          "wind": [0, 0, 0],
+          "wind": [
+            0,
+            0,
+            0
+          ],
           "floor": {
             "y": 0.35,
             "softness": 0.15
@@ -183,29 +259,62 @@
         "render": {
           "mode": "billboard",
           "stretch": 0,
-          "size": [0.7, 1.15],
+          "size": [
+            0.7,
+            1.15
+          ],
           "sizeCurve": {
             "keys": [
-              [0, 0.4],
-              [0.35, 1],
-              [1, 1.35]
+              [
+                0,
+                0.4
+              ],
+              [
+                0.35,
+                1
+              ],
+              [
+                1,
+                1.35
+              ]
             ],
             "ease": "smooth"
           },
           "alphaCurve": {
             "keys": [
-              [0, 0],
-              [0.06, 0.4],
-              [0.3, 0.85],
-              [0.65, 0.7],
-              [1, 0]
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                0.4
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                0.65,
+                0.7
+              ],
+              [
+                1,
+                0
+              ]
             ],
             "ease": "smooth"
           },
           "alphaAlongSpawn": null,
           "rotation": {
-            "initial": [0, 6.283185],
-            "speed": [-0.5, 0.5]
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -0.5,
+              0.5
+            ]
           },
           "sortMode": "byDistance"
         },
@@ -217,16 +326,28 @@
     },
     {
       "id": "smoke-wisps",
-      "name": "Smoke plume — torn wisps",
+      "name": "Smoke plume \u2014 torn wisps",
       "role": "residue",
       "kind": "particles",
       "start": 0,
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [0.105007, 0.634941, -0.267173],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          0.105007,
+          0.634941,
+          -0.267173
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -260,8 +381,14 @@
         "opacity": 1,
         "mask": {
           "textureId": "smoke-puff-03",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": true,
           "atlas": null,
@@ -269,17 +396,35 @@
         },
         "noise": {
           "textureId": "noise-cloud-tile-01",
-          "uvScale": [1.2, 1.2],
-          "uvPan": [0.03, 0.12],
+          "uvScale": [
+            1.2,
+            1.2
+          ],
+          "uvPan": [
+            0.03,
+            0.12
+          ],
           "distortion": 0.22,
-          "distortionPan": [0.03, 0.12]
+          "distortionPan": [
+            0.03,
+            0.12
+          ]
         },
         "erosion": {
           "curve": {
             "keys": [
-              [0, 0.05],
-              [0.5, 0.2],
-              [1, 0.8]
+              [
+                0,
+                0.05
+              ],
+              [
+                0.5,
+                0.2
+              ],
+              [
+                1,
+                0.8
+              ]
             ],
             "ease": "smooth"
           },
@@ -298,14 +443,26 @@
         "count": 100,
         "shape": {
           "type": "line",
-          "axis": [0.82942, 0.09993, -0.549615],
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
           "length": 1.9,
           "radius": 0.22,
           "innerRadius": 0,
           "angle": 0,
-          "size": [1, 1, 1],
+          "size": [
+            1,
+            1,
+            1
+          ],
           "surfaceOnly": false,
-          "bias": [0, 0, 0]
+          "bias": [
+            0,
+            0,
+            0
+          ]
         },
         "spawn": {
           "mode": "continuous",
@@ -316,15 +473,29 @@
         },
         "velocity": {
           "mode": "cone",
-          "speed": [0.35, 0.8],
-          "direction": [0.786378, 0.331771, -0.521093],
+          "speed": [
+            0.35,
+            0.8
+          ],
+          "direction": [
+            0.786378,
+            0.331771,
+            -0.521093
+          ],
           "angle": 0.35,
           "inherit": 0,
           "speedCurve": null
         },
-        "life": [1.1, 1.9],
+        "life": [
+          1.1,
+          1.9
+        ],
         "forces": {
-          "gravity": [0, 0.1, 0],
+          "gravity": [
+            0,
+            0.1,
+            0
+          ],
           "drag": 1.6,
           "curl": {
             "strength": 0.3,
@@ -332,15 +503,28 @@
             "speed": 0.5,
             "envelope": {
               "keys": [
-                [0, 0],
-                [0.25, 1],
-                [1, 1]
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
               ],
               "ease": "smooth"
             }
           },
           "vortex": null,
-          "wind": [0, 0, 0],
+          "wind": [
+            0,
+            0,
+            0
+          ],
           "floor": {
             "y": 0.35,
             "softness": 0.15
@@ -349,29 +533,62 @@
         "render": {
           "mode": "billboard",
           "stretch": 0,
-          "size": [0.8, 1.3],
+          "size": [
+            0.8,
+            1.3
+          ],
           "sizeCurve": {
             "keys": [
-              [0, 0.4],
-              [0.35, 1],
-              [1, 1.35]
+              [
+                0,
+                0.4
+              ],
+              [
+                0.35,
+                1
+              ],
+              [
+                1,
+                1.35
+              ]
             ],
             "ease": "smooth"
           },
           "alphaCurve": {
             "keys": [
-              [0, 0],
-              [0.06, 0.4],
-              [0.3, 0.85],
-              [0.65, 0.7],
-              [1, 0]
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                0.4
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                0.65,
+                0.7
+              ],
+              [
+                1,
+                0
+              ]
             ],
             "ease": "smooth"
           },
           "alphaAlongSpawn": null,
           "rotation": {
-            "initial": [0, 6.283185],
-            "speed": [-0.5, 0.5]
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -0.5,
+              0.5
+            ]
           },
           "sortMode": "byDistance"
         },
@@ -390,9 +607,21 @@
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [-0.25, 0.01, 0],
-        "rotation": [-1.570796, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          -0.25,
+          0.01,
+          0
+        ],
+        "rotation": [
+          -1.570796,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -416,8 +645,14 @@
         "opacity": 0.28,
         "mask": {
           "textureId": "ground-glow-01",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": false,
           "atlas": null,
@@ -444,16 +679,28 @@
     },
     {
       "id": "flame-shell",
-      "name": "Flame shell — teardrop body and tongues",
+      "name": "Flame shell \u2014 teardrop body and tongues",
       "role": "primary",
       "kind": "shell",
       "start": 0,
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [-0.6, 0.55, 0.2],
-        "rotation": [0.100097, 2.156013, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          -0.6,
+          0.55,
+          0.2
+        ],
+        "rotation": [
+          0.100097,
+          2.156013,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -497,8 +744,14 @@
         "opacity": 1,
         "mask": {
           "textureId": null,
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": false,
           "atlas": null,
@@ -506,17 +759,35 @@
         },
         "noise": {
           "textureId": "noise-cloud-tile-02",
-          "uvScale": [1.5, 1.6],
-          "uvPan": [0, -0.7],
+          "uvScale": [
+            1.5,
+            1.6
+          ],
+          "uvPan": [
+            0,
+            -0.7
+          ],
           "distortion": 0,
-          "distortionPan": [0, 0]
+          "distortionPan": [
+            0,
+            0
+          ]
         },
         "erosion": {
           "curve": {
             "keys": [
-              [0, 0],
-              [0.28, 0],
-              [1, 0.97]
+              [
+                0,
+                0
+              ],
+              [
+                0.28,
+                0
+              ],
+              [
+                1,
+                0.97
+              ]
             ],
             "ease": "smooth"
           },
@@ -545,12 +816,25 @@
           "amplitude": 0.42,
           "frequency": 2.2,
           "speed": 3.2,
-          "bias": [0, 1, 0],
+          "bias": [
+            0,
+            1,
+            0
+          ],
           "alongCurve": {
             "keys": [
-              [0, 0.03],
-              [0.35, 0.25],
-              [1, 1]
+              [
+                0,
+                0.03
+              ],
+              [
+                0.35,
+                0.25
+              ],
+              [
+                1,
+                1
+              ]
             ],
             "ease": "smooth"
           }
@@ -562,16 +846,28 @@
     },
     {
       "id": "fire-volume",
-      "name": "Fire volume — small eroded pieces",
+      "name": "Fire volume \u2014 small eroded pieces",
       "role": "primary",
       "kind": "particles",
       "start": 0,
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [0.187949, 0.644934, -0.322134],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          0.187949,
+          0.644934,
+          -0.322134
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -610,8 +906,14 @@
         "opacity": 0.6,
         "mask": {
           "textureId": "flame-tongue-02",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": true,
           "atlas": null,
@@ -619,18 +921,39 @@
         },
         "noise": {
           "textureId": "noise-cloud-tile-01",
-          "uvScale": [2.2, 2.2],
-          "uvPan": [0.1, 0.9],
+          "uvScale": [
+            2.2,
+            2.2
+          ],
+          "uvPan": [
+            0.1,
+            0.9
+          ],
           "distortion": 0.32,
-          "distortionPan": [0.1, 0.9]
+          "distortionPan": [
+            0.1,
+            0.9
+          ]
         },
         "erosion": {
           "curve": {
             "keys": [
-              [0, 0.15],
-              [0.35, 0.3],
-              [0.7, 0.6],
-              [1, 0.98]
+              [
+                0,
+                0.15
+              ],
+              [
+                0.35,
+                0.3
+              ],
+              [
+                0.7,
+                0.6
+              ],
+              [
+                1,
+                0.98
+              ]
             ],
             "ease": "smooth"
           },
@@ -649,14 +972,26 @@
         "count": 180,
         "shape": {
           "type": "line",
-          "axis": [0.82942, 0.09993, -0.549615],
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
           "length": 1.4,
           "radius": 0.16,
           "innerRadius": 0,
           "angle": 0,
-          "size": [1, 1, 1],
+          "size": [
+            1,
+            1,
+            1
+          ],
           "surfaceOnly": false,
-          "bias": [0, 0.6, 0]
+          "bias": [
+            0,
+            0.6,
+            0
+          ]
         },
         "spawn": {
           "mode": "continuous",
@@ -667,15 +1002,29 @@
         },
         "velocity": {
           "mode": "cone",
-          "speed": [1.6, 3],
-          "direction": [0.80244, 0.270824, -0.531737],
+          "speed": [
+            1.6,
+            3
+          ],
+          "direction": [
+            0.80244,
+            0.270824,
+            -0.531737
+          ],
           "angle": 0.55,
           "inherit": 0,
           "speedCurve": null
         },
-        "life": [0.3, 0.65],
+        "life": [
+          0.3,
+          0.65
+        ],
         "forces": {
-          "gravity": [0, 0.5, 0],
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
           "drag": 1.8,
           "curl": {
             "strength": 0.3,
@@ -683,50 +1032,105 @@
             "speed": 1.2,
             "envelope": {
               "keys": [
-                [0, 0],
-                [0.25, 1],
-                [1, 1]
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
               ],
               "ease": "smooth"
             }
           },
           "vortex": null,
-          "wind": [0, 0, 0],
+          "wind": [
+            0,
+            0,
+            0
+          ],
           "floor": null
         },
         "render": {
           "mode": "billboard",
           "stretch": 0,
-          "size": [0.16, 0.38],
+          "size": [
+            0.16,
+            0.38
+          ],
           "sizeCurve": {
             "keys": [
-              [0, 0.5],
-              [0.3, 1],
-              [1, 1.25]
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                1.25
+              ]
             ],
             "ease": "smooth"
           },
           "alphaCurve": {
             "keys": [
-              [0, 0],
-              [0.08, 1],
-              [0.6, 0.9],
-              [1, 0]
+              [
+                0,
+                0
+              ],
+              [
+                0.08,
+                1
+              ],
+              [
+                0.6,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
             ],
             "ease": "smooth"
           },
           "alphaAlongSpawn": {
             "keys": [
-              [0, 0],
-              [0.05, 0],
-              [0.6, 1],
-              [1, 1]
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                0
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                1
+              ]
             ],
             "ease": "smooth"
           },
           "rotation": {
-            "initial": [0, 6.283185],
-            "speed": [-1.5, 1.5]
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1.5,
+              1.5
+            ]
           },
           "sortMode": "byDistance"
         },
@@ -738,16 +1142,28 @@
     },
     {
       "id": "fire-big",
-      "name": "Fire volume — large tears",
+      "name": "Fire volume \u2014 large tears",
       "role": "primary",
       "kind": "particles",
       "start": 0,
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [0.187949, 0.644934, -0.322134],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          0.187949,
+          0.644934,
+          -0.322134
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -786,8 +1202,14 @@
         "opacity": 0.5,
         "mask": {
           "textureId": "flame-lick-cluster-01",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": true,
           "atlas": null,
@@ -795,18 +1217,39 @@
         },
         "noise": {
           "textureId": "noise-cloud-tile-01",
-          "uvScale": [2.2, 2.2],
-          "uvPan": [0.1, 0.9],
+          "uvScale": [
+            2.2,
+            2.2
+          ],
+          "uvPan": [
+            0.1,
+            0.9
+          ],
           "distortion": 0.32,
-          "distortionPan": [0.1, 0.9]
+          "distortionPan": [
+            0.1,
+            0.9
+          ]
         },
         "erosion": {
           "curve": {
             "keys": [
-              [0, 0.15],
-              [0.35, 0.3],
-              [0.7, 0.6],
-              [1, 0.98]
+              [
+                0,
+                0.15
+              ],
+              [
+                0.35,
+                0.3
+              ],
+              [
+                0.7,
+                0.6
+              ],
+              [
+                1,
+                0.98
+              ]
             ],
             "ease": "smooth"
           },
@@ -825,14 +1268,26 @@
         "count": 36,
         "shape": {
           "type": "line",
-          "axis": [0.82942, 0.09993, -0.549615],
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
           "length": 1.4,
           "radius": 0.16,
           "innerRadius": 0,
           "angle": 0,
-          "size": [1, 1, 1],
+          "size": [
+            1,
+            1,
+            1
+          ],
           "surfaceOnly": false,
-          "bias": [0, 0.6, 0]
+          "bias": [
+            0,
+            0.6,
+            0
+          ]
         },
         "spawn": {
           "mode": "continuous",
@@ -843,15 +1298,29 @@
         },
         "velocity": {
           "mode": "cone",
-          "speed": [1.6, 3],
-          "direction": [0.80244, 0.270824, -0.531737],
+          "speed": [
+            1.6,
+            3
+          ],
+          "direction": [
+            0.80244,
+            0.270824,
+            -0.531737
+          ],
           "angle": 0.55,
           "inherit": 0,
           "speedCurve": null
         },
-        "life": [0.45, 0.85],
+        "life": [
+          0.45,
+          0.85
+        ],
         "forces": {
-          "gravity": [0, 0.5, 0],
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
           "drag": 1.8,
           "curl": {
             "strength": 0.3,
@@ -859,50 +1328,105 @@
             "speed": 1.2,
             "envelope": {
               "keys": [
-                [0, 0],
-                [0.25, 1],
-                [1, 1]
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
               ],
               "ease": "smooth"
             }
           },
           "vortex": null,
-          "wind": [0, 0, 0],
+          "wind": [
+            0,
+            0,
+            0
+          ],
           "floor": null
         },
         "render": {
           "mode": "billboard",
           "stretch": 0,
-          "size": [0.34, 0.62],
+          "size": [
+            0.34,
+            0.62
+          ],
           "sizeCurve": {
             "keys": [
-              [0, 0.5],
-              [0.3, 1],
-              [1, 1.25]
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                1.25
+              ]
             ],
             "ease": "smooth"
           },
           "alphaCurve": {
             "keys": [
-              [0, 0],
-              [0.08, 1],
-              [0.6, 0.9],
-              [1, 0]
+              [
+                0,
+                0
+              ],
+              [
+                0.08,
+                1
+              ],
+              [
+                0.6,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
             ],
             "ease": "smooth"
           },
           "alphaAlongSpawn": {
             "keys": [
-              [0, 0],
-              [0.05, 0],
-              [0.6, 1],
-              [1, 1]
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                0
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                1
+              ]
             ],
             "ease": "smooth"
           },
           "rotation": {
-            "initial": [0, 6.283185],
-            "speed": [-1.5, 1.5]
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1.5,
+              1.5
+            ]
           },
           "sortMode": "byDistance"
         },
@@ -921,9 +1445,21 @@
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [-0.6, 0.55, 0.2],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          -0.6,
+          0.55,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -957,8 +1493,14 @@
         "opacity": 1,
         "mask": {
           "textureId": "flame-tongue-01",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": true,
           "atlas": null,
@@ -966,17 +1508,35 @@
         },
         "noise": {
           "textureId": "noise-cloud-tile-01",
-          "uvScale": [1.8, 1.8],
-          "uvPan": [0.1, 0.4],
+          "uvScale": [
+            1.8,
+            1.8
+          ],
+          "uvPan": [
+            0.1,
+            0.4
+          ],
           "distortion": 0.15,
-          "distortionPan": [0.1, 0.4]
+          "distortionPan": [
+            0.1,
+            0.4
+          ]
         },
         "erosion": {
           "curve": {
             "keys": [
-              [0, 0.1],
-              [0.5, 0.4],
-              [1, 0.95]
+              [
+                0,
+                0.1
+              ],
+              [
+                0.5,
+                0.4
+              ],
+              [
+                1,
+                0.95
+              ]
             ],
             "ease": "smooth"
           },
@@ -995,14 +1555,26 @@
         "count": 90,
         "shape": {
           "type": "line",
-          "axis": [0.82942, 0.09993, -0.549615],
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
           "length": 0.7,
           "radius": 0.35,
           "innerRadius": 0,
           "angle": 0,
-          "size": [1, 1, 1],
+          "size": [
+            1,
+            1,
+            1
+          ],
           "surfaceOnly": false,
-          "bias": [0, 0, 0]
+          "bias": [
+            0,
+            0,
+            0
+          ]
         },
         "spawn": {
           "mode": "continuous",
@@ -1013,15 +1585,29 @@
         },
         "velocity": {
           "mode": "cone",
-          "speed": [0.8, 1.9],
-          "direction": [0.773452, 0.372943, -0.512528],
+          "speed": [
+            0.8,
+            1.9
+          ],
+          "direction": [
+            0.773452,
+            0.372943,
+            -0.512528
+          ],
           "angle": 0.8,
           "inherit": 0,
           "speedCurve": null
         },
-        "life": [0.25, 0.6],
+        "life": [
+          0.25,
+          0.6
+        ],
         "forces": {
-          "gravity": [0, 0.6, 0],
+          "gravity": [
+            0,
+            0.6,
+            0
+          ],
           "drag": 2.5,
           "curl": {
             "strength": 0.3,
@@ -1029,42 +1615,85 @@
             "speed": 1.5,
             "envelope": {
               "keys": [
-                [0, 0],
-                [0.25, 1],
-                [1, 1]
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
               ],
               "ease": "smooth"
             }
           },
           "vortex": null,
-          "wind": [0, 0, 0],
+          "wind": [
+            0,
+            0,
+            0
+          ],
           "floor": null
         },
         "render": {
           "mode": "billboard",
           "stretch": 0,
-          "size": [0.06, 0.16],
+          "size": [
+            0.06,
+            0.16
+          ],
           "sizeCurve": {
             "keys": [
-              [0, 0.5],
-              [0.3, 1],
-              [1, 0.3]
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                0.3
+              ]
             ],
             "ease": "smooth"
           },
           "alphaCurve": {
             "keys": [
-              [0, 0],
-              [0.1, 1],
-              [0.6, 0.8],
-              [1, 0]
+              [
+                0,
+                0
+              ],
+              [
+                0.1,
+                1
+              ],
+              [
+                0.6,
+                0.8
+              ],
+              [
+                1,
+                0
+              ]
             ],
             "ease": "smooth"
           },
           "alphaAlongSpawn": null,
           "rotation": {
-            "initial": [0, 6.283185],
-            "speed": [-2, 2]
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -2,
+              2
+            ]
           },
           "sortMode": "byDistance"
         },
@@ -1083,9 +1712,21 @@
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [-0.6, 0.6, 0.2],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          -0.6,
+          0.6,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "material": {
@@ -1119,8 +1760,14 @@
         "opacity": 1,
         "mask": {
           "textureId": "spark-dot-01",
-          "uvScale": [1, 1],
-          "uvPan": [0, 0],
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
           "rotation": 0,
           "randomRotation": false,
           "atlas": null,
@@ -1136,14 +1783,26 @@
         "count": 150,
         "shape": {
           "type": "line",
-          "axis": [0.82942, 0.09993, -0.549615],
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
           "length": 1.6,
           "radius": 0.3,
           "innerRadius": 0,
           "angle": 0,
-          "size": [1, 1, 1],
+          "size": [
+            1,
+            1,
+            1
+          ],
           "surfaceOnly": false,
-          "bias": [0, 0, 0]
+          "bias": [
+            0,
+            0,
+            0
+          ]
         },
         "spawn": {
           "mode": "continuous",
@@ -1154,15 +1813,29 @@
         },
         "velocity": {
           "mode": "cone",
-          "speed": [0.6, 2.2],
-          "direction": [0.242536, 0.970143, 0],
+          "speed": [
+            0.6,
+            2.2
+          ],
+          "direction": [
+            0.242536,
+            0.970143,
+            0
+          ],
           "angle": 0.9,
           "inherit": 0,
           "speedCurve": null
         },
-        "life": [0.5, 1.5],
+        "life": [
+          0.5,
+          1.5
+        ],
         "forces": {
-          "gravity": [0, 0.5, 0],
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
           "drag": 1.6,
           "curl": {
             "strength": 0.6,
@@ -1170,42 +1843,85 @@
             "speed": 1.5,
             "envelope": {
               "keys": [
-                [0, 0],
-                [0.25, 1],
-                [1, 1]
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
               ],
               "ease": "smooth"
             }
           },
           "vortex": null,
-          "wind": [0.331768, 0.039972, -0.219846],
+          "wind": [
+            0.331768,
+            0.039972,
+            -0.219846
+          ],
           "floor": null
         },
         "render": {
           "mode": "velocityStretch",
           "stretch": 0.25,
-          "size": [0.06, 0.15],
+          "size": [
+            0.06,
+            0.15
+          ],
           "sizeCurve": {
             "keys": [
-              [0, 0.6],
-              [0.2, 1],
-              [1, 0.2]
+              [
+                0,
+                0.6
+              ],
+              [
+                0.2,
+                1
+              ],
+              [
+                1,
+                0.2
+              ]
             ],
             "ease": "smooth"
           },
           "alphaCurve": {
             "keys": [
-              [0, 0],
-              [0.05, 1],
-              [0.6, 1],
-              [1, 0]
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                1
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                0
+              ]
             ],
             "ease": "smooth"
           },
           "alphaAlongSpawn": null,
           "rotation": {
-            "initial": [0, 0],
-            "speed": [0, 0]
+            "initial": [
+              0,
+              0
+            ],
+            "speed": [
+              0,
+              0
+            ]
           },
           "sortMode": "byDistance"
         },
@@ -1224,19 +1940,43 @@
       "end": 3.5,
       "enabled": true,
       "transform": {
-        "position": [-0.45, 0.7, 0.2],
-        "rotation": [0, 0, 0],
-        "scale": [1, 1, 1]
+        "position": [
+          -0.45,
+          0.7,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "motion": null,
       "light": {
         "color": "#ffa24a",
         "intensity": {
           "keys": [
-            [0, 12],
-            [0.35, 10.2],
-            [0.7, 12.6],
-            [1, 11.4]
+            [
+              0,
+              12
+            ],
+            [
+              0.35,
+              10.2
+            ],
+            [
+              0.7,
+              12.6
+            ],
+            [
+              1,
+              11.4
+            ]
           ],
           "ease": "smooth"
         },

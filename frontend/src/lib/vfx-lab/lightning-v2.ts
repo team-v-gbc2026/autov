@@ -203,15 +203,23 @@ export function buildLightningGeometry(
         const side = orthoOf(tangent);
         const other = new THREE.Vector3().crossVectors(tangent, side);
         const angle = hash(branchKey, 1) * Math.PI * 2;
-        const lean = 0.5 + hash(branchKey, 2) * 0.6;
+        // A branch leans off the trunk but keeps travelling with it: a wide
+        // lean would throw the silhouette sideways and drag the framing out.
+        const lean = 0.28 + hash(branchKey, 2) * 0.32;
         const direction = tangent
           .clone()
           .addScaledVector(side, Math.cos(angle) * lean)
           .addScaledVector(other, Math.sin(angle) * lean)
           .normalize();
-        const span =
-          geometry.length * (0.18 + hash(branchKey, 3) * 0.22) * (depth ? 0.6 : 1);
-        const from = parent.from + (parent.to - parent.from) * (index / (parent.points.length - 1));
+        const from =
+          parent.from +
+          (parent.to - parent.from) * (index / (parent.points.length - 1));
+        // Never past the trunk's own end: a branch that overshoots would put
+        // the bolt's tip below the ground it is striking.
+        const span = Math.min(
+          geometry.length * (0.18 + hash(branchKey, 3) * 0.22) * (depth ? 0.6 : 1),
+          geometry.length * (1 - from) * 0.9,
+        );
         next.push(
           makePath(
             start,
@@ -298,7 +306,7 @@ export function lightningBounds(geometry: GeometryV2, seed = 0) {
   }
   // A strike the sample did not see can wander a little further; the pad keeps
   // the framing stable rather than exactly minimal.
-  const pad = hi.clone().sub(lo).multiplyScalar(0.12);
+  const pad = hi.clone().sub(lo).multiplyScalar(0.04);
   lo.sub(pad);
   hi.add(pad);
   const points: THREE.Vector3[] = [];

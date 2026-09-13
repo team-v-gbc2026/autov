@@ -1245,6 +1245,47 @@ function createMeshLayer(
   };
 }
 
+/**
+ * Where a particle layer *emits*, not where its particles end up: the spawn
+ * shape around the layer origin, plus half the largest billboard. Framing on
+ * the emission region is what keeps a long debris arc or a drifting smoke
+ * column from pulling the camera back to the horizon.
+ */
+function spawnBoundsV2(
+  layer: LayerV2,
+  time: number,
+  push: (p: THREE.Vector3) => void,
+) {
+  const { layer: live, visible } = evaluateLayerV2(layer, time);
+  if (!visible) return;
+  const emitter = live.emitter!;
+  const shape = emitter.shape;
+  const extent = new THREE.Vector3();
+  if (shape.type === "box") {
+    extent.set(shape.size[0] * 0.5, shape.size[1] * 0.5, shape.size[2] * 0.5);
+  } else if (shape.type !== "point") {
+    const lateral =
+      shape.radius +
+      (shape.type === "cone"
+        ? shape.length * Math.tan(Math.min(shape.angle, 1.5))
+        : 0);
+    extent.set(lateral, lateral, lateral);
+    const axis = new THREE.Vector3().fromArray(shape.axis);
+    if (axis.lengthSq() > 1e-10)
+      extent.add(
+        new THREE.Vector3(
+          Math.abs(axis.x),
+          Math.abs(axis.y),
+          Math.abs(axis.z),
+        ).multiplyScalar(shape.length),
+      );
+  }
+  const margin = emitter.render.size[1] * 0.5;
+  const center = new THREE.Vector3().fromArray(live.transform.position);
+  push(center.clone().add(extent).addScalar(margin));
+  push(center.clone().sub(extent).addScalar(-margin));
+}
+
 function createLightLayer(layer: LayerV2): LayerObject {
   const spec = layer.light!;
   const light = new THREE.PointLight(
@@ -1429,6 +1470,13 @@ export class VfxRuntimeV2 {
   /**
    * Whole-duration bounds, computed once per document. Per-frame framing would
    * make the camera breathe with the effect.
+   *
+   * Hero-centric: the frame is set by what the effect *is*, not by how far its
+   * debris travels. A mesh layer claims its whole extent, a decal claims half
+   * of its (ground dressing, not subject) and a particle layer claims only the
+   * region it emits from. Only when a document has no mesh layer at all does
+   * the trimmed trajectory box take over, and the distance is clamped either
+   * way so no single layer can push the camera out to the horizon.
    */
   private computeFraming() {
     const doc = this.doc;
@@ -1439,33 +1487,71 @@ export class VfxRuntimeV2 {
       .normalize();
     const up = new THREE.Vector3().crossVectors(dir, right).normalize();
     const steps = 24;
-    // Per layer first, then the union: every visible layer claims room in the
-    // frame, but a particle layer claims the box around its dense core.
-    const box = new THREE.Box3();
-    for (const object of this.objects) {
-      // A light's radius is reach, not visual extent: framing on it pushes the
-      // camera back until the lit effect fills a corner of the shot.
-      if (object.source.kind === "light") continue;
+    const boxOf = (
+      sample: (time: number, push: (p: THREE.Vector3) => void) => void,
+      trim: number,
+    ) => {
       const axes: number[][] = [[], [], []];
       const push = (p: THREE.Vector3) => {
         axes[0].push(p.dot(right));
         axes[1].push(p.dot(up));
         axes[2].push(p.dot(dir));
       };
-      for (let i = 0; i <= steps; i++)
-        object.bounds((doc.duration * i) / steps, push);
-      if (!axes[0].length) continue;
+      for (let i = 0; i <= steps; i++) sample((doc.duration * i) / steps, push);
+      if (!axes[0].length) return null;
       const lo = new THREE.Vector3();
       const hi = new THREE.Vector3();
       axes.forEach((values, axis) => {
         values.sort((a, b) => a - b);
-        const cut = object.trim ? Math.floor(values.length * 0.04) : 0;
+        const cut = Math.floor(values.length * trim);
         lo.setComponent(axis, values[cut]);
         hi.setComponent(axis, values[values.length - 1 - cut]);
       });
-      box.expandByPoint(lo);
-      box.expandByPoint(hi);
+      return { lo, hi };
+    };
+
+    const hero = new THREE.Box3();
+    const trajectories = new THREE.Box3();
+    let meshExtent = 0;
+    let hasMesh = false;
+    for (const object of this.objects) {
+      // A light's radius is reach, not visual extent: framing on it pushes the
+      // camera back until the lit effect fills a corner of the shot.
+      const kind = object.source.kind;
+      if (kind === "light") continue;
+      if (kind === "particles") {
+        const spawn = boxOf(
+          (time, push) => spawnBoundsV2(object.source, time, push),
+          0,
+        );
+        if (spawn) {
+          hero.expandByPoint(spawn.lo);
+          hero.expandByPoint(spawn.hi);
+        }
+        const travel = boxOf((time, push) => object.bounds(time, push), 0.04);
+        if (travel) {
+          trajectories.expandByPoint(travel.lo);
+          trajectories.expandByPoint(travel.hi);
+        }
+        continue;
+      }
+      const extent = boxOf((time, push) => object.bounds(time, push), 0);
+      if (!extent) continue;
+      if (kind === "decal") {
+        const middle = extent.lo.clone().add(extent.hi).multiplyScalar(0.5);
+        hero.expandByPoint(middle.clone().lerp(extent.lo, 0.5));
+        hero.expandByPoint(middle.clone().lerp(extent.hi, 0.5));
+        continue;
+      }
+      hasMesh = true;
+      meshExtent = Math.max(
+        meshExtent,
+        ...extent.hi.clone().sub(extent.lo).toArray(),
+      );
+      hero.expandByPoint(extent.lo);
+      hero.expandByPoint(extent.hi);
     }
+    const box = hasMesh ? hero : trajectories.isEmpty() ? hero : trajectories;
     if (box.isEmpty()) {
       this.frame = { center: new THREE.Vector3(0, 0.75, 0), distance: 6 };
       return;
@@ -1475,11 +1561,15 @@ export class VfxRuntimeV2 {
     const tan = Math.tan(THREE.MathUtils.degToRad(doc.camera.fov / 2));
     const framing = Math.max(0.1, doc.camera.framing);
     const aspect = Math.max(0.2, this.camera.aspect);
-    const distance = Math.max(
-      1,
-      size.y / framing / (2 * tan),
-      size.x / framing / (2 * tan * aspect),
-      size.z / 2 + 1,
+    const reference = hasMesh ? meshExtent : Math.max(size.x, size.y, size.z);
+    const distance = Math.min(
+      3 * (reference + 1),
+      Math.max(
+        1,
+        size.y / framing / (2 * tan),
+        size.x / framing / (2 * tan * aspect),
+        size.z / 2 + 1,
+      ),
     );
     this.frame = {
       center: new THREE.Vector3()

@@ -470,6 +470,11 @@ export const EnvironmentSchema = z
     ground: z.enum(["none", "grid", "plane"]),
     groundColor: hex,
     groundReflect: scalar(0, 1),
+    // Hemisphere fill strength. 1 is the reference level the exemplar was lit
+    // at; below ~0.6 the ground stops reading, above ~1.4 it flattens.
+    // Defaulted, not required: documents authored before this field existed
+    // still load, and load at exactly the level they were tuned at.
+    ambient: scalar(0, 3).default(1),
     groundY: scalar(-4, 0),
     fog: z.object({ color: hex, density: scalar(0, 0.2) }).strict(),
     background: hex,
@@ -1171,6 +1176,7 @@ export function defaultDocumentShell(
       ground: "grid",
       groundColor: "#4a4952",
       groundReflect: 0,
+      ambient: 1,
       groundY: 0,
       fog: { color: "#1b1a1f", density: 0.03 },
       background: "#1b1a1f",
@@ -1287,7 +1293,12 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
 });
 export const DocumentV2WireSchema = DocumentV2Schema.omit({
   textures: true,
-}).extend({ layers: z.array(LayerV2WireSchema).min(1).max(24) });
+}).extend({
+  // Structured Outputs needs every property required, so the wire copy drops
+  // the default and asks the model for the value.
+  environment: EnvironmentSchema.extend({ ambient: scalar(0, 3) }),
+  layers: z.array(LayerV2WireSchema).min(1).max(24),
+});
 
 export type VfxDocumentV2Wire = z.infer<typeof DocumentV2WireSchema>;
 
