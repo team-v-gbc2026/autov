@@ -26,7 +26,6 @@ import {
   createEmitter,
   normalizeVfxDocument,
   type VfxLayer,
-  type VfxSampleId,
   type VfxUiDocument,
 } from "./vfx-studio/ui-model";
 import "./vfx-studio/studio-ui.css";
@@ -108,13 +107,6 @@ export default function Studio({
       ...document,
       layers: document.layers.map(layer => layer.id === id ? update(layer) : layer),
     }));
-  };
-  const selectSample = (id: VfxSampleId) => {
-    const next = cloneSample(id);
-    setVfxDocument(next);
-    setSelectedLayerId(next.layers[1]?.id || next.layers[0].id);
-    setSoloLayerId(undefined);
-    playback.setTime(0);
   };
   const addEmitter = () => {
     const emitter = createEmitter(vfxDocument.layers.length + 1, vfxDocument.duration);
@@ -218,24 +210,7 @@ export default function Studio({
       <StudioHeader
         project={project}
         email={email}
-        actions={
-          <>
-            <select
-              aria-label="Load VFX sample"
-              className="lab-mode"
-              defaultValue=""
-              onChange={event => {
-                selectSample(event.target.value as VfxSampleId);
-                event.target.value = "";
-              }}
-            >
-              <option value="" disabled>Samples</option>
-              <option value="amber">Amber rupture</option>
-              <option value="plasma">Plasma bloom</option>
-              <option value="ember">Ember trail</option>
-            </select>
-          </>
-        }
+
       />
       {environmentControls}
       <input

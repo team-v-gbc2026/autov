@@ -1,14 +1,10 @@
 import Studio from "@/components/studio";
-import { notFound } from "next/navigation";
 
 export const metadata = {
   robots: { index: false, follow: false },
 };
 
 export default function VfxUiReviewPage() {
-  // This fixture is review-only even if it is accidentally left in a merge.
-  if (process.env.VERCEL_ENV === "production") notFound();
-
   return (
     <Studio
       project={{
