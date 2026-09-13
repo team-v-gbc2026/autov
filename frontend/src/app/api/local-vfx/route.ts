@@ -37,6 +37,7 @@ import {
   RECIPES_V2,
   recipeV2For,
 } from "@/lib/vfx-lab/recipes-v2";
+import { techniqueBrief } from "@/lib/vfx-lab/techniques-v2";
 import {
   DocumentV2Schema,
   DocumentV2WireSchema,
@@ -465,6 +466,7 @@ export async function POST(request: Request) {
           plan: run.plan,
           family,
           recipe: RECIPES_V2[family].knowledge,
+          technique: techniqueBrief(family, run.prompt),
           example: createPresetV2(family),
         }),
         run.references,
@@ -639,6 +641,7 @@ export async function POST(request: Request) {
           throw Error("No admitted defect or director note to repair.");
         run.structuralAttempted = true;
         await saveRun(run);
+        const family = recipeV2For(run.plan.recipe);
         const result = await callModel(
           StructuralRefinementV2Schema,
           `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,
@@ -646,6 +649,7 @@ export async function POST(request: Request) {
             prompt: run.prompt,
             admittedDefects,
             directorNotes: reviewV2!.directorNotes,
+            technique: techniqueBrief(family, run.prompt),
             document: {
               ...doc,
               textures: doc.textures?.map((a) => ({
