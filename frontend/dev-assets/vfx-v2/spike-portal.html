@@ -28065,7 +28065,7 @@ void main() {
   var BASE_Y = 0.05;
   var CY = BASE_Y + PH * 0.5;
   var MARGIN = 0.55;
-  var N_SPARK = 90;
+  var N_SPARK = 180;
   var T_RIM0 = 0;
   var T_RIM1 = 0.55;
   var T_FILL0 = 0.22;
@@ -28150,10 +28150,10 @@ float vnoise(vec2 p){
         float wide = exp(-pow(across/1.35, 2.0)) * exp(-pow(abs(q.y)/1.45, 2.0)) * 0.22;
         // brighter along the bottom edge itself
         float lip = exp(-pow(across/0.36, 2.0)) * exp(-pow(abs(q.y)/0.115, 2.0));
-        float g = (pool*0.24 + wide*0.30 + lip*0.42) * uPool;
+        float g = (pool*0.26 + wide*0.30 + lip*0.62) * uPool;
         vec3 col = vec3(0.013,0.011,0.010) * exp(-length(q)*0.045);
-        col += vec3(1.00,0.27,0.013) * g;
-        col += vec3(1.00,0.60,0.14) * lip * uPool * 0.10;
+        col += vec3(1.00,0.330,0.020) * g;
+        col += vec3(1.00,0.646,0.013) * lip * uPool * 0.16;
         float grid = max(smoothstep(0.972,0.998,fract(q.x*0.5)), smoothstep(0.972,0.998,fract(q.y*0.5)));
         col += vec3(0.011,0.010,0.009) * grid * exp(-length(q)*0.075);
         gl_FragColor = vec4(col, 1.0);
@@ -28174,22 +28174,23 @@ float vnoise(vec2 p){
     float n2 = vnoise(r*3.4 + vec2(-0.115, 0.052)*uT);
     float n3 = vnoise(q*6.6 + vec2(0.072,-0.131)*uT);
     float n4 = vnoise(q*13.5 + vec2(-0.05, 0.21)*uT);
-    float m = n1*0.46 + n2*0.30 + n3*0.17 + n4*0.07;
+    float m = n1*0.48 + n2*0.30 + n3*0.16 + n4*0.06;   // the big soft blobs dominate
     // dark smoky patches over amber; uSmoke grows them until they cover everything
-    float smoke = ssm(0.42 - uSmoke*0.44, 0.66 - uSmoke*0.40, m);
-    smoke = mix(smoke, ssm(0.38,0.66,n2), 0.38);                // second, larger patch field
-    float hot = ssm(0.66, 0.84, m) * (1.0 - smoke*0.90);
-    vec3 amber = vec3(0.470, 0.112, 0.004);                     // #e08a1a in linear
-    vec3 dark  = vec3(0.072, 0.014, 0.001);                     // #5a2a08 in linear
-    vec3 col = mix(amber, dark, smoke*0.95);
-    col = mix(col, vec3(1.00,0.470,0.085), hot*0.40);           // #ffc860 warm patch
-    col *= 0.64 + 0.38*vUv.y;                                   // brighter top
+    float smoke = ssm(0.36 - uSmoke*0.40, 0.63 - uSmoke*0.38, m);  // ~45% coverage, hard-edged
+    smoke = mix(smoke, ssm(0.36,0.64,n2), 0.30);                // second, larger patch field
+    float hot = ssm(0.70, 0.86, m) * (1.0 - smoke*0.94);
+    vec3 amber = mix(vec3(0.577,0.122,0.0037),                  // #c8620c
+                     vec3(0.807,0.250,0.0117), ssm(0.30,0.70,n1)); // .. #e8891c
+    vec3 dark  = vec3(0.068, 0.016, 0.0019);                    // #4a2206
+    vec3 col = mix(amber, dark, smoke*0.97);
+    col = mix(col, vec3(1.00,0.480,0.068), hot*0.45);           // #ffb84a           // #ffc860 warm patch
+    col *= (0.64 + 0.38*vUv.y) * 0.70;                          // 30% down overall                                   // brighter top
     float ex = min(vUv.x, 1.0-vUv.x)*${PW.toFixed(2)};
     float ey = min(vUv.y, 1.0-vUv.y)*${PH.toFixed(2)};
     float edge = exp(-min(ex,ey)/0.11);
-    col += vec3(1.00,0.40,0.022) * edge * 0.26;                  // faint edge brightening
-    float cen = exp(-pow((vUv.x-0.5)/0.34,2.0) - pow((vUv.y-0.54)/0.30,2.0));
-    col += vec3(1.00,0.46,0.040) * cen * 0.16;
+    col += vec3(1.00,0.434,0.014) * edge * 0.22;                  // faint edge brightening
+    float cen = exp(-pow((vUv.x-0.5)/0.32,2.0) - pow((vUv.y-0.54)/0.28,2.0));
+    col += vec3(1.00,0.480,0.068) * cen * (0.17 + 0.07*sin(uT*2.1)) * (1.0-smoke*0.7);
     col *= 0.92 + 0.08*sin(uT*3.77);                            // the gentle overall pulse
     float fill = ssm(vUv.y - 0.16, vUv.y + 0.02, uFill);        // fills upward on reveal
     float a = uA * fill;
@@ -28210,7 +28211,7 @@ float vnoise(vec2 p){
   }`;
   function surfaceMat(refl) {
     return new ShaderMaterial({
-      uniforms: { uT: { value: 0 }, uFill: { value: 0 }, uSmoke: { value: 0 }, uA: { value: 0.85 }, uRefl: { value: refl } },
+      uniforms: { uT: { value: 0 }, uFill: { value: 0 }, uSmoke: { value: 0 }, uA: { value: 0.9 }, uRefl: { value: refl } },
       vertexShader: SURF_VS,
       fragmentShader: SURF_FS,
       transparent: true,
@@ -28253,10 +28254,10 @@ float vnoise(vec2 p){
       float inner = exp(-pow((d + 0.098)/0.018, 2.0));            // thinner parallel line inside
       float halo  = exp(-ad/0.050)*0.62 + exp(-ad/0.155)*0.20 + exp(-ad/0.48)*0.055;
       float pulse = 0.85 + 0.15*sin(6.28318*uT*0.6);
-      vec3 col = vec3(1.00,0.470,0.028) * core * (0.92 + bead*0.30 + lead*1.1)   // saturated yellow bar
-               + vec3(1.00,0.880,0.400) * spine * (0.85 + bead*0.35 + lead*1.6) // #fff2a0 hot centre line
-               + vec3(1.00,0.920,0.560) * inner * 0.72
-               + vec3(1.00,0.300,0.010) * halo * 0.72;            // #ffb42a linear
+      vec3 col = vec3(1.00,0.646,0.013) * core * (0.78 + bead*0.11 + lead*0.16)  // #ffd21e bar, stays under 0.95
+               + vec3(1.00,0.888,0.351) * spine * (1.30 + bead*0.38 + lead*1.5) // #fff2a0 hot centre line
+               + vec3(1.00,0.768,0.194) * inner * 0.90            // #ffe37a
+               + vec3(1.00,0.434,0.014) * halo * 0.58;           // #ffb020
       float a = clamp(core + spine*0.8 + inner*0.9 + halo, 0.0, 1.0);
       col *= pulse * uI * gate * (uBack > 0.5 ? 0.46 : 1.0);
       a *= gate * (uBack > 0.5 ? 0.55 : 1.0) * min(uI, 1.0);
@@ -28316,10 +28317,12 @@ float vnoise(vec2 p){
         p = vec3((h11(k*7.77)*2.0-1.0)*H.x*0.88, (h11(k*9.31)*2.0-1.0)*H.y*0.90, 0.02);
         nrm = normalize(p.xy + vec2(0.001));
       }
-      p.y += 0.15*age;                                     // slow rise
+      float big = step(0.86, h11(k*23.9));                 // a few larger, slower flakes
+      p.y += (0.15 - 0.07*big)*age;                        // slow rise, slower for the big ones
       p.xy += nrm * 0.055 * age;                           // and outward off the rim
       p.x += 0.035*sin(uT*1.7 + s*2.3) * age;              // sine wobble
-      float sz = (0.026 + 0.034*h11(k*17.1)) * (0.6 + 0.4*ssm(0.0,0.18,ph));
+      float sz = mix(0.017 + 0.018*h11(k*17.1), 0.046 + 0.028*h11(k*17.1), big)
+               * (0.6 + 0.4*ssm(0.0,0.18,ph));
       vA = ssm(0.0,0.14,ph) * (1.0 - ssm(0.70,1.0,ph));
       vTw = 0.42 + 0.58*pow(abs(sin(uT*(6.0+3.0*h11(k*19.7)) + s*4.31)), 1.6);
       vec4 mv = modelViewMatrix * vec4(p,1.0);
@@ -28331,11 +28334,11 @@ float vnoise(vec2 p){
     void main(){
       vec2 q = (vUv-0.5)*2.0;
       float r = length(q);
-      float dot_ = exp(-pow(r/0.34, 2.0));                 // soft core
-      float gl = pow(max(1.0-abs(q.x)*3.4,0.0),2.0) + pow(max(1.0-abs(q.y)*3.4,0.0),2.0);
-      float a = clamp(dot_ + gl*0.20*(1.0-ssm(0.5,1.0,r)), 0.0, 1.0) * vA * vTw * uI;
+      float dot_ = exp(-pow(r/0.22, 2.0));                 // small soft core
+      float gl = pow(max(1.0-abs(q.x)*2.2,0.0),3.0) + pow(max(1.0-abs(q.y)*2.2,0.0),3.0);
+      float a = clamp(dot_*0.45 + gl*0.85*(1.0-ssm(0.35,1.0,r)), 0.0, 1.0) * vA * vTw * uI;
       if (a < 0.004) discard;
-      gl_FragColor = vec4(vec3(1.00,0.72,0.30)*a*2.20, a);
+      gl_FragColor = vec4(vec3(1.00,0.880,0.600)*a*2.45, a);  // cream flake
     }`,
     transparent: true,
     depthWrite: false,
@@ -28361,7 +28364,7 @@ float vnoise(vec2 p){
     rimFront.visible = rimBack.visible = L.rim && cut > 1e-3;
     const fill = ss(T_FILL0, T_FILL1, t);
     const smoke = ss(T_OUT0, 4.72, t);
-    const alpha = 0.85 * (1 - ss(4.45, 4.8, t));
+    const alpha = 0.9 * (1 - ss(4.45, 4.8, t));
     const su = surface.material.uniforms;
     su.uT.value = t;
     su.uFill.value = fill;
