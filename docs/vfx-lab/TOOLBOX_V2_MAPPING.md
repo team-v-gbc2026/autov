@@ -1,7 +1,7 @@
 # Toolbox v2 — what the fire spike proved, and how it maps to schema v2
 
 Date: 2026-09-13. Source of truth for the Phase A port. The hand-built spike lives at
-`frontend/dev-assets/vfx-v2/spike.html`; its source (round 4, the accepted look) is `docs/vfx-lab/spike-reference.js.txt` (open `/dev/vfx-v2/spike` with `npm run dev:pages`).
+`frontend/dev-assets/vfx-v2/spike.html`; its source (round 4, the accepted look) is `docs/vfx-lab/spike-reference.js.txt` (open `/dev/vfx-v2/spike` with `npm run dev`).
 
 The spike was built without the LLM to prove that the v2 renderer can reach a stylized-AAA
 look. Everything below is the line between "generic capability that becomes vocabulary"

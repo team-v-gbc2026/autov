@@ -6,7 +6,7 @@ The requested generation and UI branches are integrated with current main. The s
 
 The local morning overview groups **88 actual application-generated candidates across all 17 benchmark cases**. Each case includes the latest selected output, previous candidates, a deterministic video, an editable standalone player, input prompt/reference images, and a source-video comparison when supplied. Sixteen cases have source video; the shield case has reference images only. Japanese visual notes distinguish improvements from remaining differences. Rejected and unreviewed variants are retained.
 
-Run `node scripts/build-morning-review.mjs` from `frontend/` to rebuild `.autov-local/morning-review/index.html`. The HTML works without the app server. The studio also exposes `/local/trials`. Private source media, complete outputs, usage records and local notes are intentionally untracked. A real generated smoke example is available in the shared studio's Presets menu.
+Run `node scripts/build-morning-review.mjs` from `frontend/` to rebuild `.autov-local/morning-review/index.html`. The HTML works without the app server. The studio also exposes `/dev/vfx-lab/trials`. Private source media, complete outputs, usage records and local notes are intentionally untracked. A real generated smoke example is available in the shared studio's Presets menu.
 
 ## Changes driven by observed failures
 

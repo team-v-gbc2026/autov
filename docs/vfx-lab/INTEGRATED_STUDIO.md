@@ -35,7 +35,7 @@ The real renderer now uses the newer timeline presentation, Add emitter, selecti
 
 ## Local trial gallery
 
-Open `/local/trials` or follow **Trials** in the studio. All generated candidates, including rejected refinements, retain their input prompt, references, document, sheet and review. Reopen an effect in the editor or download its JSON. The benchmark archive also produces videos and self-contained interactive players.
+Open `/dev/vfx-lab/trials` or follow **Trials** in the studio. All generated candidates, including rejected refinements, retain their input prompt, references, document, sheet and review. Reopen an effect in the editor or download its JSON. The benchmark archive also produces videos and self-contained interactive players.
 
 ```sh
 # Run from frontend; FFmpeg and ffprobe must be installed.

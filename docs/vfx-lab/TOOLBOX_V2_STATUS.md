@@ -17,9 +17,9 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).
 - **Exemplars** (`fixtures/v2/*/document.json`): fire-projectile, smoke-burst, lightning-impact, beam,
   fire-slash, ice-blast, shield — hand-authored against the benchmark references (the "oracle").
-- **Dev gallery** `/dev/vfx-v2` (`npm run dev:pages`): exemplars + every generated benchmark run, references,
+- **Dev gallery** `/dev/vfx-v2` (`npm run dev`): exemplars + every generated benchmark run, references,
   feature toggles, orbit camera, contact-sheet capture. `/dev` is excluded from production builds at build time
-  (`scripts/dev-pages.mjs verify`).
+  (`scripts/verify-dev-excluded.mjs`).
 - **Live runs**: `node scripts/run-benchmark.mjs --live --schema v2 …` (see `TOOLBOX_V2_STATUS` in the project
   notes for the exact command). Three rounds on fx12/fx01/fx13 so far.
 
