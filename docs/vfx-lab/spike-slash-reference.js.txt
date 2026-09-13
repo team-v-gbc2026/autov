@@ -1,0 +1,682 @@
+// autoV toolbox v2 — S13 spike: stylized fire slash (hand-built, no LLM).
+// state = f(t, seed): every piece reads the clock, nothing accumulates, seek == play.
+// The crescent is a ribbon strip swept along an ARC with a thickness profile, drawn
+// three times (highlight / midtone / shadow) at different scales and time offsets;
+// the disappearance is an erosion FRONT travelling along the arc, so the tail tears
+// into tongues instead of fading.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 3.0;
+const T_CH0 = 0.0, T_CH1 = 0.30;      // charge
+const T_SW0 = 0.30, T_SW1 = 0.65;     // sweep (head advances)
+const T_TE0 = 0.65, T_TE1 = 1.50;     // tear-away (tail catches up)
+const T_BURST = 0.65;                 // radial sliver burst
+const T_EM0 = 0.90, T_EM1 = 3.00;     // floating flame ember
+
+const ARC_R = 1.5;                    // 3 units across
+const ARC_SWEEP = (200 * Math.PI) / 180;
+const ARC_PH0 = -1.746;               // tail end, 10 deg below the right-hand horizontal
+const W_MAX = 0.46;                   // fattest full thickness
+const N_EMBER = 40, N_TONGUE = 28, N_SLIVER = 12, N_SPARK = 30, N_CHSPARK = 6;
+
+const P = (window.spikeParams = {
+  play: true, time: 0, speed: 1,
+  bloom: 0.40, threshold: 1.0, exposure: 1.0,
+  layers: { crescent: true, tongues: true, burst: true, embers: true, ember: true, post: true },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const easeOutQuart = (x) => 1 - Math.pow(1 - clamp01(x), 4);
+const easeInOutCubic = (x) => { const u = clamp01(x); return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
+const hex = (h) => new THREE.Color(h);
+
+// ---------------------------------------------------------------- arc frame
+// The arc lives in its own plane: a tilted disc facing the camera, so the sweep
+// reads as a foreshortened diagonal crescent rather than as a flat ring.
+// The plane normal is close to +Y and tipped toward the camera: seen from the
+// elevated oblique camera a full circle in it projects to an ellipse of ratio ~0.43,
+// which is what turns a 200 deg arc into a banana instead of a "C".
+const ARC_C = new THREE.Vector3(0.0, 1.22, 0.0);
+const ARC_N = new THREE.Vector3(0.10, 0.95, 0.30).normalize();
+// EX = the in-plane component of the view direction (projects to screen up/down = minor axis)
+// EY = the major axis (projects to screen left/right)
+const ARC_EX = new THREE.Vector3(0.299, -0.182, -0.940);
+ARC_EX.addScaledVector(ARC_N, -ARC_EX.dot(ARC_N)).normalize();
+const ARC_EY = new THREE.Vector3().crossVectors(ARC_N, ARC_EX).normalize();
+
+const _v = new THREE.Vector3();
+function arcPoint(s, out) {
+  const ph = ARC_PH0 + s * ARC_SWEEP;
+  return (out || new THREE.Vector3()).copy(ARC_C)
+    .addScaledVector(ARC_EX, Math.cos(ph) * ARC_R)
+    .addScaledVector(ARC_EY, Math.sin(ph) * ARC_R);
+}
+function arcTangent(s, out) {
+  const ph = ARC_PH0 + s * ARC_SWEEP;
+  return (out || new THREE.Vector3()).set(0, 0, 0)
+    .addScaledVector(ARC_EX, -Math.sin(ph))
+    .addScaledVector(ARC_EY, Math.cos(ph)).normalize();
+}
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = hex("#0d0c0f");
+const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 60);
+{
+  const az = -0.30, el = 0.36, dist = 5.35;
+  camera.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
+  camera.lookAt(0.05, 1.14, 0);
+}
+
+const GLSL = `
+float hash11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float hash21(vec2 p){ return hash11(dot(p, vec2(127.1, 311.7))); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash21(i), b = hash21(i+vec2(1.0,0.0));
+  float c = hash21(i+vec2(0.0,1.0)), d = hash21(i+vec2(1.0,1.0));
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+float fbm2(vec2 p){ return 0.55*vnoise(p) + 0.28*vnoise(p*2.07+11.3) + 0.17*vnoise(p*4.11+5.7); }
+// voronoi: x = cell id (0..1), y = distance to the nearest edge
+vec2 vor(vec2 p){
+  vec2 ip = floor(p), fp = fract(p);
+  float d1 = 8.0, d2 = 8.0, id = 0.0;
+  for (int y=-1; y<=1; y++) for (int x=-1; x<=1; x++){
+    vec2 g = vec2(float(x), float(y));
+    vec2 o = vec2(hash21(ip+g), hash21(ip+g+vec2(37.7,11.3)));
+    vec2 r = g + o - fp;
+    float d = dot(r,r);
+    if (d < d1){ d2 = d1; d1 = d; id = hash21(ip+g+vec2(7.1,3.9)); }
+    else if (d < d2) d2 = d;
+  }
+  return vec2(id, sqrt(d2)-sqrt(d1));
+}
+`;
+
+// ---------------------------------------------------------------- ground
+const groundMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uPool: { value: hex("#ff7a24") }, uPoolI: { value: 0 },
+    uPoolC: { value: new THREE.Vector3() }, uPoolR: { value: 1.4 },
+  },
+  vertexShader: `varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    varying vec3 vP; uniform vec3 uPool, uPoolC; uniform float uPoolI, uPoolR;
+    void main(){
+      vec2 w = vP.xy;                                  // plane is rotated, so xy = world xz
+      float d = length(w);
+      vec3 base = mix(vec3(0.058,0.054,0.056), vec3(0.020,0.019,0.021), smoothstep(1.5,14.0,d));
+      base = mix(base, vec3(0.005,0.005,0.006), smoothstep(16.0,26.0,d));
+      vec2 g = abs(fract(w*0.5)-0.5);
+      float grid = (1.0 - smoothstep(0.010,0.035,min(g.x,g.y))) * (1.0-smoothstep(2.0,13.0,d));
+      base += vec3(0.045,0.041,0.039)*grid*0.32;
+      // the warm pool is analytic: an elongated pool under the arc that pulses with the sweep
+      vec2 rel = w - uPoolC.xz;
+      float pd = length(rel / vec2(uPoolR*1.35, uPoolR*0.75));
+      base += uPool * uPoolI * exp(-pd*pd*1.15) * 0.85;
+      gl_FragColor = vec4(base, 1.0);
+    }`,
+});
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), groundMat);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// ---------------------------------------------------------------- crescent
+// One strip: aS runs along the arc, aQ across it (0 = outer edge, 1 = inner edge).
+// Only the window [uTail, uHead] is drawn; the thickness profile peaks 35% from the tip.
+const SEG_S = 260, SEG_Q = 5;
+function buildStrip() {
+  const g = new THREE.BufferGeometry();
+  const nv = (SEG_S + 1) * (SEG_Q + 1);
+  const pos = new Float32Array(nv * 3), aS = new Float32Array(nv), aQ = new Float32Array(nv);
+  const idx = [];
+  let v = 0;
+  for (let i = 0; i <= SEG_S; i++) for (let j = 0; j <= SEG_Q; j++) {
+    aS[v] = i / SEG_S; aQ[v] = j / SEG_Q; v++;
+  }
+  for (let i = 0; i < SEG_S; i++) for (let j = 0; j < SEG_Q; j++) {
+    const a = i * (SEG_Q + 1) + j, b = a + (SEG_Q + 1);
+    idx.push(a, b, a + 1, b, b + 1, a + 1);
+  }
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aS", new THREE.BufferAttribute(aS, 1));
+  g.setAttribute("aQ", new THREE.BufferAttribute(aQ, 1));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(ARC_C.clone(), ARC_R * 2.2);
+  return g;
+}
+const stripGeo = buildStrip();
+
+const CRES_VERT = `
+  attribute float aS; attribute float aQ;
+  uniform vec3 uC, uEx, uEy, uN;
+  uniform float uR, uPh0, uSweep, uWmax, uHead, uTail, uScale, uRadOff, uWiden, uPush, uTime, uSeed;
+  varying float vS, vQ, vWin, vTipD;
+  ${GLSL}
+  float widthAt(float s){
+    float dt = uHead - s;                                // distance behind the LIVE tip
+    float rise = pow(smoothstep(0.0, 0.36, dt), 0.35);   // razor leading tip
+    float fall = 1.0 - smoothstep(0.40, 1.05, dt);
+    float root = pow(smoothstep(0.0, 0.26, s - uTail), 0.8); // the trailing end tapers too
+    return uWmax * rise * (0.14 + 0.86*fall) * root;
+  }
+  void main(){
+    float ph = uPh0 + aS*uSweep;
+    vec3 rad = uEx*cos(ph) + uEy*sin(ph);
+    float w = widthAt(aS) * uScale;
+    // WPO: the strip widens as the tear-away distortion grows, and flutters along the arc
+    float flut = (fbm2(vec2(aS*7.0 - uTime*1.1, uSeed)) - 0.5);
+    w *= 1.0 + uWiden*(0.55 + 1.5*flut) + 0.14*flut;
+    vec3 ctr = uC + rad*uR;
+    vec3 tang = normalize(-uEx*sin(ph) + uEy*cos(ph));
+    vec3 view = normalize(cameraPosition - ctr);
+    vec3 across = normalize(cross(tang, view));
+    across *= sign(dot(across, rad));                  // +across = the OUTER side
+    float off = (0.5 - aQ) * w + uRadOff;
+    vec3 p = ctr + across*off + uN*uPush;
+    // the window fades in over a short band at both ends so nothing pops
+    vWin = smoothstep(uTail, uTail+0.035, aS) * (1.0 - smoothstep(uHead-0.012, uHead, aS));
+    vS = aS; vQ = aQ; vTipD = clamp((uHead - aS)/0.30, 0.0, 1.0);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }`;
+
+const CRES_FRAG = `
+  precision highp float;
+  varying float vS, vQ, vWin, vTipD;
+  uniform vec3 uC0, uC1, uC2, uC3;
+  uniform float uI0, uI1, uI2, uI3;
+  uniform float uTime, uSeed, uAlpha, uHead, uTail, uTear, uErode, uTipHot, uStreak, uEdgeI;
+  uniform vec3 uEdgeC;
+  ${GLSL}
+  vec3 band(float q){
+    vec3 c = uC0*uI0;
+    c = mix(c, uC1*uI1, smoothstep(0.00, 0.26, q));
+    c = mix(c, uC2*uI2, smoothstep(0.26, 0.62, q));
+    c = mix(c, uC3*uI3, smoothstep(0.70, 1.00, q));
+    return c;
+  }
+  void main(){
+    if (vWin <= 0.001) discard;
+    // flow streaks running ALONG the arc, panning toward the tail
+    vec2 fuv = vec2(vS*9.0 + uTime*1.9, vQ*5.5 + uSeed*3.1);
+    vec2 cell = vor(fuv);
+    float lines = mix(0.60, 1.45, fbm2(vec2(vS*30.0 + uTime*3.1, vQ*7.0 + uSeed)));
+    float cellEdge = 1.0 - smoothstep(0.0, 0.10, cell.y);      // bright Voronoi seams
+    float streak = lines * (0.72 + 0.60*cell.x) + 0.35*cellEdge;
+    streak = mix(1.0, streak, uStreak);
+    // erosion FRONT: cells behind the front are eaten, so the tail breaks into tongues
+    float front = clamp((vS - uTail) / max(0.10, 0.40*(uHead - uTail)), 0.0, 1.0);
+    float th = uErode + uTear * (1.0 - front);
+    float n = 0.42*cell.x + 0.58*fbm2(vec2(vS*9.0 + uSeed*5.0, vQ*2.1 - uTime*0.6));
+    float a = smoothstep(th, th + 0.16, n);
+    float edge = smoothstep(th - 0.02, th + 0.09, n) * (1.0 - smoothstep(th + 0.09, th + 0.26, n));
+    // the leading tip is the hottest thing in the frame
+    float tip = pow(1.0 - vTipD, 2.4);
+    vec3 col = band(vQ) * streak;
+    col += uC0 * tip * uTipHot;
+    col += uEdgeC * edge * uEdgeI;
+    float al = a * vWin * uAlpha * (0.72 + 0.28*(1.0-vQ)) * (0.62 + 0.55*streak);
+    al *= mix(1.0, 0.18 + 0.95*tip, uTipHot > 1.0 ? 1.0 : 0.0);
+    al = clamp(al, 0.0, 1.0);
+    gl_FragColor = vec4(col * al, al);
+  }`;
+
+function crescentMat(cfg) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uC: { value: ARC_C }, uEx: { value: ARC_EX }, uEy: { value: ARC_EY }, uN: { value: ARC_N },
+      uR: { value: ARC_R }, uPh0: { value: ARC_PH0 }, uSweep: { value: ARC_SWEEP }, uWmax: { value: W_MAX },
+      uHead: { value: 0 }, uTail: { value: 0 }, uScale: { value: cfg.scale }, uRadOff: { value: cfg.radOff }, uWiden: { value: 0 },
+      uPush: { value: cfg.push }, uTime: { value: 0 }, uSeed: { value: cfg.seed },
+      uC0: { value: hex(cfg.c0) }, uC1: { value: hex(cfg.c1) }, uC2: { value: hex(cfg.c2) }, uC3: { value: hex(cfg.c3) },
+      uI0: { value: cfg.i0 }, uI1: { value: cfg.i1 }, uI2: { value: cfg.i2 }, uI3: { value: cfg.i3 },
+      uAlpha: { value: 1 }, uTear: { value: 0 }, uErode: { value: cfg.erode }, uTipHot: { value: cfg.tipHot },
+      uStreak: { value: 1 }, uEdgeI: { value: cfg.edgeI }, uEdgeC: { value: hex("#ffb040") },
+    },
+    vertexShader: CRES_VERT, fragmentShader: CRES_FRAG,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    premultipliedAlpha: !cfg.additive,
+    blending: cfg.additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+  });
+}
+
+// three tonal layers: shadow behind and wider, midtone the body, highlight hot at the tip
+const shadowMat = crescentMat({
+  scale: 1.14, radOff: -0.095, push: -0.035, seed: 3.7, additive: false, erode: 0.18, tipHot: 0.0, edgeI: 0.30,
+  c0: "#e2540e", i0: 0.9, c1: "#ad2a06", i1: 0.9, c2: "#6b1103", i2: 1.0, c3: "#3a0701", i3: 1.0,
+});
+const midMat = crescentMat({
+  scale: 1.0, radOff: 0.0, push: 0.0, seed: 1.1, additive: false, erode: 0.14, tipHot: 0.30, edgeI: 0.80,
+  c0: "#fff0b4", i0: 1.0, c1: "#ffa41f", i1: 1.0, c2: "#ee4a08", i2: 1.0, c3: "#7d1403", i3: 1.0,
+});
+const hiMat = crescentMat({
+  scale: 0.58, radOff: 0.080, push: 0.035, seed: 8.3, additive: true, erode: 0.26, tipHot: 1.05, edgeI: 0.30,
+  c0: "#fff6d6", i0: 0.80, c1: "#ffc25c", i1: 0.38, c2: "#ff7c1c", i2: 0.12, c3: "#c03806", i3: 0.03,
+});
+const crescent = new THREE.Group();
+const copies = [
+  { mesh: new THREE.Mesh(stripGeo, shadowMat), mat: shadowMat, lead: -0.040, order: 1 },
+  { mesh: new THREE.Mesh(stripGeo, midMat), mat: midMat, lead: 0.0, order: 2 },
+  { mesh: new THREE.Mesh(stripGeo, hiMat), mat: hiMat, lead: 0.040, order: 3 },
+];
+for (const c of copies) { c.mesh.renderOrder = c.order; c.mesh.frustumCulled = false; crescent.add(c.mesh); }
+scene.add(crescent);
+
+// ---------------------------------------------------------------- instanced quads
+function quads(n, seedScale) {
+  const base = new THREE.PlaneGeometry(1, 1);
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = base.index;
+  g.attributes.position = base.attributes.position;
+  g.attributes.uv = base.attributes.uv;
+  const s = new Float32Array(n);
+  for (let i = 0; i < n; i++) s[i] = i * (seedScale || 1);
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(s, 1));
+  g.instanceCount = n;
+  g.boundingSphere = new THREE.Sphere(ARC_C.clone(), 8);
+  return g;
+}
+const BILLBOARD = `
+  vec3 bbRight(){ return vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]); }
+  vec3 bbUp(){ return vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]); }
+`;
+const ARC_GLSL = `
+  uniform vec3 uC, uEx, uEy, uN; uniform float uR, uPh0, uSweep;
+  vec3 arcAt(float s){ float ph = uPh0 + s*uSweep; return uC + (uEx*cos(ph) + uEy*sin(ph))*uR; }
+  vec3 arcTan(float s){ float ph = uPh0 + s*uSweep; return normalize(-uEx*sin(ph) + uEy*cos(ph)); }
+`;
+const arcUniforms = () => ({
+  uC: { value: ARC_C }, uEx: { value: ARC_EX }, uEy: { value: ARC_EY }, uN: { value: ARC_N },
+  uR: { value: ARC_R }, uPh0: { value: ARC_PH0 }, uSweep: { value: ARC_SWEEP },
+});
+
+// flame silhouette used by the tongues and by the floating ember
+const FLAME_FRAG_BODY = `
+  // teardrop pointing +y, eroded by fbm so the licks tear rather than fade
+  vec2 q = vUv*2.0 - 1.0;
+  float body = 1.0 - length(vec2(q.x*1.55, (q.y-0.12)*0.92));
+  body -= 0.30*max(0.0, q.y);
+  float n = fbm2(vec2(q.x*2.2 + vSeed*4.0, q.y*2.0 - uTime*1.9 + vSeed*3.0));
+  float th = mix(0.20, 0.78, vErode) + 0.42*(1.0-n);
+  float a = smoothstep(th-0.06, th+0.20, body + 0.34*n);
+  float core = smoothstep(th+0.10, th+0.42, body + 0.30*n);
+  vec3 col = mix(uC2, uC1, core);
+  col = mix(col, uC0, smoothstep(0.45, 0.95, core));
+  a *= vA;
+  gl_FragColor = vec4(col*a, a);
+`;
+
+// ---- flame tongues along the tail
+const tongueMat = new THREE.ShaderMaterial({
+  uniforms: Object.assign(arcUniforms(), {
+    uTime: { value: 0 }, uTail: { value: 0 }, uHead: { value: 0 }, uI: { value: 1 },
+    uC0: { value: hex("#fff0b8") }, uC1: { value: hex("#ff9a1e") }, uC2: { value: hex("#c42c05") },
+  }),
+  vertexShader: `
+    attribute float aSeed; uniform float uTime, uTail, uHead;
+    varying vec2 vUv; varying float vA, vSeed, vErode;
+    ${GLSL} ${BILLBOARD} ${ARC_GLSL}
+    void main(){
+      float h1 = hash11(aSeed*1.31+0.7), h2 = hash11(aSeed*2.17+4.1), h3 = hash11(aSeed*3.77+9.3);
+      float s = 0.04 + 0.92*h1;
+      // a tongue lights up as the erosion front reaches it, then is torn off
+      float d = s - uTail;                       // >0 ahead of the front
+      float u = clamp((0.10 - d) / 0.50, 0.0, 1.0);
+      float live = step(d, 0.10) * step(-0.40, d) * step(s, uHead) * sin(3.14159*u);
+      vec3 c = arcAt(s) + arcTan(s)*(-0.06 - 0.30*u*h2) + uN*(h3-0.5)*0.10;
+      c += vec3(0.0, 0.22*u*(0.4+h2), 0.0);
+      float size = (0.22 + 0.26*h2) * (0.30 + 0.90*sin(3.14159*clamp(u,0.0,1.0)));
+      vA = live * (0.62 + 0.38*sin(uTime*9.0 + aSeed*2.3));
+      vErode = u; vSeed = aSeed; vUv = uv;
+      vec2 p = position.xy;
+      vec3 wp = c + (bbRight()*p.x*0.78 + bbUp()*p.y) * size * step(0.001, vA);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vUv; varying float vA, vSeed, vErode;
+    uniform vec3 uC0, uC1, uC2; uniform float uTime, uI;
+    ${GLSL}
+    void main(){ ${FLAME_FRAG_BODY} }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const tongues = new THREE.Mesh(quads(N_TONGUE, 1.7), tongueMat);
+tongues.renderOrder = 4; tongues.frustumCulled = false;
+scene.add(tongues);
+
+// ---- embers: velocity-stretched sparks born where the erosion front passes,
+// thrown slightly BACKWARD along the arc (opposite to travel) and pulled down.
+const emberMat = new THREE.ShaderMaterial({
+  uniforms: Object.assign(arcUniforms(), {
+    uTime: { value: 0 }, uTail: { value: 0 }, uI: { value: 1 },
+    uCol: { value: hex("#ff9c38") }, uHot: { value: hex("#ffe6ae") },
+  }),
+  vertexShader: `
+    attribute float aSeed; uniform float uTime, uTail;
+    varying vec2 vQ; varying float vA, vSeed;
+    ${GLSL} ${BILLBOARD} ${ARC_GLSL}
+    void main(){
+      float h1 = hash11(aSeed*1.11+0.3), h2 = hash11(aSeed*2.53+7.7);
+      float h3 = hash11(aSeed*4.31+13.1), h4 = hash11(aSeed*5.97+21.7);
+      float s = h1;
+      float birth = 0.30 + 0.35*s + 0.09*h2;     // the head passes s at 0.30 + 0.35*s
+      float life = 0.60 + 0.95*h2;
+      float age = uTime - birth;
+      float u = age/life;
+      vec3 org = arcAt(s) + uN*(h3-0.5)*0.14;
+      vec3 back = -arcTan(s);                     // a small velocity OPPOSITE to travel
+      vec3 vel = back*(0.55 + 1.25*h3) + vec3((h4-0.5)*0.8, 0.30+0.65*h2, (h3-0.5)*0.8);
+      vec3 g = vec3(0.0, -1.55*age, 0.0);
+      vec3 c = org + vel*age + 0.5*g*age;
+      float alive = step(0.0, age)*step(u, 1.0);
+      vA = alive * pow(1.0-clamp(u,0.0,1.0), 1.25) * (0.55 + 0.45*sin(uTime*23.0 + aSeed*3.1));
+      // velocity stretch: the long axis is the world velocity, the short axis faces the camera
+      vec3 along = normalize(vel + g);
+      vec3 side = normalize(cross(along, normalize(cameraPosition - c)));
+      float size = 0.055 + 0.055*h4;
+      float stretch = 2.4 + 4.0*h3;
+      vec2 p = position.xy;
+      vQ = p*2.0; vSeed = aSeed;
+      vec3 wp = c + (along*p.y*stretch + side*p.x)*size*alive;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(wp, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vQ; varying float vA, vSeed;
+    uniform vec3 uCol, uHot; uniform float uI;
+    void main(){
+      float d = length(vec2(vQ.x, vQ.y*0.38));
+      float a = exp(-d*d*3.2)*vA*uI;
+      vec3 col = mix(uCol, uHot, exp(-d*d*7.0));
+      gl_FragColor = vec4(col*a*1.4, a);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const embers = new THREE.Mesh(quads(N_EMBER, 1.3), emberMat);
+embers.renderOrder = 5; embers.frustumCulled = false;
+scene.add(embers);
+
+// ---- burst: radial slivers + flash + sparks at the end of the sweep
+const IMPACT = arcPoint(1.0);
+const sliverMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uP: { value: IMPACT },
+    uCol: { value: hex("#ff8c1e") }, uHot: { value: hex("#fff0c4") } },
+  vertexShader: `
+    attribute float aSeed; uniform float uTime, uI; uniform vec3 uP;
+    varying vec2 vUv; varying float vA;
+    ${GLSL} ${BILLBOARD}
+    void main(){
+      float h1 = hash11(aSeed*1.7+0.9), h2 = hash11(aSeed*3.1+5.5), h3 = hash11(aSeed*6.7+17.3);
+      float ang = (aSeed/${N_SLIVER}.0)*6.2831853 + (h1-0.5)*0.42;
+      ang = ang*0.78 + 1.5707963*0.30;                 // bias the fan upward
+      float len = 0.45 + 0.75*h2;
+      float u = clamp(uTime/(0.14 + 0.10*h3), 0.0, 1.0);
+      float grow = 1.0 - pow(1.0-u, 3.0);
+      float fade = 1.0 - smoothstep(0.55, 1.0, clamp(uTime/(0.30+0.16*h3), 0.0, 1.0));
+      vA = uI*fade;
+      vec2 d = vec2(cos(ang), sin(ang));
+      vec2 pr = vec2(-d.y, d.x);
+      float along = (position.x+0.5);
+      float halfw = (0.020 + 0.030*h3) * (1.0 - along) * (0.25 + 0.9*sin(3.14159*along));
+      float start = 0.10 + 0.22*h1;
+      vec2 q = d*(start + len*grow*along) + pr*position.y*2.0*halfw;
+      vUv = vec2(along, position.y+0.5);
+      vec3 wp = uP + bbRight()*q.x + bbUp()*q.y;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(wp,1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vUv; varying float vA; uniform vec3 uCol, uHot;
+    void main(){
+      float across = abs(vUv.y-0.5)*2.0;
+      float a = (1.0-smoothstep(0.35,1.0,across)) * (1.0-smoothstep(0.55,1.0,vUv.x)) * vA;
+      vec3 col = mix(uCol, uHot, (1.0-across)*(1.0-vUv.x*0.7));
+      gl_FragColor = vec4(col*a*1.6, a);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const slivers = new THREE.Mesh(quads(N_SLIVER, 1.0), sliverMat);
+slivers.renderOrder = 6; slivers.frustumCulled = false;
+scene.add(slivers);
+
+const flashMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uCol: { value: hex("#ffe3a0") } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vUv; uniform float uI; uniform vec3 uCol;
+    void main(){
+      vec2 q = vUv*2.0-1.0; float d = length(q);
+      float core = exp(-d*d*10.0), halo = exp(-d*d*1.9);
+      float a = (core*1.0 + halo*0.32)*uI;
+      gl_FragColor = vec4(uCol*a*1.8, a);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const flash = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.05), flashMat);
+flash.position.copy(IMPACT); flash.renderOrder = 7;
+scene.add(flash);
+
+const sparkMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uP: { value: IMPACT },
+    uCol: { value: hex("#ffb457") }, uHot: { value: hex("#fff2cc") } },
+  vertexShader: `
+    attribute float aSeed; uniform float uTime, uI; uniform vec3 uP;
+    varying vec2 vQ; varying float vA;
+    ${GLSL} ${BILLBOARD}
+    void main(){
+      float h1 = hash11(aSeed*1.9+1.1), h2 = hash11(aSeed*3.3+6.1), h3 = hash11(aSeed*5.5+14.7);
+      float life = 0.45 + 0.75*h2;
+      float u = clamp(uTime/life, 0.0, 1.0);
+      float ang = h1*6.2831853;
+      float sp = 1.6 + 3.4*h3;
+      vec3 dir = normalize(vec3(cos(ang)*(0.6+h2), 0.35+1.1*h3, sin(ang)*(0.6+h2)));
+      vec3 c = uP + dir*sp*uTime*(1.0-0.55*u) - vec3(0.0, 3.1*uTime*uTime*0.5, 0.0);
+      vA = step(0.0,uTime)*step(u,1.0)*pow(1.0-u,1.4)*uI*(0.5+0.5*sin(uTime*30.0+aSeed*4.0));
+      float size = 0.035 + 0.035*h2;
+      vec2 p = position.xy; vQ = p*2.0;
+      vec3 wp = c + (bbRight()*p.x + bbUp()*p.y*2.4)*size*step(0.001,vA);
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(wp,1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; varying float vA; uniform vec3 uCol, uHot;
+    void main(){ float d = length(vec2(vQ.x, vQ.y*0.42)); float a = exp(-d*d*3.4)*vA;
+      gl_FragColor = vec4(mix(uCol,uHot,exp(-d*d*8.0))*a*1.5, a); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const sparks = new THREE.Mesh(quads(N_SPARK, 1.6), sparkMat);
+sparks.renderOrder = 6; sparks.frustumCulled = false;
+scene.add(sparks);
+
+// ---- charge: a small orange glow at the arc start with converging sparks
+const CHARGE_P = arcPoint(0.0);
+const chargeMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uCol: { value: hex("#ff9c30") } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vUv; uniform float uI; uniform vec3 uCol;
+    void main(){ vec2 q = vUv*2.0-1.0; float d = length(q);
+      float a = (exp(-d*d*12.0)*0.9 + exp(-d*d*2.6)*0.25)*uI;
+      gl_FragColor = vec4(uCol*a*1.5, a); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const charge = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), chargeMat);
+charge.position.copy(CHARGE_P); charge.renderOrder = 2;
+scene.add(charge);
+
+const chSparkMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uP: { value: CHARGE_P }, uCol: { value: hex("#ffbe6a") } },
+  vertexShader: `
+    attribute float aSeed; uniform float uTime, uI; uniform vec3 uP;
+    varying vec2 vQ; varying float vA;
+    ${GLSL} ${BILLBOARD}
+    void main(){
+      float h1 = hash11(aSeed*2.3+0.5), h2 = hash11(aSeed*4.7+8.9);
+      float a01 = clamp(uTime/0.30, 0.0, 1.0);
+      float ang = (aSeed/${N_CHSPARK}.0)*6.2831853 + h1*0.7;
+      float r0 = 0.55 + 0.45*h2;
+      vec3 dir = normalize(vec3(cos(ang), 0.55*(h1-0.5)*2.0, sin(ang)));
+      vec3 c = uP + dir*r0*pow(1.0-a01, 2.0);
+      vA = uI*smoothstep(0.0,0.12,a01)*(1.0-smoothstep(0.85,1.0,a01));
+      float size = 0.030 + 0.022*h2;
+      vec2 p = position.xy; vQ = p*2.0;
+      vec3 wp = c + (bbRight()*p.x + bbUp()*p.y)*size*step(0.001,vA);
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(wp,1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; varying float vA; uniform vec3 uCol;
+    void main(){ float d = length(vQ); float a = exp(-d*d*4.0)*vA; gl_FragColor = vec4(uCol*a*1.6, a); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const chSparks = new THREE.Mesh(quads(N_CHSPARK, 1.0), chSparkMat);
+chSparks.renderOrder = 2; chSparks.frustumCulled = false;
+scene.add(chSparks);
+
+// ---- the floating flame ember (the reference's leftover puff)
+const emberPuffMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 }, uI: { value: 0 },
+    uC0: { value: hex("#fff1c0") }, uC1: { value: hex("#ff9422") }, uC2: { value: hex("#c02c06") },
+  },
+  vertexShader: `varying vec2 vUv; varying float vA, vSeed, vErode;
+    uniform float uI, uTime;
+    ${BILLBOARD}
+    void main(){
+      vUv = uv; vA = uI; vSeed = 2.7; vErode = 0.18;
+      vec4 cv = modelViewMatrix*vec4(0.0,0.0,0.0,1.0);
+      vec3 scl = vec3(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz), 1.0);
+      vec3 off = bbRight()*position.x*scl.x*0.80 + bbUp()*position.y*scl.y;
+      gl_Position = projectionMatrix*(cv + vec4((viewMatrix*vec4(off,0.0)).xyz, 0.0));
+    }`,
+  fragmentShader: `varying vec2 vUv; varying float vA, vSeed, vErode;
+    uniform vec3 uC0, uC1, uC2; uniform float uTime, uI;
+    ${GLSL}
+    void main(){ ${FLAME_FRAG_BODY} }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const emberPuff = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.76), emberPuffMat);
+emberPuff.renderOrder = 8;
+scene.add(emberPuff);
+
+// ---------------------------------------------------------------- post
+let composer, bloom;
+function buildPost() {
+  const size = renderer.getSize(new THREE.Vector2());
+  composer = new EffectComposer(renderer);
+  composer.setSize(size.x, size.y);
+  composer.addPass(new RenderPass(scene, camera));
+  bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), P.bloom, 1.0, P.threshold);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+}
+function resize() {
+  const host = canvas.parentElement;
+  const w = host.clientWidth, h = Math.round((w * 9) / 16);
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  buildPost();
+}
+window.addEventListener("resize", resize); resize();
+
+// ---------------------------------------------------------------- apply(t)
+const _hp = new THREE.Vector3();
+function apply(t) {
+  const L = P.layers;
+  const headOf = (tt) => easeOutQuart(clamp01((tt - T_SW0) / (T_SW1 - T_SW0)));
+  const tailOf = (tt) => Math.pow(clamp01((tt - T_TE0) / (T_TE1 - T_TE0)), 1.55);
+  const tear = clamp01((t - T_TE0) / (T_TE1 - T_TE0));
+
+  for (const c of copies) {
+    const tt = t + c.lead;
+    const u = c.mat.uniforms;
+    u.uTime.value = t;
+    u.uHead.value = Math.max(0.0001, headOf(tt));
+    u.uTail.value = tailOf(tt);
+    u.uTear.value = 0.90 * tear;
+    u.uWiden.value = 0.42 * tear;
+    u.uAlpha.value = 1.0;
+    c.mesh.visible = L.crescent && headOf(tt) > 0.002 && tailOf(tt) < 0.999;
+  }
+  crescent.visible = L.crescent;
+
+  // tongues follow the erosion front
+  tongueMat.uniforms.uTime.value = t;
+  tongueMat.uniforms.uTail.value = tailOf(t);
+  tongueMat.uniforms.uHead.value = headOf(t);
+  tongues.visible = L.tongues && t > T_SW0 && t < T_TE1 + 0.3;
+
+  // embers
+  emberMat.uniforms.uTime.value = t;
+  embers.visible = L.embers && t > T_SW0;
+
+  // burst
+  const bt = t - T_BURST;
+  sliverMat.uniforms.uTime.value = Math.max(0, bt);
+  sliverMat.uniforms.uI.value = bt >= 0 ? 1 : 0;
+  slivers.visible = L.burst && bt >= 0 && bt < 0.55;
+  sparkMat.uniforms.uTime.value = Math.max(0, bt);
+  sparkMat.uniforms.uI.value = bt >= 0 ? 1 : 0;
+  sparks.visible = L.burst && bt >= 0 && bt < 1.3;
+  flash.quaternion.copy(camera.quaternion);
+  const fl = bt >= 0 ? Math.pow(1 - clamp01(bt / 0.16), 3.0) : 0;
+  flashMat.uniforms.uI.value = L.burst ? fl * 0.55 : 0;
+  flash.visible = L.burst && fl > 0.01;
+
+  // charge
+  charge.quaternion.copy(camera.quaternion);
+  const ch = ss(0, 0.10, t) * (1 - ss(T_CH1, T_SW0 + 0.10, t));
+  const chs = 0.5 + 1.1 * clamp01(t / T_CH1);
+  charge.scale.set(chs, chs, 1);
+  chargeMat.uniforms.uI.value = L.crescent ? ch * 0.9 : 0;
+  charge.visible = L.crescent && ch > 0.01;
+  chSparkMat.uniforms.uTime.value = t;
+  chSparkMat.uniforms.uI.value = L.crescent ? (1 - ss(T_CH1 - 0.05, T_CH1 + 0.06, t)) : 0;
+  chSparks.visible = L.crescent && t < T_CH1 + 0.08;
+
+  // the floating flame ember: drifts up, flickers, gone by 3.0
+  const eu = clamp01((t - T_EM0) / (T_EM1 - T_EM0));
+  _hp.copy(IMPACT).add(new THREE.Vector3(0.10, 0.15 * 0 + 0.15, 0));
+  emberPuff.position.set(
+    _hp.x + 0.10 * Math.sin(t * 1.7),
+    _hp.y + 0.15 * (t - T_EM0) + 0.03 * Math.sin(t * 3.1),
+    _hp.z + 0.06 * Math.cos(t * 1.3)
+  );
+  const flick = 0.82 + 0.18 * Math.sin(t * 13.0) + 0.08 * Math.sin(t * 27.0);
+  emberPuffMat.uniforms.uTime.value = t;
+  emberPuffMat.uniforms.uI.value = L.ember ? ss(T_EM0, T_EM0 + 0.18, t) * (1 - ss(2.35, T_EM1, t)) * flick : 0;
+  const es = 1.0 + 0.20 * Math.sin(t * 9.0) - 0.30 * eu;
+  emberPuff.scale.set(es, es, 1);
+  emberPuff.visible = L.ember && eu > 0 && eu < 1;
+
+  // warm ground pool: pulses with the sweep, dies with the tear
+  const sweepI = ss(T_SW0 - 0.05, T_SW1 - 0.15, t) * (1 - ss(T_TE0, T_TE1 - 0.2, t));
+  const pool = 0.18 * ss(0, T_CH1, t) * (1 - ss(T_SW0, T_SW1, t)) + 1.0 * sweepI
+    + 0.9 * Math.pow(1 - clamp01((t - T_BURST) / 0.35), 2.0) * (t >= T_BURST ? 1 : 0);
+  groundMat.uniforms.uPoolI.value = pool * 0.26;
+  arcPoint(0.5 * (headOf(t) + tailOf(t)), _hp);
+  groundMat.uniforms.uPoolC.value.set(_hp.x, 0, _hp.z);
+}
+
+// ---------------------------------------------------------------- frame
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom; bloom.threshold = P.threshold;
+  apply(P.time);
+  if (P.layers.post) composer.render(); else renderer.render(scene, camera);
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+window.spikeMats = { shadowMat, midMat, hiMat, tongueMat, emberMat, sliverMat, sparkMat, flashMat, emberPuffMat };
+window.spikeObjs = { crescent, tongues, embers, slivers, sparks, flash, emberPuff };
+window.spikePieces = { arc: { c: ARC_C, ex: ARC_EX, ey: ARC_EY, r: ARC_R, sweep: ARC_SWEEP, ph0: ARC_PH0 }, copies };
+window.__spikeReady = true;
