@@ -27,9 +27,13 @@ import {
   crystalSpawnSites,
 } from "../src/lib/vfx-lab/crystals-v2";
 import { latticeSites } from "../src/lib/vfx-lab/lattice-v2";
-import { bandGeometry } from "../src/lib/vfx-lab/runtime-v2";
+import { bandGeometry, flickerAt } from "../src/lib/vfx-lab/runtime-v2";
 import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
-import { defaultGeometry, type GeometryV2 } from "../src/lib/vfx-lab/schema-v2";
+import {
+  defaultGeometry,
+  defaultMaterial,
+  type GeometryV2,
+} from "../src/lib/vfx-lab/schema-v2";
 
 // ---------------------------------------------------------------------------
 // Seek == play for the one Phase B feature that rebuilds CPU-side state: the
@@ -163,11 +167,53 @@ test("every recipe example still validates with the Phase B fields in place", ()
     "shield carries a speed curve",
   );
 
-  for (const id of ["lightning-impact", "beam"] as const)
-    assert.ok(
-      createPresetV2(id).layers.some((l) => l.emitter?.trail),
-      `${id} carries a trail`,
-    );
+  assert.ok(
+    createPresetV2("lightning-impact").layers.some((l) => l.emitter?.trail),
+    "lightning-impact carries a trail",
+  );
+
+  // The beam exemplar was rebuilt around the S7 spike's vocabulary: a tiered
+  // slab body, panning stripes, flat cel licks and a line path that carries
+  // both the shut-off run and the residual scatter.
+  const beam = createPresetV2("beam");
+  assert.ok(beam.paths.some((p) => p.type === "line"), "beam carries a line path");
+  assert.ok(
+    beam.layers.some((l) => l.geometry?.type === "slab" && l.geometry.slab),
+    "beam carries a slab body",
+  );
+  assert.ok(
+    beam.layers.some((l) => l.material?.stripes?.length),
+    "beam carries panning stripes",
+  );
+  assert.ok(
+    beam.layers.some((l) => l.emitter?.render.mode === "flatStrip"),
+    "beam carries flat cel licks",
+  );
+  assert.ok(
+    beam.layers.some((l) => l.emitter?.velocity.mode === "alongPath"),
+    "beam carries a shut-off run along its own line",
+  );
+  assert.ok(
+    beam.layers.some((l) => l.emitter?.shape.type === "pathLine"),
+    "beam carries a residual scatter along its own line",
+  );
+
+  // The energy-column exemplar is the S10 spike: one shared collapse, an arc
+  // cage, a streak fan and a post.flash white-out.
+  const column = createPresetV2("energy-column");
+  assert.ok(column.post.flash, "energy-column carries a post flash");
+  assert.ok(
+    column.layers.filter((l) => l.collapse).length >= 3,
+    "the column body shares one collapse",
+  );
+  assert.ok(
+    column.layers.some((l) => l.kind === "arcs" && l.arcs),
+    "energy-column carries an arc cage",
+  );
+  assert.ok(
+    column.layers.some((l) => l.kind === "streakBurst" && l.streakBurst),
+    "energy-column carries a streak fan",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -567,4 +613,103 @@ test("a band belt is a strip ON the sphere, not a chord across it", () => {
     `tilted belt spans ${height} in y, expected about ${expected}`,
   );
   geometry.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// The beam / energy-column port.
+//
+// layer.collapse and material.flicker are the two pieces this port evaluates on
+// the CPU: the collapse rewrites the live layer before the draw, and the
+// flicker multiplier is uploaded once per layer per frame so every draw a layer
+// owns (mesh, hull, split copies, trail) steps together. Both have to be pure
+// functions of layer time; the arcs' blink and the streak fan's spread live in
+// the shader and are covered by the headless harness's determinism check.
+// ---------------------------------------------------------------------------
+
+test("collapse is closed form: playing up to a time leaves nothing behind", () => {
+  const doc = createPresetV2("energy-column");
+  const collapsing = doc.layers.filter((l) => l.collapse);
+  assert.ok(collapsing.length >= 4);
+  for (const layer of collapsing) {
+    const pristine = structuredClone(layer);
+    for (const time of [3.4, 3.6, 4.0, 4.5, 4.99]) {
+      // "Play" up to the time in ten steps, then seek to it cold. The collapse
+      // rewrites geometry.length / radius and the arcs' own span on a CLONE, so
+      // the walk must leave the source layer untouched and the cold seek must
+      // land on exactly what the walk's last frame drew.
+      let played = evaluateLayerV2(layer, layer.start);
+      for (let i = 1; i < 10; i++)
+        played = evaluateLayerV2(layer, layer.start + ((time - layer.start) * i) / 10);
+      const walked = evaluateLayerV2(layer, time);
+      assert.deepEqual(layer, pristine, `${layer.id} was mutated by playing`);
+      assert.deepEqual(evaluateLayerV2(layer, time).layer, walked.layer, `${layer.id} @${time}`);
+      // The walk really did move: the last intermediate frame is not the target.
+      if (time > layer.start + 0.2)
+        assert.notDeepEqual(played.layer, walked.layer, `${layer.id} @${time}`);
+    }
+  }
+});
+
+test("collapse retracts along the layer axis and narrows across it", () => {
+  const doc = createPresetV2("energy-column");
+  const shell = doc.layers.find((l) => l.id === "column-shell")!;
+  const before = evaluateLayerV2(shell, shell.collapse!.start - 0.01).layer;
+  const after = evaluateLayerV2(shell, shell.collapse!.start + 1.4).layer;
+  // length is ALONG the layer's own +Z, radius/thickness ACROSS it.
+  assert.ok(after.geometry!.length < before.geometry!.length * 0.2);
+  assert.ok(after.geometry!.radius < before.geometry!.radius * 0.45);
+  // anchor "base": the transform never moves, so the body retracts from the top.
+  assert.deepEqual(after.transform.position, before.transform.position);
+
+  // An arcs layer has no geometry, so the same collapse reaches its own spec.
+  const arcs = doc.layers.find((l) => l.kind === "arcs")!;
+  const arcsBefore = evaluateLayerV2(arcs, arcs.collapse!.start - 0.01).layer;
+  const arcsAfter = evaluateLayerV2(arcs, arcs.collapse!.start + 1.4).layer;
+  assert.ok(arcsAfter.arcs!.span < arcsBefore.arcs!.span * 0.2);
+  assert.ok(arcsAfter.arcs!.radius[1] < arcsBefore.arcs!.radius[1] * 0.45);
+});
+
+test("flicker is a hashed STEP, constant inside its own window", () => {
+  const material = { ...defaultMaterial(), flicker: { rate: 10, amount: 0.4 } };
+  // Constant across one 1/rate window, and a pure function of the window index.
+  assert.equal(flickerAt(material, 0.31), flickerAt(material, 0.39));
+  assert.notEqual(flickerAt(material, 0.31), flickerAt(material, 0.41));
+  assert.equal(flickerAt(material, 2.05), flickerAt(material, 2.05));
+  // Centred on 1, inside 1 +- amount/2, so it never drives a layer negative.
+  for (let i = 0; i < 200; i++) {
+    const value = flickerAt(material, i * 0.017);
+    assert.ok(value >= 1 - 0.2 - 1e-6 && value <= 1 + 0.2 + 1e-6);
+  }
+  assert.equal(flickerAt(defaultMaterial(), 1.7), 1);
+});
+
+test("both new exemplars evaluate identically on a seek", () => {
+  for (const id of ["beam", "energy-column"] as const) {
+    const doc = createPresetV2(id);
+    for (const layer of doc.layers)
+      for (let step = 0; step <= 10; step++) {
+        const time = (doc.duration * step) / 10;
+        assert.deepEqual(
+          evaluateLayerV2(layer, time),
+          evaluateLayerV2(layer, time),
+          `${id}/${layer.id} @${time}`,
+        );
+      }
+  }
+});
+
+test("the beam's line path is exactly the segment it names", () => {
+  const doc = createPresetV2("beam");
+  const path = doc.paths.find((p) => p.type === "line")!;
+  assert.equal(path.type, "line");
+  for (const u of [0, 0.25, 0.5, 0.75, 1]) {
+    const point = pathPoint(path, u);
+    for (let axis = 0; axis < 3; axis++)
+      assert.ok(
+        Math.abs(point[axis] - (path.from[axis] + (path.to[axis] - path.from[axis]) * u)) <
+          1e-9,
+      );
+  }
+  // The tangent is constant: a line has one heading end to end.
+  assert.deepEqual(pathTangent(path, 0.1), pathTangent(path, 0.9));
 });

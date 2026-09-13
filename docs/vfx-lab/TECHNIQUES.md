@@ -24,7 +24,7 @@ A **technique card** is that missing layer. Each one is a named, reusable constr
 - `vocabulary.missing` — the vocabulary the renderer does not have yet.
 - `sources` — which research doc it came from.
 
-22 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the eight `RecipeV2Id`
+22 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the eleven `RecipeV2Id`
 families to its 3-4 most relevant cards; `TECHNIQUE_KEYWORDS` is a list of `[RegExp, TechniqueId[]]`
 pairs that add cards for shapes the eight families don't cover directly — aura/heal, portal,
 vortex/tornado, glitch/hologram, energy column, water, a second look at meteor, crystal/ice
@@ -83,7 +83,8 @@ model already reads.
 | `smoke-burst` | cauliflower-blob-cluster, inverted-hull-outline, flat-splash-accent, two-layer-noise-mist |
 | `lightning-impact` | blinking-arc-ribbons, converging-charge, staggered-instance-timing, instanced-shard-burst |
 | `fire-slash` | uv-erosion-front, three-tone-layer-stack, staggered-instance-timing |
-| `beam` | stripe-panner-core-and-sheath, converging-charge, vent-on-shutoff, path-window-ribbon |
+| `beam` | stripe-panner-core-and-sheath, converging-charge, vent-on-shutoff, three-tone-layer-stack |
+| `energy-column` | stripe-panner-core-and-sheath, blinking-arc-ribbons, three-tone-layer-stack, edge-biased-sparks |
 | `shield` | hex-lattice-fresnel-shield, converging-charge, staggered-instance-timing |
 | `meteor-rain` | speed-line-cap, instanced-shard-burst, staggered-instance-timing |
 | `ice-blast` | instanced-shard-burst, two-layer-noise-mist, staggered-instance-timing |
@@ -96,7 +97,7 @@ model already reads.
 | `portal` | edge-biased-sparks, two-layer-noise-mist, path-window-ribbon |
 | `vortex\|tornado\|swirl` | polar-swirl-disc, edge-biased-sparks |
 | `glitch\|digital\|hologram` | stepped-hash-glitch, instanced-shard-burst |
-| `column\|overload\|pillar` | blinking-arc-ribbons, upright-glow-cylinder |
+| `column\|overload\|pillar\|surge` | blinking-arc-ribbons, stripe-panner-core-and-sheath, upright-glow-cylinder |
 | `water\|liquid` | two-layer-noise-mist, polar-swirl-disc |
 | `meteor` | speed-line-cap, instanced-shard-burst |
 | `sigil\|rune\|circle\|summon\|cast` | cast-sigil-reveal, ground-ring-with-inner-fill |
@@ -111,10 +112,8 @@ the model, so it is exposed here instead, for whoever picks up renderer work nex
 
 | Missing vocabulary | Needed by | Notes |
 |---|---|---|
-| stripe panner (hard `fract(u*n - t)` scrolling band shader on a mesh material) | stripe-panner-core-and-sheath | Approximated with `material.mask` atlas panning or a tracked `erosion.curve`. |
 | ease `"outBack"` (overshoot-and-settle scale-in, beyond `outCubic`) | ground-ring-with-inner-fill | `CurveSchema.ease` today is `linear \| smooth` only (`easing` on tracks adds `outCubic \| inQuad`, no back-ease). |
 | polar swirl UV remap (`angle += strength / dist`, baked into material panning) | polar-swirl-disc | Approximated with stacked discs at different `uvPan` speeds plus `emitter.forces.vortex` on fleck particles. |
-| per-segment blink gating inside a single arc layer | blinking-arc-ribbons | Today: `ribbon.strands` gives independent strands in one layer and `layer.jitter` breaks the whole arc, but a single arc cannot blink segment by segment. |
 | scanline overlay | stepped-hash-glitch | `post.glitch` covers band displacement, channel split and block dropout, but not a standing scanline pattern. |
 
 ### Closed 2026-09-14 — the heal / glitch spike port
@@ -165,7 +164,23 @@ shield entry and rewrote four cards around real fields:
 `hex-lattice-fresnel-shield` no longer asks for two cross-woven hexagon passes: one relaxed
 lattice gives real cells with no seam, no pole and no moire, so the card is one sphere now.
 
-17 of the 22 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
-remaining 5 — `stripe-panner-core-and-sheath`, `ground-ring-with-inner-fill`, `polar-swirl-disc`,
-`blinking-arc-ribbons` and `stepped-hash-glitch` — each contribute exactly one entry to the
-renderer backlog above.
+### Closed 2026-09-14 — the beam / energy-column spike port
+
+Two more entries were closed by the port of the S7 beam and S10 column spikes
+(`TOOLBOX_V2_MAPPING.md` §9–§10):
+
+| Was missing | Now | Card |
+|---|---|---|
+| stripe panner (hard `fract(u*n - t)` scrolling band shader on a mesh material) | `material.stripes[{frequency (bands per metre along the layer axis), speed, phase (per-ring offset: 0 is a straight segment ladder, 1 is filaments), sharpness, contrast}]`, plus `material.flicker{rate,amount}` for the hashed step and `geometry.type:"slab"` + `geometry.slab.tiers` for the hard-edged body the bands sit in | stripe-panner-core-and-sheath, three-tone-layer-stack |
+| per-segment blink gating inside a single arc layer | `kind:"arcs"` + `layer.arcs` — a generator whose radius, pitch, base, span and phase are re-hashed on every blink cycle, with `arcs.blink{period,onTime,skipChance}` and a folded `arcs.jitter` so the wire kinks | blinking-arc-ribbons |
+
+The port also added vocabulary no card had asked for: `kind:"streakBurst"` (a clumped screen-space
+speed-line fan), `post.flash` (a full-screen additive white-out), `layer.collapse` (one retraction
+shared by every part of a composite body), `paths[].type:"line"`, `emitter.shape.type:"pathLine"`,
+`emitter.velocity.mode:"alongPath"`, `emitter.render.mode:"flatStrip"` (tapered flat cel licks on a
+flipbook hold) and the `lensFlare` / `radialRays` procedurals. `vent-on-shutoff` and
+`converging-charge` were rewritten around the first four of those.
+
+19 of the 22 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
+remaining 3 — `ground-ring-with-inner-fill`, `polar-swirl-disc` and `stepped-hash-glitch` — each
+contribute exactly one entry to the renderer backlog above.

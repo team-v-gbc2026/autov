@@ -23,7 +23,8 @@
 //                |                                                        | keys scale by ratio
 //   Radius       | emitter.shape.radius (0..12)    | geometry.radius      | light.radius
 //                | blob.radius[1] / splash.length[1] / ribbon.width /
-//                | wireBurst.radius / crystals.length[1] on the generated kinds,
+//                | wireBurst.radius / crystals.length[1] / arcs.radius[1] /
+//                | streakBurst.length[1] on the generated kinds,
 //                | scaled as a band so the population keeps its size hierarchy
 //                |                                 | (0.01..8)            | (0.5..30)
 //   Opacity      | material.opacity (0..1)         | material.opacity     | — (no material)
@@ -144,6 +145,9 @@ function layerRadius(layer: LayerV2) {
   if (layer.wireBurst) return toUi(layer.wireBurst.radius, MESH_RADIUS);
   // A crystal cluster's "radius" is the longest spike it grows.
   if (layer.crystals) return toUi(layer.crystals.length[1], MESH_RADIUS);
+  // An arc cage's "radius" is its helix band; a streak fan's is its reach.
+  if (layer.arcs) return toUi(layer.arcs.radius[1], MESH_RADIUS);
+  if (layer.streakBurst) return toUi(layer.streakBurst.length[1], MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
   return 0;
 }
@@ -309,6 +313,21 @@ function writeRadius(layer: LayerV2, ui: number) {
     layer.crystals.length = [
       clamp(layer.crystals.length[0] * factor, 0.05, 6),
       target,
+    ];
+  } else if (layer.arcs) {
+    const target = fromUi(ui, MESH_RADIUS);
+    const factor = target / Math.max(layer.arcs.radius[1], 1e-6);
+    layer.arcs.radius = [
+      clamp(layer.arcs.radius[0] * factor, 0.02, 8),
+      clamp(target, 0.02, 8),
+    ];
+    layer.arcs.span = clamp(layer.arcs.span * factor, 0.05, 12);
+  } else if (layer.streakBurst) {
+    const target = fromUi(ui, MESH_RADIUS);
+    const factor = target / Math.max(layer.streakBurst.length[1], 1e-6);
+    layer.streakBurst.length = [
+      clamp(layer.streakBurst.length[0] * factor, 0.1, 12),
+      clamp(target, 0.1, 12),
     ];
   } else if (layer.wireBurst) {
     // The band, not one number: a burst whose outlines grow without flying
@@ -584,6 +603,7 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
     },
     motion: null,
     jitter: null,
+    collapse: null,
     material: defaultMaterial(),
     emitter: defaultEmitter(),
     tracks: [],

@@ -162,3 +162,41 @@ test("the cards this port rewrote keep the 3-6 construction-step contract", () =
     );
   }
 });
+
+test("the beam/column cards name the vocabulary the port added", () => {
+  const stripe = TECHNIQUES_V2["stripe-panner-core-and-sheath"];
+  assert.deepEqual(stripe.vocabulary.missing, []);
+  const stripeFields = stripe.vocabulary.available.join(" ");
+  assert.ok(stripeFields.includes("material.stripes"));
+  assert.ok(stripeFields.includes("material.flicker"));
+  assert.ok(stripeFields.includes("geometry.slab"));
+
+  const arcs = TECHNIQUES_V2["blinking-arc-ribbons"];
+  assert.deepEqual(arcs.vocabulary.missing, []);
+  const arcFields = arcs.vocabulary.available.join(" ");
+  assert.ok(arcFields.includes('kind:"arcs"'));
+  assert.ok(arcFields.includes("arcs.blink"));
+  assert.ok(arcFields.includes("layer.collapse"));
+
+  const vent = TECHNIQUES_V2["vent-on-shutoff"].vocabulary.available.join(" ");
+  assert.ok(vent.includes('type:"line"'));
+  assert.ok(vent.includes('"alongPath"'));
+  assert.ok(vent.includes('"pathLine"'));
+
+  const charge = TECHNIQUES_V2["converging-charge"];
+  assert.deepEqual(charge.vocabulary.missing, []);
+  const stack = TECHNIQUES_V2["three-tone-layer-stack"].vocabulary.available.join(" ");
+  assert.ok(stack.includes("geometry.slab.tiers"));
+
+  for (const id of [
+    "stripe-panner-core-and-sheath",
+    "blinking-arc-ribbons",
+    "vent-on-shutoff",
+  ] as const) {
+    const card = TECHNIQUES_V2[id];
+    assert.ok(
+      card.construction.length >= 3 && card.construction.length <= 6,
+      `${id} has ${card.construction.length} construction steps`,
+    );
+  }
+});

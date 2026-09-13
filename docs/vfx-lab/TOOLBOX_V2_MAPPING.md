@@ -261,3 +261,80 @@ outside `[T_HOLD, T_FADE]`, and the ice spike's atlas-free `STAR_FRAG` (already 
 `procedural:"star4"`) all stayed in the spikes. `material.proceduralParams` widened from ±8 to ±64
 so the sigil can carry a rune-cell COUNT rather than a normalized weight; that only loosens the
 contract, so every archived document still validates.
+
+## 9. Sustained beam → schema (Phase F, 2026-09-14)
+
+The seventh spike (`frontend/dev-assets/vfx-v2/spike-beam.html`, source
+`docs/vfx-lab/spike-beam-reference.js.txt`) proved the *sustained* half: an element that is not an
+event but a STATE, held for two and a half seconds, which has to stay alive without ever changing
+shape. Everything it does to stay alive is a pattern on a fixed body — panning bands, a stepped
+flicker, a flipbook of hand-drawn licks — so the port is almost entirely material vocabulary.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `beamLen(t)`'s easeOutExpo snap and its retract, shared by every layer | one `geometry.length` track per body layer, all three with the same keys | the length is the beam's only shared state; the spike computed it once and the exemplar repeats the same four keys, because a track IS the closed form |
+| `bandMat`'s `body`/`inner`/`outer` smoothsteps at `EDGE` = 8% of the band height, on a screen-aligned quad | `geometry.type:"slab"` + `geometry.slab.{anchor,tiers,taper}` | a view-space billboard whose long axis is the layer's local +Z PROJECTED: it never shears as the axis tilts away and never goes edge-on. The tiers are listed outermost first, each painting over the one before it, and the 8% edge is a renderer constant — a gaussian slab of the same width reads as fog |
+| `sheathMat`'s two `fract(d*n - t*s + o)` bands with `o` hashed per ring, and the core's low-contrast `sm` | `material.stripes[{frequency,speed,phase,sharpness,contrast}]` (≤ 3) | `frequency` is bands per METRE along the layer's own axis, so a beam that extends does not squash its bands; `phase` is the per-ring offset (0 runs them straight round the body, 1 breaks them into filaments); the largest `contrast` in the list is the mix weight, which is exactly the spike's core-0.2 / sheath-1.0 split |
+| `fl = 0.82 + 0.34*h11(uFlick + ring*0.91)` with `uFlick = floor(t*10)` | `material.flicker.{rate,amount}` | computed once per layer per frame on the CPU (`flickerAt`), so every draw a layer owns steps together; centred on 1 so it can never drive a layer negative |
+| the `tongueGeo` strip + `TONGUE_VS`'s `k = floor(uTime*10) + aSeed` re-hash, drawn twice in two palettes at two render orders | `emitter.render.mode:"flatStrip"` + `render.strip.{length,width,waviness,stepRate,palettes}` | ONE layer, not two: `palettes: 2` splits the population by INSTANCE INDEX parity onto ramp stops t=0 and t=1, and because the draw walks the instances in order the light set always lands over the dark one. The flipbook hold is the whole point — sliding the same shape along reads as a smear |
+| the `ribGeo` parallelogram streaks (`floor(t*6)` re-hash, hashed length / height / skew) | a second `flatStrip` layer at `palettes: 1`, low `waviness`, a fast `stepRate` | the spike's slabs are hard-edged and the licks tapered; at this scale the taper is the only difference, so the vocabulary is one thing, not two |
+| `flareMat`'s core / wide / halo gaussians on a 0.82 × 3.2 card | `material.procedural:"lensFlare"` + `proceduralParams` [core tightness, anisotropy, spike count, halo falloff] | the anisotropy is what turns a round flare into a vertical blade; a radial cutoff at `RADIAL_CUTOFF` keeps the card's own rectangle from ever showing, and the framing pass claims only the LIT extent (otherwise a 3.2 m blade asks the camera for a 5.2 m square) |
+| `rayMat`'s 13 hashed rays rotating at 0.35 rad/s | `material.procedural:"radialRays"` + params [ray count, length jitter, rotation rate, sharpness] | |
+| both flare shaders' `mix(magenta, white, core)` | the two patterns supply their own RAMP KEY, radially | stop t=0 is the hot core and t=1 the outer halo, so one card is the flare AND its colour falloff; every other procedural leaves the key alone |
+| the `run` points' `u = clamp(a*1.5 - off)` along the former beam line | `paths[{type:"line",from,to}]` + `emitter.velocity.mode:"alongPath"` | `velocity.speedCurve` is the shared head envelope over the LAYER's own 0..1 progress and `velocity.speed` is re-read as the per-particle lag band in path units. A line rides the bezier branch in GLSL with its control at the midpoint, which IS the straight segment term for term, so the shader never grew a third branch |
+| the `res` points' `u = h11(aSeed*1.37)` scatter plus its `bell` and `tw` | `emitter.shape.type:"pathLine"` + `render.twinkle` + a bell `alphaCurve` | scattered at hashed u, not at i/(count-1): residue LYING along a line, never an ordered row of beads |
+| `chg`'s `p = c + dir*r0*(1-a)^2` and the growing `ball` quad | a particles layer with NEGATIVE radial speed plus a `softRadial` sprite with a tracked `geometry.radius` | already in the vocabulary (`converging-charge`) |
+| the ground shader's analytic capsule pool | a `ringFill` decal plus two point lights | |
+| `EX`/`EY`/`BEAM_L`, every envelope and every colour | the exemplar | `fixtures/v2/beam/document.json` |
+
+Deliberately not ported: the spike's checker floor (the environment's own grid covers it), its
+per-layer visibility toggles (debug), and the `thin` uniform that collapses the core to a hairline
+on shut-off — the retracting `geometry.length` plus an opacity track reads the same at this scale.
+
+### One renderer correction the beam forced
+
+`meshGeometryFor` tested `BAR_KINDS` (beam, trail) before it tested the geometry type, so a
+`beam` + `slab` built a crossed-sheet bar instead of the flat quad the slab vertex program expects
+— and a quad whose `position.x` is ±1 instead of a 0..1 ramp degenerates to a line. The slab is now
+tested first. The same class of bug is why the shell, the band and the arc ribbon each have their
+own early return: a kind and a geometry type are two different questions.
+
+## 10. Energy overload column → schema (Phase F, 2026-09-14)
+
+The eighth spike (`frontend/dev-assets/vfx-v2/spike-column.html`, source
+`docs/vfx-lab/spike-column-reference.js.txt`) is the beam stood on end, and it proved the one thing
+a vertical sustained element needs that a horizontal one does not: a **composite body that comes
+apart in step**. Its slab, shell, core and arc cage all read `colHeight(t)` and `colWidth(t)`, and
+the moment any of them had its own track they would drift apart on the frame that matters.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `colHeight(t)` / `colWidth(t)`, read by four different materials | `layer.collapse.{start,duration,heightCurve,widthCurve,anchor}` | ONE spec copied onto every part. It scales `geometry.length` ALONG the layer's own +Z and `geometry.radius`/`thickness` ACROSS it, an arcs layer's `span` and `radius`, and `transform.scale` on anything else. `anchor` is always `"base"`: the transform never moves, so a body authored with its base at the layer origin retracts from the TOP. That is what "reduce the column" means, and it is the reason it is a layer field and not four tracks |
+| the `seg = (h - uT*0.055)*7` ring/gap ladder, on the shell AND the slab | `material.stripes` at `phase: 0` | phase 0 is what keeps the ladder running straight round the shaft; the beam's sheath is the same field at phase 1 and reads as filaments instead. The two layers carry the same stripe set, which is how the banding reads ACROSS the body |
+| the `slab` billboard's `inner`/`body`/`outer`/`halo` tiers with the `w = mix(1,0.74,h)` narrowing | `geometry.type:"slab"` with `slab.anchor:"base"` and `slab.taper` | the same field the beam uses, stood up |
+| `arcs`' `pt(u,s,k)` helix, its folded `fbm3` jitter and its per-arc stepped blink window | `kind:"arcs"` + `layer.arcs.{count,radius,pitch,span,jitter,blink,width,coreColor,haloColor,seed}` | a GENERATOR: radius, pitch, base height, span and phase are re-hashed on the arc's own blink index `floor((t-off)/period)`, so no two flashes trace the same wire and nothing accumulates. `jitter.fold` is the `abs(n)*2-1` fold — without it the wire CURLS, and a curling wire reads as a ribbon, not as electricity. The ribbon is camera-facing with a minimum SCREEN-space width, because a 3D tube goes edge-on and a sub-pixel wire shimmers into nothing at depth |
+| `arcGeo.instanceCount` animated between 12 and 18 | a `material.opacity` track | changing an instance count per frame is state; a density envelope is not |
+| `streaks`' 6 hashed bundles, upward bias, curvature, three hues and `easeOutCubic` spread | `kind:"streakBurst"` + `layer.streakBurst.{count,length,width,curvature,upBias,bundles,bundleSpread,stagger,grow,hues,seed}` | screen space, not world: a burst read from a three-quarter camera has to fan across the FRAME, and a world-space fan collapses to a line the moment the camera is not square to it. The headings CLUMP, because an even fan reads as a lens star |
+| `flare`'s core / ghosts / two lens streaks / four spikes | `material.procedural:"lensFlare"` at anisotropy 1 | the beam's flare is the same pattern at anisotropy 4.2 |
+| the full-screen `flash` quad at 1.80–2.05 s | `post.flash.{curve,color,vignette}` | the strength is the curve over the DOCUMENT's own 0..1 progress, the same domain `post.glitch` uses, so a seek lands on exactly the frame playback would draw. Two or three frames is the whole shape |
+| `shockRing`'s torus, `rr = 0.5 + 1.7*(1-(1-k)^2.6)` | a `kind:"ring"` `torus` with a tracked `geometry.radius` | already in the vocabulary; a torus, not a card, so the oblique camera sees an ellipse opening out of the column rather than a decal pasted on the frame |
+| `sparks` and `debris` (the only non-additive layer) | two ordinary `particles` layers, the second alpha-blended and dark | |
+| `cyl`'s plain dark housing | a `beam` + `cylinder` at radius 0.35, alpha blended, near-black with a fresnel rim | a document describes the effect, never the machine around it — the same rule the glitch port's target sphere and the shield port's caster figure were dropped under |
+| `sky`'s gradient backdrop and `haze`'s warm field | `environment.background` + one `softRadial` sprite | |
+| `COL_H`, `FLARE_Y`, every envelope and the gold palette | the exemplar | `fixtures/v2/energy-column/document.json` |
+
+Deliberately not ported: the spike's `kick` / `sustain` overdrive multipliers (two opacity tracks
+say the same thing), its ground shader's analytic two-gaussian pool (a `ringFill` decal is the
+existing vocabulary for it), and the per-layer debug toggles.
+
+### What the two ports agreed on
+
+Both spikes build the same three-part body — a tiered SLAB for readable width, a striped SHELL for
+the pattern, a near-white CORE for the bloom — and in both, the slab is the part a naive port would
+leave out and then spend a round of look-dev discovering it needed. A tube alone is a wire; a
+gaussian around it is fog. The hard tiers are the whole read, and they are cheap: one extra
+billboard with three smoothsteps on it.
+
+Both also needed `material.proceduralParams` to stay inside ±64, which caps `lensFlare`'s core
+tightness at 64. That is tight enough for a 3 m flare at 8 m; a tighter core would need the band
+widened again, and the band has already been widened once (§8), so the exemplars use 46 and 64.

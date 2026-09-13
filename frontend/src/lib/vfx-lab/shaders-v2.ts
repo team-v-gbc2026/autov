@@ -14,6 +14,14 @@ import { LATTICE_SCAN, LATTICE_TEXTURE_WIDTH } from "./lattice-v2";
 // not produce NaN (which would show up as a black or white frame).
 // ---------------------------------------------------------------------------
 
+/**
+ * Where the two radial billboard patterns ("lensFlare", "radialRays") cut
+ * themselves off, as a fraction of the card's half-size. The gate is what keeps
+ * the card's own rectangle from ever showing, and the framing pass reads the
+ * same constant so it claims the LIT extent rather than the whole card.
+ */
+export const RADIAL_CUTOFF = 0.62;
+
 /** Curves carry at most 8 keys, ramps at most 6 stops (schema-v2 bounds). */
 export const CURVE_KEYS = 8;
 export const RAMP_STOPS = 6;
@@ -140,10 +148,15 @@ float hexCells(vec2 uv, vec2 cell){
 }
 // uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 // 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon,
-// 12 star4, 13 softRadial, 14 swirlRing, 15 ringFill, 16 sigil.
-// Modes 0-3 and 12-16 are BILLBOARD SILHOUETTES: they describe a sprite's whole
+// 12 star4, 13 softRadial, 14 swirlRing, 15 ringFill, 16 sigil, 17 lensFlare,
+// 18 radialRays.
+// Modes 0-3 and 12-18 are BILLBOARD SILHOUETTES: they describe a sprite's whole
 // outline, so a closed body (the analytic shell) ignores them. 4-11 are surface
 // patterns and apply everywhere; surfaceFragmentV2 gates on exactly that.
+//
+// 17 and 18 also supply their own RAMP KEY (proceduralKey below), radially, so
+// the hot core and the outer halo are two stops of one ramp rather than two
+// layers. Every other mode leaves the key alone.
 float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, vec3 dims, int mode){
   if(mode==3) return 1.;
   float disc=smoothstep(.5,.1,length(p));
@@ -265,6 +278,44 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
     float gold=(1.-smoothstep(0.,.016,abs(r-1.030)))*clamp(uProcParams.w,0.,1.);
     return clamp(rings*1.25+glyph*1.0+mist*.72+gold,0.,1.6);
   }
+  if(mode==17){
+    // lensFlare: a core, two ghosts, the horizontal and vertical lens streaks
+    // and four soft spikes, all on one card. uProcParams = (core tightness,
+    // anisotropy >1 narrows it horizontally into a blade, spike count, halo
+    // falloff). The radial cutoff at the end is what keeps the card's own
+    // rectangle from ever showing.
+    float tight=max(uProcParams.x,1.);
+    float aniso=max(uProcParams.y,.05);
+    float spikes=max(uProcParams.z,1.);
+    float fall=max(uProcParams.w,.05);
+    vec2 qa=vec2(q.x*aniso,q.y);
+    float r=length(qa), rr=length(q);
+    float core=exp(-r*r*tight);
+    float mid =exp(-r*r*tight*.17)*.44;
+    float wide=exp(-r*r*tight*.06)*.12;
+    float hstr=exp(-qa.y*qa.y*230.)*exp(-abs(qa.x)*2.4)*.44;
+    float vstr=exp(-qa.x*qa.x*330.)*exp(-abs(qa.y)*1.7)*.38;
+    float ang=atan(q.y,q.x);
+    float spk=safePow(max(0.,cos(ang*spikes+.4)),16.)*exp(-rr*fall)*.16;
+    float flick=.90+.14*procNoise(vec2(ang*2.3,t*3.1));
+    float a=(core*1.35+mid+wide+hstr+vstr+spk)*flick;
+    return clamp(a*(1.-smoothstep(${RADIAL_CUTOFF},1.,rr)),0.,4.);
+  }
+  if(mode==18){
+    // radialRays: a fan of hashed rays turning at uProcParams.z rad/s.
+    // uProcParams = (ray count, length jitter 0..1, rotation rate, sharpness).
+    float n=max(uProcParams.x,1.);
+    float jit=clamp(uProcParams.y,0.,1.);
+    float sharp=clamp(uProcParams.w,0.,1.);
+    float r=length(q), ang=atan(q.y,q.x)+uProcParams.z*t;
+    float ta=(ang/6.2831853+.5)*n;
+    float idx=floor(ta);
+    float len=mix(1.-jit,1.,procHash21(vec2(idx,3.1)));
+    float f=abs(fract(ta)-.5)*2.;
+    float ray=safePow(max(0.,1.-f),mix(2.,24.,sharp));
+    float fade=1.-smoothstep(0.,max(len,.02),r);
+    return clamp(ray*fade*fade*(1.-smoothstep(${(RADIAL_CUTOFF * 1.45).toFixed(3)},1.,r)),0.,2.);
+  }
   if(mode==11){
     // Continuous core with a narrow moving edge; no longitudinal holes.
     float edge=.48+.035*sin(q.y*18.-t*10.);
@@ -273,6 +324,52 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
     return clamp(side*ends,0.,1.);
   }
   return disc;
+}
+/**
+ * The ramp key the two radial patterns supply for themselves: 0 at the hot
+ * centre, 1 at the outer halo. Returns -1 for every other mode, which the
+ * fragment reads as "leave the key alone".
+ */
+float proceduralKey(vec2 p, float t, int mode){
+  vec2 q=p*2.;
+  if(mode==17){
+    float tight=max(uProcParams.x,1.), aniso=max(uProcParams.y,.05);
+    vec2 qa=vec2(q.x*aniso,q.y);
+    float r=length(qa);
+    float core=exp(-r*r*tight);
+    float hstr=exp(-qa.y*qa.y*230.)*exp(-abs(qa.x)*2.4)*.44;
+    float vstr=exp(-qa.x*qa.x*330.)*exp(-abs(qa.y)*1.7)*.38;
+    return clamp(1.-clamp(core*2.2+(hstr+vstr)*1.1,0.,1.),0.,1.);
+  }
+  if(mode==18) return clamp(length(q),0.,1.);
+  return -1.;
+}
+/**
+ * material.stripes: up to three sets of hard panning bands keyed on the ALONG
+ * coordinate in world metres. The phase field is how far each circumferential RING is
+ * offset from its neighbours: 0 runs the bands straight round the body (a
+ * machine segment ladder) and 1 breaks them into independent filaments. The
+ * largest contrast in the list is the mix weight, so a core at .2 keeps a solid
+ * body and a sheath at 1 is nothing but bands.
+ */
+uniform vec4 uStripeA[3]; uniform vec4 uStripeB[3]; uniform int uStripeN;
+float stripeHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+float stripeTerm(float along, float ring, float t){
+  if(uStripeN<1) return 1.;
+  float acc=0., weight=0.;
+  float band=floor(ring*15.);
+  for(int i=0;i<3;i++){
+    if(i>=uStripeN) break;
+    vec4 s=uStripeA[i];
+    float e=mix(.14,.008,clamp(s.w,0.,1.));
+    // s.z is the RING PHASE: 0 runs the bands straight round the body (a
+    // segment ladder), 1 gives every ring its own offset (filaments).
+    float o=s.z*stripeHash(band*3.17+1.7+float(i)*7.3);
+    float f=fract(along*s.x - t*s.y + o);
+    acc+=smoothstep(.70-e,.70+e,f);
+    weight=max(weight,uStripeB[i].x);
+  }
+  return mix(1., .08+acc*.9, clamp(weight,0.,1.));
 }
 `;
 
@@ -412,6 +509,21 @@ ${
 `
     : ""
 }${
+  path
+    ? /* glsl */ `  if(u${P}ShapeType==10){
+    // pathLine: the instance is SCATTERED along the path at its own hashed u,
+    // not at i/(count-1), and spread across the path frame by shape.radius —
+    // residue lying along a line rather than an ordered row of beads.
+    float pu=fract(s.z*7.31+s.w*3.17);
+    vec3 tg,sd,upn; pathFrameE(pu,tg,sd,upn);
+    return pathPointE(pu)
+      + sd*(e.x-.5)*2.*u${P}ShapeRadius
+      + upn*(e.y-.5)*2.*u${P}ShapeRadius
+      + tg*(e.z-.5)*u${P}ShapeRadius;
+  }
+`
+    : ""
+}${
   source
     ? /* glsl */ `  if(u${P}ShapeType==9){
     // layerInstances: the site was generated from the SOURCE layer's own hash
@@ -481,6 +593,25 @@ void ${p}Traj(vec4 s, vec4 e, vec4 e2, float age, float life, float t, out vec3 
   vec3 dir=${p}Dir(s,e,e2,origin);
   float a=max(age,0.);
   float u=clamp(a/max(life,1e-4),0.,1.);
+${
+  path
+    ? /* glsl */ `  if(u${P}VelMode==4){
+    // alongPath: the instance does not fly, it RUNS. One shared head envelope
+    // (velocity.speedCurve, sampled on the LAYER's own 0..1 progress) drives
+    // every instance, each lagging behind it by its own hashed offset out of
+    // the velocity.speed band, so the run reads as a wave travelling down the
+    // line rather than as a shower. shape.radius still scatters it.
+    float lu=clamp(t/max(uSpan,1e-4),0.,1.);
+    float lag=mix(u${P}Speed.x,u${P}Speed.y,e2.w);
+    float ru=clamp(${p}SpeedAt(lu)-lag,0.,1.);
+    pos=pathPointE(ru)+origin;
+    vel=pathTangentE(ru);
+    if(u${P}HasFloor==1){ float dy=pos.y-u${P}FloorY; pos.y=u${P}FloorY+max(dy,dy*u${P}FloorSoft); }
+    return;
+  }
+`
+    : ""
+}
   float v0=mix(u${P}Speed.x,u${P}Speed.y,e2.w);
   float d,scale;
   if(u${P}SpeedN>1){
@@ -687,6 +818,113 @@ ${glslResolveBirth(sub)}
 
 export const particleVertexV2 = particleVertexSource(false);
 
+// --- flat cel strips --------------------------------------------------------
+
+/**
+ * `emitter.render.mode:"flatStrip"`: the instance is a tapered flat lick
+ * trailing back along the emitter's own axis in VIEW space, not a quad. The
+ * anchor still comes from the ordinary trajectory (so the licks ride whatever
+ * the emitter shape and the forces do), but the lick's own length, width,
+ * lateral offset and wave are re-hashed on floor(layerTime * strip.stepRate) —
+ * a FLIPBOOK HOLD. That jump is the whole difference between a hand-drawn lick
+ * and a stretched sprite; sliding the same shape along reads as a smear.
+ *
+ * `position` carries (s along the lick 0..1, side -1..1, 0), and the lick runs
+ * from its anchor ALONG the emitter's +axis. Even instances take ramp stop t=0
+ * and odd ones t=1 when strip.palettes is 2, and because the draw walks the
+ * instances in index order the light set always lands over the dark one — so a
+ * flatStrip layer wants render.sortMode "none".
+ */
+export function stripVertexSource(source = false) {
+  return /* glsl */ `
+attribute vec4 aSeed, aExtra, aExtra2;
+attribute float aIndex;
+${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
+uniform float uTime,uSpan,uStripStep,uStripWave,uPalettes,uStripCount;
+uniform float uTwinkleFreq,uTwinkleDepth;
+uniform int uHasAlphaSpawn;
+uniform vec2 uStripLen,uStripWide,uSize;
+varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+varying float vPalette;
+${glslNoise}
+${glslOrtho}
+${glslPath("E", "E")}
+${glslCurve("A")}
+${glslCurve("B")}
+${glslCurve("D")}
+${glslCurve("E")}
+${glslCurve("H")}
+${glslCurveInverse("H")}
+${glslParticleCore("", "self", "curveE(u)", source)}
+float stripHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); vPalette=0.; }
+
+void main(){
+  vUv=uv; vSeed=aExtra2.xyz; vRot=0.; vTile=vec2(0.);
+${glslResolveBirth(false)}
+  if(dead){ kill(); return; }
+  vU=u;
+
+  vec3 pos,vel;
+  selfTraj(aSeed,aExtra,aExtra2,age,life,uTime,pos,vel);
+  vWp=pos;
+
+  // The flipbook step: everything about the lick's SHAPE is hashed off k, so it
+  // holds for 1/stepRate seconds and then jumps to a new one.
+  float k=floor(uTime*uStripStep)+aSeed.x*97.3+aIndex*13.7;
+  float L=mix(uStripLen.x,uStripLen.y,stripHash(k*1.31));
+  float W=mix(uStripWide.x,uStripWide.y,stripHash(k*3.77+2.1));
+  float wob=stripHash(k*5.51+7.7);
+  float yc=stripHash(k*9.13+3.3)*uShapeRadius;
+  float side=aSeed.y>.5 ? 1. : -1.;
+
+  float s=position.x, v=position.y;
+  // The lick tapers at both ends: fat a little way in, sharp at the tip.
+  float w=W*.5*safePow(s+.05,.30)*safePow(max(1.-s,0.),.85)*curveA(u);
+  float cy=uStripWave*.16*sin(s*3.1+wob*6.2831853)*s;
+
+  vec4 mv=modelViewMatrix*vec4(pos,1.);
+  vec3 axisV=(modelViewMatrix*vec4(safeDir(uAxis,vec3(0.,1.,0.)),0.)).xyz;
+  vec2 along=length(axisV.xy)>1e-5 ? normalize(axisV.xy) : vec2(1.,0.);
+  vec2 across=vec2(-along.y,along.x);
+  mv.xy+=along*(s*L)+across*(side*(yc+cy)+v*w);
+  gl_Position=projectionMatrix*mv;
+
+  vUv=vec2(s,v*.5+.5);
+  // Parity on the INSTANCE INDEX, not on a hash: the draw walks the instances
+  // in order, so the odd (light) licks always land over the even (dark) ones.
+  // That is why a flatStrip layer wants render.sortMode "none".
+  float idx=floor(aIndex*max(uStripCount-1.,1.)+.5);
+  vPalette=uPalettes>1.5 ? mod(idx,2.) : 0.;
+  vAlpha=curveB(u)*smoothstep(0.,.03,age);
+  if(uHasAlphaSpawn==1) vAlpha*=curveD(aExtra.w);
+  if(uTwinkleDepth>0.)
+    vAlpha*=mix(1., safePow(abs(sin(uTime*uTwinkleFreq+aExtra2.y*19.7)),1.5), uTwinkleDepth);
+}
+`;
+}
+
+/**
+ * A flat unlit fill — no gradient, cel style — at one of the ramp's two ends.
+ * The silhouette is the strip itself, so there is no mask and no procedural.
+ */
+export const stripFragmentV2 = /* glsl */ `
+precision highp float;
+uniform float uOpacity,uFlicker;
+uniform int uBlendMode;
+varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+varying float vPalette;
+${glslRamp}
+void main(){
+  if(vAlpha<=0.) discard;
+  vec3 col=rampColor(vPalette);
+  float a=vAlpha*uOpacity*uFlicker;
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
+}
+`;
+
 // --- trails -----------------------------------------------------------------
 
 /**
@@ -759,7 +997,7 @@ export const trailFragmentV2 = /* glsl */ `
 precision highp float;
 uniform sampler2D uTrail;
 uniform int uHasTrail,uBlendMode;
-uniform float uOpacity;
+uniform float uOpacity,uFlicker;
 varying vec2 vUv; varying float vU,vAlpha; varying vec3 vSeed; varying vec3 vWp;
 ${glslRamp}
 void main(){
@@ -768,7 +1006,7 @@ void main(){
   if(uHasTrail==1){ vec4 m=texture2D(uTrail,vUv); shape=m.a*max(m.r,max(m.g,m.b)); }
   else shape=smoothstep(1.,0.,abs(vUv.x*2.-1.));
   vec3 col=rampColor(vU);
-  float a=shape*vAlpha*uOpacity;
+  float a=shape*vAlpha*uOpacity*uFlicker;
   if(a<.002) discard;
   if(uBlendMode==1) gl_FragColor=vec4(col,a);
   else gl_FragColor=vec4(col*a,a);
@@ -780,7 +1018,7 @@ precision highp float;
 uniform sampler2D uMask,uNoise;
 uniform int uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uAtlasCols,uAtlasRows;
 uniform float uTime,uDistort,uErodeSoft,uEdgeW,uEdgeI,uOpacity,uMaskRot;
-uniform float uRampKeyMode,uGroundY,uHeightSpan;
+uniform float uRampKeyMode,uGroundY,uHeightSpan,uFlicker;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
@@ -835,7 +1073,9 @@ void main(){
     : vU;
   vec3 col=rampColor(key);
   col+=uEdgeCol*uEdgeI*edge*shape;
-  float a=er*vAlpha*uOpacity*softDepth();
+  // material.flicker: the hashed per-step multiplier, computed on the CPU from
+  // floor(layerTime * rate) so every kind that carries it steps together.
+  float a=er*vAlpha*uOpacity*uFlicker*softDepth();
   if(a<.002) discard;
   // Alpha blending is set up premultiplied for every mode but "alpha".
   if(uBlendMode==1) gl_FragColor=vec4(col,a);
@@ -882,7 +1122,8 @@ void cellLookup(vec3 nrm, out vec3 site, out float id, out float edge){
 export const surfaceVertexV2 = /* glsl */ `
 uniform float uTime,uLength,uRadius,uThickness,uArc,uVertexAmp,uVertexFreq,uVertexSpeed,uDisplaceShift,uRoll;
 uniform float uChannel,uSplitOffset,uSplitGrowth,uLayerU;
-uniform int uShell,uHasVertexNoise,uBillboard,uRibbon,uUseLocalZ;
+uniform int uShell,uHasVertexNoise,uBillboard,uRibbon,uUseLocalZ,uSlab,uSlabBase;
+uniform float uSlabTaper;
 uniform vec2 uZRange;
 uniform vec3 uVertexBias;
 varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
@@ -894,6 +1135,37 @@ void main(){
   // reveal front keys on it, so both are independent of the layer's transform.
   vUv=uv; vLobe=0.; vRing=uv.x; vObj=position;
   vec3 worldPos, worldNormal;
+  if(uSlab==1){
+    // geometry.type "slab": a VIEW-SPACE bar. The quad is rebuilt every frame
+    // on the screen projection of the layer's own local +Z, so the bar runs
+    // along the axis from any camera angle, never shears as the axis tilts away
+    // and never goes edge-on — which is what a real tube does at a grazing
+    // angle and exactly what a beam body must not do.
+    //
+    // Because it is built in view space the whole thing is done here in clip
+    // space; the fragment's world position is the layer origin, which is all
+    // the height ramp and the ground glow ever need from a billboard.
+    float s=position.x*.5+.5;              // 0..1 along the bar
+    vAlong=s; vRing=position.y*.5+.5; vUv=vec2(s,position.y*.5+.5);
+    vec3 centre=(modelMatrix*vec4(0.,0.,0.,1.)).xyz;
+    vec4 mv=viewMatrix*vec4(centre,1.);
+    vec3 axisV=(viewMatrix*modelMatrix*vec4(0.,0.,1.,0.)).xyz;
+    vec2 along=length(axisV.xy)>1e-5 ? normalize(axisV.xy) : vec2(1.,0.);
+    vec2 across=vec2(-along.y,along.x);
+    // transform.scale reaches the bar the way it reaches every other kind.
+    float sAxis=length(modelMatrix[2].xyz);
+    float sRad=.5*(length(modelMatrix[0].xyz)+length(modelMatrix[1].xyz));
+    float len=uLength*sAxis;
+    float half_=uThickness*.5*sRad*mix(1.,uSlabTaper,s);
+    float offAlong=uSlabBase==1 ? s*len : (s-.5)*len;
+    mv.xy+=along*offAlong+across*position.y*half_;
+    vWp=centre;
+    vN=vec3(0.,0.,1.);
+    gl_Position=projectionMatrix*mv;
+    if(uChannel>=0.)
+      gl_Position.x+=(uChannel-1.)*uSplitOffset*(1.+uSplitGrowth*clamp(uLayerU,0.,1.))*gl_Position.w;
+    return;
+  }
   if(uRibbon==1){
     // A tapered arc sweep in the local XY plane (the swoosh of a slash):
     // geometry.radius is the arc radius, geometry.length the angle it sweeps
@@ -1009,6 +1281,13 @@ uniform float uRevealFrom,uRevealTo,uRevealWidth;
 uniform float uPlaneDist,uPlaneI,uBandStripes;
 uniform vec3 uTileCol,uLatEdgeCol,uPlaneCol;
 uniform vec4 uRipple[4],uRippleP[4];
+// geometry.slab: the tiered billboard bar, and material.flicker's per-step
+// multiplier (computed on the CPU from floor(layerTime * rate), so the mesh and
+// every other kind that carries it step together).
+uniform int uSlab,uSlabN;
+uniform vec4 uSlabTier[4];
+uniform vec3 uSlabCol[4];
+uniform float uFlicker;
 varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslRamp}
@@ -1018,6 +1297,32 @@ ${glslLattice}
 void main(){
   vec3 V=safeDir(uCam-vWp, vec3(0.,0.,1.));
   float fres=1.-abs(dot(vN,V));
+  if(uSlab==1){
+    // Hard tiers, not a gaussian: a soft-edged wide slab reads as fog, a tiered
+    // one as a bar. The tiers are listed outermost first, so each later one
+    // paints over the one before it and the last entry is the hot core.
+    float y=abs(vUv.y-.5)*uThickness;          // world metres from the axis
+    float hmax=max(uSlabTier[0].x,1e-4);
+    vec3 c=vec3(0.); float a=0.;
+    for(int i=0;i<4;i++){
+      if(i>=uSlabN) break;
+      float h=max(uSlabTier[i].x,1e-4);
+      float e=h*.08;                           // the 8% edge
+      float w=1.-smoothstep(h-e,h+e,y);
+      c=mix(c,uSlabCol[i],w);
+      a+=w*uSlabTier[i].y;
+    }
+    // A faint gaussian seat under the tiers, so the bar is not pasted on.
+    a+=exp(-(y/hmax)*(y/hmax)*1.6)*.10;
+    // Soft at both ends: a squared-off tip reads as a card, and a column must
+    // never end in a flat cap.
+    a*=smoothstep(0.,.07,vAlong)*(1.-smoothstep(.88,1.02,vAlong));
+    a*=stripeTerm(vAlong*uLength, vUv.y, uTime)*uOpacity*uFlicker;
+    if(a<.002) discard;
+    if(uBlendMode==1) gl_FragColor=vec4(c,a);
+    else gl_FragColor=vec4(c*a,a);
+    return;
+  }
   float n=.5;
   if(uShell==1){
     n=.5+.5*(.7*snoise(vec3(vUv.x*3.0, vAlong*3.2-uTime*2.0, .7))+.3*snoise(vec3(vUv.x*6.0, vAlong*6.0-uTime*3.1, 2.3)));
@@ -1078,6 +1383,10 @@ void main(){
     key+=safePow(fres,uFresnelPower)*uFresnelStrength
         *(uHasLattice==1?1.:smoothstep(0.,.4,vAlong));
   key+=uDisplaceShift*vLobe;
+  // lensFlare and radialRays supply their own key, radially: ramp stop t=0 is
+  // the hot core and t=1 the outer halo, so one card is both.
+  float pk=proceduralKey(vUv-.5,uTime,uProcedural);
+  if(pk>=0.) key=pk;
   key=clamp(key,0.,1.);
 
   float alpha=uOpacity;
@@ -1096,6 +1405,10 @@ void main(){
   // shape is 1 on an analytic shell with procedural "none", so this is a no-op
   // there and the procedural pattern applies everywhere else.
   alpha*=shape;
+  // material.stripes: panning hard bands on the along coordinate in world
+  // metres, so a beam that extends does not squash its own bands.
+  // material.flicker: the hashed per-step multiplier, computed on the CPU.
+  alpha*=stripeTerm(vAlong*uLength, vRing, uTime)*uFlicker;
 
   // --- reveal / lattice / ground proximity / ripples ------------------------
   // Every one of them is a pure function of (object position, layer time), so a
@@ -1311,6 +1624,167 @@ void main(){
   if(a<.002) discard;
   if(uBlendMode==1) gl_FragColor=vec4(col,a);
   else gl_FragColor=vec4(col*a,a);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Arcs
+//
+// Helical polylines around the layer's +Y axis, drawn as CAMERA-FACING ribbons:
+// the strip carries only (u along the arc, side) and the world path is swept
+// here, so the ribbon always presents its width to the camera however the arc
+// twists. A 3D tube would go edge-on and vanish; this cannot.
+//
+// The whole arc — radius, pitch, base height, length and phase — is re-hashed on
+// its own BLINK INDEX k = floor((layerTime - offset)/period), so no two flashes
+// of the same arc trace the same wire and nothing accumulates: a seek lands
+// inside exactly the blink playback was in.
+// ---------------------------------------------------------------------------
+
+export const arcVertexV2 = /* glsl */ `
+attribute float aSeed;
+uniform float uTime,uHeight,uWidthK,uSpan,uWidth,uMinWidth;
+uniform float uJitterAmp,uJitterFreq,uJitterFold,uSkip;
+uniform vec2 uRadius,uPitch,uPeriod,uOnTime;
+varying vec2 vUv; varying float vA;
+${glslNoise}
+float arcHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+/** fbm folded toward corners: |n| kinks the wire instead of curling it. */
+float arcNoise(float a, float b){
+  float n=fbm3(vec3(a,b,1.7));
+  return mix(n, abs(n)*2.-1., clamp(uJitterFold,0.,1.));
+}
+/** One blink's worth of helix, in the layer's own space. */
+vec3 arcPoint(float u, float s, float k){
+  float r  = mix(uRadius.x,uRadius.y,arcHash(s*3.11+k*1.7))*uWidthK;
+  float pv = mix(uPitch.x,uPitch.y,arcHash(s*7.73+k*2.3));
+  float y0 = arcHash(s*5.31+k*3.1)*uSpan*.74;
+  float ln = uSpan*(.18+.37*arcHash(s*11.1+k*.7));
+  float ph = arcHash(s*13.7+k*4.9)*6.2831853;
+  float y  = (y0+u*ln)*uHeight;
+  float a  = ph+u*pv*6.2831853;
+  float j1 = arcNoise(u*uJitterFreq, s*3.1+k*.31);
+  float j2 = arcNoise(u*uJitterFreq*2.4+7., s*5.7+k*.73);
+  float j3 = fbm3(vec3(u*uJitterFreq*4.2+3., s*7.9+k*1.13, .9))*.5;
+  r *= 1.+uJitterAmp*(.70*j1+.22*j3);
+  a += uJitterAmp*(1.45*j2+.40*j3);
+  return vec3(cos(a)*r, y, sin(a)*r);
+}
+void main(){
+  float s=aSeed, u=position.x, side=position.y;
+  // Per-arc stepped window: lit for onTime out of period, and some cycles are
+  // skipped outright, so the set never settles into a rhythm.
+  float per=mix(uPeriod.x,uPeriod.y,arcHash(s*1.71));
+  float onT=mix(uOnTime.x,uOnTime.y,arcHash(s*2.93));
+  float off=arcHash(s*4.37)*per;
+  float k=floor((uTime-off)/max(per,1e-4));
+  float loc=(uTime-off)-k*max(per,1e-4);
+  float live=step(loc,onT)*step(uSkip,arcHash(k*1.373+s*9.11));
+  float w=sin(3.14159265*clamp(loc/max(onT,1e-4),0.,1.));
+  vA=live*w*(.55+.45*arcHash(k*2.11+s*5.5));
+  vUv=vec2(u,side*.5+.5);
+  vec3 a3=arcPoint(u,s,k);
+  vec3 b3=arcPoint(min(u+.035,1.)+(u>.965?-.070:0.),s,k);
+  vec4 mv=modelViewMatrix*vec4(a3,1.);
+  vec4 mb=modelViewMatrix*vec4(b3,1.);
+  vec2 d=mb.xy-mv.xy;
+  vec2 pp=length(d)>1e-5 ? normalize(vec2(-d.y,d.x)) : vec2(1.,0.);
+  // A minimum width in SCREEN space: an arc thinner than a pixel shimmers into
+  // nothing at depth, which reads as a renderer fault rather than as lightning.
+  float wid=max(uWidth*.5*(.55+.45*sin(3.14159265*u)), -mv.z*uMinWidth);
+  mv.xy+=pp*side*wid;
+  gl_Position=projectionMatrix*mv;
+}
+`;
+
+export const arcFragmentV2 = /* glsl */ `
+precision highp float;
+uniform vec3 uCore,uHalo;
+uniform float uOpacity,uFlicker;
+uniform int uBlendMode;
+varying vec2 vUv; varying float vA;
+void main(){
+  if(vA<=0.) discard;
+  float y=abs(vUv.y-.5)*2.;
+  float core=1.-smoothstep(.10,.55,y);    // the white-blue filament
+  float halo=1.-smoothstep(.30,1.00,y);   // a thin sheath around it
+  float ends=smoothstep(0.,.06,vUv.x)*(1.-smoothstep(.94,1.,vUv.x));
+  vec3 c=uCore*core*1.85+uHalo*halo*.75;
+  float a=vA*ends*uOpacity*uFlicker;
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(c,a);
+  else gl_FragColor=vec4(c*a,a);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Streak bursts
+//
+// Long thin quads leaving the layer origin in SCREEN space: the radial speed
+// lines of an eruption. Screen space, not world, because a burst read from a
+// three-quarter camera has to fan across the FRAME — a world-space fan collapses
+// to a line the moment the camera is not square to it.
+//
+// The fan clumps into `bundles` headings; an even fan reads as a lens star.
+// ---------------------------------------------------------------------------
+
+export const streakVertexV2 = /* glsl */ `
+attribute float aSeed;
+uniform float uGrow,uCurvature,uUpBias,uBundles,uBundleSpread,uStagger;
+uniform vec2 uLength,uWidth;
+uniform vec3 uHueA,uHueB,uHueC;
+varying vec2 vUv; varying float vK; varying vec3 vC;
+float stHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+void main(){
+  float s=aSeed;
+  vUv=vec2(position.x,position.y*.5+.5);
+  float n=max(uBundles,1.);
+  float bi=floor(stHash(s*.771)*n);
+  float bth=(bi+.65*stHash(bi*4.73+.9))/n*6.2831853;
+  float bsp=uBundleSpread*(.30+.70*stHash(bi*9.11+2.3));
+  float th=bth+(stHash(s*1.13)-.5)*bsp;
+  vec2 d=vec2(cos(th),sin(th));
+  d.y=d.y*(1.-abs(uUpBias)*.22)+uUpBias;   // the burst leans up (or down)
+  d=normalize(d+vec2(1e-5,0.));
+  vec2 pp=vec2(-d.y,d.x);
+  float hue=stHash(s*17.1);
+  float L=mix(uLength.x,uLength.y,pow(max(stHash(s*3.31),1e-5),1.5));
+  float W=mix(uWidth.x,uWidth.y,stHash(s*5.17));
+  float cv=sign(stHash(s*7.91)-.5)*uCurvature*(.3+.7*stHash(s*37.3));
+  // Not every streak leaves at once: each lags the envelope by its own share.
+  float stag=stHash(s*11.3)*uStagger;
+  float g=clamp((uGrow-stag)/max(1.-stag,1e-3),0.,1.);
+  g=1.-pow(max(1.-g,1e-5),3.);
+  float x=position.x*L*g;
+  vec2 root=vec2((stHash(s*23.1)-.5)*L*.05,(stHash(s*29.7)-.5)*L*.16);
+  vec2 off=root+d*x+pp*(cv*x*x*.42/max(L,1e-3))+pp*position.y*W;
+  vec4 mv=modelViewMatrix*vec4(0.,0.,0.,1.);
+  mv.xy+=off;
+  vK=.55+.45*stHash(s*13.7);
+  vC=hue>.84 ? uHueB : (hue>.58 ? uHueC : uHueA);
+  gl_Position=projectionMatrix*mv;
+}
+`;
+
+export const streakFragmentV2 = /* glsl */ `
+precision highp float;
+uniform float uOpacity,uFlicker;
+uniform int uBlendMode;
+varying vec2 vUv; varying float vK; varying vec3 vC;
+void main(){
+  float x=vUv.x;
+  // A needle, not a wedge: full width at the root, tapering only near the tip.
+  float wid=(1.-smoothstep(.10,1.,x))+.12;
+  float y=abs(vUv.y-.5)*2./max(wid,1e-3);
+  float a=exp(-y*y*3.2);
+  a*=smoothstep(0.,.012,x)*(1.-smoothstep(.22,1.,x));
+  // A speed line is a thin needle a few pixels wide: without a headroom factor
+  // the additive coverage is too small to read against a lit flare, however
+  // bright its hue is authored.
+  a*=vK*uOpacity*uFlicker*2.;
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(vC,a);
+  else gl_FragColor=vec4(vC*a,a);
 }
 `;
 

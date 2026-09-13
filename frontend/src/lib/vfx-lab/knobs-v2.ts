@@ -294,6 +294,32 @@ export function applyKnobs(
       r.width = clamp(r.width * kMeshScale, 0.002, 1);
       r.strands.spread = clamp(r.strands.spread * kMeshScale, 0, 1);
     }
+    // An arc cage scales by its helix radius and the height band it covers;
+    // verticalStretch reaches only the span, the way it reaches a mesh's y.
+    // The wire count, the blink and the jitter are topology and timing, so the
+    // knob space never touches them.
+    if (layer.arcs) {
+      const a = layer.arcs;
+      a.radius = [
+        clamp(a.radius[0] * kMeshScale, 0.02, 8),
+        clamp(a.radius[1] * kMeshScale, 0.02, 8),
+      ];
+      a.span = clamp(a.span * kMeshScale * kVertical, 0.05, 12);
+      a.width = clamp(a.width * kMeshScale, 0.002, 0.4);
+    }
+    // A streak fan scales by how long and how fat its speed lines are; the
+    // bundle structure and the hues are topology.
+    if (layer.streakBurst) {
+      const b = layer.streakBurst;
+      b.length = [
+        clamp(b.length[0] * kMeshScale, 0.1, 12),
+        clamp(b.length[1] * kMeshScale, 0.1, 12),
+      ];
+      b.width = [
+        clamp(b.width[0] * kMeshScale, 0.005, 1),
+        clamp(b.width[1] * kMeshScale, 0.005, 1),
+      ];
+    }
     // A burst scales by how big its outlines are and how far they fly; the
     // shape and spoke counts are topology, so the knob space never moves them.
     if (layer.wireBurst) {

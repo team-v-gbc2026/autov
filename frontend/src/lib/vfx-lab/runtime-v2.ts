@@ -34,6 +34,8 @@ import {
   sampleCurve,
 } from "./ribbon-v2";
 import { buildWireBurstGeometry, wireBurstBounds } from "./wire-burst-v2";
+import { arcBounds, buildArcsGeometry } from "./arcs-v2";
+import { buildStreakGeometry, streakBurstBounds } from "./streak-burst-v2";
 import {
   blobLobes,
   blobBounds,
@@ -55,6 +57,9 @@ import {
 } from "./splash-v2";
 import {
   CURVE_KEYS,
+  RADIAL_CUTOFF,
+  arcFragmentV2,
+  arcVertexV2,
   blobFragmentV2,
   blobVertexV2,
   curveUniforms,
@@ -65,6 +70,10 @@ import {
   ribbonVertexV2,
   splashFragmentV2,
   splashVertexV2,
+  streakFragmentV2,
+  streakVertexV2,
+  stripFragmentV2,
+  stripVertexSource,
   crystalFragmentV2,
   crystalVertexV2,
   surfaceFragmentV2,
@@ -175,12 +184,14 @@ const SHAPE_INDEX: Record<string, number> = {
   line: 7,
   path: 8,
   layerInstances: 9,
+  pathLine: 10,
 };
 const VELOCITY_INDEX: Record<string, number> = {
   radial: 0,
   directional: 1,
   tangential: 2,
   cone: 3,
+  alongPath: 4,
 };
 const RENDER_INDEX: Record<string, number> = {
   billboard: 0,
@@ -188,6 +199,9 @@ const RENDER_INDEX: Record<string, number> = {
   horizontal: 2,
   vertical: 3,
   pathAligned: 4,
+  // flatStrip draws through its own vertex program, but the index still has to
+  // exist so the uniform and the CPU mirror agree on the mode.
+  flatStrip: 5,
 };
 const BLEND_INDEX: Record<string, number> = {
   additive: 0,
@@ -213,6 +227,8 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   swirlRing: 14,
   ringFill: 15,
   sigil: 16,
+  lensFlare: 17,
+  radialRays: 18,
 };
 /**
  * Spawn modes the vertex shader knows about. It has to stay in step with the
@@ -527,6 +543,23 @@ function particlePositionV2(
         .addScaledVector(up, (e1 - 0.5) * 1.5 * shape.radius);
       break;
     }
+    case "pathLine": {
+      // Scattered along the path at its own hashed u, not at i/(count-1).
+      if (!path) break;
+      const u = (s2 * 7.31 + s3 * 3.17) % 1;
+      const tangent = new THREE.Vector3().fromArray(pathTangent(path, u));
+      const side = new THREE.Vector3()
+        .crossVectors(tangent, new THREE.Vector3(0, 1, 0))
+        .add(new THREE.Vector3(1e-5, 0, 0))
+        .normalize();
+      const up = new THREE.Vector3().crossVectors(side, tangent).normalize();
+      origin
+        .fromArray(pathPoint(path, u))
+        .addScaledVector(side, (e0 - 0.5) * 2 * shape.radius)
+        .addScaledVector(up, (e1 - 0.5) * 2 * shape.radius)
+        .addScaledVector(tangent, (e2 - 0.5) * shape.radius);
+      break;
+    }
     case "layerInstances": {
       if (!sites) break;
       origin
@@ -539,6 +572,24 @@ function particlePositionV2(
         .copy(axis)
         .multiplyScalar(shape.length * e3)
         .addScaledVector(sph, shape.radius);
+  }
+
+  // velocity.mode "alongPath": the instance RUNS along the path on the shared
+  // head envelope, so there is no ballistic trajectory to integrate at all.
+  if (emitter.velocity.mode === "alongPath" && path) {
+    const head = emitter.velocity.speedCurve
+      ? curveAt(emitter.velocity.speedCurve, clamp01(time / Math.max(span, 1e-4)))
+      : 0;
+    const lag =
+      emitter.velocity.speed[0] +
+      (emitter.velocity.speed[1] - emitter.velocity.speed[0]) * x3;
+    out.fromArray(pathPoint(path, clamp01(head - lag))).add(origin);
+    const floorSpec = emitter.forces.floor;
+    if (floorSpec) {
+      const dy = out.y - floorSpec.y;
+      out.y = floorSpec.y + Math.max(dy, dy * floorSpec.softness);
+    }
+    return true;
   }
 
   const base = new THREE.Vector3().fromArray(emitter.velocity.direction);
@@ -643,6 +694,106 @@ function proceduralIndex(material: Material) {
   return PROCEDURAL_INDEX[material.procedural] ?? 0;
 }
 
+/**
+ * material.flicker: the hashed STEP multiplier at layer-local `age`, centred on
+ * 1 (1 - amount/2 .. 1 + amount/2). Computed on the CPU, once per layer per
+ * frame, so every draw a layer owns — mesh, hull, split copies, trail — steps
+ * together instead of each hashing its own. floor(age * rate) is the only
+ * state, so a seek lands inside exactly the window playback was in.
+ */
+export function flickerAt(material: Material, age: number) {
+  const spec = material.flicker;
+  if (!spec || spec.amount <= 0) return 1;
+  const step = Math.floor(Math.max(0, age) * spec.rate);
+  let x = (step * 2.7 + 0.7) * 0.1031;
+  x -= Math.floor(x);
+  x *= x + 33.33;
+  x *= x + x;
+  return 1 + spec.amount * (x - Math.floor(x) - 0.5);
+}
+
+/**
+ * material.stripes packed for the shader: (frequency, speed, phase, sharpness)
+ * and (contrast, 0, 0, 0), three slots either way.
+ */
+function stripeUniforms(material: Material) {
+  const stripes = material.stripes ?? [];
+  return {
+    uStripeA: {
+      value: Array.from({ length: 3 }, (_, i) => {
+        const s = stripes[i];
+        return new THREE.Vector4(
+          s?.frequency ?? 0,
+          s?.speed ?? 0,
+          s?.phase ?? 0,
+          s?.sharpness ?? 0,
+        );
+      }),
+    },
+    uStripeB: {
+      value: Array.from(
+        { length: 3 },
+        (_, i) => new THREE.Vector4(stripes[i]?.contrast ?? 0, 0, 0, 0),
+      ),
+    },
+    uStripeN: { value: stripes.length },
+  };
+}
+
+function writeStripes(
+  uniforms: Record<string, THREE.IUniform>,
+  material: Material,
+) {
+  const stripes = material.stripes ?? [];
+  const a = uniforms.uStripeA.value as THREE.Vector4[];
+  const b = uniforms.uStripeB.value as THREE.Vector4[];
+  for (let i = 0; i < 3; i++) {
+    const s = stripes[i];
+    a[i].set(s?.frequency ?? 0, s?.speed ?? 0, s?.phase ?? 0, s?.sharpness ?? 0);
+    b[i].set(s?.contrast ?? 0, 0, 0, 0);
+  }
+  uniforms.uStripeN.value = stripes.length;
+}
+
+/** geometry.slab's tiers packed for the shader: (height, intensity) + colour. */
+function slabUniforms(geometry: GeometryV2) {
+  const tiers = geometry.slab?.tiers ?? [];
+  return {
+    uSlab: { value: geometry.type === "slab" && geometry.slab ? 1 : 0 },
+    uSlabBase: { value: geometry.slab?.anchor === "base" ? 1 : 0 },
+    uSlabTaper: { value: geometry.slab?.taper ?? 1 },
+    uSlabN: { value: tiers.length },
+    uSlabTier: {
+      value: Array.from(
+        { length: 4 },
+        (_, i) =>
+          new THREE.Vector4(tiers[i]?.height ?? 0, tiers[i]?.intensity ?? 0, 0, 0),
+      ),
+    },
+    uSlabCol: {
+      value: Array.from(
+        { length: 4 },
+        (_, i) => new THREE.Color(tiers[i]?.color ?? "#ffffff"),
+      ),
+    },
+  };
+}
+
+function writeSlab(
+  uniforms: Record<string, THREE.IUniform>,
+  geometry: GeometryV2,
+) {
+  const tiers = geometry.slab?.tiers ?? [];
+  const packed = uniforms.uSlabTier.value as THREE.Vector4[];
+  const colors = uniforms.uSlabCol.value as THREE.Color[];
+  for (let i = 0; i < 4; i++) {
+    packed[i].set(tiers[i]?.height ?? 0, tiers[i]?.intensity ?? 0, 0, 0);
+    colors[i].set(tiers[i]?.color ?? "#ffffff");
+  }
+  uniforms.uSlabN.value = tiers.length;
+  uniforms.uSlabTaper.value = geometry.slab?.taper ?? 1;
+}
+
 /** Ramp space -> the shaders' uRampKeyMode. */
 function rampKeyMode(material: Material) {
   const space = material.ramp.space;
@@ -742,6 +893,32 @@ function emitterCoreUniforms(
 }
 
 /**
+ * emitter.render.mode "flatStrip": one tapered lick per instance. `position`
+ * carries (s along the lick 0..1, side -1..1, 0) and `uv` mirrors it, so the
+ * vertex program can shape the lick without any per-instance buffer beyond the
+ * ordinary particle attributes.
+ */
+function celStripGeometry(segments = 16) {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    positions.push(t, -1, 0, t, 1, 0);
+    uvs.push(t, 0, t, 1);
+    if (i < segments) {
+      const a = i * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  return {
+    positions: new Float32Array(positions),
+    uvs: new Float32Array(uvs),
+    indices,
+  };
+}
+
+/**
  * Strip of `segments` rows x 2 vertices per instance. `position` carries
  * (side, k, 0); the vertex shader turns k into an age offset.
  */
@@ -828,11 +1005,22 @@ function createParticleLayer(
       )
     : null;
 
-  const plane = new THREE.PlaneGeometry(1, 1);
+  const cel = emitter.render.mode === "flatStrip";
+  const plane = cel ? null : new THREE.PlaneGeometry(1, 1);
   const geometry = new THREE.InstancedBufferGeometry();
-  geometry.index = plane.index;
-  geometry.attributes.position = plane.attributes.position;
-  geometry.attributes.uv = plane.attributes.uv;
+  if (plane) {
+    geometry.index = plane.index;
+    geometry.attributes.position = plane.attributes.position;
+    geometry.attributes.uv = plane.attributes.uv;
+  } else {
+    const strip = celStripGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(strip.positions, 3),
+    );
+    geometry.setAttribute("uv", new THREE.BufferAttribute(strip.uvs, 2));
+    geometry.setIndex(strip.indices);
+  }
   const seedAttr = new THREE.InstancedBufferAttribute(
     Float32Array.from(attrs.seed),
     4,
@@ -888,7 +1076,7 @@ function createParticleLayer(
     });
   }
   geometry.instanceCount = count;
-  plane.dispose();
+  plane?.dispose();
 
   const atlas = material.mask.atlas;
   const flipbook = material.mask.flipbook;
@@ -996,6 +1184,22 @@ function createParticleLayer(
     uNear: { value: CAMERA_NEAR },
     uFar: { value: CAMERA_FAR },
     uSoft: { value: material.softParticle },
+    // material.flicker, and the flatStrip lick's own flipbook parameters.
+    uFlicker: { value: 1 },
+    uStripStep: { value: emitter.render.strip?.stepRate ?? 10 },
+    uStripWave: { value: emitter.render.strip?.waviness ?? 0 },
+    uPalettes: { value: emitter.render.strip?.palettes ?? 1 },
+    uStripCount: { value: count },
+    uStripLen: {
+      value: new THREE.Vector2().fromArray(
+        emitter.render.strip?.length ?? [1, 1],
+      ),
+    },
+    uStripWide: {
+      value: new THREE.Vector2().fromArray(
+        emitter.render.strip?.width ?? [0.1, 0.1],
+      ),
+    },
     ...rampUniforms(material.ramp),
     ...curveUniforms("A", emitter.render.sizeCurve),
     ...curveUniforms("B", emitter.render.alphaCurve),
@@ -1011,8 +1215,10 @@ function createParticleLayer(
 
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: particleVertexSource(!!parentEmitter, !!sites),
-    fragmentShader: particleFragmentV2,
+    vertexShader: cel
+      ? stripVertexSource(!!sites)
+      : particleVertexSource(!!parentEmitter, !!sites),
+    fragmentShader: cel ? stripFragmentV2 : particleFragmentV2,
     transparent: true,
     depthWrite: false,
     depthTest: true,
@@ -1173,6 +1379,17 @@ function createParticleLayer(
       writeCurve(uniforms, "H", e.spawn.headCurve);
       uniforms.uTwinkleFreq.value = e.render.twinkle?.frequency ?? 1;
       uniforms.uTwinkleDepth.value = e.render.twinkle?.depth ?? 0;
+      uniforms.uFlicker.value = flickerAt(m, age);
+      if (e.render.strip) {
+        uniforms.uStripStep.value = e.render.strip.stepRate;
+        uniforms.uStripWave.value = e.render.strip.waviness;
+        (uniforms.uStripLen.value as THREE.Vector2).fromArray(
+          e.render.strip.length,
+        );
+        (uniforms.uStripWide.value as THREE.Vector2).fromArray(
+          e.render.strip.width,
+        );
+      }
       (uniforms.uProcParams.value as THREE.Vector4).fromArray(
         m.proceduralParams,
       );
@@ -1471,6 +1688,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
       Math.min(128, geometry.segments),
       Math.min(64, geometry.radialSegments),
     );
+  // A slab carries no real geometry: the quad is rebuilt in view space every
+  // frame from uLength/uThickness and the projected layer axis. It has to be
+  // tested BEFORE the bar kinds, because a slab is usually a `beam`.
+  if (geometry.type === "slab") return new THREE.PlaneGeometry(2, 2);
   if (BAR_KINDS.has(layer.kind)) {
     // A beam is a straight bar of `length` along +Z, half-width `radius`; a
     // trail is the same bar narrowing toward its far end. Both are unit-sized
@@ -1703,6 +1924,10 @@ function createMeshLayer(
     },
     uBand: { value: geometry.type === "band" && geometry.band ? 1 : 0 },
     uBandStripes: { value: geometry.band?.stripes ?? 1 },
+    // material.stripes / material.flicker / geometry.slab.
+    uFlicker: { value: 1 },
+    ...stripeUniforms(material),
+    ...slabUniforms(geometry),
     ...rampUniforms(material.ramp),
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
@@ -1711,6 +1936,7 @@ function createMeshLayer(
   // A band is real geometry sorting against a body, so it writes depth: without
   // it the far arc of the belt glows through the dome it is meant to go behind.
   const isBand = geometry.type === "band" && !!geometry.band;
+  const isSlab = geometry.type === "slab" && !!geometry.slab;
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: surfaceVertexV2,
@@ -1733,7 +1959,9 @@ function createMeshLayer(
   const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
     // The arc ribbon, the analytic shell, the bolt and the band build themselves
     // at their own radius, so only transform.scale applies on top of them.
-    if (ribbon || shell || bolt || isBand) return out.set(1, 1, 1);
+    // A slab builds itself in view space from uLength/uThickness, so only
+    // transform.scale applies on top of it — the same as the four above.
+    if (ribbon || shell || bolt || isBand || isSlab) return out.set(1, 1, 1);
     // A lattice wraps a unit sphere scaled to geometry.radius.
     if (material.lattice) return out.set(g.radius, g.radius, g.radius);
     if (BAR_KINDS.has(layer.kind)) return out.set(g.radius, g.radius, g.length);
@@ -1752,7 +1980,7 @@ function createMeshLayer(
   const mesh = new THREE.Mesh(meshGeometryFor(layer, boltSeed), shaderMaterial);
   // A mesh whose extent really runs along local +Z keys its surface ramp and
   // erosion on that axis instead of on uv.y; a flat card or an arc cannot.
-  if (!shell && !ribbon && !bolt && !flatCard && !isBand && !material.lattice) {
+  if (!shell && !ribbon && !bolt && !flatCard && !isBand && !isSlab && !material.lattice) {
     mesh.geometry.computeBoundingBox();
     const box = mesh.geometry.boundingBox!;
     const span = box.getSize(new THREE.Vector3());
@@ -1900,6 +2128,9 @@ function createMeshLayer(
       uniforms.uRampKeyMode.value = rampKeyMode(m);
       uniforms.uGroundY.value = doc.environment.groundY;
       uniforms.uHeightSpan.value = m.ramp.heightSpan;
+      uniforms.uFlicker.value = flickerAt(m, age);
+      writeStripes(uniforms, m);
+      if (isSlab) writeSlab(uniforms, g);
       // Everything the ice/shield vocabulary adds is re-read from the LIVE
       // material, so a track on a reveal front, a lattice edge or a ground glow
       // really moves.
@@ -1962,6 +2193,19 @@ function createMeshLayer(
       if (bolt) {
         // Strike-independent: the envelope every strike of this bolt fits in.
         for (const p of lightningBounds(g, boltSeed)) push(p.applyMatrix4(matrix));
+        return;
+      }
+      if (isSlab) {
+        // The bar is a billboard, so it has no depth of its own: it claims its
+        // length along local +Z (from the origin, or about it) and its full
+        // height across every lateral axis, which is the most any camera angle
+        // can ever see of it.
+        const half = g.thickness * 0.5;
+        const base = g.slab?.anchor === "base";
+        for (const z of base ? [0, g.length] : [-g.length * 0.5, g.length * 0.5])
+          for (const x of [-half, half])
+            for (const y of [-half, half])
+              push(point.set(x, y, z).applyMatrix4(matrix).clone());
         return;
       }
       if (ringTorus) {
@@ -2073,8 +2317,22 @@ function createMeshLayer(
       } else {
         mesh.geometry.computeBoundingBox();
         const box = mesh.geometry.boundingBox!;
-        for (const x of [box.min.x, box.max.x])
-          for (const y of [box.min.y, box.max.y])
+        // "lensFlare" and "radialRays" cut themselves off well inside the card
+        // (the radial gate at RADIAL_CUTOFF of the half-size), and an
+        // anisotropic flare uses only 1/anisotropy of the width. Claiming the
+        // whole card would frame the camera on transparent corners: a 3.2 m
+        // blade would ask for a 5.2 m square.
+        const pattern = live.material!.procedural;
+        const radial =
+          layer.kind === "sprite" &&
+          (pattern === "lensFlare" || pattern === "radialRays");
+        const lit = radial ? RADIAL_CUTOFF : 1;
+        const narrow =
+          radial && pattern === "lensFlare"
+            ? lit / Math.max(Math.abs(live.material!.proceduralParams[1]), 1)
+            : lit;
+        for (const x of [box.min.x * narrow, box.max.x * narrow])
+          for (const y of [box.min.y * lit, box.max.y * lit])
             for (const z of [box.min.z, box.max.z])
               push(point.set(x, y, z).applyMatrix4(matrix).clone());
       }
@@ -2799,6 +3057,214 @@ function createWireBurstLayer(layer: LayerV2, index: number): LayerObject {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Arc layers
+// ---------------------------------------------------------------------------
+
+/**
+ * The electrical cage: camera-facing ribbon polylines on helical paths around
+ * the layer's own +Y axis. One instanced draw; the strip carries (u, side) and
+ * the helix is swept in the vertex program from the live spec, so a track (or
+ * layer.collapse) on arcs.radius or arcs.span re-shapes the cage without
+ * rebuilding anything.
+ *
+ * Colour comes from arcs.coreColor/haloColor, never from material.ramp — the
+ * filament and its sheath are two terms of one fragment, not two layers.
+ */
+function createArcsLayer(layer: LayerV2, index: number): LayerObject {
+  const material = layer.material!;
+  const spec = layer.arcs!;
+  const geometry = buildArcsGeometry(spec);
+
+  const uniforms: Record<string, THREE.IUniform> = {
+    uTime: { value: 0 },
+    uHeight: { value: 1 },
+    uWidthK: { value: 1 },
+    uSpan: { value: spec.span },
+    uWidth: { value: spec.width },
+    // Two pixels at 720p through a 36-degree lens: below this an arc shimmers
+    // into nothing at depth, which reads as a renderer fault, not as lightning.
+    uMinWidth: { value: 0.0018 },
+    uJitterAmp: { value: spec.jitter.amplitude },
+    uJitterFreq: { value: spec.jitter.frequency },
+    uJitterFold: { value: spec.jitter.fold },
+    uSkip: { value: spec.blink.skipChance },
+    uRadius: { value: new THREE.Vector2().fromArray(spec.radius) },
+    uPitch: { value: new THREE.Vector2().fromArray(spec.pitch) },
+    uPeriod: { value: new THREE.Vector2().fromArray(spec.blink.period) },
+    uOnTime: { value: new THREE.Vector2().fromArray(spec.blink.onTime) },
+    uCore: { value: new THREE.Color(spec.coreColor) },
+    uHalo: { value: new THREE.Color(spec.haloColor) },
+    uOpacity: { value: material.opacity },
+    uFlicker: { value: 1 },
+    uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
+  };
+
+  const shaderMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: arcVertexV2,
+    fragmentShader: arcFragmentV2,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    ...blendingFor(material.blend),
+  });
+  const mesh = new THREE.Mesh(geometry, shaderMaterial);
+  mesh.name = layer.id;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = index;
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: mesh,
+    soft: false,
+    trim: false,
+    update(time) {
+      const { layer: live, visible, age } = evaluateLayerV2(layer, time);
+      mesh.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const a = live.arcs!;
+      mesh.position.fromArray(live.transform.position);
+      mesh.rotation.set(...live.transform.rotation);
+      mesh.scale.fromArray(live.transform.scale);
+      uniforms.uTime.value = age;
+      uniforms.uSpan.value = a.span;
+      uniforms.uWidth.value = a.width;
+      uniforms.uJitterAmp.value = a.jitter.amplitude;
+      uniforms.uJitterFreq.value = a.jitter.frequency;
+      uniforms.uJitterFold.value = a.jitter.fold;
+      uniforms.uSkip.value = a.blink.skipChance;
+      (uniforms.uRadius.value as THREE.Vector2).fromArray(a.radius);
+      (uniforms.uPitch.value as THREE.Vector2).fromArray(a.pitch);
+      (uniforms.uPeriod.value as THREE.Vector2).fromArray(a.blink.period);
+      (uniforms.uOnTime.value as THREE.Vector2).fromArray(a.blink.onTime);
+      (uniforms.uCore.value as THREE.Color).set(a.coreColor);
+      (uniforms.uHalo.value as THREE.Color).set(a.haloColor);
+      uniforms.uOpacity.value = m.opacity;
+      uniforms.uFlicker.value = flickerAt(m, age);
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of arcBounds(live.arcs!))
+        push(corner.applyMatrix4(matrix));
+    },
+    dispose() {
+      geometry.dispose();
+      shaderMaterial.dispose();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Streak-burst layers
+// ---------------------------------------------------------------------------
+
+/**
+ * A screen-space fan of thin additive quads out of the layer origin. One
+ * instanced draw whose whole shape is hashed per instance; the only per-frame
+ * value is the grow envelope, sampled on the layer's own 0..1 progress.
+ *
+ * Screen space, not world: a burst read from a three-quarter camera has to fan
+ * across the FRAME, and a world-space fan collapses to a line the moment the
+ * camera is not square to it.
+ */
+function createStreakBurstLayer(layer: LayerV2, index: number): LayerObject {
+  const material = layer.material!;
+  const spec = layer.streakBurst!;
+  const geometry = buildStreakGeometry(spec);
+
+  const uniforms: Record<string, THREE.IUniform> = {
+    uGrow: { value: 0 },
+    uCurvature: { value: spec.curvature },
+    uUpBias: { value: spec.upBias },
+    uBundles: { value: spec.bundles },
+    uBundleSpread: { value: spec.bundleSpread },
+    uStagger: { value: spec.stagger },
+    uLength: { value: new THREE.Vector2().fromArray(spec.length) },
+    uWidth: { value: new THREE.Vector2().fromArray(spec.width) },
+    uHueA: { value: new THREE.Color(spec.hues[0]) },
+    uHueB: { value: new THREE.Color(spec.hues[1]) },
+    uHueC: { value: new THREE.Color(spec.hues[2]) },
+    uOpacity: { value: material.opacity },
+    uFlicker: { value: 1 },
+    uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
+  };
+
+  const shaderMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: streakVertexV2,
+    fragmentShader: streakFragmentV2,
+    transparent: true,
+    depthWrite: false,
+    // The fan reads through whatever it crosses; a depth test against the body
+    // it erupts out of would clip half of it away.
+    depthTest: false,
+    side: THREE.DoubleSide,
+    ...blendingFor(material.blend),
+  });
+  const mesh = new THREE.Mesh(geometry, shaderMaterial);
+  mesh.name = layer.id;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = index;
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: mesh,
+    soft: false,
+    trim: false,
+    update(time) {
+      const { layer: live, visible, u } = evaluateLayerV2(layer, time);
+      mesh.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const b = live.streakBurst!;
+      mesh.position.fromArray(live.transform.position);
+      mesh.rotation.set(...live.transform.rotation);
+      mesh.scale.fromArray(live.transform.scale);
+      uniforms.uGrow.value = clamp01(sampleCurve(b.grow, u));
+      uniforms.uCurvature.value = b.curvature;
+      uniforms.uUpBias.value = b.upBias;
+      uniforms.uBundleSpread.value = b.bundleSpread;
+      uniforms.uStagger.value = b.stagger;
+      (uniforms.uLength.value as THREE.Vector2).fromArray(b.length);
+      (uniforms.uWidth.value as THREE.Vector2).fromArray(b.width);
+      (uniforms.uHueA.value as THREE.Color).set(b.hues[0]);
+      (uniforms.uHueB.value as THREE.Color).set(b.hues[1]);
+      (uniforms.uHueC.value as THREE.Color).set(b.hues[2]);
+      uniforms.uOpacity.value = m.opacity;
+      uniforms.uFlicker.value = flickerAt(m, time - layer.start);
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of streakBurstBounds(live.streakBurst!))
+        push(corner.applyMatrix4(matrix));
+    },
+    dispose() {
+      geometry.dispose();
+      shaderMaterial.dispose();
+    },
+  };
+}
+
 /** A hex darkened toward black; the root of a sliver is its own colour, dimmed. */
 function shade(hex: string, factor: number) {
   const color = new THREE.Color(hex);
@@ -2822,9 +3288,20 @@ function spawnBoundsV2(
   if (!visible) return;
   const emitter = live.emitter!;
   const shape = emitter.shape;
-  if (shape.type === "path" && path) {
+  if ((shape.type === "path" || shape.type === "pathLine") && path) {
     // A path emitter's spawn region IS the path: framing on a point at the
     // layer origin would leave the whole flight line outside the shot.
+    const origin = new THREE.Vector3().fromArray(live.transform.position);
+    const margin = shape.radius + emitter.render.size[1] * 0.5;
+    for (const point of pathBounds(path, 24)) {
+      push(point.clone().add(origin).addScalar(margin));
+      push(point.clone().add(origin).addScalar(-margin));
+    }
+    return;
+  }
+  if (live.emitter!.velocity.mode === "alongPath" && path) {
+    // A run along a path lives on the path too, however small the shape it
+    // scatters from is.
     const origin = new THREE.Vector3().fromArray(live.transform.position);
     const margin = shape.radius + emitter.render.size[1] * 0.5;
     for (const point of pathBounds(path, 24)) {
@@ -3036,6 +3513,9 @@ export class VfxRuntimeV2 {
         if (layer.kind === "ribbon")
           return createRibbonLayer(this.doc!, layer, index);
         if (layer.kind === "wireBurst") return createWireBurstLayer(layer, index);
+        if (layer.kind === "arcs") return createArcsLayer(layer, index);
+        if (layer.kind === "streakBurst")
+          return createStreakBurstLayer(layer, index);
         return createMeshLayer(this.doc!, layer, index, this.textures);
       });
     const lights = this.objects

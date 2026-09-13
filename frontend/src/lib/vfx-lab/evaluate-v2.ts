@@ -162,6 +162,37 @@ export function evaluateLayerV2(layer: LayerV2, time: number): EvaluatedLayerV2 
     }
   }
 
+  // layer.collapse: ONE retraction applied uniformly, so every part of a
+  // composite body shrinks in step instead of each carrying its own tracks and
+  // drifting apart. It runs after tracks and motion and before the overrides,
+  // which stay the last word on any value. anchor "base" keeps the transform
+  // where it is, so a body authored with its base at the layer origin retracts
+  // from the top.
+  if (next.collapse && age >= next.collapse.start) {
+    const { start, duration, heightCurve, widthCurve } = next.collapse;
+    const p = clamp((age - start) / Math.max(duration, 1e-4));
+    const h = sampleKeys(heightCurve.keys as [number, number][], p, heightCurve.ease);
+    const w = sampleKeys(widthCurve.keys as [number, number][], p, widthCurve.ease);
+    if (next.geometry) {
+      // Along the layer's own +Z axis; across it is radius/thickness.
+      next.geometry.length = Math.max(0.01, next.geometry.length * h);
+      next.geometry.radius = Math.max(0.01, next.geometry.radius * w);
+      next.geometry.thickness = Math.max(0.001, next.geometry.thickness * w);
+    } else if (next.arcs) {
+      next.arcs.span = Math.max(0.05, next.arcs.span * h);
+      next.arcs.radius = [
+        Math.max(0.02, next.arcs.radius[0] * w),
+        Math.max(0.02, next.arcs.radius[1] * w),
+      ];
+    } else {
+      next.transform.scale = [
+        next.transform.scale[0] * w,
+        next.transform.scale[1] * h,
+        next.transform.scale[2] * w,
+      ];
+    }
+  }
+
   for (const override of next.overrides) {
     const w = windowWeight(override, time);
     // Exactly preserve protected values; no round-trip conversion at weight 0.

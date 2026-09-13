@@ -53,6 +53,12 @@ export const KINDS_V2 = [
   // Instanced faceted crystal cluster (layer.crystals): the same rule again,
   // its own spec object and never `geometry` or `emitter`.
   "crystals",
+  // Blinking helical arc ribbons around the layer's +Y axis (layer.arcs) and a
+  // screen-space fan of thin quads out of the layer origin
+  // (layer.streakBurst). Generators like the three above: their own spec
+  // object, never `geometry` or `emitter`.
+  "arcs",
+  "streakBurst",
 ] as const;
 export const BLOB_ARRANGEMENTS = ["mound", "column", "ring", "string"] as const;
 // Kinds that draw a mesh and therefore carry `geometry`.
@@ -96,6 +102,13 @@ export const PROCEDURALS_V2 = [
   // A cast sigil: concentric rings, a band of hashed rune ticks, radial spokes
   // and a two-layer polar mist, all in one flat-card pattern.
   "sigil",
+  // Two more billboard silhouettes, both with a radial cutoff so the card's own
+  // rectangle can never show: an anamorphic lens flare (core, ghosts, the two
+  // lens streaks and soft spikes) and a fan of hashed radial rays. Both also
+  // supply the ramp key themselves, radially: stop t=0 is the hot core and t=1
+  // the outer halo.
+  "lensFlare",
+  "radialRays",
 ] as const;
 export const GEOMETRIES_V2 = [
   "auto",
@@ -114,6 +127,11 @@ export const GEOMETRIES_V2 = [
   // A spherical strip: a belt of angular width `thickness` at `radius`, tilted
   // and spun by geometry.band. Real geometry, so it sorts against a dome.
   "band",
+  // A view-space billboard whose long axis is pinned to the layer's local +Z:
+  // `length` runs along that axis, `thickness` is its FULL height across it,
+  // and geometry.slab tiers it into hard-edged bands. The readable body of a
+  // beam and of an energy column.
+  "slab",
 ] as const;
 export const EMITTER_SHAPES = [
   "point",
@@ -131,6 +149,10 @@ export const EMITTER_SHAPES = [
   // sourceLayerId): each particle inherits one crystal's position and axis, so
   // a shatter burst leaves the spikes it broke off instead of a bare sphere.
   "layerInstances",
+  // Instances SCATTER along a document path at hashed u (not at i/(count-1)),
+  // spread across the path frame by shape.radius: the residue left lying along
+  // a line after a beam has shut off, rather than an ordered row.
+  "pathLine",
 ] as const;
 export const SPAWN_MODES = [
   "burst",
@@ -144,6 +166,11 @@ export const VELOCITY_MODES = [
   "directional",
   "tangential",
   "cone",
+  // The particle does not fly: it RUNS along emitter.shape.pathId. The shared
+  // head envelope is velocity.speedCurve sampled on the LAYER's own 0..1
+  // progress, and velocity.speed is re-read as the per-particle lag band in
+  // path units, so u = clamp(head - lag). shape.radius still scatters it.
+  "alongPath",
 ] as const;
 export const RENDER_MODES = [
   "billboard",
@@ -153,6 +180,11 @@ export const RENDER_MODES = [
   // Quad rolled to the screen-space tangent of its path: the dashes of a
   // path-anchored trail lie along the flight line instead of upright.
   "pathAligned",
+  // A tapered flat cel "lick" instead of a quad: the instance is drawn as a
+  // strip trailing back along the emitter axis in view space, its length,
+  // width, lateral offset and waviness re-hashed on floor(t * strip.stepRate)
+  // so the set jumps like a flipbook instead of sliding. See emitter.render.
+  "flatStrip",
 ] as const;
 export const ROLES_V2 = [
   "anticipation",
@@ -205,6 +237,8 @@ export const CurveSchema = z
 //           and the whole path rises `height` metres over the sweep. height 0
 //           is a flat ring.
 //   bezier  a quadratic Bezier from -> control -> to: a thrown arc.
+//   line    a straight segment from -> to: a beam's own axis, which the shut-off
+//           sparkle run and the residual scatter both read.
 export const PathIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
 
 export const OrbitPathSchema = z
@@ -232,9 +266,19 @@ export const BezierPathSchema = z
   })
   .strict();
 
+export const LinePathSchema = z
+  .object({
+    id: PathIdSchema,
+    type: z.literal("line"),
+    from: vec3,
+    to: vec3,
+  })
+  .strict();
+
 export const PathV2Schema = z.discriminatedUnion("type", [
   OrbitPathSchema,
   BezierPathSchema,
+  LinePathSchema,
 ]);
 
 export const RampStopSchema = z
@@ -438,6 +482,40 @@ export const RippleSchema = z
 /** Ripples one material may carry; each costs a uniform slot per layer. */
 export const RIPPLE_BUDGET_V2 = 4;
 
+// Hard panning bands keyed on the layer's ALONG coordinate (vAlong x the
+// geometry's own length, so `frequency` is bands per metre and a beam that
+// extends does not squash its stripes).
+//
+// `phase` is how far each circumferential RING is offset from its neighbours,
+// hashed off the ring index: 0 runs the bands straight round the body — a
+// machine segment ladder — and 1 breaks them into independent filaments that
+// read as energy rather than as a barcode painted on a cylinder.
+//
+// `contrast` is how much of the surface the bands take over: the largest
+// contrast across the list is the mix weight, so a core at 0.2 keeps a solid
+// body with a hint of motion and a sheath at 1.0 is nothing but bands.
+export const StripeSchema = z
+  .object({
+    frequency: scalar(0, 64),
+    speed: scalar(-40, 40),
+    phase: scalar(0, 1),
+    // 0 = a soft sine swell, 1 = an edge about a hundredth of a band wide.
+    sharpness: scalar(0, 1),
+    contrast: scalar(0, 2),
+  })
+  .strict();
+
+/** Stripe sets one material may carry; each costs two uniform slots. */
+export const STRIPE_BUDGET_V2 = 3;
+
+// Hashed STEP flicker on the layer's own intensity: the multiplier is constant
+// inside each 1/rate window and re-hashed on floor(layerTime * rate), which is
+// what reads as an unstable arc rather than the breathing a sine pulse gives.
+// The multiplier stays centred on 1 (1 - amount/2 .. 1 + amount/2).
+export const FlickerSchema = z
+  .object({ rate: scalar(0.5, 60), amount: scalar(0, 1) })
+  .strict();
+
 export const MaterialSchema = z
   .object({
     blend: z.enum(BLEND_MODES_V2),
@@ -484,6 +562,15 @@ export const MaterialSchema = z
     lattice: LatticeSchema.nullable().default(null),
     planeGlow: PlaneGlowSchema.nullable().default(null),
     ripples: z.array(RippleSchema).max(RIPPLE_BUDGET_V2).nullable().default(null),
+    // The beam/column vocabulary. Both defaulted, so archived documents load
+    // unchanged: panning hard bands along the layer's axis, and a hashed step
+    // flicker on its intensity.
+    stripes: z
+      .array(StripeSchema)
+      .max(STRIPE_BUDGET_V2)
+      .nullable()
+      .default(null),
+    flicker: FlickerSchema.nullable().default(null),
   })
   .strict();
 
@@ -593,6 +680,27 @@ export const TwinkleSchema = z
   .object({ frequency: scalar(0.1, 40), depth: scalar(0, 1) })
   .strict();
 
+// render.mode "flatStrip": the instance is a tapered flat cel lick trailing
+// back along the emitter's own axis in view space, not a quad. Its length,
+// width, lateral offset inside emitter.shape.radius and its wave are all
+// re-hashed on floor(layerTime * stepRate), so the whole set JUMPS on a
+// flipbook step instead of sliding — which is what separates a hand-drawn lick
+// from a stretched sprite.
+//
+// `palettes` 2 splits the population by instance parity: the even instances
+// take ramp stop t=0 and the odd ones t=1, and because they are one instanced
+// draw in index order the odd (light) licks always land in front of the even
+// (dark) ones. `palettes` 1 draws them all at stop t=0.
+export const StripSchema = z
+  .object({
+    length: range(0.05, 8),
+    width: range(0.02, 3),
+    waviness: scalar(0, 1),
+    stepRate: scalar(0, 60),
+    palettes: z.union([z.literal(1), z.literal(2)]),
+  })
+  .strict();
+
 export const ParticleRenderSchema = z
   .object({
     mode: z.enum(RENDER_MODES),
@@ -605,6 +713,9 @@ export const ParticleRenderSchema = z
     rotation: ParticleRotationSchema,
     sortMode: z.enum(["none", "byDistance"]),
     twinkle: TwinkleSchema.nullable().default(null),
+    // render.mode "flatStrip" only. Defaulted, so archived documents load
+    // unchanged.
+    strip: StripSchema.nullable().default(null),
   })
   .strict();
 
@@ -673,6 +784,34 @@ export const BandSchema = z
   })
   .strict();
 
+// geometry.type "slab": the body of a beam or of an energy column, as a
+// view-space billboard whose LONG axis is the layer's local +Z projected to the
+// screen. It never shears when the axis tilts away from the camera and it never
+// turns edge-on, which is exactly what a real tube does at a grazing angle.
+//
+// The tiers are what make it read as a BAR: each is a hard-edged band at its own
+// half-height (metres from the axis, so they are authored in the same units as
+// geometry.thickness/2), with an edge 8% of that height wide. A gaussian slab of
+// the same width reads as fog. They are listed OUTERMOST FIRST: each later tier
+// paints over the one before it, so the last entry is the hot inner core.
+export const SlabTierSchema = z
+  .object({ height: scalar(0.001, 6), color: hex, intensity: scalar(0, 8) })
+  .strict();
+
+/** Tiers one slab may carry; each is three smoothsteps in the fragment. */
+export const SLAB_TIER_BUDGET_V2 = 4;
+
+export const SlabSchema = z
+  .object({
+    // "center" spans -length/2 .. +length/2 about the layer origin; "base"
+    // spans 0 .. length along +Z from it (an upright column stands on it).
+    anchor: z.enum(["center", "base"]),
+    tiers: z.array(SlabTierSchema).min(1).max(SLAB_TIER_BUDGET_V2),
+    // The far end's height as a fraction of the near end's; 1 is a plain bar.
+    taper: scalar(0.05, 1),
+  })
+  .strict();
+
 export const GeometryV2Schema = z
   .object({
     type: z.enum(GEOMETRIES_V2),
@@ -694,6 +833,9 @@ export const GeometryV2Schema = z
     // `stripes` is how many bright bands run along it. Defaulted, so archived
     // documents load unchanged.
     band: BandSchema.nullable().default(null),
+    // type "slab" only: how the billboard bar is anchored and tiered.
+    // Defaulted, so archived documents load unchanged.
+    slab: SlabSchema.nullable().default(null),
   })
   .strict();
 
@@ -758,6 +900,118 @@ export const CrystalsSchema = z
     edgeColor: hex,
     fresnelPower: scalar(0.5, 8),
     glint: CrystalGlintSchema,
+  })
+  .strict();
+
+// --- arcs ------------------------------------------------------------------
+//
+// Camera-facing ribbon polylines on helical paths around the layer's own +Y
+// axis: the electrical cage around an overloading column. A GENERATOR like
+// crystals and wireBurst — every arc's radius, pitch, height, span and phase are
+// hashed out of (arcs.seed, index) AND out of its own blink cycle index, so no
+// two flashes of the same arc trace the same wire.
+//
+// Nothing accumulates: the cycle index is floor((layerTime - offset) / period),
+// which is what makes a seek land inside exactly the blink playback was in.
+export const ArcJitterSchema = z
+  .object({
+    // How far the wire wanders off its helix, as a fraction of the radius.
+    amplitude: scalar(0, 3),
+    // Harmonics of the wander along the arc; higher is a busier wire.
+    frequency: scalar(0.5, 64),
+    // 0 = the wire curls smoothly, 1 = the noise is folded (|n|) so it KINKS.
+    fold: scalar(0, 1),
+  })
+  .strict();
+
+export const ArcBlinkSchema = z
+  .object({
+    // Seconds between one arc's blinks, hashed inside the band.
+    period: range(0.02, 4),
+    // Seconds it stays lit inside that period, hashed inside the band.
+    onTime: range(0.01, 2),
+    // Fraction of cycles dropped outright, so the set never finds a rhythm.
+    skipChance: scalar(0, 1),
+  })
+  .strict();
+
+export const ArcsSchema = z
+  .object({
+    count: integer(1, 64),
+    // Helix radius band, in metres.
+    radius: range(0.02, 8),
+    // Turns one arc makes over its own span.
+    pitch: range(0, 6),
+    // Metres of height the population covers: bases spread over the lower 74%
+    // of it and each arc runs 18-55% of it upward from its own base.
+    span: scalar(0.05, 12),
+    jitter: ArcJitterSchema,
+    blink: ArcBlinkSchema,
+    // Full ribbon width in metres. The renderer also enforces a minimum
+    // screen-space width, so a thin arc never drops below a visible line.
+    width: scalar(0.002, 0.4),
+    // The filament and the sheath around it. An arcs layer takes its colour
+    // from these, never from material.ramp.
+    coreColor: hex,
+    haloColor: hex,
+    seed: integer(0, 2147483647),
+  })
+  .strict();
+
+// --- streakBurst -----------------------------------------------------------
+//
+// A screen-space fan of thin additive quads leaving the layer origin: the
+// radial speed lines of an eruption. A generator again — heading, length,
+// width, curvature, hue and stagger are hashed out of (seed, index).
+//
+// The fan CLUMPS: `bundles` headings are hashed first and every streak picks one
+// and scatters inside `bundleSpread` radians of it, because an even fan reads as
+// a lens star rather than as a burst.
+export const StreakBurstSchema = z
+  .object({
+    count: integer(4, 200),
+    length: range(0.1, 12),
+    width: range(0.005, 1),
+    // Sideways bow at the tip, as a fraction of the streak's own length.
+    curvature: scalar(0, 1),
+    // Added to the heading's screen-space y before it is renormalized: the
+    // burst leans up (or, negative, down).
+    upBias: scalar(-1, 1),
+    bundles: integer(1, 16),
+    bundleSpread: scalar(0, 2),
+    // Fraction of the grow envelope the latest streak lags behind the first.
+    stagger: scalar(0, 1),
+    // Radial spread over the LAYER's own 0..1 progress.
+    grow: CurveSchema,
+    // Three hues hashed per streak, so the burst is a spread not one colour.
+    hues: z.tuple([hex, hex, hex]),
+    seed: integer(0, 2147483647),
+  })
+  .strict();
+
+// --- collapse --------------------------------------------------------------
+//
+// One retraction applied UNIFORMLY to a layer, so every part of a composite
+// column (shell, slab, core, arcs) shrinks in step instead of each carrying its
+// own tracks and drifting apart. From `start` (layer-local seconds) over
+// `duration`, the two curves give a height factor along the layer's own axis and
+// a width factor across it:
+//
+//   mesh kinds   geometry.length x= height; geometry.radius/thickness x= width
+//   arcs         arcs.span x= height; arcs.radius x= width
+//   everything   transform.scale x= (width, height, width)
+//   else
+//
+// anchor is "base": the layer keeps its position, so a body authored with its
+// base at the layer origin retracts from the TOP. That is the only anchor there
+// is, and it is what "reduce the column" means.
+export const CollapseSchema = z
+  .object({
+    start: localTime,
+    duration: scalar(0.02, 12),
+    heightCurve: CurveSchema,
+    widthCurve: CurveSchema,
+    anchor: z.literal("base"),
   })
   .strict();
 
@@ -1014,6 +1268,9 @@ export const LayerV2Schema = z
     // Applies to the layer transform, whatever the kind. Defaulted, so
     // archived documents load unchanged.
     jitter: JitterSchema.nullable().default(null),
+    // One uniform retraction of the whole layer, whatever the kind. Defaulted,
+    // so archived documents load unchanged.
+    collapse: CollapseSchema.nullable().default(null),
     material: MaterialSchema.optional(),
     emitter: EmitterSchema.optional(),
     geometry: GeometryV2Schema.optional(),
@@ -1023,6 +1280,8 @@ export const LayerV2Schema = z
     ribbon: RibbonSchema.optional(),
     wireBurst: WireBurstSchema.optional(),
     crystals: CrystalsSchema.optional(),
+    arcs: ArcsSchema.optional(),
+    streakBurst: StreakBurstSchema.optional(),
     tracks: z.array(TrackV2Schema).max(16),
     overrides: z.array(OverrideV2Schema).max(64),
   })
@@ -1105,6 +1364,15 @@ export const GlitchSchema = z
   })
   .strict();
 
+// A full-screen ADDITIVE wash: the near white-out at an eruption. `curve` is the
+// strength over DOCUMENT time normalized to 0..1 (the same domain post.glitch
+// uses), `vignette` darkens it toward the frame edges so the flash still has a
+// centre. Two or three frames is the whole shape; anything longer reads as a
+// blown exposure rather than as an event.
+export const FlashSchema = z
+  .object({ curve: CurveSchema, color: hex, vignette: scalar(0, 1) })
+  .strict();
+
 export const PostSchema = z
   .object({
     bloom: z
@@ -1127,6 +1395,7 @@ export const PostSchema = z
     chromatic: scalar(0, 0.01),
     motionBlur: scalar(0, 1),
     glitch: GlitchSchema.nullable().default(null),
+    flash: FlashSchema.nullable().default(null),
   })
   .strict();
 
@@ -1164,6 +1433,15 @@ export type Splash = z.infer<typeof SplashSchema>;
 export type PathV2 = z.infer<typeof PathV2Schema>;
 export type OrbitPath = z.infer<typeof OrbitPathSchema>;
 export type BezierPath = z.infer<typeof BezierPathSchema>;
+export type LinePath = z.infer<typeof LinePathSchema>;
+export type Arcs = z.infer<typeof ArcsSchema>;
+export type StreakBurst = z.infer<typeof StreakBurstSchema>;
+export type Collapse = z.infer<typeof CollapseSchema>;
+export type Slab = z.infer<typeof SlabSchema>;
+export type Stripe = z.infer<typeof StripeSchema>;
+export type Flicker = z.infer<typeof FlickerSchema>;
+export type Strip = z.infer<typeof StripSchema>;
+export type Flash = z.infer<typeof FlashSchema>;
 export type Ribbon = z.infer<typeof RibbonSchema>;
 export type WireBurst = z.infer<typeof WireBurstSchema>;
 export type Crystals = z.infer<typeof CrystalsSchema>;
@@ -1322,6 +1600,39 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "material.planeGlow.distance": [0.01, 4],
   "geometry.band.tilt": [-Math.PI, Math.PI],
   "geometry.band.spin": [-8, 8],
+  "geometry.slab.taper": [0.05, 1],
+  "geometry.slab.tiers[0].height": [0.001, 6],
+  "geometry.slab.tiers[1].height": [0.001, 6],
+  "geometry.slab.tiers[2].height": [0.001, 6],
+  "geometry.slab.tiers[3].height": [0.001, 6],
+  "geometry.slab.tiers[0].intensity": [0, 8],
+  "geometry.slab.tiers[1].intensity": [0, 8],
+  "geometry.slab.tiers[2].intensity": [0, 8],
+  "geometry.slab.tiers[3].intensity": [0, 8],
+  "material.stripes[0].frequency": [0, 64],
+  "material.stripes[0].speed": [-40, 40],
+  "material.stripes[0].contrast": [0, 2],
+  "material.stripes[1].frequency": [0, 64],
+  "material.stripes[1].speed": [-40, 40],
+  "material.stripes[1].contrast": [0, 2],
+  "material.stripes[2].contrast": [0, 2],
+  "material.flicker.amount": [0, 1],
+  "material.flicker.rate": [0.5, 60],
+  "emitter.render.strip.waviness": [0, 1],
+  "emitter.render.strip.stepRate": [0, 60],
+  "arcs.radius[0]": [0.02, 8],
+  "arcs.radius[1]": [0.02, 8],
+  "arcs.span": [0.05, 12],
+  "arcs.width": [0.002, 0.4],
+  "arcs.jitter.amplitude": [0, 3],
+  "arcs.blink.skipChance": [0, 1],
+  "streakBurst.length[0]": [0.1, 12],
+  "streakBurst.length[1]": [0.1, 12],
+  "streakBurst.width[0]": [0.005, 1],
+  "streakBurst.width[1]": [0.005, 1],
+  "streakBurst.curvature": [0, 1],
+  "streakBurst.upBias": [-1, 1],
+  "streakBurst.bundleSpread": [0, 2],
 };
 
 const COLOR_TARGETS = new Set<string>([
@@ -1345,6 +1656,12 @@ const COLOR_TARGETS = new Set<string>([
   "material.lattice.tileColor",
   "material.lattice.edgeColor",
   "material.planeGlow.color",
+  "arcs.coreColor",
+  "arcs.haloColor",
+  "geometry.slab.tiers[0].color",
+  "geometry.slab.tiers[1].color",
+  "geometry.slab.tiers[2].color",
+  "geometry.slab.tiers[3].color",
 ]);
 
 export const BUILTIN_TEXTURE_IDS: ReadonlySet<string> = new Set(
@@ -1393,6 +1710,12 @@ function materialCurves(material: Material, label: string) {
   // renderer's own hashed one.
   for (const ripple of material.ripples ?? [])
     if (ripple.origin) checkUnit(ripple.origin, `${label}/ripples.origin`);
+  // A stripe set with no frequency is a constant, which only dims the layer.
+  for (const stripe of material.stripes ?? [])
+    if (stripe.contrast > 0 && stripe.frequency <= 0)
+      throw new Error(
+        `Stripe has contrast but no frequency, so it only dims the layer: ${label}`,
+      );
   if (material.lattice && material.lattice.gapWidth >= material.lattice.edgeWidth)
     throw new Error(
       `Lattice gap is not narrower than its edge, so no wall is drawn: ${label}`,
@@ -1407,6 +1730,25 @@ function crystalChecks(crystals: Crystals, label: string) {
     crystals.direction.elevation,
     `${label}/crystals.direction.elevation`,
   );
+}
+
+function arcChecks(arcs: Arcs, label: string) {
+  checkRange(arcs.radius, `${label}/arcs.radius`);
+  checkRange(arcs.pitch, `${label}/arcs.pitch`);
+  checkRange(arcs.blink.period, `${label}/arcs.blink.period`);
+  checkRange(arcs.blink.onTime, `${label}/arcs.blink.onTime`);
+  // An arc that is lit for longer than its own cycle never blinks, which is the
+  // one thing this kind exists to do.
+  if (arcs.blink.onTime[0] >= arcs.blink.period[1])
+    throw new Error(
+      `Arc on-time is never shorter than its period, so nothing blinks: ${label}`,
+    );
+}
+
+function streakBurstChecks(burst: StreakBurst, label: string) {
+  checkRange(burst.length, `${label}/streakBurst.length`);
+  checkRange(burst.width, `${label}/streakBurst.width`);
+  checkCurve(burst.grow, `${label}/streakBurst.grow`);
 }
 
 function blobChecks(blob: Blob, label: string) {
@@ -1467,8 +1809,31 @@ function emitterChecks(emitter: Emitter, label: string) {
   }
   if (emitter.spawn.mode === "pathAnchored" && !emitter.spawn.headCurve)
     throw new Error(`Path-anchored spawn needs spawn.headCurve: ${label}`);
-  if (emitter.shape.type === "path" && !emitter.shape.pathId)
+  if (
+    (emitter.shape.type === "path" || emitter.shape.type === "pathLine") &&
+    !emitter.shape.pathId
+  )
     throw new Error(`Path emitter shape needs shape.pathId: ${label}`);
+  // A run along a path needs both the path to run on and the shared head
+  // envelope that moves it; neither has a sensible default.
+  if (emitter.velocity.mode === "alongPath") {
+    if (!emitter.shape.pathId)
+      throw new Error(`velocity.mode "alongPath" needs shape.pathId: ${label}`);
+    if (!emitter.velocity.speedCurve)
+      throw new Error(
+        `velocity.mode "alongPath" needs velocity.speedCurve as the head envelope: ${label}`,
+      );
+  }
+  if (emitter.render.mode === "flatStrip") {
+    if (!emitter.render.strip)
+      throw new Error(`render.mode "flatStrip" needs render.strip: ${label}`);
+    checkRange(emitter.render.strip.length, `${label}/render.strip.length`);
+    checkRange(emitter.render.strip.width, `${label}/render.strip.width`);
+  } else if (emitter.render.strip) {
+    throw new Error(
+      `render.strip is for render.mode "flatStrip" only: ${label}`,
+    );
+  }
   if (emitter.shape.type === "layerInstances" && !emitter.shape.sourceLayerId)
     throw new Error(
       `Layer-instance emitter shape needs shape.sourceLayerId: ${label}`,
@@ -1634,6 +1999,27 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     } else if (layer.crystals) {
       throw new Error(`Only crystals layers carry crystals: ${label}`);
     }
+    if (layer.kind === "arcs") {
+      if (!layer.arcs) throw new Error(`Arcs layer needs arcs: ${label}`);
+      arcChecks(layer.arcs, label);
+    } else if (layer.arcs) {
+      throw new Error(`Only arcs layers carry arcs: ${label}`);
+    }
+    if (layer.kind === "streakBurst") {
+      if (!layer.streakBurst)
+        throw new Error(`StreakBurst layer needs streakBurst: ${label}`);
+      streakBurstChecks(layer.streakBurst, label);
+    } else if (layer.streakBurst) {
+      throw new Error(`Only streakBurst layers carry streakBurst: ${label}`);
+    }
+    if (layer.collapse) {
+      checkCurve(layer.collapse.heightCurve, `${label}/collapse.heightCurve`);
+      checkCurve(layer.collapse.widthCurve, `${label}/collapse.widthCurve`);
+      if (layer.collapse.start > layer.end - layer.start + 1e-6)
+        throw new Error(
+          `Collapse starts after the layer ends, so it never runs: ${label}`,
+        );
+    }
     // The four surface features below read a real normal and a real world
     // position, which a billboard and the generated kinds do not have.
     if (layer.material && !(MESH_KINDS_V2 as readonly string[]).includes(layer.kind))
@@ -1681,6 +2067,18 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
         checkCurve(layer.geometry.lightning.widthCurve, `${label}/lightning`);
       if (layer.geometry.type === "band" && !layer.geometry.band)
         throw new Error(`Band geometry needs geometry.band: ${label}`);
+      if (layer.geometry.type === "slab" && !layer.geometry.slab)
+        throw new Error(`Slab geometry needs geometry.slab: ${label}`);
+      // Outermost first: a tier wider than the one before it would be painted
+      // over by it and never show.
+      for (let i = 1; i < (layer.geometry.slab?.tiers.length ?? 0); i++)
+        if (
+          layer.geometry.slab!.tiers[i].height >=
+          layer.geometry.slab!.tiers[i - 1].height
+        )
+          throw new Error(
+            `Slab tiers must narrow, outermost first: ${label} tier ${i}`,
+          );
     }
 
     if (layer.motion)
@@ -1745,7 +2143,9 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
         `${layer.id}: life variance ${(max / min).toFixed(2)} is below ${LIFE_VARIANCE_MIN}; particles will die in visible waves.`,
       );
     const [sizeMin, sizeMax] = emitter.render.size;
-    if (sizeMax / sizeMin < 1.2)
+    // A flatStrip lick takes its size from render.strip.length/width, which are
+    // bands of their own; render.size is only the sizeCurve's carrier there.
+    if (emitter.render.mode !== "flatStrip" && sizeMax / sizeMin < 1.2)
       warnings.push(
         `${layer.id}: size range is nearly uniform; add a size hierarchy.`,
       );
@@ -1775,6 +2175,9 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
     if (
       layer.enabled &&
       layer.emitter &&
+      // A flatStrip lick is a drawn shape, not a mote: 14-20 of them IS the
+      // population, and a hundred would read as fur.
+      layer.emitter.render.mode !== "flatStrip" &&
       layer.emitter.count < PARTICLE_COUNT_MIN
     )
       warnings.push(
@@ -1879,6 +2282,15 @@ export function effectExtentV2(
       const path = doc.paths.find((p) => p.id === layer.ribbon!.pathId);
       if (path) size = Math.max(size, pathSpanV2(path));
     }
+    // A cage of arcs spans its own helix; a streak fan spans its longest ray.
+    if (layer.arcs)
+      size = Math.max(
+        size,
+        layer.arcs.radius[1] * (1 + layer.arcs.jitter.amplitude) * 2,
+        layer.arcs.span,
+      );
+    if (layer.streakBurst)
+      size = Math.max(size, layer.streakBurst.length[1] * 2);
     if (layer.wireBurst)
       size = Math.max(
         size,
@@ -1917,10 +2329,15 @@ function pathSpanV2(path: PathV2): number {
       (path.radius + path.wobble.amplitude) * 2,
       Math.abs(path.height),
     );
+  const points =
+    path.type === "line"
+      ? [path.from, path.to]
+      : [path.from, path.control, path.to];
   return Math.max(
-    ...[0, 1, 2].map((axis) =>
-      Math.max(path.from[axis], path.control[axis], path.to[axis]) -
-      Math.min(path.from[axis], path.control[axis], path.to[axis]),
+    ...[0, 1, 2].map(
+      (axis) =>
+        Math.max(...points.map((p) => p[axis])) -
+        Math.min(...points.map((p) => p[axis])),
     ),
   );
 }
@@ -1975,6 +2392,8 @@ export function defaultMaterial(): Material {
     lattice: null,
     planeGlow: null,
     ripples: null,
+    stripes: null,
+    flicker: null,
   };
 }
 
@@ -2127,6 +2546,7 @@ export function defaultEmitter(): Emitter {
       rotation: { initial: [0, Math.PI * 2], speed: [-1, 1] },
       sortMode: "byDistance",
       twinkle: null,
+      strip: null,
     },
     trail: null,
     sub: null,
@@ -2145,6 +2565,57 @@ export function defaultGeometry(): GeometryV2 {
     vertexNoise: null,
     lightning: null,
     band: null,
+    slab: null,
+  };
+}
+
+/** The beam spike's body: a violet outer tier, a magenta body, a pink core. */
+export function defaultSlab(): Slab {
+  return {
+    anchor: "center",
+    tiers: [
+      { height: 0.62, color: "#5719b8", intensity: 0.34 },
+      { height: 0.275, color: "#c705e6", intensity: 0.56 },
+      { height: 0.125, color: "#ff6ef0", intensity: 0.42 },
+    ],
+    taper: 1,
+  };
+}
+
+/** The column spike's cage, in the units the exemplar uses. */
+export function defaultArcs(): Arcs {
+  return {
+    count: 12,
+    radius: [0.26, 0.52],
+    pitch: [0.4, 1.8],
+    span: 3.1,
+    jitter: { amplitude: 0.7, frequency: 9, fold: 1 },
+    blink: {
+      period: [0.18, 0.38],
+      onTime: [0.07, 0.15],
+      skipChance: 0.26,
+    },
+    width: 0.028,
+    coreColor: "#dff4ff",
+    haloColor: "#ffb020",
+    seed: 6131,
+  };
+}
+
+/** The column spike's eruption fan. */
+export function defaultStreakBurst(): StreakBurst {
+  return {
+    count: 56,
+    length: [1.5, 4],
+    width: [0.03, 0.08],
+    curvature: 0.2,
+    upBias: 0.42,
+    bundles: 7,
+    bundleSpread: 0.48,
+    stagger: 0.22,
+    grow: defaultCurve(0, 1),
+    hues: ["#ff8a2a", "#ff4a8a", "#ffd27a"],
+    seed: 2313,
   };
 }
 
@@ -2210,6 +2681,7 @@ export function defaultDocumentShell(
       chromatic: 0.0025,
       motionBlur: 0,
       glitch: null,
+      flash: null,
     },
     paths: [],
     textures: [],
@@ -2226,6 +2698,9 @@ export function defaultsV2() {
     ribbon: defaultRibbon(),
     wireBurst: defaultWireBurst(),
     crystals: defaultCrystals(),
+    arcs: defaultArcs(),
+    streakBurst: defaultStreakBurst(),
+    slab: defaultSlab(),
     shell: defaultDocumentShell(),
   };
 }
@@ -2279,6 +2754,23 @@ export const MaterialWireSchema = MaterialSchema.extend({
     .array(RippleSchema.extend({ origin: num3.nullable() }))
     .max(RIPPLE_BUDGET_V2)
     .nullable(),
+  stripes: z.array(StripeSchema).max(STRIPE_BUDGET_V2).nullable(),
+  flicker: FlickerSchema.nullable(),
+});
+export const ArcsWireSchema = ArcsSchema.extend({
+  radius: num2,
+  pitch: num2,
+  blink: ArcBlinkSchema.extend({ period: num2, onTime: num2 }),
+});
+export const StreakBurstWireSchema = StreakBurstSchema.extend({
+  length: num2,
+  width: num2,
+  grow: CurveWireSchema,
+  hues: z.array(hex).length(3),
+});
+export const CollapseWireSchema = CollapseSchema.extend({
+  heightCurve: CurveWireSchema,
+  widthCurve: CurveWireSchema,
 });
 export const CrystalsWireSchema = CrystalsSchema.extend({
   direction: CrystalDirectionSchema.extend({ elevation: num2 }),
@@ -2297,6 +2789,7 @@ export const WireBurstWireSchema = WireBurstSchema.extend({
 export const PathV2WireSchema = z.discriminatedUnion("type", [
   OrbitPathSchema.extend({ center: num3 }),
   BezierPathSchema.extend({ from: num3, control: num3, to: num3 }),
+  LinePathSchema.extend({ from: num3, to: num3 }),
 ]);
 export const BlobWireSchema = BlobSchema.extend({
   radius: num2,
@@ -2339,6 +2832,7 @@ export const EmitterWireSchema = EmitterSchema.extend({
     alphaAlongSpawn: CurveWireSchema.nullable(),
     rotation: ParticleRotationSchema.extend({ initial: num2, speed: num2 }),
     twinkle: TwinkleSchema.nullable(),
+    strip: StripSchema.extend({ length: num2, width: num2 }).nullable(),
   }),
   trail: TrailSchema.extend({ widthCurve: CurveWireSchema }).nullable(),
   sub: SubEmitterSchema.extend({ offset: num2 }).nullable(),
@@ -2346,6 +2840,7 @@ export const EmitterWireSchema = EmitterSchema.extend({
 export const GeometryV2WireSchema = GeometryV2Schema.extend({
   taper: scalar(0.05, 1),
   band: BandSchema.nullable(),
+  slab: SlabSchema.nullable(),
   vertexNoise: VertexNoiseSchema.extend({
     bias: num3,
     alongCurve: CurveWireSchema,
@@ -2362,6 +2857,7 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   }),
   motion: MotionWireSchema.nullable(),
   jitter: JitterSchema.extend({ axis: num3.nullable() }).nullable(),
+  collapse: CollapseWireSchema.nullable(),
   material: MaterialWireSchema.nullable(),
   emitter: EmitterWireSchema.nullable(),
   geometry: GeometryV2WireSchema.nullable(),
@@ -2371,6 +2867,8 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   ribbon: RibbonWireSchema.nullable(),
   wireBurst: WireBurstWireSchema.nullable(),
   crystals: CrystalsWireSchema.nullable(),
+  arcs: ArcsWireSchema.nullable(),
+  streakBurst: StreakBurstWireSchema.nullable(),
   tracks: z
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
@@ -2395,6 +2893,7 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
       curve: CurveWireSchema,
       blockGrid: z.array(z.number().int()).length(2),
     }).nullable(),
+    flash: FlashSchema.extend({ curve: CurveWireSchema }).nullable(),
   }),
   paths: z.array(PathV2WireSchema).max(PATH_BUDGET_V2),
   layers: z.array(LayerV2WireSchema).min(1).max(24),
@@ -2423,6 +2922,8 @@ export function fromWireV2(
       "ribbon",
       "wireBurst",
       "crystals",
+      "arcs",
+      "streakBurst",
     ])
       if (next[slot] === null) delete next[slot];
     return next;

@@ -44,13 +44,31 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   `emitter.forces.planarDrag` settles a burst into a drifting disc. `material.procedural:"sigil"`
   draws a whole cast circle from one card. Ported from the S3 ice and shield spikes
   (`TOOLBOX_V2_MAPPING.md` §7–§8); `ice-blast` and `shield` are rebuilt entirely on them.
+- **Sustained vocabulary** (`arcs-v2.ts`, `streak-burst-v2.ts`, `schema-v2.ts`, `shaders-v2.ts`,
+  `runtime-v2.ts`, `post-v2.ts`, `evaluate-v2.ts`): `material.stripes` (up to three sets of hard
+  panning bands keyed on the layer's ALONG coordinate in world metres, each set's `phase` deciding
+  whether the bands run straight round the body as a machine segment ladder or break into
+  per-ring filaments) and `material.flicker` (a hashed STEP on the layer's intensity, not a sine
+  pulse); `geometry.type:"slab"` + `geometry.slab` (a view-space billboard bar pinned to the
+  layer's local +Z, tiered into hard-edged bands — the readable body of a beam and of a column);
+  `kind:"arcs"` (blinking camera-facing helical wires re-hashed on every blink cycle) and
+  `kind:"streakBurst"` (a clumped screen-space speed-line fan); `layer.collapse` (ONE retraction
+  applied uniformly to a layer, so every part of a composite body shrinks in step); `post.flash`
+  (a full-screen additive white-out); `paths[].type:"line"`, `emitter.shape.type:"pathLine"` and
+  `emitter.velocity.mode:"alongPath"` (a scatter and a run along a straight axis);
+  `emitter.render.mode:"flatStrip"` + `render.strip` (tapered flat cel licks on a flipbook hold,
+  two palettes by instance parity); and the `lensFlare` / `radialRays` procedurals, both radially
+  cut off and both supplying their own ramp key. Ported from the S7 beam and S10 column spikes
+  (`TOOLBOX_V2_MAPPING.md` §9–§10); `beam` is rebuilt on them and `energy-column` is new.
 - **Pipeline v2** (`protocol-v2.ts`, `recipes-v2.ts`, `pipeline.ts`, `refine.ts`, `route.ts`): planner/candidate/
   review/refine on schema v2 with structured outputs, scale anchors, lint-driven repair, review v2
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).
 - **Exemplars** (`fixtures/v2/*/document.json`): fire-projectile, smoke-burst, lightning-impact, beam,
-  fire-slash, ice-blast, shield, healing-aura, glitch-projectile — hand-authored against the benchmark
-  references (the "oracle"). The last two are the fx15 and fx04 cases; the planner reaches them by
-  prompt keyword (`recipeV2For(id, prompt)`), since `PlanSchema` still names v1 recipe ids.
+  fire-slash, ice-blast, shield, healing-aura, glitch-projectile, energy-column — hand-authored
+  against the benchmark references (the "oracle"). The last three are the fx15, fx04 and fx16
+  cases; the planner reaches them by prompt keyword (`recipeV2For(id, prompt)` on aura/heal,
+  glitch/digital/hologram and column/overload/pillar/surge), since `PlanSchema` still names v1
+  recipe ids.
 - **Dev gallery** `/dev/vfx-v2` (`npm run dev`): exemplars + every generated benchmark run, references,
   feature toggles, orbit camera, contact-sheet capture. `/dev` is excluded from production builds at build time
   (`scripts/verify-dev-excluded.mjs`).
@@ -59,7 +77,7 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
 
 ## Where the v2 assets live
 
-The 32-texture v2 library and the seven exemplar documents are served from two public
+The 32-texture v2 library and the ten exemplar documents are served from two public
 Supabase Storage buckets instead of `frontend/public/` — the PNGs are no longer committed, so
 they never enter a build or a deployment.
 

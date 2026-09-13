@@ -261,6 +261,8 @@ test("wire round-trip: homogeneous arrays parse back into the runtime contract",
       ribbon: layer.ribbon ?? null,
       wireBurst: layer.wireBurst ?? null,
       crystals: layer.crystals ?? null,
+      arcs: layer.arcs ?? null,
+      streakBurst: layer.streakBurst ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -380,6 +382,8 @@ test("blob and splash round-trip through the wire contract", () => {
       ribbon: layer.ribbon ?? null,
       wireBurst: layer.wireBurst ?? null,
       crystals: layer.crystals ?? null,
+      arcs: layer.arcs ?? null,
+      streakBurst: layer.streakBurst ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -614,6 +618,8 @@ test("paths, ribbons and bursts round-trip through the wire contract", () => {
         ribbon: layer.ribbon ?? null,
         wireBurst: layer.wireBurst ?? null,
         crystals: layer.crystals ?? null,
+        arcs: layer.arcs ?? null,
+        streakBurst: layer.streakBurst ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -843,6 +849,8 @@ test("the ice and shield exemplars round-trip through the wire contract", () => 
         ribbon: layer.ribbon ?? null,
         wireBurst: layer.wireBurst ?? null,
         crystals: layer.crystals ?? null,
+        arcs: layer.arcs ?? null,
+        streakBurst: layer.streakBurst ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -984,4 +992,294 @@ rejectShield(
     d.layers.find((l) => l.geometry?.type === "band")!.geometry!.band = null;
   },
   /Band geometry needs geometry.band/,
+);
+
+// ---------------------------------------------------------------------------
+// The beam / energy-column port: material.stripes and material.flicker,
+// geometry.type "slab", kind "arcs" and "streakBurst", layer.collapse,
+// post.flash, paths[].type "line", emitter.shape "pathLine",
+// emitter.velocity "alongPath" and emitter.render.mode "flatStrip".
+// ---------------------------------------------------------------------------
+
+const BEAM = path.join(process.cwd(), "fixtures/v2/beam/document.json");
+const COLUMN = path.join(
+  process.cwd(),
+  "fixtures/v2/energy-column/document.json",
+);
+const beamRaw = JSON.parse(readFileSync(BEAM, "utf8"));
+const columnRaw = JSON.parse(readFileSync(COLUMN, "utf8"));
+const beam = (): VfxDocumentV2 => structuredClone(beamRaw);
+const column = (): VfxDocumentV2 => structuredClone(columnRaw);
+
+test("the beam exemplar is a tiered slab, striped tubes and cel licks", () => {
+  const doc = validateDocumentV2(beam());
+  const body = doc.layers.find((l) => l.id === "beam-body")!;
+  assert.equal(body.geometry!.type, "slab");
+  // Outermost first: every later tier paints over the one before it.
+  const heights = body.geometry!.slab!.tiers.map((t) => t.height);
+  assert.deepEqual([...heights].sort((a, b) => b - a), heights);
+  assert.equal(body.geometry!.slab!.anchor, "base");
+  const sheath = doc.layers.find((l) => l.id === "beam-sheath")!;
+  assert.equal(sheath.material!.stripes!.length, 2);
+  assert.ok(sheath.material!.flicker!.amount > 0);
+  // A sheath IS its bands; a core only breathes.
+  const core = doc.layers.find((l) => l.id === "beam-core")!;
+  assert.ok(
+    core.material!.stripes![0].contrast < sheath.material!.stripes![0].contrast,
+  );
+  const tongues = doc.layers.find((l) => l.id === "beam-tongues")!;
+  assert.equal(tongues.emitter!.render.mode, "flatStrip");
+  assert.equal(tongues.emitter!.render.strip!.palettes, 2);
+  // The parity split only lands dark-behind-light in instance order.
+  assert.equal(tongues.emitter!.render.sortMode, "none");
+  assert.equal(doc.paths[0].type, "line");
+  const run = doc.layers.find((l) => l.id === "shutoff-run")!;
+  assert.equal(run.emitter!.velocity.mode, "alongPath");
+  assert.ok(run.emitter!.velocity.speedCurve);
+  const residue = doc.layers.find((l) => l.id === "residue")!;
+  assert.equal(residue.emitter!.shape.type, "pathLine");
+  assert.equal(residue.emitter!.shape.pathId, "beam-line");
+  assert.ok(doc.layers.some((l) => l.material?.procedural === "lensFlare"));
+  assert.ok(doc.layers.some((l) => l.material?.procedural === "radialRays"));
+});
+
+test("the energy-column exemplar shares one collapse across its body", () => {
+  const doc = validateDocumentV2(column());
+  const collapsing = doc.layers.filter((l) => l.collapse);
+  assert.ok(collapsing.length >= 4);
+  // One retraction, copied: every part of the column has to shrink in step.
+  for (const layer of collapsing) {
+    assert.equal(layer.collapse!.anchor, "base");
+    assert.deepEqual(layer.collapse!.heightCurve, collapsing[0].collapse!.heightCurve);
+    assert.deepEqual(layer.collapse!.widthCurve, collapsing[0].collapse!.widthCurve);
+  }
+  const arcs = doc.layers.find((l) => l.kind === "arcs")!;
+  assert.ok(arcs.arcs!.count >= 10);
+  assert.ok(arcs.arcs!.jitter.fold > 0.5, "the wires kink rather than curl");
+  assert.ok(arcs.arcs!.blink.onTime[1] < arcs.arcs!.blink.period[0]);
+  const streaks = doc.layers.find((l) => l.kind === "streakBurst")!;
+  assert.equal(streaks.streakBurst!.hues.length, 3);
+  assert.ok(streaks.streakBurst!.bundles > 1);
+  assert.ok(doc.post.flash);
+  // Two or three frames of white-out, not a held exposure.
+  assert.equal(doc.post.flash!.curve.keys[doc.post.flash!.curve.keys.length - 1][1], 0);
+  // The segment ladder runs straight round the shaft.
+  const shell = doc.layers.find((l) => l.id === "column-shell")!;
+  assert.equal(shell.material!.stripes![0].phase, 0);
+});
+
+test("the beam and column exemplars lint clean", () => {
+  assert.deepEqual(lintDocumentV2(validateDocumentV2(beam())), []);
+  assert.deepEqual(lintDocumentV2(validateDocumentV2(column())), []);
+});
+
+test("the beam and column exemplars round-trip through the wire contract", () => {
+  for (const source of [beam, column]) {
+    const doc = validateDocumentV2(source());
+    const wire = {
+      ...structuredClone(doc),
+      layers: doc.layers.map((layer) => ({
+        ...structuredClone(layer),
+        material: layer.material ?? null,
+        emitter: layer.emitter ?? null,
+        geometry: layer.geometry ?? null,
+        light: layer.light ?? null,
+        blob: layer.blob ?? null,
+        splash: layer.splash ?? null,
+        ribbon: layer.ribbon ?? null,
+        wireBurst: layer.wireBurst ?? null,
+        crystals: layer.crystals ?? null,
+        arcs: layer.arcs ?? null,
+        streakBurst: layer.streakBurst ?? null,
+      })),
+    };
+    delete (wire as Record<string, unknown>).textures;
+    DocumentV2WireSchema.parse(wire);
+    assert.deepEqual(fromWireV2(wire), { ...doc, textures: [] });
+  }
+});
+
+test("the beam/column fields are all defaulted, so an archived document loads", () => {
+  const bare = load();
+  for (const layer of bare.layers) {
+    delete (layer as Record<string, unknown>).collapse;
+    if (layer.material)
+      for (const key of ["stripes", "flicker"])
+        delete (layer.material as Record<string, unknown>)[key];
+    if (layer.geometry) delete (layer.geometry as Record<string, unknown>).slab;
+    if (layer.emitter)
+      delete (layer.emitter.render as Record<string, unknown>).strip;
+  }
+  delete (bare.post as Record<string, unknown>).flash;
+  const doc = validateDocumentV2(bare);
+  assert.equal(doc.post.flash, null);
+  for (const layer of doc.layers) {
+    assert.equal(layer.collapse, null);
+    if (layer.material) {
+      assert.equal(layer.material.stripes, null);
+      assert.equal(layer.material.flicker, null);
+    }
+    if (layer.geometry) assert.equal(layer.geometry.slab, null);
+    if (layer.emitter) assert.equal(layer.emitter.render.strip, null);
+  }
+});
+
+test("the defaults for the port's generators are valid building blocks", () => {
+  const parts = defaultsV2();
+  const doc = validateDocumentV2({
+    ...parts.shell,
+    duration: 5,
+    impact: 1.5,
+    layers: [
+      {
+        id: "cage",
+        name: "Cage",
+        role: "secondary",
+        kind: "arcs",
+        start: 0,
+        end: 4,
+        enabled: true,
+        transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        motion: null,
+        jitter: null,
+        collapse: null,
+        material: parts.material,
+        arcs: parts.arcs,
+        tracks: [],
+        overrides: [],
+      },
+      {
+        id: "fan",
+        name: "Fan",
+        role: "impact",
+        kind: "streakBurst",
+        start: 1.5,
+        end: 4,
+        enabled: true,
+        transform: { position: [0, 2, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        motion: null,
+        jitter: null,
+        collapse: null,
+        material: parts.material,
+        streakBurst: parts.streakBurst,
+        tracks: [],
+        overrides: [],
+      },
+      {
+        id: "bar",
+        name: "Bar",
+        role: "primary",
+        kind: "beam",
+        start: 0,
+        end: 4,
+        enabled: true,
+        transform: { position: [0, 1, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+        motion: null,
+        jitter: null,
+        collapse: null,
+        material: parts.material,
+        geometry: { ...parts.geometry, type: "slab", slab: parts.slab },
+        tracks: [],
+        overrides: [],
+      },
+    ],
+  });
+  assert.equal(doc.layers.length, 3);
+});
+
+const rejectBeam = (
+  name: string,
+  mutate: (doc: VfxDocumentV2) => void,
+  message: RegExp,
+) =>
+  test(`rejects: ${name}`, () => {
+    const doc = beam();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), message);
+  });
+
+rejectBeam(
+  "slab tiers that widen instead of narrowing",
+  (d) => {
+    const slab = d.layers.find((l) => l.geometry?.type === "slab")!.geometry!.slab!;
+    slab.tiers[1].height = slab.tiers[0].height + 0.1;
+  },
+  /Slab tiers must narrow/,
+);
+rejectBeam(
+  "slab geometry with no slab spec",
+  (d) => {
+    d.layers.find((l) => l.geometry?.type === "slab")!.geometry!.slab = null;
+  },
+  /Slab geometry needs geometry.slab/,
+);
+rejectBeam(
+  "a stripe with contrast but no frequency",
+  (d) => {
+    d.layers.find((l) => l.id === "beam-sheath")!.material!.stripes![0].frequency = 0;
+  },
+  /no frequency/,
+);
+rejectBeam(
+  "a run along a path with no head envelope",
+  (d) => {
+    d.layers.find((l) => l.id === "shutoff-run")!.emitter!.velocity.speedCurve = null;
+  },
+  /needs velocity.speedCurve/,
+);
+rejectBeam(
+  "flatStrip with no strip spec",
+  (d) => {
+    d.layers.find((l) => l.id === "beam-tongues")!.emitter!.render.strip = null;
+  },
+  /needs render.strip/,
+);
+rejectBeam(
+  "a strip spec on an ordinary billboard",
+  (d) => {
+    const layer = d.layers.find((l) => l.id === "beam-tongues")!;
+    layer.emitter!.render.mode = "billboard";
+  },
+  /render.strip is for/,
+);
+rejectBeam(
+  "a pathLine emitter with no path",
+  (d) => {
+    d.layers.find((l) => l.id === "residue")!.emitter!.shape.pathId = null;
+  },
+  /needs shape.pathId/,
+);
+
+const rejectColumn = (
+  name: string,
+  mutate: (doc: VfxDocumentV2) => void,
+  message: RegExp,
+) =>
+  test(`rejects: ${name}`, () => {
+    const doc = column();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), message);
+  });
+
+rejectColumn(
+  "arcs that are lit for longer than their own cycle",
+  (d) => {
+    d.layers.find((l) => l.kind === "arcs")!.arcs!.blink.onTime = [0.5, 0.6];
+  },
+  /nothing blinks/,
+);
+rejectColumn(
+  "arcs on a layer that is not an arcs layer",
+  (d) => {
+    d.layers.find((l) => l.id === "column-shell")!.arcs =
+      d.layers.find((l) => l.kind === "arcs")!.arcs;
+  },
+  /Only arcs layers carry arcs/,
+);
+rejectColumn(
+  "a collapse that starts after the layer ends",
+  (d) => {
+    d.layers.find((l) => l.id === "column-shell")!.collapse!.start = 9;
+  },
+  /never runs/,
 );

@@ -19,9 +19,10 @@ export const DEFAULT_SUPABASE_URL = "https://tkjstnitmfwgmedipcvs.supabase.co";
 export const VFX_TEXTURE_BUCKET = "vfx-textures";
 export const VFX_FIXTURE_BUCKET = "vfx-fixtures";
 
-/** The nine hand-authored exemplars in fixtures/v2 / the vfx-fixtures bucket. */
+/** The ten hand-authored exemplars in fixtures/v2 / the vfx-fixtures bucket. */
 export const FIXTURE_IDS = [
   "beam",
+  "energy-column",
   "fire-projectile",
   "fire-slash",
   "glitch-projectile",

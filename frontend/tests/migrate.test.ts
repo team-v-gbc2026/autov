@@ -197,3 +197,32 @@ test("an upgraded v1 document carries the neutral value of every later field", (
     }
   }
 });
+
+test("the beam/column vocabulary is absent from every upgraded v1 document", () => {
+  // A v1 document has no concept of a slab, a stripe set, a step flicker, a
+  // collapse or a flat cel lick, so the migrator must leave every one of them
+  // at its documented null — an upgraded v1 effect renders exactly as it did.
+  for (const file of FILES) {
+    const v2 = validateDocumentV2(upgradeDocument(loadV1(file)));
+    assert.equal(v2.post.flash, null, file);
+    for (const path of v2.paths) assert.notEqual(path.type, "line");
+    for (const layer of v2.layers) {
+      assert.equal(layer.collapse, null, `${file}/${layer.id}`);
+      assert.ok(layer.kind !== "arcs" && layer.kind !== "streakBurst");
+      if (layer.material) {
+        assert.equal(layer.material.stripes, null, `${file}/${layer.id}`);
+        assert.equal(layer.material.flicker, null, `${file}/${layer.id}`);
+      }
+      if (layer.geometry) {
+        assert.notEqual(layer.geometry.type, "slab");
+        assert.equal(layer.geometry.slab, null, `${file}/${layer.id}`);
+      }
+      if (layer.emitter) {
+        assert.equal(layer.emitter.render.strip, null, `${file}/${layer.id}`);
+        assert.notEqual(layer.emitter.render.mode, "flatStrip");
+        assert.notEqual(layer.emitter.velocity.mode, "alongPath");
+        assert.notEqual(layer.emitter.shape.type, "pathLine");
+      }
+    }
+  }
+});

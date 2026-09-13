@@ -119,6 +119,34 @@ const GlitchShader = {
     }`,
 };
 
+/**
+ * post.flash: a full-screen ADDITIVE wash, right after bloom so the wash is not
+ * itself bloomed into a smear. `curve` is the strength over the document's own
+ * 0..1 progress; the pass is disabled outright at zero, so it costs nothing off
+ * its window. The vignette darkens it toward the frame edges, which is what
+ * leaves the flash a centre instead of a flat white card.
+ */
+const FlashShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    uA: { value: 0 },
+    uColor: { value: new THREE.Color(1, 1, 1) },
+    uVignette: { value: 0.6 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uA,uVignette; uniform vec3 uColor;
+    varying vec2 vUv;
+    void main(){
+      vec4 src=texture2D(tDiffuse,vUv);
+      vec2 q=(vUv-.5)*2.;
+      float v=1.-uVignette*smoothstep(.10,1.10,length(q*vec2(1.,.62)));
+      gl_FragColor=vec4(src.rgb+uColor*uA*max(v,0.),src.a);
+    }`,
+};
+
 export interface PostStackV2 {
   composer: EffectComposer;
   bloom: UnrealBloomPass;
@@ -126,6 +154,7 @@ export interface PostStackV2 {
   vignette: ShaderPass;
   grade: ShaderPass;
   glitch: ShaderPass;
+  flash: ShaderPass;
   setSize(width: number, height: number): void;
   /** `time` is DOCUMENT seconds; only post.glitch reads it. */
   apply(
@@ -159,6 +188,8 @@ export function createPostStack(
   composer.addPass(bloom);
   const glitch = new ShaderPass(GlitchShader);
   composer.addPass(glitch);
+  const flash = new ShaderPass(FlashShader);
+  composer.addPass(flash);
   const grade = new ShaderPass(GradeShader);
   composer.addPass(grade);
   const vignette = new ShaderPass(VignetteShader);
@@ -174,6 +205,7 @@ export function createPostStack(
     vignette,
     grade,
     glitch,
+    flash,
     setSize(w, h) {
       composer.setSize(Math.max(1, w), Math.max(1, h));
     },
@@ -207,6 +239,21 @@ export function createPostStack(
         (glitch.uniforms.uBlocks.value as THREE.Vector2).fromArray(spec.blockGrid);
         glitch.uniforms.uSplit.value = spec.split;
         glitch.uniforms.uEdgeBias.value = spec.edgeBias;
+      }
+      // post.flash: the same domain post.glitch uses — the document's own 0..1
+      // progress — so a seek lands on exactly the frame playback would draw.
+      const flashSpec = doc.post.flash;
+      const amount = flashSpec
+        ? Math.max(
+            0,
+            sampleCurve(flashSpec.curve, time / Math.max(doc.duration, 1e-4)),
+          )
+        : 0;
+      flash.enabled = flags.post && amount > 0.002;
+      if (flashSpec) {
+        flash.uniforms.uA.value = amount;
+        (flash.uniforms.uColor.value as THREE.Color).set(flashSpec.color);
+        flash.uniforms.uVignette.value = flashSpec.vignette;
       }
       smaa.enabled = flags.aa && doc.quality.aa === "msaa+smaa";
     },

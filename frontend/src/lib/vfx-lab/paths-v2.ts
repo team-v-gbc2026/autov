@@ -22,6 +22,10 @@ const TANGENT_STEP = 1e-3;
 export type Vec3 = [number, number, number];
 
 export function pathPoint(path: PathV2, u: number): Vec3 {
+  if (path.type === "line") {
+    const m = 1 - u;
+    return [0, 1, 2].map((axis) => m * path.from[axis] + u * path.to[axis]) as Vec3;
+  }
   if (path.type === "bezier") {
     const m = 1 - u;
     return [0, 1, 2].map(
@@ -102,7 +106,8 @@ export function findPath(doc: VfxDocumentV2, id: string | null): PathV2 | null {
  * describe both path types; which fields are read is decided by `u${P}PathType`
  * (0 = orbit, 1 = bezier).
  *
- *   u{P}PathType   0 orbit / 1 bezier
+ *   u{P}PathType   0 orbit / 1 bezier (a "line" rides the bezier branch with its
+ *                  control at the midpoint, which is exactly the segment)
  *   u{P}PathA      orbit: center          bezier: from
  *   u{P}PathB      orbit: unused          bezier: control
  *   u{P}PathC      orbit: unused          bezier: to
@@ -114,7 +119,24 @@ export function pathUniforms(
   path: PathV2 | null,
 ): Record<string, THREE.IUniform> {
   const orbit = path && path.type === "orbit" ? path : null;
-  const bezier = path && path.type === "bezier" ? path : null;
+  // A "line" travels on the bezier branch with its control point at the
+  // midpoint, which IS the straight segment term for term
+  // (m²F + 2mu·(F+T)/2 + u²T = mF + uT). So the GLSL only ever needs two
+  // branches however many path types the schema grows.
+  const bezier =
+    path && path.type === "bezier"
+      ? { from: path.from, control: path.control, to: path.to }
+      : path && path.type === "line"
+        ? {
+            from: path.from,
+            control: path.from.map((v, i) => (v + path.to[i]) * 0.5) as [
+              number,
+              number,
+              number,
+            ],
+            to: path.to,
+          }
+        : null;
   return {
     [`u${prefix}PathType`]: { value: bezier ? 1 : 0 },
     [`u${prefix}PathA`]: {

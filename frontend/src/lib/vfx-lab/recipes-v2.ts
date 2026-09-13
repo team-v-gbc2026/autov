@@ -7,6 +7,7 @@ import shieldFixture from "../../../fixtures/v2/shield/document.json";
 import iceBlastFixture from "../../../fixtures/v2/ice-blast/document.json";
 import healingAuraFixture from "../../../fixtures/v2/healing-aura/document.json";
 import glitchProjectileFixture from "../../../fixtures/v2/glitch-projectile/document.json";
+import energyColumnFixture from "../../../fixtures/v2/energy-column/document.json";
 import type { RecipeId } from "./recipes";
 import {
   type Curve,
@@ -49,6 +50,7 @@ export const RECIPE_V2_IDS = [
   "ice-blast",
   "healing-aura",
   "glitch-projectile",
+  "energy-column",
 ] as const;
 export type RecipeV2Id = (typeof RECIPE_V2_IDS)[number];
 
@@ -85,6 +87,9 @@ export const V1_RECIPE_TO_V2: Record<RecipeId, RecipeV2Id> = {
 export const FAMILY_KEYWORDS: Array<[RegExp, RecipeV2Id]> = [
   [/\baura\b|\bheal|\bbuff\b|restorat/i, "healing-aura"],
   [/glitch|digital|hologram/i, "glitch-projectile"],
+  // A standing vertical construct: the v1 vocabulary has no name for it, so the
+  // prompt routes it the same way aura and glitch are routed.
+  [/column|overload|pillar|surge/i, "energy-column"],
 ];
 
 // --- small builders --------------------------------------------------------
@@ -135,6 +140,8 @@ type MaterialOptions = {
   lattice?: Material["lattice"];
   planeGlow?: Material["planeGlow"];
   ripples?: Material["ripples"];
+  stripes?: Material["stripes"];
+  flicker?: Material["flicker"];
 };
 
 function mat(options: MaterialOptions): Material {
@@ -185,6 +192,8 @@ function mat(options: MaterialOptions): Material {
     lattice: options.lattice ?? null,
     planeGlow: options.planeGlow ?? null,
     ripples: options.ripples ?? null,
+    stripes: options.stripes ?? null,
+    flicker: options.flicker ?? null,
   };
 }
 
@@ -237,6 +246,7 @@ type LayerCommon = {
   scale?: Vec3;
   motion?: LayerV2["motion"];
   jitter?: LayerV2["jitter"];
+  collapse?: LayerV2["collapse"];
   tracks?: TrackV2[];
 };
 
@@ -255,6 +265,7 @@ function base(common: LayerCommon) {
     },
     motion: common.motion ?? null,
     jitter: common.jitter ?? null,
+    collapse: common.collapse ?? null,
     tracks: common.tracks ?? [],
     overrides: [],
   };
@@ -804,7 +815,7 @@ export const RECIPES_V2: Record<
     name: "Sustained beam",
     subtitle: "Charge, extend, sustain, release.",
     knowledge:
-      "Converging-mote and glitter particles (negative radial speed) build the charge for ~1 s. The core is a plain, unmasked white beam; a saturated magenta sheath with scrolling noise and a tracked erosion.curve rides outside it, flanked by two thin energy-ribbon trails offset above/below the core for a braided look. geometry.length is tracked from near-zero to full reach on extend and back to zero on release, while material.opacity is held through the sustain by a flat multi-key track. Muzzle/endpoint flare sprites, a velocity-stretched spark trail and a yellow-green residue burst (particles + haze) that only starts after the core cuts off complete it, lit by two point lights.",
+      'Four beats over 5 s: charge 0-1.0, extend 1.0-1.2, sustain to 3.5, extinguish to 4.0, residue to 5.0. Converging motes (a sphere emitter with NEGATIVE radial speed) and a growing softRadial ball build the charge at the muzzle. The body is THREE coaxial layers on one axis (rotation [0,-1.5708,0] fires at -X), all sharing one tracked geometry.length that snaps 0 to 6 on the extend and retracts from the far end on the shut-off: a geometry.type "slab" whose slab.tiers are a violet outer band, a magenta body and a pink inner band, hard-edged, which is the readable WIDTH of the beam; a cylinder sheath at radius 0.2 carrying two material.stripes sets at contrast 1 and a material.flicker at 10 Hz, which is the panning band pattern; and a white cylinder core at radius 0.05 with a nearly flat white ramp and one low-contrast stripe set, which is the only thing that blooms. Outside it, two emitter.render.mode "flatStrip" layers on a line emitter along the beam: 18 flame tongues with strip.palettes 2 (dark violet behind, lilac in front) at 0.8-2.4 long and 34 thin bright streak licks, both re-hashed on a 6-10 Hz flipbook step. The muzzle is a "lensFlare" sprite with a high anisotropy so it reads as a tall blade, plus a "radialRays" sprite. On shut-off a paths[] "line" along the beam carries a velocity.mode "alongPath" sparkle run and then an emitter.shape.type "pathLine" yellow-green residue scatter that twinkles and drifts. Two point lights and a ringFill ground pool land it.',
   },
   "meteor-rain": {
     name: "Meteor impact",
@@ -830,6 +841,12 @@ export const RECIPES_V2: Record<
     knowledge:
       'One "bezier" document path from the launch point through a lifted control point to the target carries the head, the trail and the hairlines, so nothing can drift apart. Fragments converge on the launch point first (a particles layer with NEGATIVE radial speed and layer.jitter). The head is a cone shell plus a star4 sprite, both driven by the same motion keys sampled off the already-eased Bezier and both carrying the same layer.jitter (frequency ~10, gate 0.85) so they break in the same stepped windows. The trail is a particles layer with emitter.shape.type "path" on the same path, emitter.spawn.mode "pathAnchored" with a headCurve that matches the head easing, render.mode "pathAligned" and render.twinkle: each dash is born as the head passes it, holds that spot and flickers out. A kind:"ribbon" of 3 hairline strands fills the window just behind the head. The hit is a softRadial flash, a kind:"wireBurst" of polygon outlines and spokes with material.rgbSplit and its own layer.jitter, and rectangular shards (procedural "solid") on ballistic paths. post.glitch fires for two frames at the hit. A dark smoke plume and rising cyan sparks clear by the end.',
   },
+  "energy-column": {
+    name: "Energy overload column",
+    subtitle: "Intensify, erupt, sustain, reduce.",
+    knowledge:
+      'Four beats over 5 s: intensify 0-1.5, erupt 1.5-2.3, sustain to 3.5, reduce to 5.0. A plain dark cylinder (a kind:"beam" geometry.type "cylinder", radius 0.35, height 1.2, alpha blended and nearly black) is the housing the column rises out of; the document never describes the machine around it. The column is three coaxial layers standing on rotation [-1.5708,0,0] at y 0.3: a geometry.type "slab" with slab.anchor "base" and three hard tiers for the readable body width, a tapered cylinder shell at radius 0.34 with taper 0.7, and a white-gold core cylinder at radius 0.098. All three carry the SAME material.stripes segment ladder — about seven bands over the 4.5 m shaft, phase 0 so the bands run straight round the shaft like machine segments rather than breaking into filaments — and all three carry the SAME layer.collapse, which is what keeps them in step as the column reduces. A kind:"arcs" cage of 16-18 blinking helical wires wraps them, folded jitter so the wires kink instead of curling. The eruption at 1.5 s is a "lensFlare" sprite at head height whose geometry.radius snaps out on a track, a kind:"streakBurst" fan of 56 clumped orange/pink/pale-gold speed lines, ballistic sparks, alpha-blended dark debris chips, one thin expanding torus shock ring and a post.flash white-out of two frames at 1.85 s. A softRadial haze behind the column and a ringFill ground pool keep the frame from ever being black around it; two point lights finish it.',
+  },
   "ice-blast": {
     name: "Ice blast",
     subtitle: "Erupting crystals with frost and mist.",
@@ -849,6 +866,7 @@ const EXAMPLES: Record<RecipeV2Id, () => VfxDocumentV2> = {
   "ice-blast": () => validateDocumentV2(iceBlastFixture),
   "healing-aura": () => validateDocumentV2(healingAuraFixture),
   "glitch-projectile": () => validateDocumentV2(glitchProjectileFixture),
+  "energy-column": () => validateDocumentV2(energyColumnFixture),
 };
 
 /** The example document for a family. Always a fresh, validated copy. */

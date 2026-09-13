@@ -156,6 +156,8 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
     lattice: null,
     planeGlow: null,
     ripples: null,
+    stripes: null,
+    flicker: null,
   };
 }
 
@@ -204,6 +206,7 @@ function buildGeometry(layer: Layer, animated: Set<NumericTarget>): GeometryV2 {
           }
         : null,
     band: null,
+    slab: null,
   };
 }
 
@@ -309,6 +312,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       },
       sortMode: "byDistance",
       twinkle: null,
+      strip: null,
     },
     trail: null,
     sub: null,
@@ -363,6 +367,7 @@ function upgradeLayer(layer: Layer): LayerV2 {
     },
     motion: layer.motion ?? null,
     jitter: null,
+    collapse: null,
     material: buildMaterial(layer, animated),
     tracks,
     overrides,
