@@ -22,8 +22,13 @@ export async function recordVideo(page, doc, filename, runtimeBundle) {
   if (runtimeBundle) await page.addScriptTag({ content: runtimeBundle });
   const captureInfo = await page.evaluate(
     async ({ doc, historical }) =>
+      // A v2 document always plays on the bundled v2 runtime; only a v1
+      // document can be replayed against a historical v1 bundle.
       VideoCapture.begin(doc, historical ? AutoV.VfxRuntime : undefined),
-    { doc, historical: Boolean(runtimeBundle) },
+    {
+      doc,
+      historical: Boolean(runtimeBundle) && doc.schemaVersion !== "autov.lab/2",
+    },
   );
   const temp = filename + "." + randomUUID() + ".partial";
   const encoder = spawn(

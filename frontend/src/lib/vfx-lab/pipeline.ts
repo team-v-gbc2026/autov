@@ -1,26 +1,55 @@
 import { validateDocument, type VfxDocument } from "./schema";
+import {
+  lintDocumentV2,
+  validateDocumentV2,
+  type VfxDocumentV2,
+} from "./schema-v2";
 import { score, type Review, type Plan, type Usage } from "./protocol";
 import type { Evidence } from "./runtime";
-export type Candidate = {
+
+/** Which document contract this run generates against. */
+export type SchemaVersion = "v1" | "v2";
+export type PipelineDocument = VfxDocument | VfxDocumentV2;
+
+export type Candidate<D extends PipelineDocument = VfxDocument> = {
   id: string;
-  document: VfxDocument;
+  document: D;
   evidence: Evidence;
   review?: Review;
   origin: "generated" | "refined";
   error?: string;
 };
-export type PipelineResult = {
+export type PipelineResult<D extends PipelineDocument = VfxDocument> = {
   runId: string;
   plan: Plan;
-  candidates: Candidate[];
-  selected: Candidate;
+  candidates: Candidate<D>[];
+  selected: Candidate<D>;
   trace: string[];
   usages: Usage[];
+  schema: SchemaVersion;
 };
 export type Transport = (
   body: Record<string, unknown>,
   signal: AbortSignal,
 ) => Promise<Record<string, unknown>>;
+export type PipelineOptions<D extends PipelineDocument = VfxDocument> = {
+  prompt: string;
+  references: string[];
+  mode: "fast" | "quality";
+  textures?: boolean;
+  candidateCount?: 1 | 2 | 3;
+  signal: AbortSignal;
+  request: Transport;
+  // Method syntax on purpose: bivariant parameters let a v1-only caller satisfy
+  // the union-typed implementation signature without casting.
+  capture(
+    doc: D,
+    solo?: string,
+    diagnostic?: boolean,
+  ): Evidence | Promise<Evidence>;
+  progress(message: string): void;
+  candidate(candidate: Candidate<D>): void | Promise<void>;
+};
 function improves(next: Review | undefined, baseline: Review) {
   if (!next?.sufficientEvidence) return false;
   const noRegression =
@@ -41,22 +70,18 @@ function improves(next: Review | undefined, baseline: Review) {
       baseline.observations.filter((x) => x.result === "fail").length
   );
 }
-export async function generatePipeline(options: {
-  prompt: string;
-  references: string[];
-  mode: "fast" | "quality";
-  textures?: boolean;
-  candidateCount?: 1 | 2 | 3;
-  signal: AbortSignal;
-  request: Transport;
-  capture: (
-    doc: VfxDocument,
-    solo?: string,
-    diagnostic?: boolean,
-  ) => Evidence | Promise<Evidence>;
-  progress: (message: string) => void;
-  candidate: (candidate: Candidate) => void | Promise<void>;
-}): Promise<PipelineResult> {
+export function generatePipeline(
+  options: PipelineOptions<VfxDocument> & { schema?: "v1" },
+): Promise<PipelineResult<VfxDocument>>;
+export function generatePipeline(
+  options: PipelineOptions<VfxDocumentV2> & { schema: "v2" },
+): Promise<PipelineResult<VfxDocumentV2>>;
+export function generatePipeline(
+  options: PipelineOptions<PipelineDocument> & { schema?: SchemaVersion },
+): Promise<PipelineResult<PipelineDocument>>;
+export async function generatePipeline(
+  options: PipelineOptions<PipelineDocument> & { schema?: SchemaVersion },
+): Promise<PipelineResult<PipelineDocument>> {
   if (
     options.candidateCount !== undefined &&
     (![1, 2, 3].includes(options.candidateCount) ||
@@ -66,7 +91,10 @@ export async function generatePipeline(options: {
   const { signal, request, capture } = options,
     trace: string[] = [],
     usages: Usage[] = [],
-    candidates: Candidate[] = [];
+    candidates: Candidate<PipelineDocument>[] = [];
+  // The requested contract. When the caller does not state one, the server may
+  // (via AUTOV_SCHEMA) answer the plan with the contract it actually used.
+  let schema: SchemaVersion = options.schema ?? "v1";
   const step = (message: string) => {
     signal.throwIfAborted();
     trace.push(message);
@@ -84,6 +112,15 @@ export async function generatePipeline(options: {
     }
     return r;
   };
+  // Validation is the only place the two contracts diverge inside the pipeline;
+  // everything downstream treats a document as opaque, reviewed evidence.
+  const accept = (input: unknown): PipelineDocument => {
+    if (schema === "v1") return validateDocument(input);
+    const doc = validateDocumentV2(input);
+    for (const warning of lintDocumentV2(doc))
+      trace.push(`Schema v2 lint: ${warning}`);
+    return doc;
+  };
   step("Designing composition, timing and motion…");
   const planned = await call({
     action: "plan",
@@ -91,7 +128,17 @@ export async function generatePipeline(options: {
     references: options.references,
     mode: options.mode,
     textures: options.textures ?? false,
+    ...(options.schema ? { schema: options.schema } : {}),
   });
+  if (
+    options.schema === undefined &&
+    (planned.schema === "v1" || planned.schema === "v2")
+  )
+    schema = planned.schema;
+  if (schema === "v2")
+    step(
+      "Schema v2 (autov.lab/2): v2 vocabulary, texture library and runtime.",
+    );
   const runId = planned.runId as string,
     plan = planned.plan as Plan;
   for (const texture of options.textures ? plan.textures || [] : []) {
@@ -110,10 +157,10 @@ export async function generatePipeline(options: {
     try {
       step(`Building candidate ${i + 1} of ${count}…`);
       const result = await call({ action: "candidate", runId, index: i });
-      const document = validateDocument(result.document);
+      const document = accept(result.document);
       step(`Rendering candidate ${i + 1} at sixteen event-timed moments…`);
       const evidence = await capture(document),
-        candidate: Candidate = {
+        candidate: Candidate<PipelineDocument> = {
           id: `${runId}-${i}`,
           document,
           evidence,
@@ -184,14 +231,14 @@ export async function generatePipeline(options: {
           review: baseline.review,
           diagnostic: diagnostic.sheet,
         });
-        const document = validateDocument(result.document),
+        const document = accept(result.document),
           evidence = await capture(document);
         if (
           evidence.renderedPixels !== undefined &&
           evidence.renderedPixels < 8
         )
           throw Error("Refinement has no visible effect pixels.");
-        const refined: Candidate = {
+        const refined: Candidate<PipelineDocument> = {
           id: `${runId}-refined`,
           document,
           evidence,
@@ -254,11 +301,11 @@ export async function generatePipeline(options: {
         review: structuralSource.review,
         sheet: structuralSource.evidence.sheet,
       });
-      const document = validateDocument(result.document),
+      const document = accept(result.document),
         evidence = await capture(document);
       if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8)
         throw Error("Structural repair has no visible effect pixels.");
-      const repaired: Candidate = {
+      const repaired: Candidate<PipelineDocument> = {
         id: `${runId}-structural`,
         document,
         evidence,
@@ -298,5 +345,5 @@ export async function generatePipeline(options: {
       ? "Ready. Rendered and validated; visual review was not requested."
       : "Ready. Compare the candidates and choose your preferred direction.",
   );
-  return { runId, plan, candidates, selected, trace, usages };
+  return { runId, plan, candidates, selected, trace, usages, schema };
 }

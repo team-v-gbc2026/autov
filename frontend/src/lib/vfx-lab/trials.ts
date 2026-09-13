@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DocumentSchema, validateDocument } from "./schema";
+import { DocumentV2Schema, isV2, validateDocumentV2 } from "./schema-v2";
 import { ReviewSchema } from "./protocol";
 import { exportHtml } from "./export";
 export const TRIALS_DIR = path.join(process.cwd(), ".autov-local", "trials");
@@ -14,7 +15,9 @@ export const TrialInputSchema = z
     source: z.enum(["openai-live", "authored-demo"]),
     origin: z.enum(["generated", "refined"]),
     selected: z.boolean(),
-    document: DocumentSchema,
+    // A trial archives whichever contract produced it; the summary below reads
+    // only the fields both schemas share.
+    document: z.union([DocumentSchema, DocumentV2Schema]),
     references: z
       .array(
         z
@@ -56,7 +59,9 @@ export function trialDirectory(id: string) {
 }
 export async function saveTrial(input: unknown) {
   const value = TrialInputSchema.parse(input);
-  validateDocument(value.document);
+  const v2 = isV2(value.document);
+  if (v2) validateDocumentV2(value.document);
+  else validateDocument(value.document);
   const dir = trialDirectory(value.id);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const existing = await readFile(path.join(dir, "summary.json"), "utf8")
@@ -114,7 +119,11 @@ export async function saveTrial(input: unknown) {
       { mode: 0o600 },
     );
   const bundle = await readFile(
-    path.join(process.cwd(), "public", "vfx-runtime.js"),
+    path.join(
+      process.cwd(),
+      "public",
+      v2 ? "vfx-runtime-v2.js" : "vfx-runtime.js",
+    ),
     "utf8",
   ).catch(() => null);
   if (bundle && !existing?.player) {

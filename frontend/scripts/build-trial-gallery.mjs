@@ -66,6 +66,11 @@ try {
       ).catch(() => undefined);
       if (historicalRuntime)
         await page.addScriptTag({ content: historicalRuntime });
+      // A v2 run archives its own player bundle next to the v1 one.
+      const historicalRuntimeV2 = await readFile(
+        path.join(runDir, "runtime-v2.js"),
+        "utf8",
+      ).catch(() => undefined);
       let input;
       try {
         input = JSON.parse(
@@ -133,15 +138,19 @@ try {
           path.join(dest, "input.json"),
           JSON.stringify({ prompt: input.prompt, references }, null, 2),
         );
+        const isV2Document = candidate.document.schemaVersion === "autov.lab/2";
+        const playerBundle = isV2Document
+          ? historicalRuntimeV2
+          : historicalRuntime;
         const videoCapture = await recordVideo(
           page,
           candidate.document,
           path.join(dest, "video.webm"),
-          historicalRuntime,
+          playerBundle,
         );
         const html = await page.evaluate(
           async ({ doc, bundle }) => Archive.exportHtml(doc, bundle),
-          { doc: candidate.document, bundle: historicalRuntime },
+          { doc: candidate.document, bundle: playerBundle },
         );
         await writeFile(path.join(dest, "player.html"), html);
         const summary = {

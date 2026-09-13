@@ -7,6 +7,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { type Usage, type Plan } from "./protocol";
 import { type VfxDocument, type TextureAsset } from "./schema";
+import { type VfxDocumentV2 } from "./schema-v2";
 
 export function isLocalRequest(request: Request) {
   const url = new URL(request.url);
@@ -128,9 +129,11 @@ export type Run = {
   references: string[];
   plan: Plan;
   mode: "fast" | "quality";
+  /** Document contract this run generates against. Absent means "v1". */
+  schema?: "v1" | "v2";
   calls: number;
   created: number;
-  documents: VfxDocument[];
+  documents: (VfxDocument | VfxDocumentV2)[];
   usages: Usage[];
 };
 const runPath = (id: string) => {

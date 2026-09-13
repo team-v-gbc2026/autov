@@ -23,11 +23,15 @@ const live = args.includes("--live"),
   output = path.resolve(arg("--out", ".autov-local/benchmarks/latest"));
 const split = arg("--split", "dev"),
   mode = arg("--mode", "fast"),
-  inputMode = arg("--input-mode", "text_image");
+  inputMode = arg("--input-mode", "text_image"),
+  // Document contract for this run. The server also honors AUTOV_SCHEMA, but an
+  // explicit flag here is what the report records.
+  schema = arg("--schema", process.env.AUTOV_SCHEMA === "v2" ? "v2" : "v1");
 if (
   !["dev", "validation", "holdout", "all"].includes(split) ||
   !["fast", "quality"].includes(mode) ||
-  !["text_image", "text_only"].includes(inputMode)
+  !["text_image", "text_only"].includes(inputMode) ||
+  !["v1", "v2"].includes(schema)
 )
   throw Error("Invalid benchmark options");
 if (
@@ -120,6 +124,7 @@ const report = {
     execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim(),
   ),
   mode,
+  schema,
   candidateCount,
   textures: args.includes("--textures"),
   live,
@@ -137,6 +142,12 @@ await writeFile(
   path.join(output, "runtime.js"),
   await readFile("public/vfx-runtime.js"),
 );
+// The v2 player bundle travels with a v2 run so the gallery can replay it.
+if (schema === "v2")
+  await writeFile(
+    path.join(output, "runtime-v2.js"),
+    await readFile("public/vfx-runtime-v2.js"),
+  );
 if (!live) {
   console.log(
     JSON.stringify({
@@ -205,7 +216,12 @@ try {
             references: c.references,
             caseId: c.data.case_id,
           },
-          options: { mode, textures: report.textures, candidateCount },
+          options: {
+            mode,
+            textures: report.textures,
+            candidateCount,
+            schema,
+          },
         },
       );
       await writeFile(
@@ -230,7 +246,10 @@ try {
         page,
         result.selected.document,
         path.join(dir, "output.webm"),
-        await readFile(path.join(output, "runtime.js"), "utf8"),
+        await readFile(
+          path.join(output, schema === "v2" ? "runtime-v2.js" : "runtime.js"),
+          "utf8",
+        ),
       );
       for (let i = 0; i < rendered.frames.length; i++)
         await writeFile(

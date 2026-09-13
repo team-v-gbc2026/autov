@@ -355,6 +355,9 @@ export default function VfxStudio() {
           references: images,
           mode,
           textures,
+          // The studio previews and edits v1 documents, so it pins the contract
+          // rather than following a server-side AUTOV_SCHEMA default.
+          schema: "v1",
           signal: controller.signal,
           request,
           capture: (document, solo, diagnostic) => {

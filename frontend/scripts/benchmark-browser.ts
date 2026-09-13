@@ -1,7 +1,18 @@
 import { VfxRuntime } from "../src/lib/vfx-lab/runtime";
-import { generatePipeline } from "../src/lib/vfx-lab/pipeline";
+import { VfxRuntimeV2 } from "../src/lib/vfx-lab/runtime-v2";
+import { captureV2 } from "../src/lib/vfx-lab/capture-v2";
+import {
+  generatePipeline,
+  type PipelineDocument,
+} from "../src/lib/vfx-lab/pipeline";
 import { validateDocument, type VfxDocument } from "../src/lib/vfx-lab/schema";
+import {
+  isV2,
+  validateDocumentV2,
+  type VfxDocumentV2,
+} from "../src/lib/vfx-lab/schema-v2";
 import { evaluateLayer } from "../src/lib/vfx-lab/evaluate";
+import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
 function mount(Runtime = VfxRuntime) {
   const host = document.createElement("div");
   host.style.cssText =
@@ -11,12 +22,21 @@ function mount(Runtime = VfxRuntime) {
   const runtime = new Runtime(host, (e) => errors.push(e));
   return { runtime, host, errors };
 }
+function mountV2() {
+  const host = document.createElement("div");
+  host.style.cssText =
+    "position:fixed;inset:0;background:#101112;z-index:99999;width:960px;height:540px";
+  document.body.appendChild(host);
+  const runtime = new VfxRuntimeV2(host);
+  return { runtime, host };
+}
 export async function run(
   input: { prompt: string; references: string[]; caseId?: string },
   options: {
     mode: "fast" | "quality";
     textures: boolean;
     candidateCount?: 1 | 2 | 3;
+    schema?: "v1" | "v2";
   },
 ) {
   const { runtime, host } = mount();
@@ -36,8 +56,12 @@ export async function run(
         if (!r.ok) throw Error(data.error || "Generation failed");
         return data;
       },
-      capture: (doc, solo, diagnostic) =>
-        runtime.capture(doc, { solo, diagnostic }),
+      // v1 candidates reuse the long-lived preview runtime; a v2 candidate
+      // renders in its own disposable v2 runtime.
+      capture: (doc: PipelineDocument, solo?: string, diagnostic?: boolean) =>
+        isV2(doc)
+          ? captureV2(doc, { solo, diagnostic })
+          : runtime.capture(doc as VfxDocument, { solo, diagnostic }),
       progress: (message) => console.log(`BENCHMARK: ${message}`),
       candidate: async (candidate) => {
         const response = await fetch("/api/local-trials", {
@@ -68,11 +92,74 @@ export async function run(
     host.remove();
   }
 }
+/**
+ * v2 evidence render. There is no MediaRecorder path here: v2 videos are
+ * recorded deterministically at 30 Hz by scripts/deterministic-video.mjs.
+ */
+async function renderV2(input: VfxDocumentV2) {
+  const doc = validateDocumentV2(input);
+  const { runtime, host } = mountV2();
+  const errors: string[] = [];
+  try {
+    runtime.setDocument(doc);
+    runtime.resize(960, 540);
+    await runtime.whenReady();
+    const evidence = await captureV2(doc);
+    const frame = (t: number) => {
+      runtime.render(t);
+      return runtime.renderer.domElement.toDataURL("image/png");
+    };
+    const at = Math.min(doc.duration - 0.001, doc.impact + 0.05),
+      first = frame(at);
+    frame(doc.duration * 0.9);
+    frame(0.1);
+    const second = frame(at);
+    const frames = [
+      0,
+      doc.impact * 0.5,
+      at,
+      doc.duration * 0.5,
+      doc.duration * 0.8,
+      doc.duration,
+    ].map((time) => ({ time, png: frame(time) }));
+    runtime.render(at);
+    const info = runtime.renderer.info.render;
+    const performanceInfo = {
+      calls: info.calls,
+      triangles: info.triangles,
+      geometries: runtime.renderer.info.memory.geometries,
+      textures: runtime.renderer.info.memory.textures,
+      assetTextures: doc.textures?.length ?? 0,
+    };
+    return {
+      evidence,
+      frames,
+      webm: undefined as string | undefined,
+      performance: performanceInfo,
+      gates: {
+        schema: true,
+        // v2 has no debug grid: environment.ground belongs to the document and
+        // is deliberately part of the captured evidence.
+        groundIsAuthored: true,
+        seekDeterministic: first === second,
+        extinguishedAtEnd: doc.layers.every(
+          (l) => !evaluateLayerV2(l, doc.duration).visible,
+        ),
+        noShaderErrors: errors.length === 0,
+      },
+      errors,
+    };
+  } finally {
+    runtime.dispose();
+    host.remove();
+  }
+}
 export async function render(
-  input: VfxDocument,
+  input: VfxDocument | VfxDocumentV2,
   video = true,
   Runtime = VfxRuntime,
 ) {
+  if (isV2(input)) return renderV2(input);
   const doc = validateDocument(input),
     { runtime, host, errors } = mount(Runtime);
   try {
