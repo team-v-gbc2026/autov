@@ -545,8 +545,8 @@ void main(){
 // ---------------------------------------------------------------------------
 
 export const surfaceVertexV2 = /* glsl */ `
-uniform float uTime,uLength,uRadius,uVertexAmp,uVertexFreq,uVertexSpeed,uDisplaceShift;
-uniform int uShell,uHasVertexNoise;
+uniform float uTime,uLength,uRadius,uVertexAmp,uVertexFreq,uVertexSpeed,uDisplaceShift,uRoll;
+uniform int uShell,uHasVertexNoise,uBillboard;
 uniform vec3 uVertexBias;
 varying vec3 vN,vWp; varying float vAlong,vLobe; varying vec2 vUv;
 ${glslNoise}
@@ -585,6 +585,21 @@ void main(){
     worldPos=base+radial*disp+axis*nz*.25*along
       +bias*(uLength*.236*safePow(along,2.3)*(.6+.4*nz)+lick);
     worldNormal=safeDir(radial, vec3(0.,1.,0.));
+  } else if(uBillboard==1){
+    // A sprite is a camera-facing square of half-size geometry.radius: the quad
+    // is rebuilt on the view's right/up axes around the layer origin, so it
+    // never edges out of the shot. transform.rotation[2] survives as a roll.
+    vAlong=clamp(uv.y,0.,1.);
+    vec3 centre=(modelMatrix*vec4(0.,0.,0.,1.)).xyz;
+    vec3 right=vec3(viewMatrix[0][0],viewMatrix[1][0],viewMatrix[2][0]);
+    vec3 up=vec3(viewMatrix[0][1],viewMatrix[1][1],viewMatrix[2][1]);
+    // The instance's own scale still shapes the quad (a streak stays a streak).
+    vec2 half2=vec2(length(modelMatrix[0].xyz),length(modelMatrix[1].xyz));
+    float c=cos(uRoll), s=sin(uRoll);
+    vec2 q=vec2(position.x*half2.x, position.y*half2.y);
+    q=vec2(q.x*c-q.y*s, q.x*s+q.y*c);
+    worldPos=centre+right*q.x+up*q.y;
+    worldNormal=safeDir(cross(right,up), vec3(0.,0.,1.));
   } else {
     vAlong=clamp(uv.y,0.,1.);
     vec3 pos=position;

@@ -260,7 +260,11 @@ test("every v2 recipe example is a valid, lint-clean document", () => {
     const doc = createPresetV2(id);
     assert.doesNotThrow(() => validateDocumentV2(doc), id);
     assert.deepEqual(lintDocumentV2(doc), [], id);
-    assert.ok(doc.layers.length <= 9, `${id} has ${doc.layers.length} layers`);
+    // A readable example, not a kitchen sink. The hand-authored exemplars sit
+    // at the top of this range: lightning-impact needs ten layers to carry the
+    // bolt (sheath + core), the contact, the ground ring and glow, two spark
+    // populations, debris, smoke and the light.
+    assert.ok(doc.layers.length <= 10, `${id} has ${doc.layers.length} layers`);
     assert.ok(
       doc.layers.some((l) => l.kind === "light"),
       `${id} has no light layer`,

@@ -373,7 +373,7 @@ export async function POST(request: Request) {
         }),
         run.references,
         request.signal,
-        24000,
+        32000,
         // A full v2 document is long; medium effort keeps a multi-case run
         // inside its schedule, and the client waits ten minutes for it.
         "medium",
@@ -413,7 +413,7 @@ export async function POST(request: Request) {
           }),
           [],
           request.signal,
-          24000,
+          32000,
           "medium",
           V2_DOCUMENT_TIMEOUT_MS,
         );
@@ -561,7 +561,7 @@ export async function POST(request: Request) {
           }),
           [...run.references, body.sheet],
           request.signal,
-          24000,
+          32000,
         );
         const next = applyStructuralRefinementV2(doc, result.value);
         run.documents.push(next);

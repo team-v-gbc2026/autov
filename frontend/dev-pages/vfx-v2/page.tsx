@@ -74,6 +74,7 @@ type FixtureEntry = {
   name: string;
   document: unknown;
   v1Document: unknown | null;
+  group?: "exemplar" | "generated";
 };
 
 type ModuleState<T> =
@@ -227,6 +228,46 @@ export default function VfxV2DevGalleryPage() {
     () => fixtures?.find((f) => f.id === selectedId) ?? null,
     [fixtures, selectedId],
   );
+
+  const exemplarFixtures = useMemo(
+    () => fixtures?.filter((f) => (f.group ?? "exemplar") === "exemplar") ?? [],
+    [fixtures],
+  );
+  const generatedFixtures = useMemo(
+    () => fixtures?.filter((f) => f.group === "generated") ?? [],
+    [fixtures],
+  );
+
+  // Benchmark case id for the reference panel: the part of the fixture id
+  // after the last "/" for a generated result (<runDir>/<case>), or the
+  // fixture id itself for an exemplar.
+  const referenceCaseId = useMemo(() => {
+    if (!selectedFixture) return null;
+    const parts = selectedFixture.id.split("/");
+    return parts[parts.length - 1];
+  }, [selectedFixture]);
+
+  const [promptText, setPromptText] = useState<string | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const request = referenceCaseId
+      ? fetch(`/dev/vfx-v2/reference/prompt?case=${encodeURIComponent(referenceCaseId)}`).then(
+          (res) => (res.ok ? res.text() : null),
+        )
+      : Promise.resolve(null);
+    request
+      .then((text) => {
+        if (!cancelled) setPromptText(text);
+      })
+      .catch(() => {
+        if (!cancelled) setPromptText(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceCaseId]);
 
   // Runtime construction and document loading are external-system
   // synchronization (WebGL context + three.js scene), not derived render
@@ -413,23 +454,53 @@ export default function VfxV2DevGalleryPage() {
                 fixtures/v2/&lt;id&gt;/document.json
               </div>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {fixtures?.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setSelectedId(f.id)}
-                  style={{
-                    ...buttonStyle,
-                    textAlign: "left",
-                    background: f.id === selectedId ? "#33507a" : buttonStyle.background,
-                    borderColor: f.id === selectedId ? "#5b7fb5" : (buttonStyle.borderColor as string),
-                  }}
-                >
-                  {f.name}
-                  {f.v1Document ? " · v1 ✓" : ""}
-                </button>
-              ))}
-            </div>
+            {exemplarFixtures.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, color: "#7d848c", margin: "4px 0 2px" }}>
+                  Exemplars
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {exemplarFixtures.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => setSelectedId(f.id)}
+                      style={{
+                        ...buttonStyle,
+                        textAlign: "left",
+                        background: f.id === selectedId ? "#33507a" : buttonStyle.background,
+                        borderColor: f.id === selectedId ? "#5b7fb5" : (buttonStyle.borderColor as string),
+                      }}
+                    >
+                      {f.name}
+                      {f.v1Document ? " · v1 ✓" : ""}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {generatedFixtures.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, color: "#7d848c", margin: "10px 0 2px" }}>
+                  Generated
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {generatedFixtures.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => setSelectedId(f.id)}
+                      style={{
+                        ...buttonStyle,
+                        textAlign: "left",
+                        background: f.id === selectedId ? "#33507a" : buttonStyle.background,
+                        borderColor: f.id === selectedId ? "#5b7fb5" : (buttonStyle.borderColor as string),
+                      }}
+                    >
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           <div style={panelStyle}>
@@ -577,7 +648,58 @@ export default function VfxV2DevGalleryPage() {
             </div>
           )}
         </div>
+
+        {/* Right: reference images + prompt for the selected case */}
+        {referenceCaseId && (
+          <div style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={panelStyle}>
+              <span style={labelStyle}>Reference ({referenceCaseId})</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[1, 2, 3].map((n) => (
+                  <ReferenceThumb key={n} caseId={referenceCaseId} n={n} />
+                ))}
+              </div>
+            </div>
+            {promptText && (
+              <div style={panelStyle}>
+                <button
+                  style={{ ...buttonStyle, width: "100%" }}
+                  onClick={() => setPromptOpen((o) => !o)}
+                >
+                  {promptOpen ? "Hide prompt" : "Show prompt"}
+                </button>
+                {promptOpen && (
+                  <pre
+                    style={{
+                      fontSize: 11,
+                      color: "#c6cad0",
+                      whiteSpace: "pre-wrap",
+                      marginTop: 8,
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    }}
+                  >
+                    {promptText}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </main>
+  );
+}
+
+function ReferenceThumb({ caseId, n }: { caseId: string; n: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`/dev/vfx-v2/reference?case=${encodeURIComponent(caseId)}&n=${n}`}
+      alt={`${caseId} reference ${n}`}
+      style={{ width: "100%", borderRadius: 4, display: "block" }}
+      onError={() => setFailed(true)}
+    />
   );
 }

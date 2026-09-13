@@ -39,6 +39,39 @@ export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186";
 // Everything is closed form in time: state = f(document, time, seed), no
 // accumulation anywhere, so seeking to t draws exactly what playing to t draws.
 //
+// ---------------------------------------------------------------------------
+// What `geometry` means, per layer kind
+// ---------------------------------------------------------------------------
+// Axis convention: a layer's local +Z is its *forward* axis. A beam, a trail
+// and a shell all grow along local +Z and are aimed with transform.rotation
+// (rotation [0,0,0] points at +Z; [0, -PI/2, 0] points at +X; [0, PI/2, 0] at
+// -X). Flat things (ring, decal, and a `plane` under any other kind) are built
+// in the local XY plane facing +Z, so laying one on the ground takes the
+// explicit rotation [-PI/2, 0, 0]. transform.scale multiplies whatever the
+// geometry fields already produce; it is never required to get the size right.
+//
+//   kind      geometry.type              length        radius        thickness
+//   --------- -------------------------- ------------- ------------- ---------
+//   beam      auto|plane|ribbon|streamer bar length    bar half-width -
+//             cylinder                   tube length   tube radius    -
+//             lightning                  bolt length   bolt spread    bolt width
+//   trail     as beam, tapered to the tail by geometry.lightning.widthCurve
+//             when present, else a default taper toward the far end
+//             ribbon                     arc sweep     arc radius     width
+//   ring      torus                      -             ring radius    tube width
+//             disc|auto                  -             disc radius    -
+//   sprite    plane|auto                 -             half-size      -
+//             (always faces the camera; transform.rotation[2] rolls it)
+//   decal     plane|auto                 flat depth    flat half-width -
+//   shell     sphere|teardrop|auto|...   nose-to-tail  body radius    -
+//             plane|disc|torus|...       falls through to the flat/bar shapes
+//   particles no geometry - see `emitter.shape` instead
+//
+// beam/trail/sprite/decal take their size from `geometry` every frame, so a
+// track on geometry.length or geometry.radius animates them. A ring rebuilds
+// its torus when the tracked radius or thickness moves, so a shockwave really
+// does expand.
+//
 // Still parsed and ignored (read off the document without throwing, no effect):
 //   environment.groundReflect.
 //
@@ -983,12 +1016,109 @@ function createParticleLayer(
   };
 }
 
+/**
+ * Geometry types the analytic teardrop (uShell=1 in surfaceVertexV2) can act
+ * as the parametric domain for. Anything else a `shell` layer asks for -- a
+ * plane, a torus, a bar -- is an explicit request for that shape and falls
+ * through to the ordinary surface path instead of silently becoming a blob.
+ */
+const SHELL_VOLUME_TYPES = new Set([
+  "auto",
+  "sphere",
+  "teardrop",
+  "cone",
+  "crystal",
+  "crystal-cluster",
+]);
+
+/** True when this layer draws the analytic teardrop rather than a real mesh. */
+function isShellSurface(layer: LayerV2) {
+  const geometry = layer.geometry!;
+  if (geometry.type === "lightning" && geometry.lightning) return false;
+  return layer.kind === "shell" && SHELL_VOLUME_TYPES.has(geometry.type);
+}
+
+/** Bar-shaped kinds: their mesh is a unit shape scaled by length/radius. */
+const BAR_KINDS = new Set(["beam", "trail"]);
+
+/** Sample a piecewise-linear curve at u; used for the trail's width taper. */
+function curveAt(curve: Curve | null | undefined, u: number) {
+  if (!curve) return 1;
+  const keys = curve.keys;
+  const x = clamp01(u);
+  if (x <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++)
+    if (x <= keys[i][0]) {
+      let f = (x - keys[i - 1][0]) / Math.max(keys[i][0] - keys[i - 1][0], 1e-5);
+      if (curve.ease === "smooth") f = f * f * (3 - 2 * f);
+      return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * f;
+    }
+  return keys[keys.length - 1][1];
+}
+
+/**
+ * A unit bar along local +Z: z runs 0 (the emitter end) to 1 (the far tip),
+ * half-width 1 across. uv.y is the position along the bar, so a "surface" ramp
+ * and a UV-panned noise erosion both flow along the length, and uv.x crosses
+ * it. `tube` sweeps a real open cylinder; otherwise two crossed sheets give the
+ * bar volume from any camera angle without a closed surface's silhouette.
+ */
+function unitBarGeometry(
+  segments: number,
+  radialSegments: number,
+  tube: boolean,
+  taper: (t: number) => number,
+) {
+  const rows = Math.max(2, Math.min(128, segments));
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const sheets: [number, number][][] = tube
+    ? [
+        Array.from({ length: Math.max(3, Math.min(48, radialSegments)) + 1 }, (_, j) => {
+          const a = (j / Math.max(3, Math.min(48, radialSegments))) * Math.PI * 2;
+          return [Math.cos(a), Math.sin(a)] as [number, number];
+        }),
+      ]
+    : [
+        [
+          [-1, 0],
+          [1, 0],
+        ],
+        [
+          [0, -1],
+          [0, 1],
+        ],
+      ];
+  for (const ring of sheets) {
+    const base = positions.length / 3;
+    for (let i = 0; i <= rows; i++) {
+      const t = i / rows;
+      const w = Math.max(1e-4, taper(t));
+      for (let j = 0; j < ring.length; j++) {
+        positions.push(ring[j][0] * w, ring[j][1] * w, t);
+        uvs.push(ring.length > 2 ? j / (ring.length - 1) : j, t);
+        if (i < rows && j < ring.length - 1) {
+          const k = base + i * ring.length + j;
+          indices.push(k, k + 1, k + ring.length, k + 1, k + ring.length + 1, k + ring.length);
+        }
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(indices);
+  g.computeVertexNormals();
+  return g;
+}
+
 function meshGeometryFor(layer: LayerV2, seed = 0) {
   const geometry = layer.geometry!;
-  const shell = layer.kind === "shell";
+  const shell = isShellSurface(layer);
   if (geometry.type === "lightning" && geometry.lightning)
     return buildLightningGeometry(geometry, seed, 0);
-  if (shell || geometry.type === "sphere" || geometry.type === "teardrop")
+  if (shell)
     // The shell's teardrop is analytic (see surfaceVertexV2): the sphere is the
     // parametric domain, not the silhouette.
     return new THREE.SphereGeometry(
@@ -996,11 +1126,46 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
       Math.min(128, geometry.segments),
       Math.min(64, geometry.radialSegments),
     );
+  // A trail's `ribbon` is the one curved sweep in the set: a tapered arc in the
+  // local XY plane (the swoosh of a slash). Every other bar type is straight.
+  const arcRibbon = layer.kind === "trail" && geometry.type === "ribbon";
+  if (BAR_KINDS.has(layer.kind) && !arcRibbon) {
+    // A beam is a straight bar of `length` along +Z, half-width `radius`; a
+    // trail is the same bar narrowing toward its far end. Both are unit-sized
+    // here and scaled per frame, so a track on geometry.length extends them.
+    const width = geometry.lightning?.widthCurve ?? null;
+    const taper =
+      layer.kind === "trail"
+        ? width
+          ? (t: number) => Math.max(0.02, curveAt(width, t))
+          : (t: number) => Math.max(0.08, Math.pow(1 - t, 0.6))
+        : width
+          ? (t: number) => Math.max(0.02, curveAt(width, t))
+          : () => 1;
+    return unitBarGeometry(
+      geometry.segments,
+      geometry.radialSegments,
+      geometry.type === "cylinder",
+      taper,
+    );
+  }
+  if (layer.kind === "sprite")
+    // A square of half-size `radius`; scaled per frame and turned to face the
+    // camera in the vertex shader.
+    return new THREE.PlaneGeometry(2, 2);
+  if (layer.kind === "decal" && (geometry.type === "plane" || geometry.type === "auto"))
+    // Flat dressing in local XY, scaled per frame to radius x length/2.
+    return new THREE.PlaneGeometry(2, 2);
   if (geometry.type === "plane" || geometry.type === "auto")
     return new THREE.PlaneGeometry(geometry.radius * 2, geometry.length);
   if (geometry.type === "disc") return new THREE.CircleGeometry(geometry.radius, 48);
   if (geometry.type === "torus")
-    return new THREE.TorusGeometry(geometry.radius, geometry.thickness, 12, 64);
+    return new THREE.TorusGeometry(
+      geometry.radius,
+      Math.min(geometry.thickness, geometry.radius * 0.98),
+      Math.max(6, Math.min(24, geometry.radialSegments)),
+      Math.max(12, Math.min(96, geometry.segments)),
+    );
   return buildGeometry(
     {
       id: layer.id,
@@ -1029,7 +1194,7 @@ function createMeshLayer(
 ): LayerObject {
   const material = layer.material!;
   const geometry = layer.geometry!;
-  const shell = layer.kind === "shell";
+  const shell = isShellSurface(layer);
   const mask = textures.resolve(material.mask.textureId, doc, false);
   const noise = textures.resolve(material.noise?.textureId ?? null, doc, true);
   const vertexNoise = geometry.vertexNoise;
@@ -1076,6 +1241,8 @@ function createMeshLayer(
     uEdgeI: { value: material.erosion?.edgeIntensity ?? 0 },
     uProtect: { value: material.erosion?.displacementProtect ?? 0 },
     uRimBias: { value: material.erosion?.rimBias ?? 0 },
+    uBillboard: { value: layer.kind === "sprite" ? 1 : 0 },
+    uRoll: { value: 0 },
     uHasFresnel: { value: material.fresnel ? 1 : 0 },
     uFresnelPower: { value: material.fresnel?.power ?? 2 },
     uFresnelStrength: { value: material.fresnel?.strength ?? 0 },
@@ -1099,6 +1266,24 @@ function createMeshLayer(
   });
   const boltSeed = hashSeed(doc.seed, layer.id);
   const bolt = geometry.type === "lightning" && geometry.lightning ? geometry : null;
+  /**
+   * The factor that turns the unit mesh into the authored size, read off the
+   * *live* geometry every frame so a track on geometry.length or
+   * geometry.radius animates the shape. See the table at the top of the file.
+   */
+  const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
+    if (BAR_KINDS.has(layer.kind) && !bolt && !(layer.kind === "trail" && g.type === "ribbon"))
+      return out.set(g.radius, g.radius, g.length);
+    if (layer.kind === "sprite") return out.set(g.radius, g.radius, 1);
+    if (layer.kind === "decal" && (g.type === "plane" || g.type === "auto"))
+      return out.set(g.radius, g.length * 0.5, 1);
+    return out.set(1, 1, 1);
+  };
+  /** A ring's torus is baked, so a tracked radius/thickness has to rebuild it. */
+  const ringTorus = layer.kind === "ring" && geometry.type === "torus";
+  let ringKey = `${geometry.radius.toFixed(3)}:${geometry.thickness.toFixed(3)}`;
+  const size = new THREE.Vector3();
+  const scratchScale = new THREE.Vector3();
   const mesh = new THREE.Mesh(meshGeometryFor(layer, boltSeed), shaderMaterial);
   mesh.name = layer.id;
   mesh.frustumCulled = false;
@@ -1121,11 +1306,26 @@ function createMeshLayer(
       const g = live.geometry!;
       mesh.position.fromArray(live.transform.position);
       mesh.rotation.set(...live.transform.rotation);
-      mesh.scale.fromArray(live.transform.scale);
+      mesh.scale.fromArray(live.transform.scale).multiply(sizeOf(g, size));
+      if (layer.kind === "sprite") {
+        // The quad is rebuilt around the camera axes in the vertex shader, so
+        // the transform's own orientation would double up; only the roll
+        // (rotation[2]) survives, as a spin in screen space.
+        uniforms.uRoll.value = live.transform.rotation[2];
+        mesh.rotation.set(0, 0, 0);
+      }
       uniforms.uTime.value = age;
       uniforms.uLayerU.value = u;
       uniforms.uLength.value = g.length;
       uniforms.uRadius.value = g.radius;
+      if (ringTorus) {
+        const next = `${g.radius.toFixed(3)}:${g.thickness.toFixed(3)}`;
+        if (next !== ringKey) {
+          ringKey = next;
+          mesh.geometry.dispose();
+          mesh.geometry = meshGeometryFor({ ...layer, geometry: g }, boltSeed);
+        }
+      }
       if (bolt && g.lightning) {
         const next = Math.max(0, Math.floor(age * STRIKE_HZ));
         if (next !== strike || mesh.geometry.userData.bolt !== true) {
@@ -1158,18 +1358,32 @@ function createMeshLayer(
     bounds(time, push) {
       const { layer: live, visible } = evaluateLayerV2(layer, time);
       if (!visible) return;
+      const g = live.geometry!;
       const matrix = new THREE.Matrix4().compose(
         new THREE.Vector3().fromArray(live.transform.position),
         new THREE.Quaternion().setFromEuler(
           new THREE.Euler(...live.transform.rotation),
         ),
-        new THREE.Vector3().fromArray(live.transform.scale),
+        scratchScale
+          .fromArray(live.transform.scale)
+          .multiply(sizeOf(g, size))
+          .clone(),
       );
-      const g = live.geometry!;
       const point = new THREE.Vector3();
       if (bolt) {
         // Strike-independent: the envelope every strike of this bolt fits in.
         for (const p of lightningBounds(g, boltSeed)) push(p.applyMatrix4(matrix));
+        return;
+      }
+      if (ringTorus) {
+        // The baked torus is only ever at one radius; the framing pass needs
+        // the widest the tracked radius gets, so measure it from the live
+        // values instead of the mesh.
+        const r = g.radius + g.thickness;
+        for (const x of [-r, r])
+          for (const y of [-r, r])
+            for (const z of [-g.thickness, g.thickness])
+              push(point.set(x, y, z).applyMatrix4(matrix).clone());
         return;
       }
       if (shell) {

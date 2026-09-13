@@ -1291,6 +1291,15 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
 });
+// Measured cost of the "every key is required" wire contract, on the two live
+// documents (11 and 10 layers): 15.3 kB / 12.8 kB minified, 40.4 kB / 31.0 kB
+// at two-space indent, of which 88 / 84 keys are the explicit nulls this
+// contract forces (trail, sub, flipbook, vortex, speedCurve, shake, pushIn,
+// fresnel, noise, erosion, ...). Dropping them would save only 8.6% / 9.9% of
+// the bytes, and Structured Outputs has no way to drop them: a property absent
+// from `required` is rejected. So the contract stays as it is, and the output
+// budget is sized for it instead — see maxOutput in api/local-vfx/route.ts,
+// raised to 32000 after two beam candidates were truncated at 24000.
 export const DocumentV2WireSchema = DocumentV2Schema.omit({
   textures: true,
 }).extend({
