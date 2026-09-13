@@ -13,7 +13,7 @@ npm --prefix frontend ci
 npm --prefix frontend run dev:local
 ```
 
-Open [the local workspace](http://127.0.0.1:3000/workspace). Supabase is not required in this local mode. Connect a project API key through `/dev/vfx-lab/settings` or `frontend/.env.local`. A persistent server-side ledger stops calls before the approved cumulative **$30** local limit would be exceeded.
+Open [the legacy lab studio](http://127.0.0.1:3000/dev/vfx-lab) — a dev-only route that needs no Supabase login. The product studio lives at `/workspace` and does require Supabase; on localhost it also runs local generation through `/api/local-vfx`. Connect a project API key through `/dev/vfx-lab/settings` or `frontend/.env.local`. A persistent server-side ledger stops calls before the approved cumulative **$30** local limit would be exceeded.
 
 [Local setup and controls](docs/vfx-lab/LOCAL_SETUP.md) · [Research, architecture and limitations](docs/vfx-lab/DESIGN.md)
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   addLayer,
   applyDuration,
+  createDocument,
   applyEnvironment,
   applyLayerPatch,
   emptyUiDocument,
@@ -238,4 +239,89 @@ test("the empty projection is a valid UI document with no emitters", () => {
 test("an unknown layer id leaves the document untouched", () => {
   const doc = load("shield");
   assert.equal(applyLayerPatch(doc, "no-such-layer", { enabled: false }), doc);
+});
+
+test("createDocument truncates an over-long project name to the contract cap", () => {
+  const name = "x".repeat(120);
+  const doc = createDocument(name);
+  assert.equal(doc.name.length, 100);
+  assert.equal(doc.layers.length, 1);
+  assert.doesNotThrow(() => validateDocumentV2(structuredClone(doc)));
+  // A blank name still produces a valid document rather than a schema error.
+  assert.ok(createDocument("   ").name.length > 0);
+});
+
+test("addLayer never returns a document without the new layer", () => {
+  // The layer-less shell createDocument starts from is the case that used to
+  // come back unchanged and crash callers indexing the new emitter.
+  const shell = { ...createDocument("Probe"), layers: [] } as VfxDocumentV2;
+  const grown = addLayer(shell, 0);
+  assert.equal(grown.layers.length, 1);
+  // A document already at the contract's layer cap must throw, not fall back.
+  let full = createDocument("Full");
+  for (let i = 1; i < 24; i++) full = addLayer(full, full.layers.length);
+  assert.equal(full.layers.length, 24);
+  assert.throws(() => addLayer(full, full.layers.length));
+});
+
+test("driving Intensity to zero keeps the ramp's relative shape", () => {
+  const doc = load("fire-projectile");
+  const layer = doc.layers.find(
+    (item) => (item.material?.ramp.stops.length ?? 0) > 2,
+  )!;
+  const before = layer.material!.ramp.stops.map((stop) => stop.intensity);
+  const parameters = projectToUi(doc).layers.find((l) => l.id === layer.id)!
+    .parameters;
+  const zeroed = applyLayerPatch(doc, layer.id, {
+    parameters: { ...parameters, Intensity: 0 },
+  });
+  const low = zeroed.layers.find((l) => l.id === layer.id)!.material!.ramp.stops;
+  assert.ok(Math.max(...low.map((s) => s.intensity)) > 0, "shape survives zero");
+  const raised = applyLayerPatch(zeroed, layer.id, {
+    parameters: { ...parameters, Intensity: parameters.Intensity },
+  });
+  const after = raised.layers
+    .find((l) => l.id === layer.id)!
+    .material!.ramp.stops.map((stop) => stop.intensity);
+  const peak = Math.max(...before);
+  before.forEach((value, index) => {
+    assert.ok(
+      Math.abs(value / peak - after[index] / Math.max(...after)) < 0.02,
+      `stop ${index}: ${value} vs ${after[index]}`,
+    );
+  });
+});
+
+test("an inward emitter keeps its negative speed", () => {
+  const doc = load("beam");
+  const layer = doc.layers.find(
+    (item) => item.emitter && item.emitter.velocity.speed[1] < 0,
+  )!;
+  const parameters = projectToUi(doc).layers.find((l) => l.id === layer.id)!
+    .parameters;
+  for (const value of [10, 70, 0]) {
+    const next = applyLayerPatch(doc, layer.id, {
+      parameters: { ...parameters, Speed: value },
+    });
+    const speed = next.layers.find((l) => l.id === layer.id)!.emitter!.velocity
+      .speed;
+    assert.ok(speed[0] < 0 && speed[1] < 0, `Speed ${value}: ${speed}`);
+    assert.ok(speed[0] <= speed[1], `range order at ${value}: ${speed}`);
+  }
+});
+
+test("a documented no-op returns the same document identity", () => {
+  const doc = load("beam");
+  const light = doc.layers.find((item) => item.kind === "light")!;
+  const parameters = projectToUi(doc).layers.find((l) => l.id === light.id)!
+    .parameters;
+  // Opacity has no meaning for a light layer.
+  assert.equal(
+    applyLayerPatch(doc, light.id, {
+      parameters: { ...parameters, Opacity: 12 },
+    }),
+    doc,
+  );
+  // Re-applying the projected values changes nothing either.
+  assert.equal(applyLayerPatch(doc, light.id, { parameters }), doc);
 });

@@ -1,6 +1,11 @@
 import type { Reference } from "../project-types";
 export const MAX_PROMPT_CHARACTERS = 10000;
 export const MAX_PROMPT_REFERENCES = 8;
+/**
+ * Longest reference data URL the local API accepts (its `imageSchema` bound).
+ * Shared so the client rejects an oversized image before spending a request.
+ */
+export const MAX_REFERENCE_CHARACTERS = 2_000_000;
 /** Keep image attachment order identical to the stable @mention order. */
 export function referenceInput(
   prompt: string,

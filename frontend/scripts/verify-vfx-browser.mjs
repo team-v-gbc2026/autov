@@ -33,7 +33,7 @@ try {
     errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(
-    process.env.AUTOV_TEST_URL || "http://127.0.0.1:3031/workspace",
+    process.env.AUTOV_TEST_URL || "http://127.0.0.1:3031/dev/vfx-lab",
   );
   await page.getByLabel("Generated VFX preview").waitFor();
   await page.getByRole("button", { name: "Pause", exact: true }).click();

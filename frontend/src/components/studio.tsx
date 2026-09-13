@@ -34,7 +34,6 @@ import {
   applyEnvironment,
   applyLayerPatch,
   createDocument,
-  nextLayerId,
   projectToUi,
 } from "@/lib/vfx-lab/ui-bridge";
 import {
@@ -155,16 +154,20 @@ export default function Studio({
       return;
     }
     // An empty timeline has no v2 document yet: the first emitter creates one.
-    const next = doc
-      ? addLayer(doc, doc.layers.length)
-      : createDocument(project.name);
-    setDoc(next);
-    setSelectedLayerId(
-      doc
-        ? nextLayerId(doc, doc.layers.length)
-        : next.layers[next.layers.length - 1].id,
-    );
-    setSoloLayerId(undefined);
+    // The bridge throws rather than hand back a document with no new layer.
+    try {
+      const next = doc
+        ? addLayer(doc, doc.layers.length)
+        : createDocument(project.name);
+      setDoc(next);
+      setSelectedLayerId(next.layers[next.layers.length - 1].id);
+      setSoloLayerId(undefined);
+      setImportError("");
+    } catch (error) {
+      setImportError(
+        error instanceof Error ? error.message : "Could not add an emitter.",
+      );
+    }
   };
   /** A generated or imported v2 document becomes the new source of truth. */
   const openDocument = (next: VfxDocumentV2) => {
@@ -322,7 +325,7 @@ export default function Studio({
       </div>
       <div hidden={!right}>
         <ChatPanel
-          key={`${project.id}-${vfxDocument.name}`}
+          key={project.id}
           projectId={project.id}
           initialGenerations={initialGenerations}
           versions={versions}
@@ -383,7 +386,7 @@ export default function Studio({
       />
       {importError && <div className="lab-import-error" role="alert">
         <span>{importError}</span>
-        <IconButton name="close" label="Dismiss import error" onClick={() => setImportError("")} />
+        <IconButton name="close" label="Dismiss error" onClick={() => setImportError("")} />
       </div>}
     </main>
   );

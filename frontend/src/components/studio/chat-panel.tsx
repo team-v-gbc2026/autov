@@ -7,11 +7,13 @@ import ReferenceComposer, { type ComposerHandle } from "./composer/reference-com
 import { displayPrompt } from "./composer/prompt-format";
 import type { Reference } from "@/lib/project-types";
 import { iconButton as button } from "./icon-button";
+import Icon from "./icon";
 import type { VfxUiDocument } from "@/components/vfx-studio/ui-model";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
 import { useLocalGeneration } from "./use-local-generation";
 import {
   MAX_PROMPT_REFERENCES,
+  MAX_REFERENCE_CHARACTERS,
   referenceInput,
 } from "@/lib/vfx-lab/reference-input";
 import { prepareReference } from "@/components/vfx-lab/use-local-references";
@@ -23,8 +25,11 @@ type VfxEditing = {
   onDocument?: (doc: VfxDocumentV2) => void;
 };
 
-/** A data URL longer than this is past the 2 MB per-reference budget. */
-const MAX_REFERENCE_CHARACTERS = Math.ceil((2 * 1024 * 1024 * 4) / 3);
+/** `crypto.randomUUID` needs a secure context; local ids only need to be unique. */
+const localId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export default function ChatPanel({
   projectId,
@@ -63,7 +68,7 @@ export default function ChatPanel({
   const [progress, setProgress] = useState<{ id: string; text: string }[]>([]);
   const say = (text: string) =>
     setProgress(items =>
-      [...items, { id: crypto.randomUUID(), text }].slice(-40),
+      [...items, { id: localId(), text }].slice(-40),
     );
   const generation = useLocalGeneration({
     onDocument: document => vfx?.onDocument?.(document),
@@ -95,7 +100,9 @@ export default function ChatPanel({
         image => image.length > MAX_REFERENCE_CHARACTERS,
       );
       if (oversized)
-        throw new Error("A reference image is too large. Use images under 2 MB.");
+        throw new Error(
+          "A reference image is too large for local generation. Use a smaller image.",
+        );
     } catch (error) {
       say(
         error instanceof Error
@@ -162,23 +169,38 @@ export default function ChatPanel({
           )}
         </div>
       </div>
-      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy} saving={saving} onSend={async (prompt, referenceIds) => {
-        if (saving || busy) return false;
+      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy || generation.busy} saving={saving} onSend={async (prompt, referenceIds) => {
+        if (saving || busy || generation.busy) return false;
+        // `saving` covers the Supabase write only. The pipeline that follows it
+        // reports through `generation.busy`, which disables the composer the
+        // same way and can be stopped from the footer.
         setSaving(true); setNotice("");
+        let stored = false;
         try {
           const result = await savePrompt(projectId, prompt, referenceIds);
           if (result.error) { setNotice(result.error); return false; }
           if (!result.generation) return false;
-          setMessages(items => [...items, result.generation]);
-          if (generation.available) await runGeneration(prompt, referenceIds);
-          return true;
+          const generationRow = result.generation;
+          setMessages(items => [...items, generationRow]);
+          stored = true;
         } catch { setNotice("Could not save your prompt. Please try again."); return false; }
         finally { setSaving(false); }
+        if (stored && generation.available) void runGeneration(prompt, referenceIds);
+        return stored;
       }} />
       <div className="chat-footnote">
-        {generation.available && generation.budget
-          ? `Local generation ready · $${generation.budget.used.toFixed(2)} of $${generation.budget.limit.toFixed(2)} used`
-          : "Generation not connected. Prompts are saved for later."}
+        {generation.busy ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            Generating…
+            <button type="button" className="icon-button" onClick={generation.abort} aria-label="Stop generation" title="Stop generation">
+              <Icon name="close" size={13} />
+            </button>
+          </span>
+        ) : generation.available && generation.budget ? (
+          `Local generation ready · $${generation.budget.used.toFixed(2)} of $${generation.budget.limit.toFixed(2)} used`
+        ) : (
+          "Generation not connected. Prompts are saved for later."
+        )}
       </div>
     </aside>
   );

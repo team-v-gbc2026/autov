@@ -1,9 +1,9 @@
 # VFX Studio UI review fixture
 
 This branch includes a temporary, interactive review route at `/dev/vfx-ui-review`, available only in `next dev`.
-It is available locally and on Vercel preview deployments, is marked `noindex`,
-and returns 404 in the production Vercel environment. Remove the fixture route
-after UX sign-off and before merging.
+`page.dev.tsx` routes are excluded from every production build (see `next.config.ts` and
+`scripts/verify-dev-excluded.mjs`), so the fixture exists on a local dev server only. Remove the
+fixture route after UX sign-off and before merging.
 
 ## Why this fixture exists
 

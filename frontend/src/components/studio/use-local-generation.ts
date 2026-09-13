@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { generatePipeline, type Candidate } from "@/lib/vfx-lab/pipeline";
+import type { Candidate } from "@/lib/vfx-lab/pipeline";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
 
 export type LocalBudget = {
@@ -90,7 +90,13 @@ export function useLocalGeneration({
       mode: "fast" | "quality" = "fast",
     ) => {
       if (!prompt.trim() || busy || !status?.configured) return false;
-      const { captureV2 } = await import("@/lib/vfx-lab/capture-v2");
+      // Loaded on demand: the pipeline and its protocol prompts are only ever
+      // needed on a localhost machine that has a key, so they stay out of the
+      // production client bundle.
+      const [{ captureV2 }, { generatePipeline }] = await Promise.all([
+        import("@/lib/vfx-lab/capture-v2"),
+        import("@/lib/vfx-lab/pipeline"),
+      ]);
       const controller = new AbortController();
       abort.current = controller;
       setBusy(true);

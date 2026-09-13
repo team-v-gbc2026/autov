@@ -83,6 +83,8 @@ const EXPOSURE: Range = [0.3, 2];
 /** Longest document the v2 contract accepts. */
 export const MAX_DURATION_V2 = 12;
 export const MIN_DURATION_V2 = 0.5;
+/** Longest document name the v2 contract accepts. */
+export const MAX_DOCUMENT_NAME = 100;
 const FALLBACK_COLOR = "#ffb23e";
 
 const clamp = (value: number, min: number, max: number) =>
@@ -220,17 +222,21 @@ export function projectToUi(doc: VfxDocumentV2 | null): VfxUiDocument {
 
 // --- inverse writes --------------------------------------------------------
 
-/** Scale a set of numbers so their maximum becomes `target`. */
-function scaleToMax(
-  values: number[],
-  target: number,
-  range: Range,
-): number[] {
+/**
+ * Smallest relative scale a write may apply. Dragging a slider to zero must not
+ * flatten a ramp or a curve to all-zeros: that erases the shape irreversibly,
+ * so the far-left end of the slider keeps 1% of it and the shape comes back
+ * proportionally when the slider is raised again.
+ */
+const SHAPE_FLOOR = 0.01;
+
+/** Scale a set of numbers so their maximum becomes `target`, keeping shape. */
+function scaleToMax(values: number[], target: number, range: Range): number[] {
   const current = Math.max(...values);
-  if (current > 1e-9)
-    return values.map((value) =>
-      clamp((value * target) / current, range[0], range[1]),
-    );
+  if (current > 1e-9) {
+    const factor = Math.max(target / current, SHAPE_FLOOR);
+    return values.map((value) => clamp(value * factor, range[0], range[1]));
+  }
   return values.map(() => clamp(target, range[0], range[1]));
 }
 
@@ -240,7 +246,7 @@ function writeIntensity(layer: LayerV2, ui: number) {
     const scaled = scaleToMax(
       layer.light.intensity.keys.map(([, v]) => v),
       target,
-      [-20, 20],
+      LIGHT_INTENSITY,
     );
     layer.light.intensity.keys = layer.light.intensity.keys.map(
       ([t], index) => [t, scaled[index]] as [number, number],
@@ -272,12 +278,16 @@ function writeSpeed(layer: LayerV2, ui: number) {
     const speed = layer.emitter.velocity.speed;
     const target = fromUi(ui, PARTICLE_SPEED);
     const current = Math.max(Math.abs(speed[0]), Math.abs(speed[1]));
-    layer.emitter.velocity.speed =
-      current > 1e-9
-        ? (speed.map((value) =>
-            clamp((value * target) / current, -20, 20),
-          ) as [number, number])
-        : [0, target];
+    if (current > 1e-9) {
+      // The slider carries magnitude only; each end keeps its own sign, so an
+      // inward (negative) emitter stays inward and speed[0] <= speed[1] holds.
+      const factor = Math.max(target / current, SHAPE_FLOOR);
+      layer.emitter.velocity.speed = speed.map((value) =>
+        clamp(value * factor, -PARTICLE_SPEED[1], PARTICLE_SPEED[1]),
+      ) as [number, number];
+    } else {
+      layer.emitter.velocity.speed = [0, target];
+    }
     return;
   }
   const noise = layer.geometry?.vertexNoise;
@@ -337,11 +347,13 @@ function writeErosion(layer: LayerV2, ui: number) {
     return;
   }
   const keys = material.erosion.curve.keys;
-  const current = Math.max(...keys.map(([, v]) => v));
-  material.erosion.curve.keys = keys.map(([t, v]) =>
-    current > 1e-9
-      ? ([t, clamp((v * target) / current, -20, 20)] as [number, number])
-      : ([t, clamp(t * target, -20, 20)] as [number, number]),
+  const scaled = scaleToMax(
+    keys.map(([, v]) => v),
+    target,
+    EROSION,
+  );
+  material.erosion.curve.keys = keys.map(
+    ([t], index) => [t, scaled[index]] as [number, number],
   );
 }
 
@@ -401,7 +413,10 @@ function fitToDuration(layer: LayerV2, duration: number) {
  */
 function commit(next: VfxDocumentV2, previous: VfxDocumentV2): VfxDocumentV2 {
   try {
-    return validateDocumentV2(next);
+    const valid = validateDocumentV2(next);
+    // A documented no-op keeps the previous object identity, so the preview
+    // does not reinstall a document that did not actually change.
+    return JSON.stringify(valid) === JSON.stringify(previous) ? previous : valid;
   } catch (error) {
     console.warn(
       "[ui-bridge] rejected an edit that would invalidate the document:",
@@ -527,7 +542,14 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
     overrides: [],
   };
   next.layers = [...next.layers, layer];
-  return commit(next, doc);
+  const result = commit(next, doc);
+  // commit falls back to `doc` when the result is invalid. Callers select the
+  // new emitter by index, so a fallback that has no layers at all — the shell
+  // createDocument starts from — must fail loudly instead of handing back a
+  // document the caller will index into.
+  if (result.layers.length <= doc.layers.length)
+    throw new Error("This effect cannot take another emitter.");
+  return result;
 }
 
 /**
@@ -536,11 +558,13 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
  * start from.
  */
 export function createDocument(name = "Untitled effect"): VfxDocumentV2 {
-  const shell = defaultDocumentShell(name);
+  const shell = defaultDocumentShell(documentName(name));
   return addLayer({ ...shell, layers: [] } as VfxDocumentV2, 0);
 }
 
-/** The id `addLayer` would give the next emitter — for selecting it after. */
-export function nextLayerId(doc: VfxDocumentV2, index: number) {
-  return emitterId(index + 1, new Set(doc.layers.map((layer) => layer.id)));
+/** The contract caps a document name at 100 characters; projects allow 120. */
+export function documentName(name: string) {
+  const trimmed = name.trim().slice(0, MAX_DOCUMENT_NAME).trim();
+  return trimmed || "Untitled effect";
 }
+

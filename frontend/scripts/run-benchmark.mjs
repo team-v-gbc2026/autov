@@ -413,7 +413,7 @@ try {
     env: {
       ...process.env,
       AUTOV_BENCHMARK_DATASET: root,
-      AUTOV_TEST_URL: `${base}/local`,
+      AUTOV_TEST_URL: `${base}/dev/vfx-lab`,
     },
   });
   execFileSync(process.execPath, ["scripts/build-morning-review.mjs"], {

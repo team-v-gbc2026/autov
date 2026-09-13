@@ -502,3 +502,32 @@
   font-size: 10px;
   padding: 6px 0;
 }
+
+/* The legacy studio keeps the emitter and environment panels PlaybackPanel used
+   to host. They are dev-only, so this just parks them in a scrollable column on
+   the left instead of letting them overlap the preview and the transport. */
+.lab .lab-legacy-controls {
+  position: absolute;
+  left: var(--left-space);
+  top: 96px;
+  z-index: 4;
+  width: 276px;
+  max-height: calc(100dvh - 96px - var(--timeline-height, 235px) - 90px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #ffffff0e;
+  border-radius: 10px;
+  background: #14161899;
+  backdrop-filter: blur(18px);
+}
+@media (max-width: 800px) {
+  .lab .lab-legacy-controls {
+    position: static;
+    width: auto;
+    max-height: 220px;
+    margin: 10px 14px;
+  }
+}
