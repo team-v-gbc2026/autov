@@ -12,6 +12,16 @@ import {
   sliverStateAt,
 } from "../src/lib/vfx-lab/splash-v2";
 import { createPresetV2 } from "../src/lib/vfx-lab/recipes-v2";
+import {
+  invertCurve,
+  pathPoint,
+  pathTangent,
+} from "../src/lib/vfx-lab/paths-v2";
+import {
+  buildWireBurstGeometry,
+  wireBurstBounds,
+} from "../src/lib/vfx-lab/wire-burst-v2";
+import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
 import { defaultGeometry, type GeometryV2 } from "../src/lib/vfx-lab/schema-v2";
 
 // ---------------------------------------------------------------------------
@@ -265,5 +275,149 @@ test("a splash fan is mirrored, so it never pulls the framing off centre", () =>
       first,
       `u=${u}`,
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Paths, ribbons, wire bursts and layer jitter — the heal / glitch spike port.
+//
+// Same rule as everything above: the CPU half of each feature is the half the
+// framing pass and the depth sort read, so verifying it here verifies that the
+// document really is a pure function of (document, time, seed). The GPU half is
+// verified by the headless harness, which refuses a run unless the same time
+// rendered twice is byte-identical.
+// ---------------------------------------------------------------------------
+
+const healing = createPresetV2("healing-aura");
+const glitch = createPresetV2("glitch-projectile");
+
+test("a path is a pure function of u, and its tangent is a unit vector", () => {
+  for (const doc of [healing, glitch])
+    for (const path of doc.paths)
+      for (const u of [0, 0.13, 0.5, 0.77, 1]) {
+        assert.deepEqual(pathPoint(path, u), pathPoint(structuredClone(path), u));
+        const tangent = pathTangent(path, u);
+        assert.ok(Math.abs(Math.hypot(...tangent) - 1) < 1e-6, `${path.id}@${u}`);
+        assert.ok(pathPoint(path, u).every(Number.isFinite));
+      }
+  // An orbit with height 0 is closed: u and u+1 are the same point, which is
+  // what lets a ribbon head run past 1 and keep circling.
+  const ring = healing.paths.find((p) => p.id === "ring")!;
+  const a = pathPoint(ring, 0.25);
+  const b = pathPoint(ring, 1.25);
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(a[i] - b[i]) < 1e-9);
+});
+
+test("the head curve inverse is the inverse of the head curve", () => {
+  const trail = glitch.layers.find(
+    (l) => l.emitter?.spawn.mode === "pathAnchored",
+  )!;
+  const head = trail.emitter!.spawn.headCurve!;
+  const sample = (u: number) => {
+    const keys = head.keys;
+    const x = Math.min(1, Math.max(0, u));
+    if (x <= keys[0][0]) return keys[0][1];
+    for (let i = 1; i < keys.length; i++)
+      if (x <= keys[i][0]) {
+        let f = (x - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]);
+        if (head.ease === "smooth") f = f * f * (3 - 2 * f);
+        return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * f;
+      }
+    return keys[keys.length - 1][1];
+  };
+  for (const y of [0, 0.1, 0.33, 0.5, 0.82, 0.99]) {
+    const u = invertCurve(head, y);
+    assert.ok(u >= 0 && u <= 1, `${y} -> ${u}`);
+    assert.ok(Math.abs(sample(u) - y) < 2e-3, `${y} -> ${u} -> ${sample(u)}`);
+  }
+  // Births ascend along the path: instance i is always born before instance i+1.
+  const births = Array.from({ length: 12 }, (_, i) =>
+    invertCurve(head, i / 11),
+  );
+  for (let i = 1; i < births.length; i++)
+    assert.ok(births[i] >= births[i - 1], `${i}`);
+});
+
+test("a wire burst is a pure function of its spec, and stays inside its core box", () => {
+  const layer = glitch.layers.find((l) => l.wireBurst)!;
+  const spec = layer.wireBurst!;
+  const first = buildWireBurstGeometry(spec);
+  const again = buildWireBurstGeometry(structuredClone(spec));
+  const positions = (g: { geometry: { getAttribute(name: string): { array: ArrayLike<number> } } }) =>
+    Array.from(g.geometry.getAttribute("position").array);
+  assert.deepEqual(positions(first), positions(again));
+  // A different seed is a different burst.
+  const reseeded = buildWireBurstGeometry({ ...structuredClone(spec), seed: spec.seed + 1 });
+  assert.notDeepEqual(positions(first), positions(reseeded));
+  // Every outline vertex is inside the un-travelled radius band; the framing
+  // box is the core, so the un-scaled buffer has to fit well inside it.
+  const corners = wireBurstBounds(spec);
+  const limit = Math.max(...corners.map((p) => Math.abs(p.x)));
+  for (const value of positions(first)) {
+    assert.ok(Number.isFinite(value));
+    assert.ok(Math.abs(value) <= first.reach + 1e-6);
+  }
+  assert.ok(limit > spec.radius, "the core box must at least hold the outlines");
+  for (const built of [first, again, reseeded]) built.geometry.dispose();
+});
+
+test("layer jitter is stepped, gated and identical on a seek", () => {
+  const head = glitch.layers.filter((l) => l.jitter && l.id.startsWith("dart"));
+  assert.equal(head.length, 2);
+  const layer = head[0];
+  const spec = layer.jitter!;
+  const step = 1 / spec.frequency;
+  // The jitter OFFSET, isolated from the motion keys the same layer also
+  // carries: the same layer evaluated with and without its jitter.
+  const offsetOf = (source: typeof layer, t: number) => {
+    const moved = evaluateLayerV2(source, t).layer.transform.position;
+    const still = evaluateLayerV2({ ...source, jitter: null }, t).layer.transform
+      .position;
+    return moved.map((v, k) => Number((v - still[k]).toFixed(9)));
+  };
+  const at = (t: number) => offsetOf(layer, t);
+
+  // Inside one window the offset never changes; it is a step, not a wobble.
+  const base = layer.start + step * 3.2;
+  assert.deepEqual(at(base), at(base + step * 0.5));
+  // Ten "played" evaluations then a cold seek land on the same offset.
+  const first = at(base);
+  for (let i = 0; i <= 10; i++)
+    at(layer.start + (i / 10) * (layer.end - layer.start));
+  assert.deepEqual(at(base), first);
+  // The gate really gates: some windows fire, most do not.
+  let fired = 0;
+  let windows = 0;
+  for (let i = 0; i < 400; i++) {
+    const t = layer.start + (i + 0.5) * step;
+    if (t >= layer.end) break;
+    windows++;
+    if (at(t).some((v) => Math.abs(v) > 1e-9)) fired++;
+  }
+  assert.ok(fired > 0, "a gated jitter still fires sometimes");
+  assert.ok(fired < windows, "a gated jitter does not fire every window");
+  // Never further than the amplitude allows.
+  for (let i = 0; i < 200; i++) {
+    const t = layer.start + (i + 0.5) * step;
+    if (t >= layer.end) break;
+    for (const v of at(t)) assert.ok(Math.abs(v) <= spec.amplitude + 1e-9);
+  }
+  // Both dart layers share one jitter spec, so they break by the same offset.
+  for (const t of [base, base + step * 2, base + step * 7])
+    assert.deepEqual(offsetOf(head[0], t), offsetOf(head[1], t), `${t}`);
+});
+
+test("both new exemplars carry a path every referencing layer can resolve", () => {
+  for (const doc of [healing, glitch]) {
+    const ids = new Set(doc.paths.map((p) => p.id));
+    for (const layer of doc.layers) {
+      if (layer.ribbon) {
+        assert.ok(ids.has(layer.ribbon.pathId), layer.id);
+        if (layer.ribbon.morph)
+          assert.ok(ids.has(layer.ribbon.morph.pathId), layer.id);
+      }
+      if (layer.emitter?.shape.pathId)
+        assert.ok(ids.has(layer.emitter.shape.pathId), layer.id);
+    }
   }
 });

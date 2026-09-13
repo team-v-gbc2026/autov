@@ -5,6 +5,8 @@ import fireSlashFixture from "../../../fixtures/v2/fire-slash/document.json";
 import beamFixture from "../../../fixtures/v2/beam/document.json";
 import shieldFixture from "../../../fixtures/v2/shield/document.json";
 import iceBlastFixture from "../../../fixtures/v2/ice-blast/document.json";
+import healingAuraFixture from "../../../fixtures/v2/healing-aura/document.json";
+import glitchProjectileFixture from "../../../fixtures/v2/glitch-projectile/document.json";
 import type { RecipeId } from "./recipes";
 import {
   type Curve,
@@ -25,16 +27,15 @@ import {
 // ---------------------------------------------------------------------------
 // autov.lab/2 construction recipes.
 //
-// Eight families, each with the knowledge the planner needs and one complete
+// Ten families, each with the knowledge the planner needs and one complete
 // example document. The examples are STARTING POINTS, not finished look-dev:
 // they exist so a candidate request always ships a valid, readable reference
 // built from the same parts (ramps, erosion, library masks, a light, a decal,
 // an environment grid).
 //
-// fire-projectile, smoke-burst, lightning-impact, fire-slash, beam, shield and
-// ice-blast are hand-tuned exemplars, imported from their fixtures so there is
-// exactly one copy of those numbers in the repository. Only meteor-rain is
-// still built in code below.
+// Every family but meteor-rain is a hand-tuned exemplar, imported from its
+// fixture so there is exactly one copy of those numbers in the repository.
+// Only meteor-rain is still built in code below.
 // ---------------------------------------------------------------------------
 
 export const RECIPE_V2_IDS = [
@@ -46,6 +47,8 @@ export const RECIPE_V2_IDS = [
   "shield",
   "meteor-rain",
   "ice-blast",
+  "healing-aura",
+  "glitch-projectile",
 ] as const;
 export type RecipeV2Id = (typeof RECIPE_V2_IDS)[number];
 
@@ -69,6 +72,20 @@ export const V1_RECIPE_TO_V2: Record<RecipeId, RecipeV2Id> = {
   // (cool palette, shard/mist secondaries, ground frost).
   water: "ice-blast",
 };
+
+/**
+ * The two families the v1 recipe vocabulary cannot name. `PlanSchema` is shared
+ * between the schemas and the planner always answers with a v1 recipe id, so
+ * rather than widening that vocabulary (which would change every v1 run's
+ * prompt) the prompt itself routes: an aura/heal/buff prompt lands on
+ * healing-aura and a glitch/digital/hologram prompt on glitch-projectile,
+ * whichever v1 recipe the planner picked. `V1_RECIPE_TO_V2` stays total, so a
+ * run with no prompt still resolves.
+ */
+export const FAMILY_KEYWORDS: Array<[RegExp, RecipeV2Id]> = [
+  [/\baura\b|\bheal|\bbuff\b|restorat/i, "healing-aura"],
+  [/glitch|digital|hologram/i, "glitch-projectile"],
+];
 
 // --- small builders --------------------------------------------------------
 
@@ -112,6 +129,8 @@ type MaterialOptions = {
   softParticle?: number;
   fresnel?: { power: number; strength: number };
   procedural?: Material["procedural"];
+  proceduralParams?: Material["proceduralParams"];
+  rgbSplit?: Material["rgbSplit"];
 };
 
 function mat(options: MaterialOptions): Material {
@@ -153,9 +172,11 @@ function mat(options: MaterialOptions): Material {
     softParticle: options.softParticle ?? 0,
     fresnel: options.fresnel ?? null,
     procedural: options.procedural ?? "none",
+    proceduralParams: options.proceduralParams ?? [0, 0, 0, 0],
     toon: options.toon ?? null,
     outline: options.outline ?? null,
     opaqueUntil: options.opaqueUntil ?? null,
+    rgbSplit: options.rgbSplit ?? null,
   };
 }
 
@@ -207,6 +228,7 @@ type LayerCommon = {
   rotation?: Vec3;
   scale?: Vec3;
   motion?: LayerV2["motion"];
+  jitter?: LayerV2["jitter"];
   tracks?: TrackV2[];
 };
 
@@ -224,6 +246,7 @@ function base(common: LayerCommon) {
       scale: common.scale ?? ([1, 1, 1] as Vec3),
     },
     motion: common.motion ?? null,
+    jitter: common.jitter ?? null,
     tracks: common.tracks ?? [],
     overrides: [],
   };
@@ -787,6 +810,18 @@ export const RECIPES_V2: Record<
     knowledge:
       "A ring emitter converges motes inward (negative radial speed) onto a rotating sigil decal before the dome snaps up with a radius/position overshoot. The dome is three stacked spherical shells — a plain fresnel shell plus a primary and a cross-weave secondary hexagon-procedural cell lattice — each pulsed over time by tracking its material.erosion.curve.keys per stop rather than eroding once. A base rim, an expanding base-shockwave decal and a burst of ignition sparks land the cast; tangential orbit-motes circle the dome under a vortex force, and two brief 'hit ripple' shells (same sphere geometry, erosion pulsed for ~0.5 s) simulate strikes mid-hold. Scattering motes and one light close it out.",
   },
+  "healing-aura": {
+    name: "Healing aura",
+    subtitle: "A sweep that lands as a ring, a column and sparkles.",
+    knowledge:
+      'Two document paths carry the whole effect: an "orbit" at hip height (radius ~0.82, wobble 0.12) and a flat "orbit" on the ground (radius ~0.78, wobble 0.055). One kind:"ribbon" of 5 strands sweeps the first over ~1.2 s with a window head curve that runs 0 to 1 and then keeps creeping, and its ribbon.morph blends it onto the ground ring as it settles, so the sweep and the ring are ONE layer, never two. Under it a kind:"decal" on the ground uses procedural "swirlRing" (proceduralParams = rim radius as a fraction of the card, strand half-width, wobble, rotation rate) with a tracked proceduralParams[0] that snaps the rim out from 72% to full, and a second decal under that uses "ringFill" for the soft pulsing interior. The vertical body is a kind:"beam" with geometry.type "cylinder", geometry.taper ~0.8, rotation [-1.5708,0,0], material.procedural "solid", a surface ramp that falls to intensity 0 at the top, fresnel and a panning noise, plus an erosion curve that only bites the top 40% so the glow tears into streaks instead of ending at a cap. Four-point sparkles are one particles layer with procedural "star4" and emitter.render.twinkle. Finish with a softRadial ground bounce and one green point light. No caster is ever in frame.',
+  },
+  "glitch-projectile": {
+    name: "Glitch projectile",
+    subtitle: "A digital dart on a Bezier arc, and its broken impact.",
+    knowledge:
+      'One "bezier" document path from the launch point through a lifted control point to the target carries the head, the trail and the hairlines, so nothing can drift apart. Fragments converge on the launch point first (a particles layer with NEGATIVE radial speed and layer.jitter). The head is a cone shell plus a star4 sprite, both driven by the same motion keys sampled off the already-eased Bezier and both carrying the same layer.jitter (frequency ~10, gate 0.85) so they break in the same stepped windows. The trail is a particles layer with emitter.shape.type "path" on the same path, emitter.spawn.mode "pathAnchored" with a headCurve that matches the head easing, render.mode "pathAligned" and render.twinkle: each dash is born as the head passes it, holds that spot and flickers out. A kind:"ribbon" of 3 hairline strands fills the window just behind the head. The hit is a softRadial flash, a kind:"wireBurst" of polygon outlines and spokes with material.rgbSplit and its own layer.jitter, and rectangular shards (procedural "solid") on ballistic paths. post.glitch fires for two frames at the hit. A dark smoke plume and rising cyan sparks clear by the end.',
+  },
   "ice-blast": {
     name: "Ice blast",
     subtitle: "Erupting crystals with frost and mist.",
@@ -804,6 +839,8 @@ const EXAMPLES: Record<RecipeV2Id, () => VfxDocumentV2> = {
   shield: () => validateDocumentV2(shieldFixture),
   "meteor-rain": meteorRain,
   "ice-blast": () => validateDocumentV2(iceBlastFixture),
+  "healing-aura": () => validateDocumentV2(healingAuraFixture),
+  "glitch-projectile": () => validateDocumentV2(glitchProjectileFixture),
 };
 
 /** The example document for a family. Always a fresh, validated copy. */
@@ -821,6 +858,8 @@ export function exampleScaleSummary(id: RecipeV2Id) {
   const emitters = doc.layers.filter((l) => l.emitter);
   const blobs = doc.layers.filter((l) => l.blob);
   const splashes = doc.layers.filter((l) => l.splash);
+  const ribbons = doc.layers.filter((l) => l.ribbon);
+  const bursts = doc.layers.filter((l) => l.wireBurst);
   const lights = doc.layers.filter((l) => l.light);
   const round = (v: number) => Number(v.toFixed(2));
   return {
@@ -863,6 +902,19 @@ export function exampleScaleSummary(id: RecipeV2Id) {
       length: l.splash!.length,
       width: l.splash!.width,
     })),
+    ribbons: ribbons.map((l) => ({
+      strands: l.ribbon!.strands.count,
+      width: l.ribbon!.width,
+      tail: l.ribbon!.window.tail,
+      morphs: !!l.ribbon!.morph,
+    })),
+    wireBursts: bursts.map((l) => ({
+      shapes: l.wireBurst!.shapes,
+      radius: l.wireBurst!.radius,
+      travel: l.wireBurst!.travel,
+      spokes: l.wireBurst!.spokes,
+    })),
+    paths: doc.paths.map((p) => p.type),
     lightIntensityPeak: lights.map((l) =>
       Math.max(...l.light!.intensity.keys.map((k) => k[1])),
     ),
@@ -872,7 +924,14 @@ export function exampleScaleSummary(id: RecipeV2Id) {
   };
 }
 
-/** The v2 family a planned v1 recipe id maps onto. */
-export function recipeV2For(id: string): RecipeV2Id {
+/**
+ * The v2 family a planned v1 recipe id maps onto. When the user's prompt is
+ * available it wins for the two families the v1 vocabulary cannot name — see
+ * FAMILY_KEYWORDS.
+ */
+export function recipeV2For(id: string, prompt?: string): RecipeV2Id {
+  if (prompt)
+    for (const [pattern, family] of FAMILY_KEYWORDS)
+      if (pattern.test(prompt)) return family;
   return V1_RECIPE_TO_V2[id as RecipeId] ?? "fire-projectile";
 }

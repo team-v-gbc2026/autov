@@ -22,8 +22,9 @@
 //                | (all stops scale by the same ratio)                    | key (0..20), all
 //                |                                                        | keys scale by ratio
 //   Radius       | emitter.shape.radius (0..12)    | geometry.radius      | light.radius
-//                | blob.radius[1] / splash.length[1] on the generated kinds,
-//                | scaled as a band so the population keeps its size hierarchy
+//                | blob.radius[1] / splash.length[1] / ribbon.width /
+//                | wireBurst.radius on the generated kinds, scaled as a band so
+//                | the population keeps its size hierarchy
 //                |                                 | (0.01..8)            | (0.5..30)
 //   Opacity      | material.opacity (0..1)         | material.opacity     | — (no material)
 //   Speed        | max |emitter.velocity.speed|    | geometry.vertexNoise | —
@@ -79,6 +80,7 @@ const NOISE_SPEED: Range = V2_TARGET_RANGES["geometry.vertexNoise.speed"];
 const CURL: Range = V2_TARGET_RANGES["emitter.forces.curl.strength"];
 const NOISE_AMPLITUDE: Range = V2_TARGET_RANGES["geometry.vertexNoise.amplitude"];
 const EROSION: Range = [0, 1];
+const RIBBON_WIDTH: Range = V2_TARGET_RANGES["ribbon.width"];
 const BLOOM: Range = [0, 2];
 const EXPOSURE: Range = [0.3, 2];
 
@@ -137,6 +139,9 @@ function layerRadius(layer: LayerV2) {
   // the sliver band's top, the numbers that set how big the thing reads.
   if (layer.blob) return toUi(layer.blob.radius[1], MESH_RADIUS);
   if (layer.splash) return toUi(layer.splash.length[1], MESH_RADIUS);
+  // A ribbon's "radius" is its strand width; a burst's is how far it throws.
+  if (layer.ribbon) return toUi(layer.ribbon.width, RIBBON_WIDTH);
+  if (layer.wireBurst) return toUi(layer.wireBurst.radius, MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
   return 0;
 }
@@ -292,6 +297,15 @@ function writeRadius(layer: LayerV2, ui: number) {
       clamp(layer.splash.length[0] * factor, 0.2, 8),
       target,
     ];
+  } else if (layer.ribbon) {
+    layer.ribbon.width = fromUi(ui, RIBBON_WIDTH);
+  } else if (layer.wireBurst) {
+    // The band, not one number: a burst whose outlines grow without flying
+    // further just turns into a solid ball.
+    const target = fromUi(ui, MESH_RADIUS);
+    const factor = target / Math.max(layer.wireBurst.radius, 1e-6);
+    layer.wireBurst.radius = clamp(target, 0.05, 6);
+    layer.wireBurst.travel = clamp(layer.wireBurst.travel * factor, 0, 8);
   } else if (layer.geometry) layer.geometry.radius = fromUi(ui, MESH_RADIUS);
 }
 
@@ -558,6 +572,7 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
       scale: [1, 1, 1],
     },
     motion: null,
+    jitter: null,
     material: defaultMaterial(),
     emitter: defaultEmitter(),
     tracks: [],

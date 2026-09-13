@@ -258,6 +258,8 @@ test("wire round-trip: homogeneous arrays parse back into the runtime contract",
       light: layer.light ?? null,
       blob: layer.blob ?? null,
       splash: layer.splash ?? null,
+      ribbon: layer.ribbon ?? null,
+      wireBurst: layer.wireBurst ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -374,6 +376,8 @@ test("blob and splash round-trip through the wire contract", () => {
       light: layer.light ?? null,
       blob: layer.blob ?? null,
       splash: layer.splash ?? null,
+      ribbon: layer.ribbon ?? null,
+      wireBurst: layer.wireBurst ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -455,3 +459,293 @@ test("toon and outline are refused on a billboard population", () => {
   particles.material!.toon = defaultToon();
   assert.throws(() => validateDocumentV2(doc), /carry no toon or outline/);
 });
+
+// ---------------------------------------------------------------------------
+// Paths, ribbons, wire bursts, jitter, twinkle and the screen glitch
+// (the heal / glitch spike port)
+// ---------------------------------------------------------------------------
+
+const HEAL = path.join(process.cwd(), "fixtures/v2/healing-aura/document.json");
+const healRaw = JSON.parse(readFileSync(HEAL, "utf8"));
+const heal = (): VfxDocumentV2 => structuredClone(healRaw);
+
+const GLITCH = path.join(
+  process.cwd(),
+  "fixtures/v2/glitch-projectile/document.json",
+);
+const glitchRaw = JSON.parse(readFileSync(GLITCH, "utf8"));
+const glitch = (): VfxDocumentV2 => structuredClone(glitchRaw);
+
+test("the healing exemplar is a ribbon on two orbit paths", () => {
+  const doc = validateDocumentV2(heal());
+  assert.deepEqual(
+    doc.paths.map((p) => [p.id, p.type]),
+    [
+      ["sweep", "orbit"],
+      ["ring", "orbit"],
+    ],
+  );
+  const ribbon = doc.layers.find((l) => l.kind === "ribbon")!;
+  assert.equal(ribbon.ribbon!.pathId, "sweep");
+  // The sweep and the settled ring are ONE layer: the morph is what dives it.
+  assert.equal(ribbon.ribbon!.morph!.pathId, "ring");
+  assert.ok(ribbon.ribbon!.strands.count >= 3);
+  // The head runs past 1 and keeps circling; the orbit is closed, so it can.
+  const head = ribbon.ribbon!.window.head.keys;
+  assert.ok(head[head.length - 1][1] > 1);
+  const sweep = doc.paths.find((p) => p.id === "sweep")!;
+  assert.equal(sweep.type === "orbit" && sweep.height, 0);
+  // The ring is two flat cards driven entirely by proceduralParams.
+  const procedurals = doc.layers.map((l) => l.material?.procedural);
+  assert.ok(procedurals.includes("swirlRing"));
+  assert.ok(procedurals.includes("ringFill"));
+  const rim = doc.layers.find((l) => l.material?.procedural === "swirlRing")!;
+  assert.ok(
+    rim.tracks.some((t) => t.target === "material.proceduralParams[0]"),
+    "the rim snaps out on proceduralParams[0], not on transform.scale",
+  );
+  // The upright glow is an open tapered cylinder, fully covered.
+  const glow = doc.layers.find((l) => l.geometry?.type === "cylinder")!;
+  assert.ok(glow.geometry!.taper < 1);
+  assert.equal(glow.material!.procedural, "solid");
+  assert.equal(glow.material!.ramp.space, "surface");
+  assert.ok(glow.material!.fresnel);
+  // The sparkles twinkle on a per-instance hashed phase.
+  const sparkles = doc.layers.find((l) => l.emitter?.render.twinkle)!;
+  assert.equal(sparkles.material!.procedural, "star4");
+  assert.ok(sparkles.emitter!.render.twinkle!.depth > 0);
+  assert.deepEqual(lintDocumentV2(doc), []);
+});
+
+test("the glitch exemplar anchors its trail to one shared bezier", () => {
+  const doc = validateDocumentV2(glitch());
+  assert.deepEqual(
+    doc.paths.map((p) => [p.id, p.type]),
+    [["arc", "bezier"]],
+  );
+  const trail = doc.layers.find((l) => l.emitter?.shape.type === "path")!;
+  assert.equal(trail.emitter!.shape.pathId, "arc");
+  assert.equal(trail.emitter!.spawn.mode, "pathAnchored");
+  assert.ok(trail.emitter!.spawn.headCurve);
+  assert.equal(trail.emitter!.render.mode, "pathAligned");
+  // A dash holds where the head left it: no velocity at all.
+  assert.deepEqual(trail.emitter!.velocity.speed, [0, 0]);
+  // The hairlines ride the same path, so they can never drift off the trail.
+  const ribbon = doc.layers.find((l) => l.kind === "ribbon")!;
+  assert.equal(ribbon.ribbon!.pathId, "arc");
+  // The head and its core break in the SAME stepped windows.
+  const jittered = doc.layers.filter((l) => l.jitter);
+  assert.ok(jittered.length >= 3);
+  const head = jittered.filter((l) => l.id.startsWith("dart"));
+  assert.equal(head.length, 2);
+  assert.deepEqual(head[0].jitter, head[1].jitter);
+  assert.ok(head[0].jitter!.gate > 0.5);
+  // The burst is outlines plus spokes, split per channel.
+  const burst = doc.layers.find((l) => l.kind === "wireBurst")!;
+  assert.ok(burst.wireBurst!.spokes > 0);
+  assert.ok(burst.material!.rgbSplit!.offset > 0);
+  // Two hot frames at the hit, then nothing.
+  assert.ok(doc.post.glitch);
+  assert.equal(doc.post.glitch!.curve.keys[0][1], 0);
+  assert.equal(
+    doc.post.glitch!.curve.keys[doc.post.glitch!.curve.keys.length - 1][1],
+    0,
+  );
+  assert.deepEqual(lintDocumentV2(doc), []);
+});
+
+test("every new field is defaulted, so an archived document loads unchanged", () => {
+  const bare = load();
+  delete (bare as Record<string, unknown>).paths;
+  for (const layer of bare.layers) {
+    delete (layer as Record<string, unknown>).jitter;
+    if (layer.material) {
+      delete (layer.material as Record<string, unknown>).proceduralParams;
+      delete (layer.material as Record<string, unknown>).rgbSplit;
+    }
+    if (layer.geometry) delete (layer.geometry as Record<string, unknown>).taper;
+    if (layer.emitter) {
+      delete (layer.emitter.shape as Record<string, unknown>).pathId;
+      delete (layer.emitter.spawn as Record<string, unknown>).headCurve;
+      delete (layer.emitter.render as Record<string, unknown>).twinkle;
+    }
+  }
+  delete (bare.post as Record<string, unknown>).glitch;
+  const doc = validateDocumentV2(bare);
+  assert.deepEqual(doc.paths, []);
+  assert.equal(doc.post.glitch, null);
+  for (const layer of doc.layers) {
+    assert.equal(layer.jitter, null);
+    if (layer.material) {
+      assert.deepEqual(layer.material.proceduralParams, [0, 0, 0, 0]);
+      assert.equal(layer.material.rgbSplit, null);
+    }
+    if (layer.geometry) assert.equal(layer.geometry.taper, 1);
+    if (layer.emitter) {
+      assert.equal(layer.emitter.shape.pathId, null);
+      assert.equal(layer.emitter.spawn.headCurve, null);
+      assert.equal(layer.emitter.render.twinkle, null);
+    }
+  }
+  // And the same document with the fields present is byte-identical to the
+  // fixture, so the defaults are what the fixture already carries.
+  assert.deepEqual(validateDocumentV2(load()), validateDocumentV2(load()));
+});
+
+test("paths, ribbons and bursts round-trip through the wire contract", () => {
+  for (const source of [heal, glitch]) {
+    const doc = validateDocumentV2(source());
+    const wire = {
+      ...structuredClone(doc),
+      layers: doc.layers.map((layer) => ({
+        ...structuredClone(layer),
+        material: layer.material ?? null,
+        emitter: layer.emitter ?? null,
+        geometry: layer.geometry ?? null,
+        light: layer.light ?? null,
+        blob: layer.blob ?? null,
+        splash: layer.splash ?? null,
+        ribbon: layer.ribbon ?? null,
+        wireBurst: layer.wireBurst ?? null,
+      })),
+    };
+    delete (wire as Record<string, unknown>).textures;
+    DocumentV2WireSchema.parse(wire);
+    assert.deepEqual(fromWireV2(wire), { ...doc, textures: [] });
+  }
+});
+
+const rejectHeal = (
+  name: string,
+  mutate: (doc: VfxDocumentV2) => void,
+  message: RegExp,
+) =>
+  test(`rejects: ${name}`, () => {
+    const doc = heal();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), message);
+  });
+
+rejectHeal(
+  "a ribbon layer without a ribbon spec",
+  (d) => {
+    delete d.layers.find((l) => l.kind === "ribbon")!.ribbon;
+  },
+  /Ribbon layer needs ribbon/,
+);
+rejectHeal(
+  "a ribbon spec on a layer that is not a ribbon",
+  (d) => {
+    d.layers.find((l) => l.kind === "decal")!.ribbon = defaultsV2().ribbon;
+  },
+  /Only ribbon layers carry ribbon/,
+);
+rejectHeal(
+  "a ribbon pointing at a path the document does not declare",
+  (d) => {
+    d.layers.find((l) => l.kind === "ribbon")!.ribbon!.pathId = "nowhere";
+  },
+  /Missing path nowhere/,
+);
+rejectHeal(
+  "a morph target the document does not declare",
+  (d) => {
+    d.layers.find((l) => l.kind === "ribbon")!.ribbon!.morph!.pathId = "nope";
+  },
+  /Missing path nope/,
+);
+rejectHeal(
+  "tapers that consume the whole ribbon window",
+  (d) => {
+    d.layers.find((l) => l.kind === "ribbon")!.ribbon!.taper = {
+      head: 0.5,
+      tail: 0.6,
+    };
+  },
+  /consume the whole window/,
+);
+rejectHeal(
+  "two paths sharing an id",
+  (d) => {
+    d.paths.push(structuredClone(d.paths[0]));
+  },
+  /Duplicate path/,
+);
+rejectHeal(
+  "a jitter axis that is not a unit vector",
+  (d) => {
+    d.layers[0].jitter = {
+      frequency: 10,
+      amplitude: 0.1,
+      gate: 0.5,
+      axis: [0, 0.5, 0],
+    };
+  },
+  /unit vector/,
+);
+
+const rejectGlitch = (
+  name: string,
+  mutate: (doc: VfxDocumentV2) => void,
+  message: RegExp,
+) =>
+  test(`rejects: ${name}`, () => {
+    const doc = glitch();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), message);
+  });
+
+rejectGlitch(
+  "a wireBurst layer without a wireBurst spec",
+  (d) => {
+    delete d.layers.find((l) => l.kind === "wireBurst")!.wireBurst;
+  },
+  /WireBurst layer needs wireBurst/,
+);
+rejectGlitch(
+  "a wireBurst whose side band descends",
+  (d) => {
+    d.layers.find((l) => l.kind === "wireBurst")!.wireBurst!.sides = [5, 3];
+  },
+  /wireBurst.sides/,
+);
+rejectGlitch(
+  "a path emitter with no path id",
+  (d) => {
+    d.layers.find((l) => l.emitter?.shape.type === "path")!.emitter!.shape.pathId =
+      null;
+  },
+  /needs shape.pathId/,
+);
+rejectGlitch(
+  "a path-anchored spawn with no head curve",
+  (d) => {
+    d.layers.find(
+      (l) => l.emitter?.spawn.mode === "pathAnchored",
+    )!.emitter!.spawn.headCurve = null;
+  },
+  /needs spawn.headCurve/,
+);
+rejectGlitch(
+  "a head curve that runs backwards",
+  (d) => {
+    d.layers.find(
+      (l) => l.emitter?.spawn.mode === "pathAnchored",
+    )!.emitter!.spawn.headCurve!.keys = [
+      [0, 0.8],
+      [0.5, 0.2],
+      [1, 1],
+    ];
+  },
+  /must not run backwards/,
+);
+rejectGlitch(
+  "an rgb split on a particles layer",
+  (d) => {
+    d.layers.find((l) => l.kind === "particles")!.material!.rgbSplit = {
+      offset: 0.01,
+      growth: 1,
+    };
+  },
+  /not particles/,
+);

@@ -268,6 +268,22 @@ export function applyKnobs(
       ];
       sp.width = clamp(sp.width * kMeshScale, 0.02, 1.5);
     }
+    // A ribbon's size is its strand width and how far the strands sit apart;
+    // its path is the effect's geometry and belongs to the document, so
+    // meshScale deliberately does not move it. verticalStretch has nothing to
+    // reach: the strip has no axis of its own.
+    if (layer.ribbon) {
+      const r = layer.ribbon;
+      r.width = clamp(r.width * kMeshScale, 0.002, 1);
+      r.strands.spread = clamp(r.strands.spread * kMeshScale, 0, 1);
+    }
+    // A burst scales by how big its outlines are and how far they fly; the
+    // shape and spoke counts are topology, so the knob space never moves them.
+    if (layer.wireBurst) {
+      const w = layer.wireBurst;
+      w.radius = clamp(w.radius * kMeshScale, 0.05, 6);
+      w.travel = clamp(w.travel * kMeshScale, 0, 8);
+    }
 
     // K6 — ramp intensity, every layer that has a ramp.
     if (layer.material)

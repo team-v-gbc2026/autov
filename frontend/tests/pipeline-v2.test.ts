@@ -487,11 +487,16 @@ test("every v2 recipe example is a valid, lint-clean document", () => {
       doc.layers.some((l) => l.kind === "light"),
       `${id} has no light layer`,
     );
+    // A particles layer needs a silhouette: a library mask, or a billboard
+    // procedural (star4, softRadial, solid, flame, smoke) that IS one.
     assert.ok(
       doc.layers
         .filter((l) => l.kind === "particles")
-        .every((l) => l.material?.mask.textureId),
-      `${id} has an unmasked particles layer`,
+        .every(
+          (l) =>
+            l.material?.mask.textureId || l.material?.procedural !== "none",
+        ),
+      `${id} has a particles layer with neither a mask nor a procedural`,
     );
   }
 });
@@ -583,6 +588,8 @@ test("structural repair is bounded by the baseline document", () => {
         "light",
         "blob",
         "splash",
+        "ribbon",
+        "wireBurst",
       ])
         if (layer[slot] === undefined) layer[slot] = null;
     return { document: copy, explanation: "repair" };

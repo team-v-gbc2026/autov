@@ -325,3 +325,31 @@ test("a documented no-op returns the same document identity", () => {
   // Re-applying the projected values changes nothing either.
   assert.equal(applyLayerPatch(doc, light.id, { parameters }), doc);
 });
+
+test("Radius reaches a ribbon's strand width and a burst's reach", () => {
+  const heal = load("healing-aura");
+  const ribbonId = heal.layers.find((l) => l.kind === "ribbon")!.id;
+  const before = projectToUi(heal).layers.find((l) => l.id === ribbonId)!;
+  const wider = applyLayerPatch(heal, ribbonId, {
+    parameters: { ...before.parameters, Radius: 80 },
+  });
+  const layer = wider.layers.find((l) => l.id === ribbonId)!;
+  assert.ok(layer.ribbon!.width > heal.layers.find((l) => l.id === ribbonId)!.ribbon!.width);
+  assert.ok(projectToUi(wider).layers.find((l) => l.id === ribbonId)!.parameters.Radius > before.parameters.Radius);
+
+  const glitch = load("glitch-projectile");
+  const burstId = glitch.layers.find((l) => l.kind === "wireBurst")!.id;
+  const source = glitch.layers.find((l) => l.id === burstId)!.wireBurst!;
+  const grown = applyLayerPatch(glitch, burstId, {
+    parameters: {
+      ...projectToUi(glitch).layers.find((l) => l.id === burstId)!.parameters,
+      Radius: 40,
+    },
+  }).layers.find((l) => l.id === burstId)!.wireBurst!;
+  // Radius and travel move together: outlines that grow without flying further
+  // just turn the burst into a solid ball.
+  assert.ok(grown.radius > source.radius);
+  assert.ok(grown.travel > source.travel);
+  assert.equal(grown.shapes, source.shapes);
+  assert.equal(grown.spokes, source.spokes);
+});

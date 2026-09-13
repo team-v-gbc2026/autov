@@ -411,3 +411,33 @@ test("the time knob is the only one that moves the document's own duration", () 
       );
   }
 });
+
+test("meshScale reaches the ribbon and wireBurst generators, topology excepted", () => {
+  const heal = load("healing-aura");
+  const glitch = load("glitch-projectile");
+  const bigHeal = applyKnobs(heal, knobsAt("meshScale", 2));
+  const bigGlitch = applyKnobs(glitch, knobsAt("meshScale", 2));
+
+  const ribbon = heal.layers.find((l) => l.ribbon)!;
+  const scaled = bigHeal.layers.find((l) => l.id === ribbon.id)!.ribbon!;
+  assert.ok(Math.abs(scaled.width - ribbon.ribbon!.width * 2) < 1e-6);
+  assert.ok(
+    Math.abs(scaled.strands.spread - ribbon.ribbon!.strands.spread * 2) < 1e-6,
+  );
+  // Topology, and the document's own path, are untouched.
+  assert.equal(scaled.strands.count, ribbon.ribbon!.strands.count);
+  assert.equal(scaled.pathId, ribbon.ribbon!.pathId);
+  assert.deepEqual(bigHeal.paths, heal.paths);
+
+  const burst = glitch.layers.find((l) => l.wireBurst)!;
+  const grown = bigGlitch.layers.find((l) => l.id === burst.id)!.wireBurst!;
+  assert.ok(Math.abs(grown.radius - burst.wireBurst!.radius * 2) < 1e-6);
+  assert.ok(Math.abs(grown.travel - burst.wireBurst!.travel * 2) < 1e-6);
+  assert.equal(grown.shapes, burst.wireBurst!.shapes);
+  assert.equal(grown.spokes, burst.wireBurst!.spokes);
+  assert.equal(grown.seed, burst.wireBurst!.seed);
+
+  // The identity vector is still a no-op on both new families.
+  assert.deepEqual(applyKnobs(heal, IDENTITY_KNOBS), heal);
+  assert.deepEqual(applyKnobs(glitch, IDENTITY_KNOBS), glitch);
+});

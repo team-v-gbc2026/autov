@@ -158,3 +158,27 @@ test("a v1 particles layer maps spin and speed onto emitter paths", () => {
   const layer = upgradeDocument(v1).layers.find((l) => l.id === source.id)!;
   assert.equal(layer.tracks[0].target, "emitter.render.rotation.speed[1]");
 });
+
+test("an upgraded v1 document carries the neutral value of every later field", () => {
+  const v2 = upgradeDocument(createPreset("projectile"));
+  // v1 had no paths, no screen glitch, no jitter, no channel split, no
+  // procedural parameters, no cylinder taper, no path emitters and no twinkle;
+  // an upgraded document must render exactly as it did before they existed.
+  assert.deepEqual(v2.paths, []);
+  assert.equal(v2.post.glitch, null);
+  for (const layer of v2.layers) {
+    assert.equal(layer.jitter, null);
+    assert.equal(layer.ribbon, undefined);
+    assert.equal(layer.wireBurst, undefined);
+    assert.deepEqual(layer.material!.proceduralParams, [0, 0, 0, 0]);
+    assert.equal(layer.material!.rgbSplit, null);
+    if (layer.geometry) assert.equal(layer.geometry.taper, 1);
+    if (layer.emitter) {
+      assert.equal(layer.emitter.shape.pathId, null);
+      assert.equal(layer.emitter.spawn.headCurve, null);
+      assert.equal(layer.emitter.render.twinkle, null);
+      assert.notEqual(layer.emitter.shape.type, "path");
+      assert.notEqual(layer.emitter.spawn.mode, "pathAnchored");
+    }
+  }
+});

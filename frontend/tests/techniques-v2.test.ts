@@ -43,8 +43,8 @@ test("brief stays within budget for every family on an empty prompt", () => {
   for (const id of RECIPE_V2_IDS) {
     const brief = techniqueBrief(id, "");
     assert.ok(
-      brief.length <= 4800,
-      `${id} brief is ${brief.length} chars, over the 4800 budget`,
+      brief.length <= 5600,
+      `${id} brief is ${brief.length} chars, over the 5600 budget`,
     );
     assert.ok(!brief.includes("…"), `${id} brief truncates text with an ellipsis`);
     assert.ok(brief.length > 0, `${id} brief is empty`);

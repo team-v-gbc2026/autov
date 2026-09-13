@@ -86,6 +86,8 @@ model already reads.
 | `shield` | hex-lattice-fresnel-shield, converging-charge, staggered-instance-timing |
 | `meteor-rain` | speed-line-cap, instanced-shard-burst, staggered-instance-timing |
 | `ice-blast` | instanced-shard-burst, two-layer-noise-mist, staggered-instance-timing |
+| `healing-aura` | path-window-ribbon, ground-ring-with-inner-fill, upright-glow-cylinder, four-point-sparkles |
+| `glitch-projectile` | stepped-hash-glitch, staggered-instance-timing, instanced-shard-burst, path-window-ribbon |
 
 | Prompt keyword | Cards added |
 |---|---|
@@ -108,15 +110,28 @@ the model, so it is exposed here instead, for whoever picks up renderer work nex
 | Missing vocabulary | Needed by | Notes |
 |---|---|---|
 | stripe panner (hard `fract(u*n - t)` scrolling band shader on a mesh material) | stripe-panner-core-and-sheath | Approximated with `material.mask` atlas panning or a tracked `erosion.curve`. |
-| ribbon window (moving head-tail draw range along a path, independent of `layer.start`/`end`) | path-window-ribbon | Approximated with `layer.start/end` plus a tracked opacity/length ramp. |
 | ease `"outBack"` (overshoot-and-settle scale-in, beyond `outCubic`) | ground-ring-with-inner-fill | `CurveSchema.ease` today is `linear \| smooth` only (`easing` on tracks adds `outCubic \| inQuad`, no back-ease). |
-| true per-instance hashed offset inside a single emitter | staggered-instance-timing | Today: author N separate layers with different seed/start instead of one emitter with per-instance variation. |
 | polar swirl UV remap (`angle += strength / dist`, baked into material panning) | polar-swirl-disc | Approximated with stacked discs at different `uvPan` speeds plus `emitter.forces.vortex` on fleck particles. |
-| per-segment blink gating inside a single arc layer | blinking-arc-ribbons | Today: author several short-lived arc layers as the blink window. |
+| per-segment blink gating inside a single arc layer | blinking-arc-ribbons | Today: `ribbon.strands` gives independent strands in one layer and `layer.jitter` breaks the whole arc, but a single arc cannot blink segment by segment. |
 | depth-intersection glow (reconstructed world position vs. dome radius -> contact line) | hex-lattice-fresnel-shield | Needs a depth pre-pass comparison; noted as a renderer gap directly in the card. |
-| world-position-offset vertex jitter gated by a stepped time hash | stepped-hash-glitch | Distinct from `geometry.vertexNoise`, which is continuous, not stepped/discrete. |
-| true per-channel RGB split (separate R/G/B UV offset) | stepped-hash-glitch | Approximated with magenta/cyan `material.ramp` stops flanking the base colour. |
-| scanline overlay | stepped-hash-glitch | No approximation offered; purely missing. |
+| scanline overlay | stepped-hash-glitch | `post.glitch` covers band displacement, channel split and block dropout, but not a standing scanline pattern. |
+
+### Closed 2026-09-14 — the heal / glitch spike port
+
+Five more entries were closed by the Phase D port of the S2 heal and glitch spikes
+(`TOOLBOX_V2_MAPPING.md` §5–§6):
+
+| Was missing | Now | Card |
+|---|---|---|
+| ribbon window (moving head-tail draw range along a path, independent of `layer.start`/`end`) | document `paths` + `kind:"ribbon"` with `ribbon.window.{head,tail}`, `ribbon.strands`, `ribbon.taper` and `ribbon.morph` onto a second path | path-window-ribbon |
+| true per-instance hashed offset inside a single emitter | `emitter.spawn.mode:"pathAnchored"` + `spawn.headCurve` (birth ordered along the path) and `emitter.render.twinkle` (per-instance alpha phase) | staggered-instance-timing, four-point-sparkles |
+| world-position-offset vertex jitter gated by a stepped time hash | `layer.jitter{frequency,amplitude,gate,axis}`, on ANY kind, closed form from `floor(age*frequency)` | stepped-hash-glitch |
+| true per-channel RGB split (separate R/G/B UV offset) | `material.rgbSplit{offset,growth}` — three per-channel draws, mesh kinds and `wireBurst` only | stepped-hash-glitch |
+| (none, added outright) | `post.glitch{curve,bands,blockGrid,split,edgeBias}`, `kind:"wireBurst"`, `geometry.taper`, `material.proceduralParams` with the `swirlRing` / `ringFill` flat-card patterns | stepped-hash-glitch, ground-ring-with-inner-fill, upright-glow-cylinder |
+
+`material.rgbSplit` is deliberately NOT available on particles: a particles layer is one instanced
+draw, and splitting it would triple the instance budget. A particle population fakes the split with
+magenta/cyan ramp stops flanking the base hue, which is what `glitch-projectile`'s shards do.
 
 ### Closed 2026-09-14 — the smoke-spike port
 
@@ -133,5 +148,7 @@ The four entries at the top of this table were closed by the Phase C port of the
 `flat-splash-accent` also moved from "a decal plus a jagged mask" to `kind:"splash"`, a generated
 fan of flat slivers, though it never contributed a backlog entry.
 
-14 of the 21 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
-remaining 7 each contribute one or more entries to the renderer backlog above.
+15 of the 21 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
+remaining 6 — `stripe-panner-core-and-sheath`, `ground-ring-with-inner-fill`, `polar-swirl-disc`,
+`blinking-arc-ribbons`, `hex-lattice-fresnel-shield` and `stepped-hash-glitch` — each contribute
+exactly one entry to the renderer backlog above.

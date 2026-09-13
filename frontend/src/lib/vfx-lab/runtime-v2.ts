@@ -15,8 +15,24 @@ import {
   type Emitter,
   type LayerV2,
   type Material,
+  type PathV2,
   type VfxDocumentV2,
 } from "./schema-v2";
+import {
+  findPath,
+  invertCurve,
+  pathBounds,
+  pathPoint,
+  pathTangent,
+  pathUniforms,
+  writePathUniforms,
+} from "./paths-v2";
+import {
+  buildRibbonGeometry,
+  ribbonBounds,
+  sampleCurve,
+} from "./ribbon-v2";
+import { buildWireBurstGeometry, wireBurstBounds } from "./wire-burst-v2";
 import {
   blobLobes,
   blobBounds,
@@ -37,12 +53,16 @@ import {
   particleFragmentV2,
   particleVertexSource,
   rampUniforms,
+  ribbonFragmentV2,
+  ribbonVertexV2,
   splashFragmentV2,
   splashVertexV2,
   surfaceFragmentV2,
   surfaceVertexV2,
   trailFragmentV2,
   trailVertexSource,
+  wireBurstFragmentV2,
+  wireBurstVertexV2,
   writeCurve,
   writeRamp,
 } from "./shaders-v2";
@@ -143,6 +163,7 @@ const SHAPE_INDEX: Record<string, number> = {
   disc: 5,
   box: 6,
   line: 7,
+  path: 8,
 };
 const VELOCITY_INDEX: Record<string, number> = {
   radial: 0,
@@ -155,6 +176,7 @@ const RENDER_INDEX: Record<string, number> = {
   velocityStretch: 1,
   horizontal: 2,
   vertical: 3,
+  pathAligned: 4,
 };
 const BLEND_INDEX: Record<string, number> = {
   additive: 0,
@@ -177,6 +199,8 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   "energy-ribbon": 11,
   star4: 12,
   softRadial: 13,
+  swirlRing: 14,
+  ringFill: 15,
 };
 const SUB_MODE_INDEX: Record<string, number> = {
   alongPath: 0,
@@ -299,6 +323,12 @@ interface ParticleAttributes {
   seed: Float32Array;
   extra: Float32Array;
   extra2: Float32Array;
+  /**
+   * i / (count - 1). The ONLY monotone per-instance value an emitter has: a
+   * path shape reads it as the instance's u along the path and a pathAnchored
+   * spawn inverts the head curve at it. Everything else is hashed noise.
+   */
+  index: Float32Array;
   count: number;
 }
 
@@ -307,13 +337,16 @@ function makeAttributes(count: number, seed: number): ParticleAttributes {
   const s = new Float32Array(count * 4);
   const e = new Float32Array(count * 4);
   const e2 = new Float32Array(count * 4);
-  for (let i = 0; i < count; i++)
+  const index = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    index[i] = count > 1 ? i / (count - 1) : 0;
     for (let k = 0; k < 4; k++) {
       s[i * 4 + k] = rnd();
       e[i * 4 + k] = rnd();
       e2[i * 4 + k] = rnd();
     }
-  return { seed: s, extra: e, extra2: e2, count };
+  }
+  return { seed: s, extra: e, extra2: e2, index, count };
 }
 
 function orthoOf(a: THREE.Vector3, out: THREE.Vector3) {
@@ -351,6 +384,9 @@ function particlePositionV2(
   period: number,
   spawnWindow: number,
   out: THREE.Vector3,
+  /** The layer's own span and path, for the two path-driven modes. */
+  span = 1,
+  path: PathV2 | null = null,
 ): boolean {
   const i4 = index * 4;
   const s0 = attrs.seed[i4],
@@ -383,6 +419,8 @@ function particlePositionV2(
       }
     }
     age = time - (start + ((s0 * 7.13 + 0.37) % 1) * spawnWindow);
+  } else if (emitter.spawn.mode === "pathAnchored" && emitter.spawn.headCurve) {
+    age = time - invertCurve(emitter.spawn.headCurve, attrs.index[index]) * span;
   } else {
     age = time - s0 * spawnWindow;
   }
@@ -448,6 +486,21 @@ function particlePositionV2(
         (e2 * 2 - 1) * shape.size[2] * 0.5,
       );
       break;
+    case "path": {
+      if (!path) break;
+      const u = attrs.index[index];
+      const tangent = new THREE.Vector3().fromArray(pathTangent(path, u));
+      const side = new THREE.Vector3()
+        .crossVectors(tangent, new THREE.Vector3(0, 1, 0))
+        .add(new THREE.Vector3(1e-5, 0, 0))
+        .normalize();
+      const up = new THREE.Vector3().crossVectors(side, tangent).normalize();
+      origin
+        .fromArray(pathPoint(path, u))
+        .addScaledVector(side, (e0 - 0.5) * 2 * shape.radius)
+        .addScaledVector(up, (e1 - 0.5) * 1.5 * shape.radius);
+      break;
+    }
     default:
       origin
         .copy(axis)
@@ -715,9 +768,14 @@ function createParticleLayer(
     Float32Array.from(attrs.extra2),
     4,
   );
+  const indexAttr = new THREE.InstancedBufferAttribute(
+    Float32Array.from(attrs.index),
+    1,
+  );
   geometry.setAttribute("aSeed", seedAttr);
   geometry.setAttribute("aExtra", extraAttr);
   geometry.setAttribute("aExtra2", extra2Attr);
+  geometry.setAttribute("aIndex", indexAttr);
   const parentAttributes: THREE.InstancedBufferAttribute[] = [];
   if (parentAttrs) {
     const pick = (source: Float32Array) => {
@@ -747,8 +805,18 @@ function createParticleLayer(
   const trailTexture = textures.resolve(trail?.textureId ?? null, doc, false);
   const period = spawnPeriod(emitter, doc.duration);
 
+  // The emitter's own path, if it has one: a path shape samples it and a
+  // pathAligned quad reads its tangent. Paths live in DOCUMENT space, so a
+  // layer that uses one belongs at the origin.
+  const path = findPath(doc, emitter.shape.pathId);
+  const span = Math.max(layer.end - layer.start, 1e-6);
+
   const uniforms: Record<string, THREE.IUniform> = {
     uTime: { value: 0 },
+    uSpan: { value: span },
+    uTwinkleFreq: { value: emitter.render.twinkle?.frequency ?? 1 },
+    uTwinkleDepth: { value: emitter.render.twinkle?.depth ?? 0 },
+    ...pathUniforms("E", path),
     ...emitterCoreUniforms("", emitter, doc.duration),
     ...(parentEmitter
       ? emitterCoreUniforms("Parent", parentEmitter, doc.duration)
@@ -842,6 +910,10 @@ function createParticleLayer(
     ...curveUniforms("D", emitter.render.alphaAlongSpawn),
     ...curveUniforms("E", emitter.forces.curl?.envelope ?? null),
     ...curveUniforms("G", trail?.widthCurve ?? null),
+    ...curveUniforms("H", emitter.spawn.headCurve),
+    uProcParams: {
+      value: new THREE.Vector4().fromArray(material.proceduralParams),
+    },
   };
 
   const shaderMaterial = new THREE.ShaderMaterial({
@@ -880,6 +952,7 @@ function createParticleLayer(
     trailGeometry.setAttribute("aSeed", seedAttr);
     trailGeometry.setAttribute("aExtra", extraAttr);
     trailGeometry.setAttribute("aExtra2", extra2Attr);
+    trailGeometry.setAttribute("aIndex", indexAttr);
     if (parentAttributes.length) {
       trailGeometry.setAttribute("aPSeed", parentAttributes[0]);
       trailGeometry.setAttribute("aPExtra", parentAttributes[1]);
@@ -999,6 +1072,12 @@ function createParticleLayer(
       writeCurve(uniforms, "D", e.render.alphaAlongSpawn);
       writeCurve(uniforms, "E", e.forces.curl?.envelope ?? null);
       writeCurve(uniforms, "G", e.trail?.widthCurve ?? null);
+      writeCurve(uniforms, "H", e.spawn.headCurve);
+      uniforms.uTwinkleFreq.value = e.render.twinkle?.frequency ?? 1;
+      uniforms.uTwinkleDepth.value = e.render.twinkle?.depth ?? 0;
+      (uniforms.uProcParams.value as THREE.Vector4).fromArray(
+        m.proceduralParams,
+      );
       if (e.trail) {
         uniforms.uSegments.value = e.trail.segments;
         uniforms.uSpacing.value = e.trail.spacing;
@@ -1023,6 +1102,8 @@ function createParticleLayer(
           period,
           spawnWindowOf(e, period),
           point,
+          span,
+          path,
         )
           ? point.dot(view)
           : -Infinity;
@@ -1031,6 +1112,7 @@ function createParticleLayer(
       const s = seedAttr.array as Float32Array;
       const x = extraAttr.array as Float32Array;
       const x2 = extra2Attr.array as Float32Array;
+      const ix = indexAttr.array as Float32Array;
       for (let i = 0; i < count; i++) {
         const from = order[i] * 4;
         for (let k = 0; k < 4; k++) {
@@ -1038,10 +1120,14 @@ function createParticleLayer(
           x[i * 4 + k] = attrs.extra[from + k];
           x2[i * 4 + k] = attrs.extra2[from + k];
         }
+        // aIndex rides the same permutation: it identifies the instance, so a
+        // sorted draw that left it behind would tear a path emitter apart.
+        ix[i] = attrs.index[order[i]];
       }
       seedAttr.needsUpdate = true;
       extraAttr.needsUpdate = true;
       extra2Attr.needsUpdate = true;
+      indexAttr.needsUpdate = true;
     },
     bounds(time, push) {
       const { layer: live, visible, age } = evaluateLayerV2(layer, time);
@@ -1060,7 +1146,9 @@ function createParticleLayer(
       const point = new THREE.Vector3();
       const stride = Math.max(1, Math.floor(count / 96));
       for (let i = 0; i < count; i += stride) {
-        if (!particlePositionV2(e, attrs, i, age, period, window, point))
+        if (
+          !particlePositionV2(e, attrs, i, age, period, window, point, span, path)
+        )
           continue;
         point.applyMatrix4(matrix);
         push(point.clone().addScalar(margin));
@@ -1248,7 +1336,7 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
     // trail is the same bar narrowing toward its far end. Both are unit-sized
     // here and scaled per frame, so a track on geometry.length extends them.
     const width = geometry.lightning?.widthCurve ?? null;
-    const taper =
+    const base =
       layer.kind === "trail"
         ? width
           ? (t: number) => Math.max(0.02, curveAt(width, t))
@@ -1256,10 +1344,17 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
         : width
           ? (t: number) => Math.max(0.02, curveAt(width, t))
           : () => 1;
+    // geometry.taper is the cylinder's own far/near radius ratio, on top of
+    // whatever taper the kind already applies: an upright glow tube narrows as
+    // it rises. Baked into the buffer, so it is not animatable by a track.
+    const cylinder = geometry.type === "cylinder";
+    const taper = cylinder
+      ? (t: number) => base(t) * (1 + (geometry.taper - 1) * t)
+      : base;
     return unitBarGeometry(
       geometry.segments,
       geometry.radialSegments,
-      geometry.type === "cylinder",
+      cylinder,
       taper,
     );
   }
@@ -1383,6 +1478,13 @@ function createMeshLayer(
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
     uProcedural: { value: proceduralIndex(material) },
     uCam: { value: new THREE.Vector3() },
+    uProcParams: {
+      value: new THREE.Vector4().fromArray(material.proceduralParams),
+    },
+    // Overwritten per channel on the split copies; -1 is the ordinary draw.
+    uChannel: { value: -1 },
+    uSplitOffset: { value: material.rgbSplit?.offset ?? 0 },
+    uSplitGrowth: { value: material.rgbSplit?.growth ?? 0 },
     ...rampUniforms(material.ramp),
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
@@ -1439,6 +1541,39 @@ function createMeshLayer(
   mesh.name = layer.id;
   mesh.frustumCulled = false;
   mesh.renderOrder = index;
+  // material.rgbSplit: the base mesh becomes the green copy and two more are
+  // added for red and blue. They share the geometry and the whole uniform set
+  // except uChannel, so the split costs two draw calls and one uniform.
+  const splitCopies: THREE.Mesh[] = [];
+  let object: THREE.Object3D = mesh;
+  if (material.rgbSplit) {
+    uniforms.uChannel.value = 1;
+    const group = new THREE.Group();
+    group.name = layer.id;
+    group.add(mesh);
+    for (const channel of [0, 2]) {
+      const copy = new THREE.Mesh(
+        mesh.geometry,
+        new THREE.ShaderMaterial({
+          // Same uniform OBJECTS as the base draw, so every per-frame write
+          // reaches all three copies; only uChannel is its own.
+          uniforms: { ...uniforms, uChannel: { value: channel } },
+          vertexShader: surfaceVertexV2,
+          fragmentShader: surfaceFragmentV2,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          ...blendingFor(material.blend),
+        }),
+      );
+      copy.name = `${layer.id}-ch${channel}`;
+      copy.frustumCulled = false;
+      copy.renderOrder = index;
+      group.add(copy);
+      splitCopies.push(copy);
+    }
+    object = group;
+  }
   // The bolt re-shapes STRIKE_HZ times a second. The strike index is a pure
   // function of layer time, so rebuilding on a change keeps seek == play.
   let strike = 0;
@@ -1446,18 +1581,25 @@ function createMeshLayer(
   return {
     id: layer.id,
     source: layer,
-    object: mesh,
+    object,
     soft: false,
     trim: false,
     update(time, flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
       mesh.visible = visible;
+      for (const copy of splitCopies) copy.visible = visible;
       if (!visible) return;
       const m = live.material!;
       const g = live.geometry!;
       mesh.position.fromArray(live.transform.position);
       mesh.rotation.set(...live.transform.rotation);
       mesh.scale.fromArray(live.transform.scale).multiply(sizeOf(g, size));
+      for (const copy of splitCopies) {
+        copy.position.copy(mesh.position);
+        copy.rotation.copy(mesh.rotation);
+        copy.scale.copy(mesh.scale);
+        copy.geometry = mesh.geometry;
+      }
       if (layer.kind === "sprite") {
         // The quad is rebuilt around the camera axes in the vertex shader, so
         // the transform's own orientation would double up; only the roll
@@ -1514,6 +1656,9 @@ function createMeshLayer(
       );
       uniforms.uDistort.value = flags.textures ? (m.noise?.distortion ?? 0) : 0;
       uniforms.uProcedural.value = proceduralIndex(m);
+      (uniforms.uProcParams.value as THREE.Vector4).fromArray(m.proceduralParams);
+      uniforms.uSplitOffset.value = m.rgbSplit?.offset ?? 0;
+      uniforms.uSplitGrowth.value = m.rgbSplit?.growth ?? 0;
       uniforms.uHasFresnel.value = m.fresnel ? 1 : 0;
       uniforms.uFresnelPower.value = m.fresnel?.power ?? 2;
       uniforms.uFresnelStrength.value = m.fresnel?.strength ?? 0;
@@ -1672,6 +1817,8 @@ function createMeshLayer(
     dispose() {
       mesh.geometry.dispose();
       shaderMaterial.dispose();
+      for (const copy of splitCopies)
+        (copy.material as THREE.ShaderMaterial).dispose();
     },
   };
 }
@@ -2006,6 +2153,214 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Ribbon layers
+// ---------------------------------------------------------------------------
+
+/**
+ * A multi-strand strip swept along a document path inside the moving window
+ * [head - tail, head]. One draw call: the strip buffer is (w, side, strand) and
+ * every position is evaluated in the vertex shader from the live head, the live
+ * morph blend and the path uniforms, so nothing is rebuilt as the head travels
+ * and the same head always draws the same strip.
+ */
+function createRibbonLayer(
+  doc: VfxDocumentV2,
+  layer: LayerV2,
+  index: number,
+): LayerObject {
+  const material = layer.material!;
+  const spec = layer.ribbon!;
+  const path = findPath(doc, spec.pathId);
+  const morphPath = findPath(doc, spec.morph?.pathId ?? null);
+  const geometry = buildRibbonGeometry(spec);
+
+  const uniforms: Record<string, THREE.IUniform> = {
+    uTime: { value: 0 },
+    uHead: { value: 0 },
+    uTail: { value: spec.window.tail },
+    uWidth: { value: spec.width },
+    uMorph: { value: 0 },
+    uSpread: { value: spec.strands.spread },
+    uWidthJitter: { value: spec.strands.widthJitter },
+    uPhaseJitter: { value: spec.strands.phaseJitter },
+    uTaperHead: { value: spec.taper.head },
+    uTaperTail: { value: spec.taper.tail },
+    uOrientPath: { value: spec.orientation === "path" ? 1 : 0 },
+    uOpacity: { value: material.opacity },
+    uCore: { value: spec.core },
+    uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
+    ...pathUniforms("", path),
+    // With no morph the second path is the first one, so the blend is a no-op
+    // however the uniform happens to be set.
+    ...pathUniforms("Morph", morphPath ?? path),
+    ...rampUniforms(material.ramp),
+  };
+
+  const shaderMaterial = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: ribbonVertexV2,
+    fragmentShader: ribbonFragmentV2,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    ...blendingFor(material.blend),
+  });
+  const mesh = new THREE.Mesh(geometry, shaderMaterial);
+  mesh.name = layer.id;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = index;
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: mesh,
+    soft: false,
+    trim: false,
+    update(time) {
+      const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
+      mesh.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const r = live.ribbon!;
+      mesh.position.fromArray(live.transform.position);
+      mesh.rotation.set(...live.transform.rotation);
+      mesh.scale.fromArray(live.transform.scale);
+      uniforms.uTime.value = age;
+      uniforms.uHead.value = sampleCurve(r.window.head, u);
+      uniforms.uTail.value = r.window.tail;
+      uniforms.uWidth.value = r.width;
+      uniforms.uMorph.value = r.morph
+        ? clamp01(sampleCurve(r.morph.curve, u))
+        : 0;
+      uniforms.uSpread.value = r.strands.spread;
+      uniforms.uWidthJitter.value = r.strands.widthJitter;
+      uniforms.uPhaseJitter.value = r.strands.phaseJitter;
+      uniforms.uTaperHead.value = r.taper.head;
+      uniforms.uTaperTail.value = r.taper.tail;
+      uniforms.uOpacity.value = m.opacity;
+      uniforms.uCore.value = r.core;
+      writePathUniforms(uniforms, "", path);
+      writePathUniforms(uniforms, "Morph", morphPath ?? path);
+      writeRamp(uniforms, m.ramp);
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible || !path) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of ribbonBounds(live.ribbon!, path, morphPath))
+        push(corner.applyMatrix4(matrix));
+    },
+    dispose() {
+      geometry.dispose();
+      shaderMaterial.dispose();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Wire-burst layers
+// ---------------------------------------------------------------------------
+
+/**
+ * Polygon outlines and spokes thrown out of the layer origin, as LineSegments.
+ * The buffer is generated once (wire-burst-v2.ts) and the outward travel and
+ * scale envelope are applied in the vertex shader from layer time.
+ *
+ * material.rgbSplit draws the whole burst three times, one channel each; the
+ * copies share the buffer and differ only in their uChannel uniform.
+ */
+function createWireBurstLayer(layer: LayerV2, index: number): LayerObject {
+  const material = layer.material!;
+  const spec = layer.wireBurst!;
+  const { geometry } = buildWireBurstGeometry(spec);
+  const group = new THREE.Group();
+  group.name = layer.id;
+  const split = material.rgbSplit;
+
+  const draws = (split ? [0, 1, 2] : [-1]).map((channel) => {
+    const uniforms: Record<string, THREE.IUniform> = {
+      uTime: { value: 0 },
+      uLayerU: { value: 0 },
+      uTravel: { value: spec.travel },
+      uOpacity: { value: material.opacity },
+      uRampKeyMode: { value: rampKeyMode(material) },
+      uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
+      uChannel: { value: channel },
+      uSplitOffset: { value: split?.offset ?? 0 },
+      uSplitGrowth: { value: split?.growth ?? 0 },
+      ...rampUniforms(material.ramp),
+      ...curveUniforms("A", spec.scale),
+    };
+    const shader = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: wireBurstVertexV2,
+      fragmentShader: wireBurstFragmentV2,
+      transparent: true,
+      depthWrite: false,
+      ...blendingFor(material.blend),
+    });
+    const lines = new THREE.LineSegments(geometry, shader);
+    lines.name = channel < 0 ? layer.id : `${layer.id}-ch${channel}`;
+    lines.frustumCulled = false;
+    lines.renderOrder = index;
+    group.add(lines);
+    return { shader, uniforms };
+  });
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: group,
+    soft: false,
+    trim: false,
+    update(time) {
+      const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
+      group.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const burst = live.wireBurst!;
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+      for (const draw of draws) {
+        draw.uniforms.uTime.value = age;
+        draw.uniforms.uLayerU.value = u;
+        draw.uniforms.uTravel.value = burst.travel;
+        draw.uniforms.uOpacity.value = m.opacity;
+        draw.uniforms.uRampKeyMode.value = rampKeyMode(m);
+        draw.uniforms.uSplitOffset.value = m.rgbSplit?.offset ?? 0;
+        draw.uniforms.uSplitGrowth.value = m.rgbSplit?.growth ?? 0;
+        writeRamp(draw.uniforms, m.ramp);
+        writeCurve(draw.uniforms, "A", burst.scale);
+      }
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of wireBurstBounds(live.wireBurst!))
+        push(corner.applyMatrix4(matrix));
+    },
+    dispose() {
+      geometry.dispose();
+      for (const draw of draws) draw.shader.dispose();
+    },
+  };
+}
+
 /** A hex darkened toward black; the root of a sliver is its own colour, dimmed. */
 function shade(hex: string, factor: number) {
   const color = new THREE.Color(hex);
@@ -2023,11 +2378,23 @@ function spawnBoundsV2(
   layer: LayerV2,
   time: number,
   push: (p: THREE.Vector3) => void,
+  path: PathV2 | null = null,
 ) {
   const { layer: live, visible } = evaluateLayerV2(layer, time);
   if (!visible) return;
   const emitter = live.emitter!;
   const shape = emitter.shape;
+  if (shape.type === "path" && path) {
+    // A path emitter's spawn region IS the path: framing on a point at the
+    // layer origin would leave the whole flight line outside the shot.
+    const origin = new THREE.Vector3().fromArray(live.transform.position);
+    const margin = shape.radius + emitter.render.size[1] * 0.5;
+    for (const point of pathBounds(path, 24)) {
+      push(point.clone().add(origin).addScalar(margin));
+      push(point.clone().add(origin).addScalar(-margin));
+    }
+    return;
+  }
   const extent = new THREE.Vector3();
   // A "line" spawns from the origin *along* +axis for `length`, never behind
   // it, so its box is one-sided; `lean` carries that asymmetry.
@@ -2213,6 +2580,9 @@ export class VfxRuntimeV2 {
           return createParticleLayer(this.doc!, layer, index, this.textures, depth);
         if (layer.kind === "blob") return createBlobLayer(this.doc!, layer, index);
         if (layer.kind === "splash") return createSplashLayer(layer, index);
+        if (layer.kind === "ribbon")
+          return createRibbonLayer(this.doc!, layer, index);
+        if (layer.kind === "wireBurst") return createWireBurstLayer(layer, index);
         return createMeshLayer(this.doc!, layer, index, this.textures);
       });
     const lights = this.objects
@@ -2309,8 +2679,10 @@ export class VfxRuntimeV2 {
       const kind = object.source.kind;
       if (kind === "light") continue;
       if (kind === "particles") {
+        const emitterPath = findPath(doc, object.source.emitter!.shape.pathId);
         const spawn = boxOf(
-          (time, push) => spawnBoundsV2(object.source, time, push),
+          (time, push) =>
+            spawnBoundsV2(object.source, time, push, emitterPath),
           0,
         );
         if (spawn) {
@@ -2497,10 +2869,11 @@ export class VfxRuntimeV2 {
     }
     this.environment.apply(doc, this.scene, this.flags.ground);
     this.renderer.toneMappingExposure = doc.post.exposure;
-    this.post.apply(doc, {
-      post: this.flags.post && !diagnostic,
-      aa: this.flags.aa,
-    });
+    this.post.apply(
+      doc,
+      { post: this.flags.post && !diagnostic, aa: this.flags.aa },
+      time,
+    );
 
     if (this.flags.softParticles && this.objects.some((o) => o.soft)) {
       // Depth pre-pass: opaque receivers only (ground + any depth-writing mesh).

@@ -18,11 +18,25 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   a fan of flat slivers from `layer.splash`; `material.{toon,outline,opaqueUntil}`, the `height` ramp
   space and the `star4` / `softRadial` billboard procedurals go with them. Ported from the S2 smoke
   spike (see `TOOLBOX_V2_MAPPING.md` §4); the `smoke-burst` exemplar is built entirely from them.
+- **Path vocabulary** (`paths-v2.ts`, `ribbon-v2.ts`, `schema-v2.ts`, `shaders-v2.ts`, `runtime-v2.ts`):
+  document-level `paths` (`orbit` / `bezier`, evaluated identically on the CPU and in GLSL),
+  `kind:"ribbon"` (a multi-strand strip swept inside a moving `[head-tail, head]` window, with a
+  `morph` onto a second path), and path-anchored emitters (`emitter.shape.type:"path"` +
+  `spawn.mode:"pathAnchored"` + `render.mode:"pathAligned"`). Ported from the S2 heal and glitch
+  spikes (`TOOLBOX_V2_MAPPING.md` §5–§6); `healing-aura` and `glitch-projectile` are built on them.
+- **Discrete vocabulary** (same files plus `wire-burst-v2.ts`, `post-v2.ts`, `evaluate-v2.ts`):
+  `layer.jitter` (stepped-hash transform offset on any kind), `kind:"wireBurst"` (a generated burst
+  of polygon outlines and spokes), `material.rgbSplit` (three per-channel draws on mesh kinds and
+  wireBurst), `post.glitch` (a time-gated screen break keyed on `hash(floor(t*20))`),
+  `emitter.render.twinkle`, `geometry.taper` on an open cylinder, and the `swirlRing` / `ringFill`
+  flat-card procedurals driven by the new generic `material.proceduralParams` vec4.
 - **Pipeline v2** (`protocol-v2.ts`, `recipes-v2.ts`, `pipeline.ts`, `refine.ts`, `route.ts`): planner/candidate/
   review/refine on schema v2 with structured outputs, scale anchors, lint-driven repair, review v2
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).
 - **Exemplars** (`fixtures/v2/*/document.json`): fire-projectile, smoke-burst, lightning-impact, beam,
-  fire-slash, ice-blast, shield — hand-authored against the benchmark references (the "oracle").
+  fire-slash, ice-blast, shield, healing-aura, glitch-projectile — hand-authored against the benchmark
+  references (the "oracle"). The last two are the fx15 and fx04 cases; the planner reaches them by
+  prompt keyword (`recipeV2For(id, prompt)`), since `PlanSchema` still names v1 recipe ids.
 - **Dev gallery** `/dev/vfx-v2` (`npm run dev`): exemplars + every generated benchmark run, references,
   feature toggles, orbit camera, contact-sheet capture. `/dev` is excluded from production builds at build time
   (`scripts/verify-dev-excluded.mjs`).

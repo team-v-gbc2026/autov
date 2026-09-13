@@ -24,14 +24,22 @@ export const TEXTURE_MANIFEST_PROMPT = TEXTURE_MANIFEST_V2.map((entry) => ({
   suggestedUse: entry.suggestedUse ?? "",
 }));
 
-const VOCABULARY = `Document: schemaVersion "autov.lab/2", name, description, seed, duration (.5-12 s), impact (< duration), quality{style modern|ps2|ps1, particleDensity .1-1, aa none|msaa|msaa+smaa, softParticles}, environment{ground none|grid|plane, groundColor, groundReflect, ambient 0-3, groundY -4..0, fog{color,density 0..0.2}, background}, camera{fov 20-70, azimuth -pi..pi, elevation -1.5..1.5, framing .3-1.2, shake|null, pushIn|null}, post{bloom{strength 0-2, radius 0-1, threshold 0-2}, exposure .3-2, grade{contrast,saturation,tint,lift}, vignette, chromatic, motionBlur}, layers (1-24).
-Layer: id (lowercase-dashes), name, role anticipation|primary|impact|secondary|residue, kind ring|shell|trail|beam|sprite|particles|decal|light|blob|splash, start/end in GLOBAL seconds, enabled, transform{position,rotation,scale}, motion{keys:[[localSeconds,dx,dy,dz],...], ease}|null, tracks (dotted-path keyframes, local seconds), overrides (must be [] for new generation).
-Kind slots: every kind except light carries material. ring/shell/trail/beam/sprite/decal carry geometry and never an emitter. particles carry an emitter and never geometry. blob carries blob and splash carries splash — neither carries geometry or an emitter. light carries only light{color,intensity Curve,radius,decay} — no material, emitter or geometry.
-material{blend additive|alpha|premultiplied|screen, ramp{space life|layerTime|surface|height, stops 2-6 of {t,color,intensity 0-8} ascending in t, displacementShift -1..1, heightSpan .1-12}, opacity, mask{textureId|null, uvScale, uvPan, rotation, randomRotation, atlas{cols,rows,tiles}|null, flipbook{cols,rows,mode,fps}|null}, noise{textureId|null, uvScale, uvPan, distortion 0-.5, distortionPan}|null, erosion{curve, softness .01-.5, edgeWidth 0-.3, edgeColor, edgeIntensity 0-8, displacementProtect 0-1, rimBias 0-1}|null, softParticle 0-2, fresnel{power,strength}|null, procedural none|flame|water|hexagon|smoke|star|solid|portal|water-streaks|energy-ribbon|ice|sparkle|star4|softRadial, toon{bands 2|3, thresholds [a,b] on the 0..1 half-lambert, shadow, body, highlight, light (unit vector TOWARD a fixed world light), rim{power .5-8, amount 0-2}}|null, outline{width 0-.3, color}|null, opaqueUntil 0-1|null}.
+const VOCABULARY = `Document: schemaVersion "autov.lab/2", name, description, seed, duration (.5-12 s), impact (< duration), quality{style modern|ps2|ps1, particleDensity .1-1, aa none|msaa|msaa+smaa, softParticles}, environment{ground none|grid|plane, groundColor, groundReflect, ambient 0-3, groundY -4..0, fog{color,density 0..0.2}, background}, camera{fov 20-70, azimuth -pi..pi, elevation -1.5..1.5, framing .3-1.2, shake|null, pushIn|null}, post{bloom{strength 0-2, radius 0-1, threshold 0-2}, exposure .3-2, grade{contrast,saturation,tint,lift}, vignette, chromatic, motionBlur, glitch{curve (over the document's own 0..1 progress), bands 2-64, blockGrid [cols,rows], split 0-.05, edgeBias 0-2}|null}, paths (0-6), layers (1-24).
+paths: named curves layers reference by id, in DOCUMENT space (a layer that uses one sits at the origin). {id, type:"orbit", center, radius .01-12, height (metres the sweep rises; 0 is a flat ring), turns .05-8, phase, wobble{amplitude 0-3, frequency 0-12}} or {id, type:"bezier", from, control, to}. An orbit WRAPS (a window head past 1 keeps circling), a bezier CLAMPS.
+post.glitch is a time-gated screen break: band displacement, per-channel split and block dropout, all keyed on hash(floor(t*20)) so a seek lands on the frame playback would have drawn. Two hot frames at a hit plus a short tail; anything longer reads as a broken renderer.
+Layer: id (lowercase-dashes), name, role anticipation|primary|impact|secondary|residue, kind ring|shell|trail|beam|sprite|particles|decal|light|blob|splash|ribbon|wireBurst, start/end in GLOBAL seconds, enabled, transform{position,rotation,scale}, motion{keys:[[localSeconds,dx,dy,dz],...], ease}|null, jitter{frequency .5-60, amplitude 0-2, gate 0-1, axis (unit vector)|null}|null, tracks (dotted-path keyframes, local seconds), overrides (must be [] for new generation).
+layer.jitter works on ANY kind: the transform jumps by up to amplitude metres inside discrete 1/frequency windows, and only in the windows whose hash clears the gate (0 fires every window, 0.85 about one in seven). That discreteness is the whole "glitch" read; a continuous wobble is not it.
+Kind slots: every kind except light carries material. ring/shell/trail/beam/sprite/decal carry geometry and never an emitter. particles carry an emitter and never geometry. blob/splash/ribbon/wireBurst each carry their own spec object and never geometry or an emitter. light carries only light{color,intensity Curve,radius,decay} — no material, emitter or geometry.
+material{blend additive|alpha|premultiplied|screen, ramp{space life|layerTime|surface|height, stops 2-6 of {t,color,intensity 0-8} ascending in t, displacementShift -1..1, heightSpan .1-12}, opacity, mask{textureId|null, uvScale, uvPan, rotation, randomRotation, atlas{cols,rows,tiles}|null, flipbook{cols,rows,mode,fps}|null}, noise{textureId|null, uvScale, uvPan, distortion 0-.5, distortionPan}|null, erosion{curve, softness .01-.5, edgeWidth 0-.3, edgeColor, edgeIntensity 0-8, displacementProtect 0-1, rimBias 0-1}|null, softParticle 0-2, fresnel{power,strength}|null, procedural none|flame|water|hexagon|smoke|star|solid|portal|water-streaks|energy-ribbon|ice|sparkle|star4|softRadial|swirlRing|ringFill, proceduralParams [a,b,c,d] (-8..8, meaning is per pattern), toon{bands 2|3, thresholds [a,b] on the 0..1 half-lambert, shadow, body, highlight, light (unit vector TOWARD a fixed world light), rim{power .5-8, amount 0-2}}|null, outline{width 0-.3, color}|null, opaqueUntil 0-1|null, rgbSplit{offset 0-.08, growth 0-4}|null}.
+material.rgbSplit draws a mesh or wireBurst layer THREE times, one channel each, pushed apart by offset of the frame width and separating further with growth as the layer ages. The copies sum back to the original at offset 0, so it is a true split, not a tint. Never on particles (one instanced draw cannot be split).
+material.proceduralParams feeds the pattern: "swirlRing" reads [rim radius as a fraction of the card's half-size, strand half-width, wobble amplitude, rotation rate rad/s] and draws three offset strands on that rim plus short detached arcs outside it; "ringFill" reads [fill radius, pulse rate rad/s, noise amount 0-1, edge softness 0-1] and draws a soft pulsing interior. Both are flat-card patterns: use them on a decal lying on the ground. Every other pattern ignores the vector.
+procedural "none" is the soft-disc SPRITE silhouette: on a real surface (a tube, a bar) it reads as a blob in the middle of the UV space. A mesh that should be fully covered uses "solid".
 Ramp space: "life" keys the ramp to particle age, "layerTime" to the layer's own 0..1 progress, "surface" to distance along a mesh axis, "height" to world metres above environment.groundY over ramp.heightSpan (works on meshes and particles alike: a plume that cools as it climbs). displacementShift lets vertex-noise lobes read hotter or cooler than the body.
 material.toon replaces the ramp as the COLOUR source on a mesh or blob layer (the ramp still keys erosion and alpha): a half-lambert against toon.light posterised into flat bands. Never on particles — a billboard has no normal. material.outline draws the same surface again, back faces only, inflated outline.width metres, flat and unlit; its colour is DARKER than toon.shadow, because the reference line is a dark crease between lobes, not a light rim (toon.rim is the light rim). material.opaqueUntil keeps the surface opaque and depth-writing for that fraction of its life, then fades it to nothing — that is what makes overlapping lobes read as solid volumes with contour seams instead of a pile of transparent balls.
 procedural "star4" (a thin four-point glint) and "softRadial" (a plain soft ball) are BILLBOARD silhouettes like flame and smoke: use them on a sprite or decal, never on a shell.
-emitter{count, shape{type point|sphere|hemisphere|cone|ring|disc|box|line, axis (unit vector), length, radius, innerRadius, angle, size, surfaceOnly, bias (0-1 per axis, mirrors spawns toward +axis)}, spawn{mode burst|continuous|bursts, window, rate, duration, bursts[{t,count}]}, velocity{mode radial|directional|tangential|cone, speed [min,max], direction (unit vector), angle, inherit, speedCurve|null}, life [min,max], forces{gravity, drag 0-6, curl{strength,frequency,speed,envelope}|null, vortex{axis,strength,falloff}|null, wind, floor{y,softness}|null}, render{mode billboard|velocityStretch|horizontal|vertical, stretch, size [min,max], sizeCurve, alphaCurve, alphaAlongSpawn|null, rotation{initial [min,max], speed [min,max]}, sortMode}, trail|null, sub|null}.
+emitter{count, shape{type point|sphere|hemisphere|cone|ring|disc|box|line|path, axis (unit vector), length, radius, innerRadius, angle, size, surfaceOnly, bias (0-1 per axis, mirrors spawns toward +axis), pathId|null}, spawn{mode burst|continuous|bursts|pathAnchored, window, rate, duration, bursts[{t,count}], headCurve|null}, velocity{mode radial|directional|tangential|cone, speed [min,max], direction (unit vector), angle, inherit, speedCurve|null}, life [min,max], forces{gravity, drag 0-6, curl{strength,frequency,speed,envelope}|null, vortex{axis,strength,falloff}|null, wind, floor{y,softness}|null}, render{mode billboard|velocityStretch|horizontal|vertical|pathAligned, stretch, size [min,max], sizeCurve, alphaCurve, alphaAlongSpawn|null, rotation{initial [min,max], speed [min,max]}, sortMode, twinkle{frequency .1-40, depth 0-1}|null}, trail|null, sub|null}.
+Path-anchored emitters: shape.type "path" with shape.pathId puts instance i ON the path at u = i/(count-1), scattered across the path frame by shape.radius; spawn.mode "pathAnchored" with spawn.headCurve (the head's position along the path over the layer's own 0..1 progress, non-decreasing) births instance i the moment the head passes its u. Give it velocity.speed [0,0] and the dash HOLDS where the head left it; render.mode "pathAligned" lays it along the tangent and render.stretch elongates it. That is a trail that reads as fragments left in space, not as a comet tail.
+render.twinkle is a per-instance alpha flicker on a phase hashed off the instance, so no two particles blink together.
 blob{arrangement mound|column|ring|string, count 2-40, seed, radius [min,max] metres, spread (lateral extent), height (vertical extent at birth), rise (metres the top travels over one lobe life), gravity (pull on that arc), drift (outward metres), grow 1-12 (a lobe reaches full size after 1/grow of its life), stagger [startFrac,endFrac] of the LAYER window, life [min,max] seconds, squash (1 round, >1 stretched vertically), bump{amplitude 0-.6, frequency, speed}, comma{curl 0-2.5, taper 0-.9}|null}.
 A blob is a GENERATOR: the renderer hashes every lobe's birth, radius, position, drift and life out of (seed, index). Never try to place lobes by hand, and never author one layer per lobe.
 - mound: a half-egg of lobes spread wide and height tall — a base cluster, the foot a column grows out of.
@@ -39,7 +47,9 @@ A blob is a GENERATOR: the renderer hashes every lobe's birth, radius, position,
 - ring: two tiers of billows on a ring of radius spread, drifting outward, centre left open.
 - string: a thin vertical chain of wisps, alternating left/right and swaying, each smaller and shorter-lived than the last.
 splash{count 1-24, seed, length [min,max], width, curvature 0-3, jaggedness 0-1, spread [minAngle,maxAngle] radians from +Y (mirrored to both sides), color, backing (the darker copy drawn behind each sliver), scaleIn/detach/fade, each [from,to] as fractions of the LAYER window}. Flat, unlit, camera-facing slivers thrown outward: a graphic accent, not material. Colour comes from splash.color/backing, never from material.ramp.
-geometry{type auto|plane|teardrop|cone|crystal|crystal-cluster|torus|ribbon|streamer|lightning|cylinder|disc|sphere, segments, radialSegments, radius, length, thickness, vertexNoise{amplitude 0-.5, frequency, speed, bias (which side lobes grow on), alongCurve (where along the axis they grow)}|null, lightning{points,jitter,branches,branchDepth,widthCurve,seedOffset}|null}.
+ribbon{pathId, window{head Curve over the LAYER's 0..1 progress giving the head's position along the path (values past 1 keep circling a closed orbit), tail .01-2 (window length as a fraction of the path)}, strands{count 1-6, spread 0-1 metres apart, widthJitter 0-1, phaseJitter 0-1}, width .002-1 (full width of one strand), taper{head 0-.5, tail 0-.9}, morph{pathId,curve}|null, orientation camera|path, core 0-8}. Only the window is drawn: that is what reads as TRAVELLING rather than merely present. material.ramp.space "surface" keys the ramp ACROSS the strip (t=0 core, t=1 edge) and ribbon.core multiplies the hot centre, so one layer is the core AND the halo. ribbon.morph blends the whole sweep onto a second path — a sweep that dives into a ground ring is ONE layer.
+wireBurst{shapes 4-24, sides [minSides,maxSides] 3-8, radius .05-6, travel 0-8, scale Curve over the layer's 0..1, spokes 0-24, seed}. Polygon outlines plus straight spokes thrown out of the layer origin as line segments; a GENERATOR, so never place a shape by hand. The spokes reach half again as far as the outlines and deliberately leave the frame.
+geometry{type auto|plane|teardrop|cone|crystal|crystal-cluster|torus|ribbon|streamer|lightning|cylinder|disc|sphere, segments, radialSegments, radius, length, thickness, taper .05-1 (type "cylinder" only: the far end's radius as a fraction of the near end's), vertexNoise{amplitude 0-.5, frequency, speed, bias (which side lobes grow on), alongCurve (where along the axis they grow)}|null, lightning{points,jitter,branches,branchDepth,widthCurve,seedOffset}|null}.
 What geometry.length/radius/thickness mean, per kind — a layer's local +Z is its forward axis (rotation [0,0,0] points at +Z, [0,-1.5708,0] at -X, [0,1.5708,0] at +X); flat shapes are built in the local XY plane facing +Z, so laying one on the ground needs rotation [-1.5708,0,0]. transform.scale multiplies this; never rely on scale alone for size.
 - beam: auto|plane|cylinder|ribbon|streamer -> a straight bar, length = bar length along +Z from the layer origin, radius = half-width. type lightning -> bolt of length along +Z, radius = lateral spread, thickness = bolt width.
 - trail: as beam, narrowing toward the far end (geometry.lightning.widthCurve taper if given). type ribbon -> a tapered arc sweep in local XY (a slash swoosh) instead of a straight bar.
@@ -47,7 +57,8 @@ What geometry.length/radius/thickness mean, per kind — a layer's local +Z is i
 - sprite: always faces the camera; radius = half-size (a sprite of radius .4 is .8 across); rotation[2] rolls it, rotation[0]/[1] are ignored; length unused.
 - decal: flat card, radius = half-width, length = depth; add rotation [-1.5708,0,0] to lie on the ground.
 - shell: sphere|teardrop|auto|cone|crystal|crystal-cluster -> the analytic teardrop body, length = nose-to-tail along +Z, radius = body radius. Any flat type (plane, disc, torus) on a shell draws that flat shape instead.
-- particles have no geometry: use emitter.shape; blob and splash have none either (use blob.spread/height and splash.length).
+- beam + type cylinder + rotation [-1.5708,0,0] is an upright open tube: length = height, radius = tube radius, taper narrows the top. Needs material.procedural "solid".
+- particles have no geometry: use emitter.shape; blob, splash, ribbon and wireBurst have none either (use blob.spread/height, splash.length, the ribbon's path and wireBurst.radius/travel).
 Curve = {keys:[[0..1 normalized domain, value],...] strictly ascending, ease linear|smooth}.
 Tracks animate dotted paths into the layer, e.g. "material.ramp.stops[0].intensity", "geometry.length", "emitter.velocity.speed[1]", "transform.position[1]", "light.radius". Track keys are LOCAL seconds since layer.start, strictly increasing, and must fit end-start. One track per target.
 Units are meters, seconds and radians. Every axis/direction must be a unit vector. Total particles across all layers stay under 60000.`;
@@ -58,7 +69,7 @@ Rules, all mandatory unless stated:
 - At least one secondary layer is darker, smaller and longer-lived than the primary.
 - post.bloom.threshold is 0.6 or higher, unless the layer carrying the frame is a flash role.
 - camera.framing sits between 0.45 and 0.7 so the effect occupies roughly half the frame.
-- Every particles layer uses a mask texture from the library, unless quality.style is "ps1".
+- Every particles layer carries a silhouette: a library mask texture, or a billboard procedural that is one ("star4", "softRadial", "solid", "flame", "smoke"). Never procedural "none" on particles.
 - Smoke, fire and dust layers always carry material.erosion; a soft blob without erosion reads as a sprite, not as material.
 - Every layer starts at its own offset: the flash first, a ring about 33 ms later, sparks staggered 50-150 ms, smoke 100-170 ms after the flash. Never start everything at the same instant.
 - Anticipation lasts 100-250 ms before the impact.
@@ -82,6 +93,11 @@ Scale anchors — 1 unit = 1 meter. These are measured from the accepted exempla
 - Rings and shockwaves expand to 1.5-2.5 units; decals and scorches span 1.5-2.5 units across.
 - Blobs, measured from the accepted exemplar: a base lobe radius is 0.35-0.6 and a wisp 0.19-0.30. A mound is 11 lobes over spread 1.0 / height 2.3; a column is 12-14 levels (36-39 lobes) over spread 0.5 with rise 10-14 so it leaves the top of the frame; a billow ring is 8-10 lobes at spread 1.4-1.6 with radius 0.5-0.85; a wisp string is 5 lobes, squash 1.6-2.0. bump.amplitude 0.10-0.22 (higher on the small fast pieces), grow 3.5-6, opaqueUntil 0.75, outline.width 0.02-0.03.
 - Splash slivers: 6-10 of them, length 0.9-3.0 and width 0.3-0.4, spread 0.65-1.65 rad, curvature 1.2-1.6, jaggedness 0.5-0.7. They start after the main volume and are gone before the residue.
+- Ribbons, measured from the heal and glitch exemplars: strand width 0.035-0.06 for a hairline behind a projectile and 0.05-0.15 for a hero sweep, 3-5 strands, spread 0.06-0.12, window tail 0.3-1.0 of the path, core 1.0-1.6.
+- Aura parts: ground ring radius 0.7-0.8 on a card of half-size 1.6 (so proceduralParams[0] is about 0.49), glow cylinder 1.8-2.5 tall at radius 0.78 with taper 0.8, sparkles 30-50 of them at size 0.05-0.14.
+- Projectile parts: a dart 0.4-0.6 long, a path-anchored trail of 50-70 dashes at size 0.03-0.10 with stretch 1.2-1.6, a wireBurst of 14-20 shapes at radius 0.5-0.7 travelling 1.0-1.6 with 10-16 spokes.
+- layer.jitter: amplitude 0.07-0.14 at frequency 10-20 with gate 0.55-0.85. Above 0.2 m the layer stops reading as the same object between windows.
+- material.rgbSplit offset 0.002-0.006: on thin lines the three copies never overlap, so a larger offset reads as three separate coloured objects rather than one split one.
 The family example document supplied with this request is the SCALE REFERENCE, not only a structure guide: match its particle counts, sizes, intensities, light radius and silhouette extent unless the prompt explicitly asks for something small, distant or miniature. When in doubt, copy its magnitudes and change the shapes and colors.
 Textures: reference library assets by ID only. Never inline image data, file paths or URLs, and never invent an ID that is not in the manifest. Mask textures are grayscale silhouettes; the ramp supplies the color.
 Never output placeholder, disabled or zero-energy layers. Keep the layer count purposeful — usually 6-9 layers, never padding.`;
@@ -421,6 +437,46 @@ export function describeLayersV2(doc: VfxDocumentV2) {
         start: layer.start,
         end: layer.end,
         material: `${layer.splash.count} flat slivers ${layer.splash.length[0]}-${layer.splash.length[1]} long, ${layer.splash.color} over ${layer.splash.backing}`,
+      };
+    // A ribbon's shape is its path and its window, not its geometry; a
+    // wireBurst's is how far its outlines travel.
+    if (layer.kind === "ribbon" && layer.ribbon)
+      return {
+        id: layer.id,
+        kind: layer.kind,
+        role: layer.role,
+        start: layer.start,
+        end: layer.end,
+        material: [
+          `${layer.ribbon.strands.count} strands on path ${layer.ribbon.pathId}`,
+          `window tail ${layer.ribbon.window.tail} of the path, width ${layer.ribbon.width}`,
+          layer.ribbon.morph
+            ? `morphs onto ${layer.ribbon.morph.pathId}`
+            : "single path",
+          material
+            ? `ramp ${material.ramp.space} ${material.ramp.stops.map((s) => s.color).join("→")}, core ${layer.ribbon.core}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(", "),
+      };
+    if (layer.kind === "wireBurst" && layer.wireBurst)
+      return {
+        id: layer.id,
+        kind: layer.kind,
+        role: layer.role,
+        start: layer.start,
+        end: layer.end,
+        material: [
+          `${layer.wireBurst.shapes} outlines (${layer.wireBurst.sides[0]}-${layer.wireBurst.sides[1]} sides) r${layer.wireBurst.radius} travelling ${layer.wireBurst.travel}`,
+          `${layer.wireBurst.spokes} spokes`,
+          material
+            ? `ramp ${material.ramp.stops.map((s) => s.color).join("→")}`
+            : "",
+          material?.rgbSplit ? `rgb split ${material.rgbSplit.offset}` : null,
+        ]
+          .filter(Boolean)
+          .join(", "),
       };
     const summary = material
       ? [

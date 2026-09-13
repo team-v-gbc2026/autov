@@ -145,11 +145,13 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
     softParticle: 0,
     fresnel: null,
     procedural: SURFACE_MAP[layer.surface ?? "default"] ?? "none",
-    // v1 had no cel shading and no opaque phase; an upgraded layer keeps the
-    // v2 defaults so it renders exactly the way it did before they existed.
+    proceduralParams: [0, 0, 0, 0],
+    // v1 had no cel shading, no opaque phase and no channel split; an upgraded
+    // layer keeps the v2 defaults so it renders exactly as it did before.
     toon: null,
     outline: null,
     opaqueUntil: null,
+    rgbSplit: null,
   };
 }
 
@@ -164,6 +166,7 @@ function buildGeometry(layer: Layer, animated: Set<NumericTarget>): GeometryV2 {
     radius: clamp(p.radius, 0.01, 8),
     length: clamp(p.length, 0.01, 12),
     thickness: clamp(p.width, 0.001, 3),
+    taper: 1,
     vertexNoise: wantsNoise
       ? {
           amplitude: fit(p.turbulence * 0.25, 0, 0.5),
@@ -221,6 +224,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       size: [1, 1, 1],
       surfaceOnly: false,
       bias: [0, 0, 0],
+      pathId: null,
     },
     spawn: {
       mode: "burst",
@@ -228,6 +232,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       rate: 0,
       duration: 0,
       bursts: [],
+      headCurve: null,
     },
     velocity: {
       mode: "radial",
@@ -296,6 +301,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
         ],
       },
       sortMode: "byDistance",
+      twinkle: null,
     },
     trail: null,
     sub: null,
@@ -349,6 +355,7 @@ function upgradeLayer(layer: Layer): LayerV2 {
       scale: [1, 1, 1],
     },
     motion: layer.motion ?? null,
+    jitter: null,
     material: buildMaterial(layer, animated),
     tracks,
     overrides,

@@ -332,11 +332,13 @@ export async function POST(request: Request) {
                 {
                   name: RECIPES[id].name,
                   prompt: RECIPES[id].prompt,
-                  family: recipeV2For(id),
-                  knowledge: RECIPES_V2[recipeV2For(id)].knowledge,
+                  // The prompt decides for the two families the v1 recipe
+                  // vocabulary cannot name (aura/heal, glitch/digital).
+                  family: recipeV2For(id, body.prompt),
+                  knowledge: RECIPES_V2[recipeV2For(id, body.prompt)].knowledge,
                   // The planner never sees the example document itself, so it
                   // gets the scale it has to plan for.
-                  scale: exampleScaleSummary(recipeV2For(id)),
+                  scale: exampleScaleSummary(recipeV2For(id, body.prompt)),
                 },
               ]),
             )
@@ -457,7 +459,7 @@ export async function POST(request: Request) {
     if (body.action === "candidate" && run.schema === "v2") {
       if (body.index >= (run.mode === "fast" ? 1 : 3))
         throw new Error("Candidate outside selected generation mode.");
-      const family = recipeV2For(run.plan.recipe);
+      const family = recipeV2For(run.plan.recipe, run.prompt);
       const result = await callModel(
         DocumentV2WireSchema,
         `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete autov.lab/2 document. The example is the scale reference: match its particle counts, sizes, light intensity and silhouette extent, and change the shapes, colors and timing to fit the plan. Give this candidate a distinctive structure: ${directions[body.index]}`,
@@ -641,7 +643,7 @@ export async function POST(request: Request) {
           throw Error("No admitted defect or director note to repair.");
         run.structuralAttempted = true;
         await saveRun(run);
-        const family = recipeV2For(run.plan.recipe);
+        const family = recipeV2For(run.plan.recipe, run.prompt);
         const result = await callModel(
           StructuralRefinementV2Schema,
           `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,

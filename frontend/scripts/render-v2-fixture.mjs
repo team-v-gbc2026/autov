@@ -69,6 +69,8 @@ const RECIPE_IDS = new Set([
   "shield",
   "meteor-rain",
   "ice-blast",
+  "healing-aura",
+  "glitch-projectile",
 ]);
 const docImport = !docId
   ? `import doc from "../fixtures/v2/${fixtureId}/document.json";`

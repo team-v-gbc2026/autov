@@ -81,6 +81,15 @@ function sampleKeys(
   return keys[0][1];
 }
 
+/** The renderer's own hash, so a CPU jitter matches the GLSL one bit for bit. */
+function hash11(p: number) {
+  let x = (p * 0.1031) % 1;
+  if (x < 0) x += 1;
+  x *= x + 33.33;
+  x *= x + x;
+  return x - Math.floor(x);
+}
+
 function mixColor(a: string, b: string, w: number) {
   const channels = [1, 3, 5].map((i) =>
     Math.round(
@@ -135,6 +144,22 @@ export function evaluateLayerV2(layer: LayerV2, time: number): EvaluatedLayerV2 
     next.transform.position = next.transform.position.map(
       (v, i) => v + offset[i],
     ) as [number, number, number];
+  }
+
+  // layer.jitter: a stepped-hash offset on the transform, applied after motion
+  // so it perturbs wherever the layer already is. floor(age * frequency) is the
+  // only state, so a seek lands inside exactly the window playback was in.
+  if (next.jitter && next.jitter.amplitude > 0 && age >= 0) {
+    const { frequency, amplitude, gate, axis } = next.jitter;
+    const step = Math.floor(age * frequency);
+    if (hash11(step * 1.7 + 0.3) >= gate) {
+      const offset = axis
+        ? axis.map((v) => v * (hash11(step * 3.1) - 0.5) * 2 * amplitude)
+        : [3.1, 5.3, 7.9].map((k) => (hash11(step * k) - 0.5) * 2 * amplitude);
+      next.transform.position = next.transform.position.map(
+        (v, i) => v + offset[i],
+      ) as [number, number, number];
+    }
   }
 
   for (const override of next.overrides) {

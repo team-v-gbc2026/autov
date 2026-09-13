@@ -45,6 +45,11 @@ export const KINDS_V2 = [
   // from its own spec object.
   "blob",
   "splash",
+  // Multi-strand strip swept along a document path inside a moving window
+  // (layer.ribbon) and a burst of polygon outlines (layer.wireBurst). Same
+  // rule: their own spec object, never `geometry` or `emitter`.
+  "ribbon",
+  "wireBurst",
 ] as const;
 export const BLOB_ARRANGEMENTS = ["mound", "column", "ring", "string"] as const;
 // Kinds that draw a mesh and therefore carry `geometry`.
@@ -81,6 +86,10 @@ export const PROCEDURALS_V2 = [
   // not a surface pattern.
   "star4",
   "softRadial",
+  // Flat-disc surface patterns driven by material.proceduralParams: the two
+  // halves of a heal ground ring.
+  "swirlRing",
+  "ringFill",
 ] as const;
 export const GEOMETRIES_V2 = [
   "auto",
@@ -106,8 +115,17 @@ export const EMITTER_SHAPES = [
   "disc",
   "box",
   "line",
+  // Instances sit ON a document path (emitter.shape.pathId), at u = index /
+  // (count - 1), scattered by shape.radius across the path frame.
+  "path",
 ] as const;
-export const SPAWN_MODES = ["burst", "continuous", "bursts"] as const;
+export const SPAWN_MODES = [
+  "burst",
+  "continuous",
+  "bursts",
+  // Instance i is born the moment emitter.spawn.headCurve passes its own u.
+  "pathAnchored",
+] as const;
 export const VELOCITY_MODES = [
   "radial",
   "directional",
@@ -119,6 +137,9 @@ export const RENDER_MODES = [
   "velocityStretch",
   "horizontal",
   "vertical",
+  // Quad rolled to the screen-space tangent of its path: the dashes of a
+  // path-anchored trail lie along the flight line instead of upright.
+  "pathAligned",
 ] as const;
 export const ROLES_V2 = [
   "anticipation",
@@ -140,6 +161,10 @@ export const GROUND_CHANNEL_MIN = 0x3a;
 export const BLOB_LOBE_BUDGET = 40;
 /** A hero silhouette smaller than this disappears inside the framed shot. */
 export const EFFECT_EXTENT_MIN = 1.5;
+/** Named paths one document may declare; every path costs uniforms per layer. */
+export const PATH_BUDGET_V2 = 6;
+/** Strands one ribbon layer may sweep; each is its own tapered strip. */
+export const RIBBON_STRAND_BUDGET = 6;
 
 // --- curves and ramps ------------------------------------------------------
 
@@ -154,6 +179,50 @@ export const CurveSchema = z
     ease: z.enum(["linear", "smooth"]),
   })
   .strict();
+
+// --- paths -----------------------------------------------------------------
+//
+// A document may declare up to PATH_BUDGET_V2 named curves. They are pure
+// functions of u in 0..1 (see paths-v2.ts for the evaluator, which is mirrored
+// term for term in GLSL), so a ribbon window, a path-anchored emitter and a
+// morph target all read the same geometry without any of them storing state.
+//
+//   orbit   a wobbling helix around `center`: u turns `turns` times, the ring
+//           radius breathes by wobble.amplitude at wobble.frequency harmonics,
+//           and the whole path rises `height` metres over the sweep. height 0
+//           is a flat ring.
+//   bezier  a quadratic Bezier from -> control -> to: a thrown arc.
+export const PathIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
+
+export const OrbitPathSchema = z
+  .object({
+    id: PathIdSchema,
+    type: z.literal("orbit"),
+    center: vec3,
+    radius: scalar(0.01, 12),
+    height: scalar(-12, 12),
+    turns: scalar(0.05, 8),
+    phase: scalar(-Math.PI * 2, Math.PI * 2),
+    wobble: z
+      .object({ amplitude: scalar(0, 3), frequency: scalar(0, 12) })
+      .strict(),
+  })
+  .strict();
+
+export const BezierPathSchema = z
+  .object({
+    id: PathIdSchema,
+    type: z.literal("bezier"),
+    from: vec3,
+    control: vec3,
+    to: vec3,
+  })
+  .strict();
+
+export const PathV2Schema = z.discriminatedUnion("type", [
+  OrbitPathSchema,
+  BezierPathSchema,
+]);
 
 export const RampStopSchema = z
   .object({ t: scalar(0, 1), color: hex, intensity: scalar(0, 8) })
@@ -261,6 +330,16 @@ export const OutlineSchema = z
   .object({ width: scalar(0, 0.3), color: hex })
   .strict();
 
+// Per-channel screen offset: the surface is drawn three times, each copy
+// masked to one of R/G/B and pushed `offset` of the frame width apart (the
+// copies sum back to the original at offset 0, so this is a true split, not a
+// tint). `growth` multiplies the offset by the layer's own 0..1 progress, so a
+// fragment separates further as it ages. Mesh kinds and wireBurst only —
+// particles are one instanced draw and would triple the instance budget.
+export const RgbSplitSchema = z
+  .object({ offset: scalar(0, 0.08), growth: scalar(0, 4) })
+  .strict();
+
 export const MaterialSchema = z
   .object({
     blend: z.enum(BLEND_MODES_V2),
@@ -272,6 +351,17 @@ export const MaterialSchema = z
     softParticle: scalar(0, 2),
     fresnel: FresnelSchema.nullable(),
     procedural: z.enum(PROCEDURALS_V2),
+    // A generic vec4 every procedural may read; what each component means is
+    // documented per pattern, and an unused component is simply ignored.
+    //   swirlRing  [rim radius (0..1 of the card), strand half-width,
+    //              wobble amplitude, rotation rate rad/s]
+    //   ringFill   [fill radius (0..1 of the card), pulse rate rad/s,
+    //              noise amount 0..1, edge softness 0..1]
+    // Every other pattern ignores it today. Defaulted, so archived documents
+    // load unchanged.
+    proceduralParams: z
+      .tuple([scalar(-8, 8), scalar(-8, 8), scalar(-8, 8), scalar(-8, 8)])
+      .default([0, 0, 0, 0]),
     // The three cel-shading fields. All defaulted, not required: documents
     // authored before they existed load unchanged and render exactly as before.
     toon: ToonSchema.nullable().default(null),
@@ -280,6 +370,7 @@ export const MaterialSchema = z
     // opaque and depth-writing; after it, alpha fades to 0 by the end. null =
     // the old behaviour (always transparent, never depth-writing).
     opaqueUntil: scalar(0, 1).nullable().default(null),
+    rgbSplit: RgbSplitSchema.nullable().default(null),
   })
   .strict();
 
@@ -297,6 +388,9 @@ export const EmitterShapeSchema = z
     surfaceOnly: z.boolean(),
     // Mirrors samples toward the positive axis (0 = symmetric, 1 = fully biased).
     bias: bias3,
+    // Which document path shape "path" samples. Ignored by every other shape;
+    // defaulted so archived documents load unchanged.
+    pathId: PathIdSchema.nullable().default(null),
   })
   .strict();
 
@@ -311,6 +405,11 @@ export const SpawnSchema = z
     rate: scalar(0, 4000),
     duration: scalar(0, 12),
     bursts: z.array(BurstSchema).max(8),
+    // "pathAnchored" only: where the head of the effect is along the path, as a
+    // curve over the layer's own 0..1 progress. Instance i owns u = i/(count-1)
+    // and is born the moment this curve passes it — the curve is inverted in
+    // closed form, so the birth table is never stored. Must be non-decreasing.
+    headCurve: CurveSchema.nullable().default(null),
   })
   .strict();
 
@@ -364,6 +463,13 @@ export const ParticleRotationSchema = z
   })
   .strict();
 
+// Per-particle alpha flicker on a phase hashed off the instance seed, so no
+// two particles blink together. depth 0 is no flicker, 1 goes fully dark at the
+// bottom of each cycle.
+export const TwinkleSchema = z
+  .object({ frequency: scalar(0.1, 40), depth: scalar(0, 1) })
+  .strict();
+
 export const ParticleRenderSchema = z
   .object({
     mode: z.enum(RENDER_MODES),
@@ -375,6 +481,7 @@ export const ParticleRenderSchema = z
     alphaAlongSpawn: CurveSchema.nullable(),
     rotation: ParticleRotationSchema,
     sortMode: z.enum(["none", "byDistance"]),
+    twinkle: TwinkleSchema.nullable().default(null),
   })
   .strict();
 
@@ -443,6 +550,12 @@ export const GeometryV2Schema = z
     radius: scalar(0.01, 8),
     length: scalar(0.01, 12),
     thickness: scalar(0.001, 3),
+    // type "cylinder" only: the far end's radius as a fraction of the near
+    // end's, so an upright glow tube narrows as it rises. 1 is a plain tube.
+    // Baked into the mesh, so a track cannot animate it (neither can
+    // wireBurst.radius, for the same reason). Defaulted, so archived documents
+    // load unchanged.
+    taper: scalar(0.05, 1).default(1),
     vertexNoise: VertexNoiseSchema.nullable(),
     lightning: LightningSchema.nullable(),
   })
@@ -541,7 +654,112 @@ export const SplashSchema = z
   })
   .strict();
 
+// --- ribbon ----------------------------------------------------------------
+//
+// A multi-strand strip swept along a document path, of which only the moving
+// window [head - tail, head] is ever drawn: that window is what reads as
+// TRAVELLING rather than merely present, and it is independent of the layer's
+// own start/end (the layer window says when the ribbon exists, the head curve
+// says where along the path it is).
+//
+// Colour comes from material.ramp keyed ACROSS the strip — ramp.space
+// "surface" means stop t=0 is the core and t=1 the outer edge — multiplied by
+// `core`, and is always drawn additively soft (a hot centre inside a wide
+// halo), so one layer does both the core and the halo pass by construction.
+export const RibbonWindowSchema = z
+  .object({
+    // Head position along the path, over the layer's own 0..1 progress. Values
+    // above 1 keep sweeping (the path wraps), which is how a heal sweep keeps
+    // a slow residual spin after its first wrap.
+    head: CurveSchema,
+    // Length of the drawn window, as a fraction of the path.
+    tail: scalar(0.01, 2),
+  })
+  .strict();
+
+export const RibbonStrandsSchema = z
+  .object({
+    count: integer(1, RIBBON_STRAND_BUDGET),
+    // Metres the strands are spread apart across the path frame.
+    spread: scalar(0, 1),
+    // Per-strand width multiplier band (0 = every strand the same width).
+    widthJitter: scalar(0, 1),
+    // Per-strand phase offset along the path, as a fraction of the window.
+    phaseJitter: scalar(0, 1),
+  })
+  .strict();
+
+export const RibbonTaperSchema = z
+  .object({
+    // Fractions of the window that fade in at the tail and out at the head.
+    head: scalar(0, 0.5),
+    tail: scalar(0, 0.9),
+  })
+  .strict();
+
+// Blend the whole sweep onto a second path as `curve` (over the layer's 0..1
+// progress) rises from 0 to 1: the airborne heal sweep diving into the ground
+// ring is one ribbon layer, not two.
+export const RibbonMorphSchema = z
+  .object({ pathId: PathIdSchema, curve: CurveSchema })
+  .strict();
+
+export const RibbonSchema = z
+  .object({
+    pathId: PathIdSchema,
+    window: RibbonWindowSchema,
+    strands: RibbonStrandsSchema,
+    // Full width of one strand at its fattest, in metres.
+    width: scalar(0.002, 1),
+    taper: RibbonTaperSchema,
+    morph: RibbonMorphSchema.nullable(),
+    // "camera" keeps the strip facing the viewer (an energy strand);
+    // "path" keeps it in the path's own normal plane (a flat banner).
+    orientation: z.enum(["camera", "path"]),
+    // Multiplier on the hot centre, over the ramp's own intensities.
+    core: scalar(0, 8),
+  })
+  .strict();
+
+// --- wireBurst -------------------------------------------------------------
+//
+// Angular polygon outlines plus straight spokes thrown out of the layer origin
+// as LineSegments: the "the geometry itself shattered" tell of a digital
+// impact. A generator, like blob and splash — every shape's plane, radius,
+// vertex jitter and travel distance is hashed out of (seed, index).
+export const WireBurstSchema = z
+  .object({
+    shapes: integer(4, 24),
+    // Polygon side-count band, inclusive. [3,4] is triangles and quads.
+    sides: z.tuple([integer(3, 8), integer(3, 8)]),
+    // Radius band of an un-scaled outline, in metres.
+    radius: scalar(0.05, 6),
+    // Metres the furthest shape travels outward over the layer window.
+    travel: scalar(0, 8),
+    // Outline scale over the layer's own 0..1 progress.
+    scale: CurveSchema,
+    // Straight radial lines drawn alongside the outlines.
+    spokes: integer(0, 24),
+    seed: integer(0, 2147483647),
+  })
+  .strict();
+
 // --- layer -----------------------------------------------------------------
+
+// Stepped-hash positional jitter on ANY layer: the transform jumps by up to
+// `amplitude` metres inside discrete 1/frequency windows, and only in the
+// windows whose hash clears `gate` (gate 0 fires every window, 0.9 roughly one
+// in ten). Closed form in layer time — floor(age * frequency) is the only
+// state — so seek == play. `axis` constrains the jump to one direction; null
+// jitters all three.
+export const JitterSchema = z
+  .object({
+    frequency: scalar(0.5, 60),
+    amplitude: scalar(0, 2),
+    gate: scalar(0, 1),
+    axis: unit3.nullable(),
+  })
+  .strict();
 
 export const LightSchema = z
   .object({
@@ -593,12 +811,17 @@ export const LayerV2Schema = z
     enabled: z.boolean(),
     transform: TransformSchema,
     motion: MotionSchema.nullable(),
+    // Applies to the layer transform, whatever the kind. Defaulted, so
+    // archived documents load unchanged.
+    jitter: JitterSchema.nullable().default(null),
     material: MaterialSchema.optional(),
     emitter: EmitterSchema.optional(),
     geometry: GeometryV2Schema.optional(),
     light: LightSchema.optional(),
     blob: BlobSchema.optional(),
     splash: SplashSchema.optional(),
+    ribbon: RibbonSchema.optional(),
+    wireBurst: WireBurstSchema.optional(),
     tracks: z.array(TrackV2Schema).max(16),
     overrides: z.array(OverrideV2Schema).max(64),
   })
@@ -662,6 +885,25 @@ export const CameraSchema = z
   })
   .strict();
 
+// Time-gated screen glitch: horizontal band displacement, RGB split and block
+// dropout, every one of them keyed on hash(floor(t * 20)) so a seek lands on
+// exactly the frame playback would have drawn. `curve` is the strength over
+// DOCUMENT time normalized to 0..1 — two hot frames at the hit and a short
+// tail is the whole shape.
+export const GlitchSchema = z
+  .object({
+    curve: CurveSchema,
+    // Horizontal bands the frame is cut into for the displacement.
+    bands: integer(2, 64),
+    // Block grid the dropout is sampled on, [cols, rows].
+    blockGrid: z.tuple([integer(2, 160), integer(2, 160)]),
+    // Per-channel horizontal offset at full strength, as a fraction of width.
+    split: scalar(0, 0.05),
+    // How much harder the frame edges glitch than its centre (0 = uniform).
+    edgeBias: scalar(0, 2),
+  })
+  .strict();
+
 export const PostSchema = z
   .object({
     bloom: z
@@ -683,6 +925,7 @@ export const PostSchema = z
     vignette: scalar(0, 1),
     chromatic: scalar(0, 0.01),
     motionBlur: scalar(0, 1),
+    glitch: GlitchSchema.nullable().default(null),
   })
   .strict();
 
@@ -698,6 +941,9 @@ export const DocumentV2Schema = z
     environment: EnvironmentSchema,
     camera: CameraSchema,
     post: PostSchema,
+    // Named curves layers reference by id (ribbon.pathId, ribbon.morph.pathId,
+    // emitter.shape.pathId). Defaulted, so archived documents load unchanged.
+    paths: z.array(PathV2Schema).max(PATH_BUDGET_V2).default([]),
     textures: z.array(TextureAssetSchema).max(4).optional(),
     layers: z.array(LayerV2Schema).min(1).max(24),
   })
@@ -714,6 +960,15 @@ export type Outline = z.infer<typeof OutlineSchema>;
 export type Blob = z.infer<typeof BlobSchema>;
 export type BlobArrangement = (typeof BLOB_ARRANGEMENTS)[number];
 export type Splash = z.infer<typeof SplashSchema>;
+export type PathV2 = z.infer<typeof PathV2Schema>;
+export type OrbitPath = z.infer<typeof OrbitPathSchema>;
+export type BezierPath = z.infer<typeof BezierPathSchema>;
+export type Ribbon = z.infer<typeof RibbonSchema>;
+export type WireBurst = z.infer<typeof WireBurstSchema>;
+export type Jitter = z.infer<typeof JitterSchema>;
+export type Twinkle = z.infer<typeof TwinkleSchema>;
+export type RgbSplit = z.infer<typeof RgbSplitSchema>;
+export type Glitch = z.infer<typeof GlitchSchema>;
 export type TrackV2 = z.infer<typeof TrackV2Schema>;
 export type OverrideV2 = z.infer<typeof OverrideV2Schema>;
 export type LayerV2 = z.infer<typeof LayerV2Schema>;
@@ -828,6 +1083,20 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "splash.width": [0.02, 1.5],
   "splash.length[0]": [0.2, 8],
   "splash.length[1]": [0.2, 8],
+  "material.rgbSplit.offset": [0, 0.08],
+  "material.proceduralParams[0]": [-8, 8],
+  "material.proceduralParams[1]": [-8, 8],
+  "material.proceduralParams[2]": [-8, 8],
+  "material.proceduralParams[3]": [-8, 8],
+  "jitter.amplitude": [0, 2],
+  "jitter.gate": [0, 1],
+  "ribbon.width": [0.002, 1],
+  "ribbon.core": [0, 8],
+  "ribbon.window.tail": [0.01, 2],
+  "ribbon.strands.spread": [0, 1],
+  "wireBurst.travel": [0, 8],
+  "emitter.render.twinkle.depth": [0, 1],
+  "emitter.render.twinkle.frequency": [0.1, 40],
 };
 
 const COLOR_TARGETS = new Set<string>([
@@ -902,6 +1171,20 @@ function splashChecks(splash: Splash, label: string) {
     checkRange(splash[key], `${label}/splash.${key}`);
 }
 
+function ribbonChecks(ribbon: Ribbon, label: string) {
+  checkCurve(ribbon.window.head, `${label}/ribbon.window.head`);
+  if (ribbon.morph) checkCurve(ribbon.morph.curve, `${label}/ribbon.morph.curve`);
+  if (ribbon.taper.head + ribbon.taper.tail >= 1)
+    throw new Error(
+      `Ribbon tapers consume the whole window, leaving nothing lit: ${label}`,
+    );
+}
+
+function wireBurstChecks(burst: WireBurst, label: string) {
+  checkRange(burst.sides, `${label}/wireBurst.sides`);
+  checkCurve(burst.scale, `${label}/wireBurst.scale`);
+}
+
 function emitterChecks(emitter: Emitter, label: string) {
   checkUnit(emitter.shape.axis, `${label}/shape.axis`);
   checkUnit(emitter.velocity.direction, `${label}/velocity.direction`);
@@ -926,6 +1209,17 @@ function emitterChecks(emitter: Emitter, label: string) {
   if (emitter.trail) checkCurve(emitter.trail.widthCurve, `${label}/trail`);
   if (emitter.spawn.mode === "bursts" && emitter.spawn.bursts.length === 0)
     throw new Error(`Burst list is empty: ${label}`);
+  if (emitter.spawn.headCurve) {
+    checkCurve(emitter.spawn.headCurve, `${label}/spawn.headCurve`);
+    // The birth table is the curve's inverse, so it has to be invertible.
+    for (let i = 1; i < emitter.spawn.headCurve.keys.length; i++)
+      if (emitter.spawn.headCurve.keys[i][1] < emitter.spawn.headCurve.keys[i - 1][1])
+        throw new Error(`Head curve must not run backwards: ${label}`);
+  }
+  if (emitter.spawn.mode === "pathAnchored" && !emitter.spawn.headCurve)
+    throw new Error(`Path-anchored spawn needs spawn.headCurve: ${label}`);
+  if (emitter.shape.type === "path" && !emitter.shape.pathId)
+    throw new Error(`Path emitter shape needs shape.pathId: ${label}`);
   for (let i = 1; i < emitter.spawn.bursts.length; i++)
     if (emitter.spawn.bursts[i].t <= emitter.spawn.bursts[i - 1].t)
       throw new Error(`Bursts must ascend in time: ${label}`);
@@ -955,6 +1249,15 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
   const doc = DocumentV2Schema.parse(input);
   if (doc.impact >= doc.duration)
     throw new Error("Impact must be before the end.");
+
+  const paths = new Set<string>();
+  for (const path of doc.paths) {
+    if (paths.has(path.id)) throw new Error(`Duplicate path: ${path.id}`);
+    paths.add(path.id);
+  }
+  const pathExists = (id: string, label: string) => {
+    if (!paths.has(id)) throw new Error(`Missing path ${id}: ${label}`);
+  };
 
   const assets = new Set<string>();
   for (const asset of doc.textures || []) {
@@ -1005,6 +1308,8 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
           `Particles use instanced billboards; drop geometry: ${label}`,
         );
       emitterChecks(layer.emitter, label);
+      if (layer.emitter.shape.pathId)
+        pathExists(layer.emitter.shape.pathId, label);
       particles += layer.emitter.count;
       const trailTexture = layer.emitter.trail?.textureId;
       if (trailTexture && !textureExists(trailTexture))
@@ -1040,11 +1345,33 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     } else if (layer.splash) {
       throw new Error(`Only splash layers carry splash: ${label}`);
     }
+    if (layer.kind === "ribbon") {
+      if (!layer.ribbon) throw new Error(`Ribbon layer needs ribbon: ${label}`);
+      ribbonChecks(layer.ribbon, label);
+      pathExists(layer.ribbon.pathId, label);
+      if (layer.ribbon.morph) pathExists(layer.ribbon.morph.pathId, label);
+    } else if (layer.ribbon) {
+      throw new Error(`Only ribbon layers carry ribbon: ${label}`);
+    }
+    if (layer.kind === "wireBurst") {
+      if (!layer.wireBurst)
+        throw new Error(`WireBurst layer needs wireBurst: ${label}`);
+      wireBurstChecks(layer.wireBurst, label);
+    } else if (layer.wireBurst) {
+      throw new Error(`Only wireBurst layers carry wireBurst: ${label}`);
+    }
+    if (layer.jitter?.axis) checkUnit(layer.jitter.axis, `${label}/jitter.axis`);
     // A billboard has no surface normal of its own, so cel bands and an
     // inverted hull have nothing to shade or to inflate.
     if (layer.kind === "particles" && (layer.material?.toon || layer.material?.outline))
       throw new Error(
         `Particles are billboards and carry no toon or outline: ${label}`,
+      );
+    // One instanced draw cannot be split into three per-channel copies without
+    // tripling the instance budget; the split is a mesh/wireBurst feature.
+    if (layer.material?.rgbSplit && layer.kind === "particles")
+      throw new Error(
+        `material.rgbSplit is for mesh and wireBurst layers, not particles: ${label}`,
       );
 
     if (
@@ -1251,6 +1578,21 @@ export function effectExtentV2(
       );
     }
     if (layer.splash) size = Math.max(size, layer.splash.length[1] * 2);
+    if (layer.ribbon) {
+      // The path the window slides along, not the window itself: a ribbon that
+      // wraps a 0.8 m ring is a 1.6 m element however short its lit segment is.
+      const path = doc.paths.find((p) => p.id === layer.ribbon!.pathId);
+      if (path) size = Math.max(size, pathSpanV2(path));
+    }
+    if (layer.wireBurst)
+      size = Math.max(
+        size,
+        (layer.wireBurst.radius +
+          layer.wireBurst.travel +
+          // A spoke reaches half again as far as an outline; see wire-burst-v2.
+          layer.wireBurst.travel * 0.5) *
+          2,
+      );
     if (layer.emitter && includeParticles) {
       const shape = layer.emitter.shape;
       const reach =
@@ -1271,6 +1613,21 @@ export function effectExtentV2(
         Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]),
       );
   return Math.max(size, spread);
+}
+
+/** Widest dimension of a path's own volume, in metres. Lint-only heuristic. */
+function pathSpanV2(path: PathV2): number {
+  if (path.type === "orbit")
+    return Math.max(
+      (path.radius + path.wobble.amplitude) * 2,
+      Math.abs(path.height),
+    );
+  return Math.max(
+    ...[0, 1, 2].map((axis) =>
+      Math.max(path.from[axis], path.control[axis], path.to[axis]) -
+      Math.min(path.from[axis], path.control[axis], path.to[axis]),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,9 +1671,11 @@ export function defaultMaterial(): Material {
     softParticle: 0,
     fresnel: null,
     procedural: "none",
+    proceduralParams: [0, 0, 0, 0],
     toon: null,
     outline: null,
     opaqueUntil: null,
+    rgbSplit: null,
   };
 }
 
@@ -1370,6 +1729,46 @@ export function defaultSplash(): Splash {
   };
 }
 
+export function defaultRibbon(): Ribbon {
+  return {
+    pathId: "orbit",
+    window: {
+      head: {
+        keys: [
+          [0, 0],
+          [1, 1],
+        ],
+        ease: "smooth",
+      },
+      tail: 0.45,
+    },
+    strands: { count: 3, spread: 0.12, widthJitter: 0.45, phaseJitter: 0.1 },
+    width: 0.13,
+    taper: { head: 0.14, tail: 0.3 },
+    morph: null,
+    orientation: "camera",
+    core: 1.5,
+  };
+}
+
+export function defaultWireBurst(): WireBurst {
+  return {
+    shapes: 14,
+    sides: [3, 4],
+    radius: 0.55,
+    travel: 1.1,
+    scale: {
+      keys: [
+        [0, 0.35],
+        [1, 1.35],
+      ],
+      ease: "smooth",
+    },
+    spokes: 10,
+    seed: 7717,
+  };
+}
+
 export function defaultEmitter(): Emitter {
   return {
     count: 600,
@@ -1383,6 +1782,7 @@ export function defaultEmitter(): Emitter {
       size: [1, 1, 1],
       surfaceOnly: false,
       bias: [0, 0, 0],
+      pathId: null,
     },
     spawn: {
       mode: "burst",
@@ -1390,6 +1790,7 @@ export function defaultEmitter(): Emitter {
       rate: 0,
       duration: 0,
       bursts: [],
+      headCurve: null,
     },
     velocity: {
       mode: "radial",
@@ -1424,6 +1825,7 @@ export function defaultEmitter(): Emitter {
       alphaAlongSpawn: null,
       rotation: { initial: [0, Math.PI * 2], speed: [-1, 1] },
       sortMode: "byDistance",
+      twinkle: null,
     },
     trail: null,
     sub: null,
@@ -1438,6 +1840,7 @@ export function defaultGeometry(): GeometryV2 {
     radius: 1,
     length: 2,
     thickness: 0.08,
+    taper: 1,
     vertexNoise: null,
     lightning: null,
   };
@@ -1483,7 +1886,9 @@ export function defaultDocumentShell(
       vignette: 0.35,
       chromatic: 0.0025,
       motionBlur: 0,
+      glitch: null,
     },
+    paths: [],
     textures: [],
   };
 }
@@ -1495,6 +1900,8 @@ export function defaultsV2() {
     geometry: defaultGeometry(),
     blob: defaultBlob(),
     splash: defaultSplash(),
+    ribbon: defaultRibbon(),
+    wireBurst: defaultWireBurst(),
     shell: defaultDocumentShell(),
   };
 }
@@ -1536,10 +1943,24 @@ export const MaterialWireSchema = MaterialSchema.extend({
   mask: MaskWireSchema,
   noise: NoiseWireSchema.nullable(),
   erosion: ErosionWireSchema.nullable(),
+  proceduralParams: num4,
   toon: ToonSchema.extend({ thresholds: num2, light: num3 }).nullable(),
   outline: OutlineSchema.nullable(),
   opaqueUntil: scalar(0, 1).nullable(),
+  rgbSplit: RgbSplitSchema.nullable(),
 });
+export const RibbonWireSchema = RibbonSchema.extend({
+  window: RibbonWindowSchema.extend({ head: CurveWireSchema }),
+  morph: RibbonMorphSchema.extend({ curve: CurveWireSchema }).nullable(),
+});
+export const WireBurstWireSchema = WireBurstSchema.extend({
+  sides: z.array(z.number().int()).length(2),
+  scale: CurveWireSchema,
+});
+export const PathV2WireSchema = z.discriminatedUnion("type", [
+  OrbitPathSchema.extend({ center: num3 }),
+  BezierPathSchema.extend({ from: num3, control: num3, to: num3 }),
+]);
 export const BlobWireSchema = BlobSchema.extend({
   radius: num2,
   stagger: num2,
@@ -1553,7 +1974,13 @@ export const SplashWireSchema = SplashSchema.extend({
   fade: num2,
 });
 export const EmitterWireSchema = EmitterSchema.extend({
-  shape: EmitterShapeSchema.extend({ axis: num3, size: num3, bias: num3 }),
+  shape: EmitterShapeSchema.extend({
+    axis: num3,
+    size: num3,
+    bias: num3,
+    pathId: PathIdSchema.nullable(),
+  }),
+  spawn: SpawnSchema.extend({ headCurve: CurveWireSchema.nullable() }),
   velocity: VelocitySchema.extend({
     speed: num2,
     direction: num3,
@@ -1572,11 +1999,13 @@ export const EmitterWireSchema = EmitterSchema.extend({
     alphaCurve: CurveWireSchema,
     alphaAlongSpawn: CurveWireSchema.nullable(),
     rotation: ParticleRotationSchema.extend({ initial: num2, speed: num2 }),
+    twinkle: TwinkleSchema.nullable(),
   }),
   trail: TrailSchema.extend({ widthCurve: CurveWireSchema }).nullable(),
   sub: SubEmitterSchema.extend({ offset: num2 }).nullable(),
 });
 export const GeometryV2WireSchema = GeometryV2Schema.extend({
+  taper: scalar(0.05, 1),
   vertexNoise: VertexNoiseSchema.extend({
     bias: num3,
     alongCurve: CurveWireSchema,
@@ -1592,12 +2021,15 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
     scale: num3,
   }),
   motion: MotionWireSchema.nullable(),
+  jitter: JitterSchema.extend({ axis: num3.nullable() }).nullable(),
   material: MaterialWireSchema.nullable(),
   emitter: EmitterWireSchema.nullable(),
   geometry: GeometryV2WireSchema.nullable(),
   light: LightSchema.extend({ intensity: CurveWireSchema }).nullable(),
   blob: BlobWireSchema.nullable(),
   splash: SplashWireSchema.nullable(),
+  ribbon: RibbonWireSchema.nullable(),
+  wireBurst: WireBurstWireSchema.nullable(),
   tracks: z
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
@@ -1617,6 +2049,13 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
   // Structured Outputs needs every property required, so the wire copy drops
   // the default and asks the model for the value.
   environment: EnvironmentSchema.extend({ ambient: scalar(0, 3) }),
+  post: PostSchema.extend({
+    glitch: GlitchSchema.extend({
+      curve: CurveWireSchema,
+      blockGrid: z.array(z.number().int()).length(2),
+    }).nullable(),
+  }),
+  paths: z.array(PathV2WireSchema).max(PATH_BUDGET_V2),
   layers: z.array(LayerV2WireSchema).min(1).max(24),
 });
 
@@ -1640,6 +2079,8 @@ export function fromWireV2(
       "light",
       "blob",
       "splash",
+      "ribbon",
+      "wireBurst",
     ])
       if (next[slot] === null) delete next[slot];
     return next;

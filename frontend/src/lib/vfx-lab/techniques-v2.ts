@@ -297,29 +297,31 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Path-window ribbon",
     use: "Anything that sweeps along a path and needs a visible travelling window — a heal sweep, a beam-braid strand, a portal ribbon — hot core plus soft halo.",
     construction: [
-      "Define the path as a curve; draw only the segment inside a moving window [head-tail, head] as it progresses.",
-      "Two layers on the same path: a narrow bright additive core, a wider softer alpha halo.",
-      "Taper both ends of each strand instead of a constant width.",
-      "For multiple strands, repeat with a phase offset per strand so they braid.",
+      'Declare the path once in document paths: {type:"orbit"} for a sweep around a subject, {type:"bezier"} for a thrown arc.',
+      'One kind:"ribbon" layer on it. ribbon.window.head is a Curve over the layer\'s own 0..1 progress and ribbon.window.tail the window length as a fraction of the path; only that window is ever drawn.',
+      "ribbon.strands 3-5 with spread 0.06-0.12, widthJitter ~0.45 and phaseJitter ~0.1, so the strands braid instead of overlapping.",
+      "ribbon.taper {head 0.08-0.15, tail 0.22-0.3}: a squared-off end reads as a card.",
+      'material.ramp.space "surface" keys the ramp ACROSS the strip (t=0 core, t=1 edge); ribbon.core multiplies the hot centre. One layer is core AND halo.',
+      "ribbon.morph blends the whole sweep onto a second path, so a hip-height sweep that dives into a ground ring stays one layer.",
     ],
     timing:
-      "One full sweep over 60-80% of the layer's own life; the window itself stays ~15-25% of the path length.",
+      "One full sweep over 60-80% of the layer's own life; the window itself stays ~15-45% of the path length. A head curve that runs past 1 keeps circling a closed orbit.",
     details: [
       "The moving window is what reads as travelling, not just present.",
-      "Hot core + soft halo, always two passes, never one ribbon doing both jobs.",
+      "The ramp across the strip is the core/halo split; a second layer for the halo is wasted.",
       "Taper both ends; a squared-off end reads as a card, not an energy strand.",
       "Multiple strands need a phase offset per strand, not identical timing.",
     ],
     vocabulary: {
       available: [
-        'kind:"trail" geometry.type:"ribbon"|"streamer"',
-        'material.blend "additive" (core) + "alpha" (halo)',
-        "geometry.lightning.widthCurve (taper)",
-        "motion.keys / tracks along a path",
+        'kind:"ribbon" with ribbon.pathId into document paths',
+        "ribbon.window.{head Curve, tail}",
+        "ribbon.strands.{count,spread,widthJitter,phaseJitter}",
+        "ribbon.{width,taper,core,orientation}",
+        "ribbon.morph.{pathId,curve}",
+        'material.ramp.space:"surface" (across the strip)',
       ],
-      missing: [
-        "ribbon window (moving head-tail draw range along a path, independent of layer.start/end)",
-      ],
+      missing: [],
     },
     sources: [ICE_SHIELD],
   },
@@ -329,10 +331,11 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Ground ring with inner fill",
     use: "The base of an aura, heal or buff effect: a flat ring on the ground with a softly filled interior, popping in early.",
     construction: [
-      "A disc/torus ring on the ground (rotation [-1.5708,0,0]): bright additive rim plus a softer inner fill.",
-      "Pan the inner fill's material.noise so it is not static.",
-      "Scale the ring up with an ease \"outCubic\" curve over the first 10-15% of duration.",
-      "Keep it flat and thin so it reads as ground contact, not a dome.",
+      'Two flat kind:"decal" cards on the ground (rotation [-1.5708,0,0]), one over the other.',
+      'The rim card uses material.procedural "swirlRing": three offset thin strands with a harmonic wobble, rotating, plus short detached arcs outside the rim. proceduralParams = [rim radius as a fraction of the card half-size, strand half-width, wobble amplitude, rotation rate rad/s].',
+      'The fill card under it uses material.procedural "ringFill": proceduralParams = [fill radius, pulse rate rad/s, noise amount, edge softness].',
+      "Snap the rim out from ~72% to full over the first half second with a track on material.proceduralParams[0], not on transform.scale.",
+      "Keep both flat and thin so they read as ground contact, not a dome.",
     ],
     timing: "Pops in over the first 10-15%; holds through the sustain; fades with the rest at the end.",
     details: [
@@ -343,9 +346,9 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"ring" geometry.type:"torus"|"disc"',
-        "material.noise.uvPan",
-        'transform.scale track (ease:"smooth")',
+        'kind:"decal" with material.procedural:"swirlRing" (rim) and "ringFill" (interior)',
+        "material.proceduralParams [radius, width, wobble, rate]",
+        "a track on material.proceduralParams[0] for the snap-out",
         "rotation [-1.5708,0,0] for ground lie",
       ],
       missing: ["ease \"outBack\" (overshoot-and-settle scale-in)"],
@@ -358,10 +361,13 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Upright glow cylinder",
     use: "The vertical body of an aura, heal-over-time or energy-column effect: a soft additive glow tube, not a hard beam.",
     construction: [
-      "An open cylinder mesh, additive blend, vertical axis.",
-      "material.noise with uvPan along the vertical axis for rising internal motion.",
-      "Add material.fresnel so the edges glow more than the centre; keep the top soft and slightly tapered.",
-      "Keep material.opacity low (0.15-0.35) so it reads as light, not a solid tube.",
+      'kind:"beam" with geometry.type "cylinder", rotation [-1.5708,0,0] so it stands up; geometry.length is its height and geometry.taper 0.75-0.9 narrows the top.',
+      'material.procedural must be "solid": "none" is the soft-disc SPRITE silhouette and on a tube it reads as a blob halfway around it.',
+      'material.ramp.space "surface" runs along the height; end it at intensity 0 so the additive top fades out instead of ending at a cap.',
+      "material.noise with uvPan up the axis perturbs that surface key, which is what makes the rising streaks.",
+      "material.erosion whose curve stays near 0 until ~40% and climbs to ~1: only the top tears, so the glow escapes in streaks.",
+      "material.fresnel 0.2-0.35 with a ramp that brightens just off the bottom, so the silhouette edges read hotter than the body.",
+      "Keep material.opacity low (0.15-0.3) so it reads as light, not a solid tube.",
     ],
     timing: "Fades in with the ground ring (first 10-15%), holds through the sustain, fades last.",
     details: [
@@ -372,9 +378,10 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"shell"|"trail" geometry.type:"cylinder"',
-        'material.blend:"additive"',
-        "material.noise.uvPan",
+        'kind:"beam" geometry.type:"cylinder" with geometry.taper',
+        'material.blend:"additive" + material.procedural:"solid"',
+        'material.ramp.space:"surface" (along the height)',
+        "material.noise.uvPan, material.erosion.curve",
         "material.fresnel.{power,strength}",
       ],
       missing: [],
@@ -387,10 +394,11 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Four-point sparkles",
     use: "Small rising sparkle accents inside an aura, heal or magic effect: a four-point star, not a round dot.",
     construction: [
-      "A particles layer using a four-point-star / sparkle library mask.",
+      'A particles layer with material.procedural "star4" — a four-point glint, not a round dot.',
       "Stagger every instance's birth (see staggered-instance-timing) so they do not spawn together.",
       "Give each a small sine wobble on its horizontal position as it rises.",
       "Drive alpha with a bell curve (in, hold, out) per instance, not a linear fade.",
+      "Add emitter.render.twinkle (frequency 4-12, depth 0.4-0.7): the phase is hashed off each instance, so no two blink together.",
     ],
     timing: "Staggered across the whole hold; each instance's own life is short, 0.3-0.6s.",
     details: [
@@ -401,9 +409,9 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"particles"',
-        'material.mask.textureId (sparkle-tagged library mask) / material.procedural:"sparkle"',
-        "emitter.render.alphaCurve",
+        'kind:"particles" with material.procedural:"star4"',
+        "emitter.render.twinkle.{frequency,depth} (per-instance hashed flicker)",
+        "emitter.render.alphaCurve (the bell), emitter.spawn.window (the stagger)",
         "emitter.render.rotation.speed (wobble)",
       ],
       missing: [],
@@ -420,6 +428,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
       "Apply it to birth time (layer.start), spread across 5-15% of the group's own build time.",
       "Vary scale or speed slightly per instance from the same seed so no two copies match.",
       "Never drive a repeated group from one shared global curve alone.",
+      'For a group strung along a path, emitter.spawn.mode "pathAnchored" derives the whole stagger from one head curve: no birth table, and the order follows the path.',
     ],
     timing: "Spread the group's births across 5-15% of the group's own build phase.",
     details: [
@@ -432,11 +441,11 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
       available: [
         "per-layer layer.start offset",
         'emitter.spawn.mode:"bursts" with bursts[{t,count}]',
-        "author N similar layers with different seed/start (schema has no per-instance hash)",
+        'emitter.spawn.mode:"pathAnchored" + spawn.headCurve: instance i is born as the head passes u = i/(count-1)',
+        "emitter.render.twinkle (per-instance hashed alpha phase)",
+        "layer.jitter.{frequency,amplitude,gate} (stepped-hash offset on the layer transform)",
       ],
-      missing: [
-        "true per-instance hashed offset inside a single emitter",
-      ],
+      missing: [],
     },
     sources: [ICE_SHIELD],
   },
@@ -519,13 +528,13 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"trail" geometry.type:"lightning"|"ribbon"',
+        'kind:"trail" geometry.type:"lightning", or kind:"ribbon" on a wobbling orbit path',
         "geometry.lightning.{jitter,branches,branchDepth,seedOffset}",
+        "ribbon.strands.{count,phaseJitter} (independent strands in one layer)",
+        "layer.jitter (stepped-hash displacement of the whole arc)",
         "author several short-lived arc layers as the blink window",
       ],
-      missing: [
-        "per-segment blink gating inside a single arc layer",
-      ],
+      missing: ["per-segment blink gating inside a single arc layer"],
     },
     sources: [BEAM_ETC],
   },
@@ -582,6 +591,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
         'emitter.velocity.{mode:"cone", speed}',
         "emitter.forces.gravity",
         'geometry.type:"crystal"|"crystal-cluster" (mesh-shard variant)',
+        'kind:"wireBurst" for outline-only debris (polygon shells plus spokes)',
         "emitter.render.alphaCurve",
       ],
       missing: [],
@@ -628,11 +638,11 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Stepped-hash glitch",
     use: "A glitch/digital/hologram projectile or impact: displacement and colour break in discrete stepped windows, not a continuous wobble.",
     construction: [
-      "Gate vertex jitter to discrete windows: re-roll a hash on floor(time*frequency).",
-      "Add magenta/cyan accent ramp stops flanking the base colour to fake an RGB split.",
-      "Key material.erosion.curve with stepped/hold keys so chunks cut out and back in (block dropout).",
-      "Draw the trail as a segmented ribbon with dashed alpha and a stepped hue shift.",
-      "Raise the flicker frequency in the final ~10% before impact.",
+      "layer.jitter on the head and on the impact burst: {frequency 10-20, amplitude 0.07-0.14, gate 0.55-0.85}. The gate is what makes it DISCRETE — only the windows whose hash clears it fire.",
+      "material.rgbSplit {offset 0.002-0.006, growth 0.8-1.6} on the mesh or wireBurst layers: three per-channel copies pushed apart in screen space, separating further as the layer ages.",
+      'post.glitch {curve over document time, bands 12-20, blockGrid [54,34], split 0.005-0.01, edgeBias 0.7-1}: band displacement, channel split and block dropout, all keyed on hash(floor(t*20)).',
+      'Anchor the trail to the path instead of trailing it: emitter.shape.type "path" + spawn.mode "pathAnchored" + render.mode "pathAligned" + render.twinkle, so dashes hold in space and flicker out.',
+      "Keep the screen pass to two hot frames at the hit plus a ~0.2 s tail; longer reads as a broken renderer, not as an effect.",
     ],
     timing: "Glitch windows fire throughout at a fixed frequency; flicker frequency ramps up in the closing 10% before impact.",
     details: [
@@ -644,16 +654,13 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        "geometry.type (faceted low-poly head)",
-        "material.ramp (extra stops for channel-split accents)",
-        "material.erosion.curve (author with stepped/hold keys)",
-        "geometry.type:\"lightning\" segmented trail for the dashed ribbon",
+        "layer.jitter.{frequency,amplitude,gate,axis} (stepped-hash offset, any kind)",
+        "material.rgbSplit.{offset,growth} (mesh kinds and wireBurst)",
+        "post.glitch.{curve,bands,blockGrid,split,edgeBias}",
+        'emitter.shape.type:"path" + spawn.mode:"pathAnchored" + render.mode:"pathAligned"',
+        "geometry.type (faceted low-poly head), material.ramp accent stops",
       ],
-      missing: [
-        "world-position-offset vertex jitter gated by a stepped time hash",
-        "true per-channel RGB split",
-        "scanline overlay",
-      ],
+      missing: ["scanline overlay"],
     },
     sources: [ICE_SHIELD],
   },
@@ -763,6 +770,18 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "two-layer-noise-mist",
     "staggered-instance-timing",
   ],
+  "healing-aura": [
+    "path-window-ribbon",
+    "ground-ring-with-inner-fill",
+    "upright-glow-cylinder",
+    "four-point-sparkles",
+  ],
+  "glitch-projectile": [
+    "stepped-hash-glitch",
+    "staggered-instance-timing",
+    "instanced-shard-burst",
+    "path-window-ribbon",
+  ],
 };
 
 /**
@@ -810,8 +829,14 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
  */
 const APPROXIMATIONS: Partial<Record<TechniqueId, string>> = {};
 
-/** Total character budget for one `techniqueBrief` call. */
-const BRIEF_CHAR_BUDGET = 4500;
+/**
+ * Total character budget for one `techniqueBrief` call. Raised from 4500 when
+ * the heal and glitch ports gave path-window-ribbon, upright-glow-cylinder and
+ * stepped-hash-glitch real construction steps: at 4500 a four-card brief for
+ * those families dropped its last card, which is the one the prompt's own
+ * keywords asked for.
+ */
+const BRIEF_CHAR_BUDGET = 5400;
 
 /**
  * A single card in full: every construction step (numbered), the timing

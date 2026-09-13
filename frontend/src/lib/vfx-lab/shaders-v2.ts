@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import type { Curve, Ramp } from "./schema-v2";
+import { glslPath } from "./paths-v2";
+import { SPOKE_REACH } from "./wire-burst-v2";
 
 // ---------------------------------------------------------------------------
 // GLSL for the autov.lab/2 renderer.
@@ -107,6 +109,16 @@ float softDepth(){
  * (radius, length, thickness) of the geometry.
  */
 export const glslProcedural = /* glsl */ `
+uniform vec4 uProcParams;
+/** Value noise on a hashed integer lattice; the swirl/fill patterns' grain. */
+float procHash21(vec2 p){ vec3 q=fract(vec3(p.xyx)*0.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float procNoise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  float a=procHash21(i), b=procHash21(i+vec2(1.,0.));
+  float c=procHash21(i+vec2(0.,1.)), d=procHash21(i+vec2(1.,1.));
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
 float pointedShape(vec2 p,float arms,float outerRadius,float innerRadius){
   float angle=atan(p.y,p.x), halfAngle=3.14159265/arms;
   float q=abs(mod(angle-1.570796+halfAngle,halfAngle*2.)-halfAngle);
@@ -127,8 +139,8 @@ float hexCells(vec2 uv, vec2 cell){
 }
 // uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 // 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon,
-// 12 star4, 13 softRadial.
-// Modes 0-3 and 12-13 are BILLBOARD SILHOUETTES: they describe a sprite's whole
+// 12 star4, 13 softRadial, 14 swirlRing, 15 ringFill.
+// Modes 0-3 and 12-15 are BILLBOARD SILHOUETTES: they describe a sprite's whole
 // outline, so a closed body (the analytic shell) ignores them. 4-11 are surface
 // patterns and apply everywhere; surfaceFragmentV2 gates on exactly that.
 float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, vec3 dims, int mode){
@@ -169,6 +181,44 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
     return clamp(core*1.2+ax+ay,0.,2.);
   }
   if(mode==13) return safePow(max(0.,1.-length(q)),2.6);
+  if(mode==14){
+    // swirlRing: three thin strands on the same rim, each at its own offset and
+    // rotating at its own multiple of uProcParams.w, plus a few short arcs
+    // detached just outside the rim. uProcParams = (rim radius 0..1 of the
+    // card, strand half-width, wobble amplitude, rotation rate rad/s).
+    float R=max(uProcParams.x,.02), hw=max(uProcParams.y,.002), amp=uProcParams.z;
+    float d=length(q), ang=atan(q.y,q.x);
+    float m=0.;
+    for(int i=0;i<3;i++){
+      float fi=float(i);
+      float spin=uProcParams.w*t*(1.+fi*.35)+fi*2.09;
+      float wob=amp*(sin(ang*(4.+fi)+spin)*.6+sin(ang*(7.+fi*2.)-spin*.7)*.4);
+      float r=R*(1.+fi*.035-.035)+wob;
+      // Squared, not safePow: safePow clamps its base to a positive epsilon,
+      // which would make the whole disc inside the rim read as the rim.
+      float g=(d-r)/hw;
+      m+=exp(-g*g)*(1.-fi*.22);
+    }
+    // Detached arcs: a coarse angular comb just outside the rim, gated so only
+    // a few sectors are lit at a time.
+    float sector=floor((ang+3.14159265)/6.2831853*9.+uProcParams.w*t*.5);
+    float ga=(d-R*1.16)/(hw*1.4);
+    float arc=step(.62,procHash21(vec2(sector,3.7)))
+            *exp(-ga*ga)
+            *safePow(abs(sin(ang*9.+uProcParams.w*t*.5)),6.);
+    return clamp(m+arc*.9,0.,2.);
+  }
+  if(mode==15){
+    // ringFill: a soft radial fill with a slow pulse and a value-noise grain.
+    // uProcParams = (fill radius 0..1, pulse rate rad/s, noise amount 0..1,
+    // edge softness 0..1).
+    float R=max(uProcParams.x,.02), soft=max(uProcParams.w,.02);
+    float d=length(q), ang=atan(q.y,q.x);
+    float pulse=.72+.28*sin(uProcParams.y*t);
+    float fill=smoothstep(R+soft,R*(1.-soft),d)*pulse;
+    fill*=mix(1.,.55+.45*procNoise(vec2(ang*2.4,d*5.-t*.7)),clamp(uProcParams.z,0.,1.));
+    return clamp(fill,0.,1.);
+  }
   if(mode==11){
     // Continuous core with a narrow moving edge; no longitudinal holes.
     float edge=.48+.035*sin(q.y*18.-t*10.);
@@ -197,7 +247,34 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
  * `curlEnv` is the curl envelope expression (the parent copy has none, so its
  * caller passes a constant).
  */
+/**
+ * Inverse of a monotone non-decreasing piecewise-linear curve: given a value
+ * `y`, the 0..1 domain position that produces it. The smooth ease is inverted
+ * analytically (f = .5 - sin(asin(1-2s)/3) undoes s = f*f*(3-2f)), so a
+ * path-anchored instance's birth time is closed form instead of a stored table.
+ */
+export function glslCurveInverse(name: string) {
+  return /* glsl */ `
+float curve${name}Inverse(float y){
+  float last=uCurve${name}[0].x;
+  for(int i=1;i<${CURVE_KEYS};i++){
+    if(i>=uCurve${name}N) break;
+    vec2 a=uCurve${name}[i-1], b=uCurve${name}[i];
+    last=b.x;
+    if(y<=b.y || i==uCurve${name}N-1){
+      float s=clamp((y-a.y)/max(b.y-a.y,1e-5),0.,1.);
+      float f=mix(s, .5-sin(asin(clamp(1.-2.*s,-1.,1.))/3.), uCurve${name}Ease);
+      return a.x+(b.x-a.x)*f;
+    }
+  }
+  return last;
+}`;
+}
+
 export function glslParticleCore(P: string, p: string, curlEnv: string) {
+  // Path sampling exists only in the layer's OWN copy: a sub-emitter is
+  // launched from its parent's trajectory, never from a path of its own.
+  const path = P === "";
   return /* glsl */ `
 uniform float u${P}Period,u${P}SpawnWindow,u${P}SpawnDuration,u${P}ShapeLength,u${P}ShapeRadius,u${P}ShapeInner,u${P}ShapeAngle;
 uniform float u${P}Drag,u${P}Curl,u${P}CurlFreq,u${P}CurlSpeed,u${P}FloorY,u${P}FloorSoft,u${P}Angle;
@@ -227,7 +304,17 @@ float ${p}Birth(vec4 s, float t){
     for(int i=0;i<${CURVE_KEYS};i++){ if(i>=u${P}BurstN) break; if(instance<=u${P}BurstC[i]){ t0=u${P}BurstT[i]; break; } }
     return t0+fract(instance*7.13+0.37)*u${P}SpawnWindow;
   }
-  return birth;
+${
+  path
+    ? /* glsl */ `  if(u${P}SpawnMode==3){
+    // pathAnchored: instance i owns u = i/(count-1) and is born the moment the
+    // head curve passes it. The head curve's domain is the layer's own 0..1
+    // progress, so the inverse is scaled back into layer seconds.
+    return curveHInverse(aIndex)*uSpan;
+  }
+`
+    : ""
+}  return birth;
 }
 
 vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
@@ -253,7 +340,20 @@ vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
     return (a1*cos(ca)+a2*sin(ca))*rr;
   }
   if(u${P}ShapeType==6) return vec3(e.x*2.-1.,e.y*2.-1.,e.z*2.-1.)*u${P}ShapeSize*.5;
-  return axis*(u${P}ShapeLength*e.w)+sph*u${P}ShapeRadius;
+${
+  path
+    ? /* glsl */ `  if(u${P}ShapeType==8){
+    // path: the instance sits ON the document path at its own u, scattered
+    // across the path frame by shape.radius so the row reads as a dotted band
+    // rather than a string of beads. Paths are in DOCUMENT space.
+    vec3 tg,sd,upn; pathFrameE(aIndex,tg,sd,upn);
+    return pathPointE(aIndex)
+      + sd*(e.x-.5)*2.*u${P}ShapeRadius
+      + upn*(e.y-.5)*1.5*u${P}ShapeRadius;
+  }
+`
+    : ""
+}  return axis*(u${P}ShapeLength*e.w)+sph*u${P}ShapeRadius;
 }
 
 vec3 ${p}Dir(vec4 s, vec4 e, vec4 e2, vec3 origin){
@@ -401,17 +501,22 @@ ${
 export function particleVertexSource(sub = false) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
+attribute float aIndex;
 ${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
-uniform float uTime,uStretch,uAtlasTiles,uMotionBlur,uFlipFps;
+uniform float uTime,uStretch,uAtlasTiles,uMotionBlur,uFlipFps,uSpan;
+uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uRenderMode,uHasAlphaSpawn,uAtlasCols,uAtlasRows,uFlipMode;
 uniform vec2 uSize,uRot,uRotInit;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
 ${glslNoise}
 ${glslOrtho}
+${glslPath("E", "E")}
 ${glslCurve("A")}
 ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
+${glslCurve("H")}
+${glslCurveInverse("H")}
 ${glslParticleCore("", "self", "curveE(u)")}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
@@ -432,6 +537,10 @@ ${glslResolveBirth(sub)}
   // --- billboard ------------------------------------------------------------
   float size=mix(uSize.x,uSize.y,aExtra2.x)*curveA(u);
   float rot=mix(uRotInit.x,uRotInit.y,aExtra2.y)+mix(uRot.x,uRot.y,aExtra2.z)*age;
+  // pathAligned reuses the velocity-stretch machinery with the PATH's heading
+  // instead of the particle's velocity: a path-anchored dash holds still, so it
+  // has no velocity of its own to align to.
+  vec3 heading = uRenderMode==4 && uShapeType==8 ? pathTangentE(aIndex) : vel;
   vec4 mv;
   if(uRenderMode==2 || uRenderMode==3){
     // World-oriented quads: horizontal lies in XZ, vertical in XY.
@@ -442,18 +551,23 @@ ${glslResolveBirth(sub)}
     rot=0.;
   } else {
     mv=modelViewMatrix*vec4(pos,1.);
-    vec3 sv3=(modelViewMatrix*vec4(vel,0.)).xyz;
+    vec3 sv3=(modelViewMatrix*vec4(heading,0.)).xyz;
     vec2 sv=vec2(sv3.x,sv3.y);
     float svl=length(sv);
     vec2 along=vec2(0.,1.), across=vec2(1.,0.);
     float stretch=1.;
-    if(uRenderMode==1 && svl>1e-4){
+    if((uRenderMode==1 || uRenderMode==4) && svl>1e-4){
       along=sv/svl;
       // Winding: the across axis must be the clockwise perpendicular or the
       // quad is mirrored and back-face culled away.
       across=vec2(along.y,-along.x);
       // post.motionBlur is a multiplier on the velocity stretch, nothing else.
-      rot=0.; stretch=1.+uStretch*(1.+2.*uMotionBlur)*svl;
+      // A pathAligned quad is stretched by uStretch alone: its heading is a
+      // unit tangent, so there is no speed to scale by.
+      rot=0.;
+      stretch=uRenderMode==4
+        ? 1.+uStretch
+        : 1.+uStretch*(1.+2.*uMotionBlur)*svl;
     }
     vec2 off=across*position.x*size+along*position.y*size*stretch;
     if(uMotionBlur>0. && svl>1e-4){
@@ -468,6 +582,10 @@ ${glslResolveBirth(sub)}
 
   vAlpha=curveB(u)*smoothstep(0.,.03,age);
   if(uHasAlphaSpawn==1) vAlpha*=curveD(aExtra.w);
+  // render.twinkle: a phase hashed off the instance seed, so no two particles
+  // blink together. depth 0 leaves the alpha untouched.
+  if(uTwinkleDepth>0.)
+    vAlpha*=mix(1., safePow(abs(sin(uTime*uTwinkleFreq+aExtra2.y*19.7)),1.5), uTwinkleDepth);
 
   float cols=float(max(uAtlasCols,1)), rows=float(max(uAtlasRows,1));
   float tiles=max(uAtlasTiles,1.);
@@ -492,18 +610,23 @@ export const particleVertexV2 = particleVertexSource(false);
 export function trailVertexSource(sub = false) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
+attribute float aIndex;
 ${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
-uniform float uTime,uSegments,uSpacing;
+uniform float uTime,uSegments,uSpacing,uSpan;
+uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uHasAlphaSpawn;
 uniform vec2 uSize;
 varying vec2 vUv; varying float vU,vAlpha; varying vec3 vSeed; varying vec3 vWp;
 ${glslNoise}
 ${glslOrtho}
+${glslPath("E", "E")}
 ${glslCurve("A")}
 ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("G")}
+${glslCurve("H")}
+${glslCurveInverse("H")}
 ${glslParticleCore("", "self", "curveE(u)")}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
@@ -538,6 +661,8 @@ ${glslResolveBirth(sub)}
 
   vAlpha=curveB(u)*smoothstep(0.,.03,age);
   if(uHasAlphaSpawn==1) vAlpha*=curveD(aExtra.w);
+  if(uTwinkleDepth>0.)
+    vAlpha*=mix(1., safePow(abs(sin(uTime*uTwinkleFreq+aExtra2.y*19.7)),1.5), uTwinkleDepth);
 }
 `;
 }
@@ -636,6 +761,7 @@ void main(){
 
 export const surfaceVertexV2 = /* glsl */ `
 uniform float uTime,uLength,uRadius,uThickness,uArc,uVertexAmp,uVertexFreq,uVertexSpeed,uDisplaceShift,uRoll;
+uniform float uChannel,uSplitOffset,uSplitGrowth,uLayerU;
 uniform int uShell,uHasVertexNoise,uBillboard,uRibbon,uUseLocalZ;
 uniform vec2 uZRange;
 uniform vec3 uVertexBias;
@@ -736,6 +862,11 @@ void main(){
   vWp=worldPos;
   vN=worldNormal;
   gl_Position=projectionMatrix*viewMatrix*vec4(worldPos,1.);
+  // material.rgbSplit: this draw is one of three per-channel copies (uChannel
+  // 0/1/2), pushed apart in CLIP space so the offset is a constant fraction of
+  // the frame at any depth. uChannel < 0 is the ordinary single draw.
+  if(uChannel>=0.)
+    gl_Position.x+=(uChannel-1.)*uSplitOffset*(1.+uSplitGrowth*clamp(uLayerU,0.,1.))*gl_Position.w;
 }
 `;
 
@@ -743,7 +874,7 @@ export const surfaceFragmentV2 = /* glsl */ `
 precision highp float;
 uniform float uTime,uOpacity,uErodeSoft,uEdgeW,uEdgeI,uProtect,uRimBias,uDisplaceShift;
 uniform float uFresnelPower,uFresnelStrength,uDistort,uRampKeyMode,uLayerU,uMaskRot,uRadius,uLength,uThickness;
-uniform float uGroundY,uHeightSpan;
+uniform float uGroundY,uHeightSpan,uChannel;
 uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFresnel,uBolt;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol,uCam;
@@ -831,9 +962,140 @@ void main(){
     alpha*=(1.-smoothstep(.5,1.,vAlong)*.5);
   }
   col+=uEdgeCol*uEdgeI*rim*(1.-smoothstep(.5,.95,vAlong));
+  // One channel per copy: the three masked copies sum back to the original
+  // colour at offset 0, so this is a split rather than a tint.
+  if(uChannel>=0.)
+    col*=uChannel<.5?vec3(1.,0.,0.):(uChannel<1.5?vec3(0.,1.,0.):vec3(0.,0.,1.));
   if(alpha<.002) discard;
   if(uBlendMode==1) gl_FragColor=vec4(col,alpha);
   else gl_FragColor=vec4(col*alpha,alpha);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Ribbons
+//
+// The strip buffer carries no positions: every vertex is (w along the window,
+// side, strand) and the world position is swept here from the document path,
+// the live window and the live morph blend. Nothing is rebuilt when the head
+// moves, so the same head at the same layer time always draws the same strip.
+//
+// An orbit path WRAPS (a head past 1 keeps circling), a bezier CLAMPS: a
+// thrown arc has two ends, a ring does not. A ribbon whose head runs past 1
+// therefore wants a closed orbit — height 0 and a whole number of turns — or
+// the wrap point shows as a step.
+// ---------------------------------------------------------------------------
+
+export const ribbonVertexV2 = /* glsl */ `
+uniform float uTime,uHead,uTail,uWidth,uMorph,uSpread,uWidthJitter,uPhaseJitter;
+uniform float uTaperHead,uTaperTail,uOrientPath;
+varying float vSide,vW,vStrand,vFade;
+${glslNoise}
+${glslPath("", "")}
+${glslPath("Morph", "M")}
+float ribbonHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+/** The two paths blended by ribbon.morph.curve, wrapped or clamped per type. */
+vec3 sweep(float u){
+  float ua=uPathType==1?clamp(u,0.,1.):fract(u);
+  float ub=uMorphPathType==1?clamp(u,0.,1.):fract(u);
+  return mix(pathPoint(ua), pathPointM(ub), uMorph);
+}
+void main(){
+  float w=position.x, side=position.y, strand=position.z;
+  float hs=ribbonHash(strand*11.7+3.1);
+  // Window: only [head - tail, head] of the path is ever drawn, offset per
+  // strand so the strands braid instead of overlapping exactly.
+  float u=uHead-(1.-w)*uTail+(hs-.5)*uPhaseJitter*uTail;
+  vec3 p=sweep(u);
+  vec3 tangent=normalize(sweep(u+1e-3)-sweep(u-1e-3)+vec3(0.,0.,1e-6));
+  vec3 sd=normalize(cross(tangent,vec3(0.,1.,0.))+vec3(1e-5,0.,0.));
+  vec3 upn=normalize(cross(sd,tangent));
+  p+=sd*((hs-.5)*uSpread)+upn*((ribbonHash(strand*3.7+9.1)-.5)*uSpread);
+  vec4 world=modelMatrix*vec4(p,1.);
+  // Taper both ends of the window: a squared-off end reads as a card.
+  float fade=smoothstep(0.,max(uTaperTail,1e-4),w)*smoothstep(1.,1.-max(uTaperHead,1e-4),w);
+  // ribbon.width is the FULL width of one strand at its fattest.
+  float strandW=mix(1.-uWidthJitter,1.,hs);
+  float half_=uWidth*.5*strandW*fade;
+  vec3 worldTangent=normalize(mat3(modelMatrix)*tangent+vec3(0.,0.,1e-6));
+  vec3 view=normalize(cameraPosition-world.xyz);
+  vec3 across=uOrientPath>.5
+    ? normalize(mat3(modelMatrix)*upn)
+    : normalize(cross(worldTangent,view));
+  vSide=side; vW=w; vStrand=hs; vFade=fade;
+  gl_Position=projectionMatrix*viewMatrix*vec4(world.xyz+across*side*half_,1.);
+}
+`;
+
+export const ribbonFragmentV2 = /* glsl */ `
+precision highp float;
+uniform float uTime,uOpacity,uCore;
+uniform int uBlendMode;
+varying float vSide,vW,vStrand,vFade;
+${glslRamp}
+void main(){
+  if(vFade<=0.) discard;
+  // The ramp runs ACROSS the strip: stop t=0 is the core, t=1 the outer edge.
+  float q=abs(vSide);
+  float core=exp(-q*q*9.), halo=exp(-q*q*1.6);
+  float flicker=.85+.15*sin(vW*40.+uTime*6.+vStrand*9.);
+  vec3 col=rampColor(q)*(core*1.5*uCore+halo*.30)*flicker;
+  float a=vFade*uOpacity*(core*.9+halo*.35);
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Wire bursts
+//
+// One LineSegments buffer (wire-burst-v2.ts) whose outward travel and scale
+// envelope are applied here from layer time, so the buffer is built once and
+// the burst is still closed form.
+// ---------------------------------------------------------------------------
+
+export const wireBurstVertexV2 = /* glsl */ `
+attribute vec3 aDir; attribute float aSeed; attribute float aKind;
+uniform float uTime,uLayerU,uTravel,uChannel,uSplitOffset,uSplitGrowth;
+varying float vA,vK;
+${glslNoise}
+${glslCurve("A")}
+float burstHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+void main(){
+  float h=burstHash(aSeed*1.7+.3);
+  float e=clamp(uLayerU,0.,1.);
+  // easeOut travel: the burst is fastest on the frame it appears.
+  float out1=1.-safePow(1.-e,2.6);
+  float travel=mix(.40,1.45,h)*out1*uTravel*mix(1.,${SPOKE_REACH.toFixed(2)},aKind);
+  float scale=curveA(e)*mix(.75,1.25,h);
+  vec3 p=aDir*travel+position*scale;
+  vA=1.-smoothstep(.25,1.,e);
+  vK=aKind;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);
+  if(uChannel>=0.)
+    gl_Position.x+=(uChannel-1.)*uSplitOffset*(1.+uSplitGrowth*e)*gl_Position.w;
+}
+`;
+
+export const wireBurstFragmentV2 = /* glsl */ `
+precision highp float;
+uniform float uOpacity,uLayerU,uRampKeyMode,uChannel;
+uniform int uBlendMode;
+varying float vA,vK;
+${glslRamp}
+void main(){
+  // ramp.space "surface" keys the ramp on the population (0 outline, 1 spoke);
+  // anything else keys it on the layer's own progress.
+  float key=uRampKeyMode>1.5&&uRampKeyMode<2.5 ? vK : clamp(uLayerU,0.,1.);
+  vec3 col=rampColor(key);
+  // A spoke is a supporting line, not the shape: it draws a quarter dimmer.
+  float a=vA*uOpacity*mix(1.,.75,vK);
+  if(uChannel>=0.)
+    col*=uChannel<.5?vec3(1.,0.,0.):(uChannel<1.5?vec3(0.,1.,0.):vec3(0.,0.,1.));
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
 }
 `;
 
