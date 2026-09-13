@@ -28199,7 +28199,9 @@ void main() {
   // ../../../../../private/tmp/claude-501/-Users-taiki-dev-v/af5e4475-4159-4c97-8380-afdedd56d56b/scratchpad/playful-spike/spike-playful.src.js
   var DUR = 3;
   var T_ANT = 0.2;
-  var N_LINE = 12;
+  var N_LINE = 8;
+  var N_LOBE = 5;
+  var N_BOLT = 3;
   var N_FAT = 4;
   var N_FACE = 6;
   var N_HEART = 8;
@@ -28208,7 +28210,7 @@ void main() {
     play: true,
     time: 0,
     speed: 1,
-    bloom: 0.35,
+    bloom: 0.25,
     threshold: 1,
     exposure: 1,
     layers: { flash: true, lines: true, faces: true, commas: true, spray: true, post: true }
@@ -28321,6 +28323,60 @@ void main() {
     burst.add(mesh);
     return mesh;
   }
+  var GLSL_STAR5 = (
+    /* glsl */
+    `
+  float sdStar5(vec2 p, float r, float rf){
+    const vec2 k1=vec2(0.809016994375,-0.587785252292);
+    const vec2 k2=vec2(-k1.x,k1.y);
+    p.x=abs(p.x);
+    p-=2.0*max(dot(k1,p),0.0)*k1;
+    p-=2.0*max(dot(k2,p),0.0)*k2;
+    p.x=abs(p.x); p.y-=r;
+    vec2 ba=rf*vec2(-k1.y,k1.x)-vec2(0,1);
+    float h=clamp(dot(p,ba)/dot(ba,ba),0.0,r);
+    return length(p-ba*h)*sign(p.y*ba.x-p.x*ba.y);
+  }`
+  );
+  var solidStar = addCard(
+    /* glsl */
+    `
+  precision highp float; varying vec2 vUv;
+  uniform float uA,uFillA,uHotA,uRot,uOut,uTone;
+  uniform vec3 uFill,uDot,uLine,uHot;
+  ${GLSL_STAR5}
+  void main(){
+    float c=cos(uRot), si=sin(uRot);
+    vec2 p=mat2(c,-si,si,c)*vUv;
+    float aa=fwidth(vUv.x)*1.2+0.004;
+    float d=sdStar5(p,0.70,0.46);
+    float fill=smoothstep(aa,-aa,d);
+    float ring=smoothstep(aa,-aa,d-uOut)-fill;        // thick white outline, outside the fill
+    if(fill+ring<0.004) discard;
+    // screentone: a magenta dot lattice inside the fill only
+    vec2 g=fract(vUv/uTone)-0.5;
+    float tone=smoothstep(0.36,0.24,length(g))*smoothstep(0.0,0.35,-d);
+    vec3 col=mix(uFill,uDot,tone*0.55);
+    float hot=smoothstep(aa,-aa,sdStar5(p,0.34,0.46));
+    col=mix(col,uHot,hot*uHotA);
+    col=mix(col,uLine,ring);
+    float a=(fill*uFillA+ring)*uA;
+    gl_FragColor=vec4(col*(1.0+hot*uHotA*0.85),clamp(a,0.,1.));
+  }`,
+    {
+      uFillA: { value: 1 },
+      uHotA: { value: 1 },
+      uRot: { value: -0.12 },
+      uOut: { value: 0.105 },
+      uTone: { value: 0.075 },
+      uFill: { value: hex("#ff4fc4") },
+      uDot: { value: hex("#c81f8e") },
+      uLine: { value: hex("#fff2fb") },
+      uHot: { value: hex("#fff0cf") }
+    },
+    38,
+    "alpha"
+  );
   var starCard = addCard(
     /* glsl */
     `
@@ -28348,7 +28404,7 @@ void main() {
     float g=exp(-r*r*2.6)*0.78+exp(-r*r*9.0)*0.26;
     gl_FragColor=vec4(uCol*g,g*uA);
   }`,
-    { uCol: { value: hex("#ff1a92") } },
+    { uCol: { value: hex("#e03cb0") } },
     10
   );
   var residualCard = addCard(
@@ -28367,6 +28423,65 @@ void main() {
     { uCol: { value: hex("#ffd8f2") } },
     42
   );
+  var lobeMat = new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: DoubleSide,
+    uniforms: { uFill: { value: hex("#d232a4") }, uCap: { value: hex("#ff7ed2") } },
+    vertexShader: (
+      /* glsl */
+      `
+    attribute float aSeed; attribute float aAlpha;
+    varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vSeed=aSeed; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`
+    ),
+    fragmentShader: (
+      /* glsl */
+      `
+    precision highp float; varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    uniform vec3 uFill,uCap;
+    float h1(float x){ return fract(sin(x*127.1+311.7)*43758.5); }
+    void main(){
+      vec2 p=vUv; float aa=fwidth(p.x)*1.5+0.008;
+      float d=1e3;
+      for(int i=0;i<4;i++){
+        float f=float(i)+vSeed*13.0;
+        vec2 o=vec2(h1(f)-0.5,h1(f+3.1)-0.5)*0.72;
+        d=min(d,length(p-o)-(0.30+0.16*h1(f+7.3)));
+      }
+      float body=smoothstep(aa,-aa,d);
+      if(body<0.004) discard;
+      float cap=smoothstep(aa,-aa,d+0.16-0.30*(p.y*0.5+0.5));   // lighter on the upper edge
+      vec3 c=mix(uFill,uCap,cap*0.6);
+      gl_FragColor=vec4(c,body*vAlpha);
+    }`
+    )
+  });
+  var lobeGeo = new PlaneGeometry(1, 1);
+  lobeGeo.setAttribute("aSeed", new InstancedBufferAttribute(new Float32Array(N_LOBE), 1));
+  lobeGeo.setAttribute("aAlpha", new InstancedBufferAttribute(new Float32Array(N_LOBE), 1));
+  var lobes = new InstancedMesh(lobeGeo, lobeMat, N_LOBE);
+  lobes.frustumCulled = false;
+  lobes.renderOrder = 22;
+  burst.add(lobes);
+  var LOBE = [];
+  for (let i = 0; i < N_LOBE; i++) {
+    const h = i * 29 + 13;
+    LOBE.push({
+      h,
+      ang: i / N_LOBE * Math.PI * 2 + 0.32 + (hash(h) - 0.5) * 0.8,
+      t0: 0.255 + 0.05 * hash(h + 1),
+      r0: 0.44 + 0.2 * hash(h + 2),
+      push: 0.4 + 0.3 * hash(h + 3),
+      size: 0.5 + 0.3 * hash(h + 4),
+      spin: (hash(h + 5) - 0.5) * 1.4,
+      fade: [0.42 + 0.1 * hash(h + 6), 0.64 + 0.12 * hash(h + 7)]
+    });
+    lobeGeo.attributes.aSeed.array[i] = hash(h + 41);
+  }
+  lobeGeo.attributes.aSeed.needsUpdate = true;
   function sliverGeo(len, width, curve, taper, h) {
     const N = 28, pos = [], uv = [], idx = [];
     const nL = 2 + Math.floor(hash(h) * 3), nR = 2 + Math.floor(hash(h + 7) * 3);
@@ -28410,10 +28525,10 @@ void main() {
     const i = fat ? k - N_LINE : k;
     const n = fat ? N_FAT : N_LINE;
     const ang = i / n * Math.PI * 2 + (fat ? 0.42 : 0) + (hash(h) - 0.5) * (Math.PI * 1.1 / n);
-    const len = fat ? 0.4 + 0.28 * hash(h + 1) : 0.7 + 1.15 * hash(h + 1);
-    const wid = fat ? 0.105 + 0.05 * hash(h + 2) : 0.03 + 0.042 * hash(h + 2);
+    const len = fat ? 0.4 + 0.28 * hash(h + 1) : 1.2 + 1 * hash(h + 1);
+    const wid = fat ? 0.105 + 0.05 * hash(h + 2) : 0.055 + 0.055 * hash(h + 2);
     const curve = (hash(h + 4) < 0.45 ? 1 : -1) * (0.02 + 0.16 * hash(h + 5));
-    const g = sliverGeo(len, wid, curve, fat ? 1.15 : 1.55, h);
+    const g = sliverGeo(len, wid, curve, fat ? 1.15 : 2.05, h);
     const m = new ShaderMaterial({
       transparent: true,
       depthWrite: false,
@@ -28511,6 +28626,10 @@ void main() {
       // a soft lit lift on the upper-left so the head reads as a ball, not a disc
       float lift=smoothstep(0.55,-0.35,length(p-vec2(-0.16,0.20)));
       vec3 c=mix(uFill,uHi,lift*0.55);
+      // ear inners and a muzzle: the same lighter pink, so the head reads as a bear
+      float inner=min(sdC(p-vec2(-0.44,0.47),0.115), sdC(p-vec2(0.44,0.47),0.115));
+      float muzzle=sdE(p-vec2(0.0,-0.115),vec2(0.235,0.175));
+      c=mix(c,uHi,smoothstep(aa,-aa,min(inner,muzzle))*0.85);
       c=mix(c,uLine,ring);
       c=mix(c,uEye,ink*body);
       float a=(body+ring)*vAlpha;
@@ -28533,14 +28652,15 @@ void main() {
       h,
       ang,
       t0: 0.275 + 0.045 * i + 0.05 * hash(h + 1),
-      v0: (i === 1 || i === 4 ? 1.5 : 1.8) + (i === 1 || i === 4 ? 0.8 : 2.4) * Math.pow(hash(h + 2), 0.7),
+      v0: (i === 1 || i === 4 ? 1.15 : 1.35) + (i === 1 || i === 4 ? 0.6 : 1.5) * Math.pow(hash(h + 2), 0.7),
       r0: 0.14 + 0.1 * hash(h + 3),
-      size: 0.26 + 0.24 * hash(h + 4),
+      size: 0.36 + 0.16 * hash(h + 4),
       spin0: (hash(h + 5) - 0.5) * 0.9,
       spin: (hash(h + 6) - 0.5) * 2.2,
       arc: (hash(h + 7) - 0.5) * 1.6,
       // sideways curve of the throw
-      fade: i === 1 || i === 4 ? [0.78, 1.15] : [0.44 + 0.14 * hash(h + 8), 0.66 + 0.2 * hash(h + 9)]
+      linger: i === 1 || i === 4,
+      fade: i === 1 || i === 4 ? [0.9, 1.25] : [0.56 + 0.16 * hash(h + 8), 0.82 + 0.2 * hash(h + 9)]
     });
     faceGeo.attributes.aSeed.array[i] = hash(h + 21);
   }
@@ -28612,6 +28732,58 @@ void main() {
     heartGeo.attributes.aSeed.array[i] = hash(h + 31);
   }
   heartGeo.attributes.aSeed.needsUpdate = true;
+  var boltMat = new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: DoubleSide,
+    uniforms: { uCol: { value: hex("#ffffff") }, uEdge: { value: hex("#b9d0ff") } },
+    vertexShader: (
+      /* glsl */
+      `
+    attribute float aAlpha; varying vec2 vUv; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`
+    ),
+    fragmentShader: (
+      /* glsl */
+      `
+    precision highp float; varying vec2 vUv; varying float vAlpha;
+    uniform vec3 uCol,uEdge;
+    float sdSeg(vec2 p,vec2 a,vec2 b){ vec2 pa=p-a,ba=b-a; float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.); return length(pa-ba*h); }
+    void main(){
+      vec2 p=vUv; float aa=fwidth(p.x)*1.6+0.01;
+      float d=sdSeg(p,vec2(-0.30,0.86),vec2(0.16,0.16));
+      d=min(d,sdSeg(p,vec2(0.16,0.16),vec2(-0.16,-0.02)));
+      d=min(d,sdSeg(p,vec2(-0.16,-0.02),vec2(0.30,-0.86)));
+      float w=0.13*(1.0-0.45*abs(p.y));                 // tapers toward both tips
+      float body=smoothstep(aa,-aa,d-w);
+      if(body*vAlpha<0.005) discard;
+      vec3 c=mix(uEdge,uCol,smoothstep(w,w*0.35,d));
+      gl_FragColor=vec4(c,body*vAlpha);
+    }`
+    )
+  });
+  var boltGeo = new PlaneGeometry(1, 1);
+  boltGeo.setAttribute("aAlpha", new InstancedBufferAttribute(new Float32Array(N_BOLT), 1));
+  var bolts = new InstancedMesh(boltGeo, boltMat, N_BOLT);
+  bolts.frustumCulled = false;
+  bolts.renderOrder = 52;
+  burst.add(bolts);
+  var BOLT = [];
+  for (let i = 0; i < N_BOLT; i++) {
+    const h = i * 37 + 19;
+    BOLT.push({
+      h,
+      ang: i / N_BOLT * Math.PI * 2 + 0.9 + (hash(h) - 0.5) * 0.9,
+      t0: 0.29 + 0.05 * hash(h + 1),
+      r0: 0.95 + 0.35 * hash(h + 2),
+      push: 0.55 + 0.4 * hash(h + 3),
+      size: 0.21 + 0.08 * hash(h + 4),
+      tilt: (hash(h + 5) - 0.5) * 1.2,
+      fade: [0.46 + 0.1 * hash(h + 6), 0.66 + 0.14 * hash(h + 7)]
+    });
+  }
   var sprayMat = new ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -28720,10 +28892,21 @@ void main() {
     starCard.material.uniforms.uA.value = L.flash ? fA * 0.92 : 0;
     starCard.material.uniforms.uPoint.value = 0.72 + 0.28 * up;
     starCard.visible = L.flash && fA > 4e-3;
-    const hA = ss(T_ANT, T_ANT + 0.06, t) * (1 - ss(0.48, 1.1, t));
-    const hs = 1.9 + 1.8 * ss(T_ANT, 0.55, t);
+    const stA = ss(T_ANT, T_ANT + 0.07, t);
+    const stFade = 1 - ss(0.44, 0.7, t);
+    const stW = 1.6 * (0.42 + 0.58 * easeOutExpo(clamp01((t - T_ANT) / 0.1))) * (1 + 0.16 * ss(0.3, 0.62, t));
+    solidStar.scale.set(stW, stW, 1);
+    solidStar.material.uniforms.uA.value = L.flash ? stA * stFade : 0;
+    solidStar.material.uniforms.uFillA.value = 0.88 * (1 - 0.55 * ss(0.4, 0.68, t));
+    solidStar.material.uniforms.uHotA.value = 1 - ss(0.3, 0.44, t);
+    solidStar.material.uniforms.uTone.value = 0.06 / (stW * 0.5);
+    solidStar.material.uniforms.uRot.value = -0.12 + 0.1 * ss(T_ANT, 0.7, t);
+    solidStar.material.uniforms.uOut.value = 0.105 * (1 - 0.55 * ss(0.38, 0.7, t));
+    solidStar.visible = L.flash && stA * stFade > 6e-3;
+    const hA = ss(0.26, 0.34, t) * (1 - ss(0.62, 1, t));
+    const hs = 2.2 * (0.72 + 0.28 * ss(0.26, 0.6, t));
     haloCard.scale.set(hs, hs, 1);
-    haloCard.material.uniforms.uA.value = L.flash ? hA * 0.74 : 0;
+    haloCard.material.uniforms.uA.value = L.flash ? hA * 0.92 : 0;
     haloCard.visible = L.flash && hA > 4e-3;
     const rA = ss(0.22, 0.34, t) * (1 - ss(0.8, 1.8, t));
     const rs = 2.6 + 2.2 * ss(0.25, 1.4, t);
@@ -28785,8 +28968,9 @@ void main() {
         const cx = Math.cos(f.ang), cy = Math.sin(f.ang);
         const x = cx * r - cy * lat;
         const y = cy * r + cx * lat - 0.55 * Math.max(0, age) * Math.max(0, age);
-        const sz = f.size * sIn;
-        setInst(faces, i, x, y, f.spin0 + f.spin * Math.max(0, age) * 0.35, sz, sz);
+        const wob = f.linger ? 0.16 * Math.sin(Math.max(0, age) * 7.4 + f.h) : 0;
+        const sz = f.size * sIn * (1 + (f.linger ? 0.05 * Math.sin(age * 9.1) : 0));
+        setInst(faces, i, x, y + wob * 0.1, f.spin0 + f.spin * Math.max(0, age) * 0.35 + wob, sz, sz);
         aArr[i] = L.faces ? a : 0;
       }
       faces.instanceMatrix.needsUpdate = true;
@@ -28817,6 +29001,49 @@ void main() {
       hearts.instanceMatrix.needsUpdate = true;
       heartGeo.attributes.aAlpha.needsUpdate = true;
       hearts.visible = L.commas && any;
+    }
+    {
+      const aArr = lobeGeo.attributes.aAlpha.array;
+      let any = false;
+      for (let i = 0; i < N_LOBE; i++) {
+        const b = LOBE[i];
+        const age = t - b.t0;
+        const fade = 1 - ss(b.fade[0], b.fade[1], t);
+        const a = age > 0 ? fade : 0;
+        if (a > 0.01) any = true;
+        const r = b.r0 + b.push * easeOutCubic(clamp01(age / 0.34));
+        const sz = b.size * easeOutBack(clamp01(age / 0.16)) * (1 - 0.25 * ss(b.fade[0], b.fade[1], t));
+        setInst(lobes, i, Math.cos(b.ang) * r, Math.sin(b.ang) * r, b.spin * Math.max(0, age), sz, sz * 0.86);
+        aArr[i] = L.flash ? a * 0.52 : 0;
+      }
+      lobes.instanceMatrix.needsUpdate = true;
+      lobeGeo.attributes.aAlpha.needsUpdate = true;
+      lobes.visible = L.flash && any;
+    }
+    {
+      const aArr = boltGeo.attributes.aAlpha.array;
+      let any = false;
+      for (let i = 0; i < N_BOLT; i++) {
+        const b = BOLT[i];
+        const age = t - b.t0;
+        const fade = 1 - ss(b.fade[0], b.fade[1], t);
+        const a = age > 0 ? fade * ss(0, 0.05, age) : 0;
+        if (a > 0.01) any = true;
+        const r = b.r0 + b.push * easeOutCubic(clamp01(age / 0.3));
+        setInst(
+          bolts,
+          i,
+          Math.cos(b.ang) * r,
+          Math.sin(b.ang) * r,
+          b.ang - Math.PI / 2 + b.tilt,
+          b.size,
+          b.size * 1.7
+        );
+        aArr[i] = L.spray ? a : 0;
+      }
+      bolts.instanceMatrix.needsUpdate = true;
+      boltGeo.attributes.aAlpha.needsUpdate = true;
+      bolts.visible = L.spray && any;
     }
     {
       const aArr = sprayGeo.attributes.aAlpha.array;
@@ -28866,7 +29093,7 @@ void main() {
     P.time = t;
     apply(t);
   };
-  window.spikePieces = { lines, faces: FACE, hearts: HEART, spray: SPRAY, center: CENTER };
+  window.spikePieces = { lines, faces: FACE, hearts: HEART, lobes: LOBE, bolts: BOLT, spray: SPRAY, center: CENTER };
   window.__spikeReady = true;
 })();
 /*! Bundled license information:

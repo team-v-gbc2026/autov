@@ -11,7 +11,9 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 const DUR = 3.0;
 const T_ANT = 0.20;         // anticipation ends / flash starts
-const N_LINE = 12;          // thin white star lines
+const N_LINE = 8;           // thin white star lines
+const N_LOBE = 5;           // flat pink cloud lobes around the star
+const N_BOLT = 3;           // little white lightning glyphs at the rim
 const N_FAT = 4;            // thick pink sparkle chunks
 const N_FACE = 6;
 const N_HEART = 8;
@@ -19,7 +21,7 @@ const N_SPRAY = 30;
 
 const P = (window.spikeParams = {
   play: true, time: 0, speed: 1,
-  bloom: 0.35, threshold: 1.0, exposure: 1.0,
+  bloom: 0.25, threshold: 1.0, exposure: 1.0,
   layers: { flash: true, lines: true, faces: true, commas: true, spray: true, post: true },
 });
 
@@ -118,7 +120,52 @@ function addCard(frag, uniforms, order, blend) {
 }
 
 // ---------------------------------------------------------------- flash
-// a 6-point star core (the reference's hard shape) + a soft radial bloom under it.
+// The reference's centre is a DRAWN shape, not a blob: a big solid 5-point star,
+// saturated pink, thick white outline, screentone inside, a white-hot star within it.
+// It is alpha-blended (additive would bleach the pink straight back to white), and the
+// outline outlives the hot core — the shape is still legible long after the flash.
+const GLSL_STAR5 = /* glsl */`
+  float sdStar5(vec2 p, float r, float rf){
+    const vec2 k1=vec2(0.809016994375,-0.587785252292);
+    const vec2 k2=vec2(-k1.x,k1.y);
+    p.x=abs(p.x);
+    p-=2.0*max(dot(k1,p),0.0)*k1;
+    p-=2.0*max(dot(k2,p),0.0)*k2;
+    p.x=abs(p.x); p.y-=r;
+    vec2 ba=rf*vec2(-k1.y,k1.x)-vec2(0,1);
+    float h=clamp(dot(p,ba)/dot(ba,ba),0.0,r);
+    return length(p-ba*h)*sign(p.y*ba.x-p.x*ba.y);
+  }`;
+
+const solidStar = addCard(/* glsl */`
+  precision highp float; varying vec2 vUv;
+  uniform float uA,uFillA,uHotA,uRot,uOut,uTone;
+  uniform vec3 uFill,uDot,uLine,uHot;
+  ${GLSL_STAR5}
+  void main(){
+    float c=cos(uRot), si=sin(uRot);
+    vec2 p=mat2(c,-si,si,c)*vUv;
+    float aa=fwidth(vUv.x)*1.2+0.004;
+    float d=sdStar5(p,0.70,0.46);
+    float fill=smoothstep(aa,-aa,d);
+    float ring=smoothstep(aa,-aa,d-uOut)-fill;        // thick white outline, outside the fill
+    if(fill+ring<0.004) discard;
+    // screentone: a magenta dot lattice inside the fill only
+    vec2 g=fract(vUv/uTone)-0.5;
+    float tone=smoothstep(0.36,0.24,length(g))*smoothstep(0.0,0.35,-d);
+    vec3 col=mix(uFill,uDot,tone*0.55);
+    float hot=smoothstep(aa,-aa,sdStar5(p,0.34,0.46));
+    col=mix(col,uHot,hot*uHotA);
+    col=mix(col,uLine,ring);
+    float a=(fill*uFillA+ring)*uA;
+    gl_FragColor=vec4(col*(1.0+hot*uHotA*0.85),clamp(a,0.,1.));
+  }`, {
+    uFillA: { value: 1 }, uHotA: { value: 1 }, uRot: { value: -0.12 }, uOut: { value: 0.105 }, uTone: { value: 0.075 },
+    uFill: { value: hex("#ff4fc4") }, uDot: { value: hex("#c81f8e") },
+    uLine: { value: hex("#fff2fb") }, uHot: { value: hex("#fff0cf") },
+  }, 38, "alpha");
+
+// the burst's own quick white sparkle, on top of the solid star
 const starCard = addCard(/* glsl */`
   precision highp float; varying vec2 vUv; uniform float uA,uRot,uPoint;
   uniform vec3 uCore,uEdge;
@@ -139,7 +186,7 @@ const haloCard = addCard(/* glsl */`
     float r=length(vUv);
     float g=exp(-r*r*2.6)*0.78+exp(-r*r*9.0)*0.26;
     gl_FragColor=vec4(uCol*g,g*uA);
-  }`, { uCol: { value: hex("#ff1a92") } }, 10);
+  }`, { uCol: { value: hex("#e03cb0") } }, 10);
 
 // the residual: a wider, cooler magenta glow that outlives every symbol
 const residualCard = addCard(/* glsl */`
@@ -152,6 +199,60 @@ const dotCard = addCard(/* glsl */`
   precision highp float; varying vec2 vUv; uniform float uA; uniform vec3 uCol;
   void main(){ float r=length(vUv); float g=exp(-r*r*16.0); gl_FragColor=vec4(uCol*g*1.6,g*uA); }`,
   { uCol: { value: hex("#ffd8f2") } }, 42);
+
+// ---------------------------------------------------------------- cloud lobes
+// flat cel-style pink puffs around the star: a union of hashed discs with a lighter cap,
+// the same "one shape, no gradient" read as the smoke spike's blobs.
+const lobeMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+  uniforms: { uFill: { value: hex("#d232a4") }, uCap: { value: hex("#ff7ed2") } },
+  vertexShader: /* glsl */`
+    attribute float aSeed; attribute float aAlpha;
+    varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vSeed=aSeed; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float; varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    uniform vec3 uFill,uCap;
+    float h1(float x){ return fract(sin(x*127.1+311.7)*43758.5); }
+    void main(){
+      vec2 p=vUv; float aa=fwidth(p.x)*1.5+0.008;
+      float d=1e3;
+      for(int i=0;i<4;i++){
+        float f=float(i)+vSeed*13.0;
+        vec2 o=vec2(h1(f)-0.5,h1(f+3.1)-0.5)*0.72;
+        d=min(d,length(p-o)-(0.30+0.16*h1(f+7.3)));
+      }
+      float body=smoothstep(aa,-aa,d);
+      if(body<0.004) discard;
+      float cap=smoothstep(aa,-aa,d+0.16-0.30*(p.y*0.5+0.5));   // lighter on the upper edge
+      vec3 c=mix(uFill,uCap,cap*0.6);
+      gl_FragColor=vec4(c,body*vAlpha);
+    }`,
+});
+const lobeGeo = new THREE.PlaneGeometry(1, 1);
+lobeGeo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(new Float32Array(N_LOBE), 1));
+lobeGeo.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(new Float32Array(N_LOBE), 1));
+const lobes = new THREE.InstancedMesh(lobeGeo, lobeMat, N_LOBE);
+lobes.frustumCulled = false;
+lobes.renderOrder = 22;
+burst.add(lobes);
+
+const LOBE = [];
+for (let i = 0; i < N_LOBE; i++) {
+  const h = i * 29 + 13;
+  LOBE.push({
+    h, ang: (i / N_LOBE) * Math.PI * 2 + 0.32 + (hash(h) - 0.5) * 0.8,
+    t0: 0.255 + 0.05 * hash(h + 1),
+    r0: 0.44 + 0.20 * hash(h + 2),
+    push: 0.40 + 0.30 * hash(h + 3),
+    size: 0.50 + 0.30 * hash(h + 4),
+    spin: (hash(h + 5) - 0.5) * 1.4,
+    fade: [0.42 + 0.10 * hash(h + 6), 0.64 + 0.12 * hash(h + 7)],
+  });
+  lobeGeo.attributes.aSeed.array[i] = hash(h + 41);
+}
+lobeGeo.attributes.aSeed.needsUpdate = true;
 
 // ---------------------------------------------------------------- star lines
 // flat unlit tapered slivers, same construction as the smoke spike's splash shards:
@@ -196,10 +297,10 @@ for (let k = 0; k < N_LINE + N_FAT; k++) {
   const n = fat ? N_FAT : N_LINE;
   // evenly spread with a hashed wobble so the fan never reads as a clock face
   const ang = (i / n) * Math.PI * 2 + (fat ? 0.42 : 0) + (hash(h) - 0.5) * (Math.PI * 1.1 / n);
-  const len = fat ? 0.40 + 0.28 * hash(h + 1) : 0.70 + 1.15 * hash(h + 1);
-  const wid = fat ? 0.105 + 0.05 * hash(h + 2) : 0.030 + 0.042 * hash(h + 2);
+  const len = fat ? 0.40 + 0.28 * hash(h + 1) : 1.20 + 1.00 * hash(h + 1);
+  const wid = fat ? 0.105 + 0.05 * hash(h + 2) : 0.055 + 0.055 * hash(h + 2);
   const curve = (hash(h + 4) < 0.45 ? 1 : -1) * (0.02 + 0.16 * hash(h + 5));  // some curved, most straight
-  const g = sliverGeo(len, wid, curve, fat ? 1.15 : 1.55, h);
+  const g = sliverGeo(len, wid, curve, fat ? 1.15 : 2.05, h);   // high taper = fat root, needle tip
   const m = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
@@ -276,6 +377,10 @@ const faceMat = new THREE.ShaderMaterial({
       // a soft lit lift on the upper-left so the head reads as a ball, not a disc
       float lift=smoothstep(0.55,-0.35,length(p-vec2(-0.16,0.20)));
       vec3 c=mix(uFill,uHi,lift*0.55);
+      // ear inners and a muzzle: the same lighter pink, so the head reads as a bear
+      float inner=min(sdC(p-vec2(-0.44,0.47),0.115), sdC(p-vec2(0.44,0.47),0.115));
+      float muzzle=sdE(p-vec2(0.0,-0.115),vec2(0.235,0.175));
+      c=mix(c,uHi,smoothstep(aa,-aa,min(inner,muzzle))*0.85);
       c=mix(c,uLine,ring);
       c=mix(c,uEye,ink*body);
       float a=(body+ring)*vAlpha;
@@ -298,13 +403,14 @@ for (let i = 0; i < N_FACE; i++) {
   FACE.push({
     h, ang,
     t0: 0.275 + 0.045 * i + 0.05 * hash(h + 1),
-    v0: (i === 1 || i === 4 ? 1.5 : 1.8) + (i === 1 || i === 4 ? 0.8 : 2.4) * Math.pow(hash(h + 2), 0.7),
+    v0: (i === 1 || i === 4 ? 1.15 : 1.35) + (i === 1 || i === 4 ? 0.6 : 1.5) * Math.pow(hash(h + 2), 0.7),
     r0: 0.14 + 0.10 * hash(h + 3),
-    size: 0.26 + 0.24 * hash(h + 4),
+    size: 0.36 + 0.16 * hash(h + 4),
     spin0: (hash(h + 5) - 0.5) * 0.9,
     spin: (hash(h + 6) - 0.5) * 2.2,
     arc: (hash(h + 7) - 0.5) * 1.6,                     // sideways curve of the throw
-    fade: (i === 1 || i === 4) ? [0.78, 1.15] : [0.44 + 0.14 * hash(h + 8), 0.66 + 0.20 * hash(h + 9)],
+    linger: i === 1 || i === 4,
+    fade: (i === 1 || i === 4) ? [0.90, 1.25] : [0.56 + 0.16 * hash(h + 8), 0.82 + 0.20 * hash(h + 9)],
   });
   faceGeo.attributes.aSeed.array[i] = hash(h + 21);
 }
@@ -370,6 +476,52 @@ for (let i = 0; i < N_HEART; i++) {
   heartGeo.attributes.aSeed.array[i] = hash(h + 31);
 }
 heartGeo.attributes.aSeed.needsUpdate = true;
+
+// ---------------------------------------------------------------- lightning glyphs
+// a three-segment polyline SDF: the reference flicks tiny white "Z" bolts past the rim.
+const boltMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+  uniforms: { uCol: { value: hex("#ffffff") }, uEdge: { value: hex("#b9d0ff") } },
+  vertexShader: /* glsl */`
+    attribute float aAlpha; varying vec2 vUv; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float; varying vec2 vUv; varying float vAlpha;
+    uniform vec3 uCol,uEdge;
+    float sdSeg(vec2 p,vec2 a,vec2 b){ vec2 pa=p-a,ba=b-a; float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.); return length(pa-ba*h); }
+    void main(){
+      vec2 p=vUv; float aa=fwidth(p.x)*1.6+0.01;
+      float d=sdSeg(p,vec2(-0.30,0.86),vec2(0.16,0.16));
+      d=min(d,sdSeg(p,vec2(0.16,0.16),vec2(-0.16,-0.02)));
+      d=min(d,sdSeg(p,vec2(-0.16,-0.02),vec2(0.30,-0.86)));
+      float w=0.13*(1.0-0.45*abs(p.y));                 // tapers toward both tips
+      float body=smoothstep(aa,-aa,d-w);
+      if(body*vAlpha<0.005) discard;
+      vec3 c=mix(uEdge,uCol,smoothstep(w,w*0.35,d));
+      gl_FragColor=vec4(c,body*vAlpha);
+    }`,
+});
+const boltGeo = new THREE.PlaneGeometry(1, 1);
+boltGeo.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(new Float32Array(N_BOLT), 1));
+const bolts = new THREE.InstancedMesh(boltGeo, boltMat, N_BOLT);
+bolts.frustumCulled = false;
+bolts.renderOrder = 52;
+burst.add(bolts);
+
+const BOLT = [];
+for (let i = 0; i < N_BOLT; i++) {
+  const h = i * 37 + 19;
+  BOLT.push({
+    h, ang: (i / N_BOLT) * Math.PI * 2 + 0.9 + (hash(h) - 0.5) * 0.9,
+    t0: 0.29 + 0.05 * hash(h + 1),
+    r0: 0.95 + 0.35 * hash(h + 2),
+    push: 0.55 + 0.40 * hash(h + 3),
+    size: 0.21 + 0.08 * hash(h + 4),
+    tilt: (hash(h + 5) - 0.5) * 1.2,
+    fade: [0.46 + 0.10 * hash(h + 6), 0.66 + 0.14 * hash(h + 7)],
+  });
+}
 
 // ---------------------------------------------------------------- spray
 // 30 tiny white dots, short lives — the thin spray the reference flicks past the rays.
@@ -470,10 +622,24 @@ function apply(t) {
   starCard.material.uniforms.uPoint.value = 0.72 + 0.28 * up;
   starCard.visible = L.flash && fA > 0.004;
 
-  const hA = ss(T_ANT, T_ANT + 0.06, t) * (1 - ss(0.48, 1.10, t));
-  const hs = 1.9 + 1.8 * ss(T_ANT, 0.55, t);
+  // the solid star: ~1.6 units across at peak, the hot inner star cuts with the flash,
+  // the outlined shell keeps reading until 0.7 — that is where the mass comes from.
+  const stA = ss(T_ANT, T_ANT + 0.07, t);
+  const stFade = 1 - ss(0.44, 0.70, t);
+  const stW = 1.60 * (0.42 + 0.58 * easeOutExpo(clamp01((t - T_ANT) / 0.10))) * (1 + 0.16 * ss(0.30, 0.62, t));
+  solidStar.scale.set(stW, stW, 1);
+  solidStar.material.uniforms.uA.value = L.flash ? stA * stFade : 0;
+  solidStar.material.uniforms.uFillA.value = 0.88 * (1 - 0.55 * ss(0.40, 0.68, t));
+  solidStar.material.uniforms.uHotA.value = 1 - ss(0.30, 0.44, t);
+  solidStar.material.uniforms.uTone.value = 0.06 / (stW * 0.5);   // screentone pitch is WORLD-fixed
+  solidStar.material.uniforms.uRot.value = -0.12 + 0.10 * ss(T_ANT, 0.7, t);
+  solidStar.material.uniforms.uOut.value = 0.105 * (1 - 0.55 * ss(0.38, 0.70, t));
+  solidStar.visible = L.flash && stA * stFade > 0.006;
+
+  const hA = ss(0.26, 0.34, t) * (1 - ss(0.62, 1.00, t));
+  const hs = 2.20 * (0.72 + 0.28 * ss(0.26, 0.60, t));
   haloCard.scale.set(hs, hs, 1);
-  haloCard.material.uniforms.uA.value = L.flash ? hA * 0.74 : 0;
+  haloCard.material.uniforms.uA.value = L.flash ? hA * 0.92 : 0;
   haloCard.visible = L.flash && hA > 0.004;
 
   const rA = ss(0.22, 0.34, t) * (1 - ss(0.80, 1.80, t));
@@ -545,8 +711,9 @@ function apply(t) {
       const cx = Math.cos(f.ang), cy = Math.sin(f.ang);
       const x = cx * r - cy * lat;
       const y = cy * r + cx * lat - 0.55 * Math.max(0, age) * Math.max(0, age);
-      const sz = f.size * sIn;
-      setInst(faces, i, x, y, f.spin0 + f.spin * Math.max(0, age) * 0.35, sz, sz);
+      const wob = f.linger ? 0.16 * Math.sin(Math.max(0, age) * 7.4 + f.h) : 0;
+      const sz = f.size * sIn * (1 + (f.linger ? 0.05 * Math.sin(age * 9.1) : 0));
+      setInst(faces, i, x, y + wob * 0.10, f.spin0 + f.spin * Math.max(0, age) * 0.35 + wob, sz, sz);
       aArr[i] = L.faces ? a : 0;
     }
     faces.instanceMatrix.needsUpdate = true;
@@ -579,6 +746,46 @@ function apply(t) {
     hearts.instanceMatrix.needsUpdate = true;
     heartGeo.attributes.aAlpha.needsUpdate = true;
     hearts.visible = L.commas && any;
+  }
+
+  // ---- cloud lobes: puff outward behind the star, gone by 0.8
+  {
+    const aArr = lobeGeo.attributes.aAlpha.array;
+    let any = false;
+    for (let i = 0; i < N_LOBE; i++) {
+      const b = LOBE[i];
+      const age = t - b.t0;
+      const fade = 1 - ss(b.fade[0], b.fade[1], t);
+      const a = age > 0 ? fade : 0;
+      if (a > 0.01) any = true;
+      const r = b.r0 + b.push * easeOutCubic(clamp01(age / 0.34));
+      const sz = b.size * easeOutBack(clamp01(age / 0.16)) * (1 - 0.25 * ss(b.fade[0], b.fade[1], t));
+      setInst(lobes, i, Math.cos(b.ang) * r, Math.sin(b.ang) * r, b.spin * Math.max(0, age), sz, sz * 0.86);
+      aArr[i] = L.flash ? a * 0.52 : 0;
+    }
+    lobes.instanceMatrix.needsUpdate = true;
+    lobeGeo.attributes.aAlpha.needsUpdate = true;
+    lobes.visible = L.flash && any;
+  }
+
+  // ---- lightning glyphs at the rim
+  {
+    const aArr = boltGeo.attributes.aAlpha.array;
+    let any = false;
+    for (let i = 0; i < N_BOLT; i++) {
+      const b = BOLT[i];
+      const age = t - b.t0;
+      const fade = 1 - ss(b.fade[0], b.fade[1], t);
+      const a = age > 0 ? fade * ss(0, 0.05, age) : 0;
+      if (a > 0.01) any = true;
+      const r = b.r0 + b.push * easeOutCubic(clamp01(age / 0.30));
+      setInst(bolts, i, Math.cos(b.ang) * r, Math.sin(b.ang) * r,
+        b.ang - Math.PI / 2 + b.tilt, b.size, b.size * 1.7);
+      aArr[i] = L.spray ? a : 0;
+    }
+    bolts.instanceMatrix.needsUpdate = true;
+    boltGeo.attributes.aAlpha.needsUpdate = true;
+    bolts.visible = L.spray && any;
   }
 
   // ---- spray
@@ -619,5 +826,5 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
-window.spikePieces = { lines, faces: FACE, hearts: HEART, spray: SPRAY, center: CENTER };
+window.spikePieces = { lines, faces: FACE, hearts: HEART, lobes: LOBE, bolts: BOLT, spray: SPRAY, center: CENTER };
 window.__spikeReady = true;
