@@ -101,9 +101,9 @@ scene.fog = new THREE.Fog(0x05060a, 16, 46);
 // fixed elevated oblique camera; no roll and no x offset, so world +X is exactly
 // the camera right vector — every billboarded layer can offset in view space and
 // still read as "along the beam".
-const camera = new THREE.PerspectiveCamera(38, 1280 / 720, 0.1, 120);
-camera.position.set(0, 4.6, 9.0);
-camera.lookAt(0, 1.05, 0);
+const camera = new THREE.PerspectiveCamera(30, 1280 / 720, 0.1, 120);
+camera.position.set(0, 2.54, 7.25); // ≈12° elevation, like the reference
+camera.lookAt(0, 1.0, 0);
 
 const GLSL = `
 float h11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
@@ -116,7 +116,7 @@ const LILAC = new THREE.Color("#b8a8c8");
 // ---------------------------------------------------------------- ground
 // faint checker floor; the magenta pool under the beam is analytic (no real light)
 const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(90, 90),
+  new THREE.PlaneGeometry(400, 400),
   new THREE.ShaderMaterial({
     uniforms: {
       uPool: { value: 0 },
@@ -143,6 +143,8 @@ const ground = new THREE.Mesh(
         col += vec3(0.85,0.16,0.80)*pool*0.75;
         float res = exp(-d*d*2.2) * uRes;
         col += vec3(0.45,0.72,0.20)*res*0.05;
+        float dcam = length(vP - cameraPosition);
+        col = mix(col, vec3(0.0015,0.0018,0.0030), ssm(26.0, 105.0, dcam));
         gl_FragColor = vec4(col, 1.0);
       }`,
     fog: true,
@@ -455,7 +457,7 @@ const flareMat = billboard(
      vec3 col = mix(vec3(1.9,0.06,1.7), vec3(3.0,2.7,3.0), clamp(core,0.0,1.0)*(1.0-y*0.5));
      gl_FragColor = vec4(col*a*uI, 1.0);
    }`,
-  { uSize: { value: new THREE.Vector2(0.96, 3.2) } }
+  { uSize: { value: new THREE.Vector2(0.82, 3.2) } }
 );
 const flare = new THREE.Mesh(quad, flareMat);
 flare.position.set(EX, EY, 0);

@@ -28432,9 +28432,9 @@ void main() {
   renderer.setClearColor(329226, 1);
   var scene = new Scene();
   scene.fog = new Fog(329226, 16, 46);
-  var camera = new PerspectiveCamera(38, 1280 / 720, 0.1, 120);
-  camera.position.set(0, 4.6, 9);
-  camera.lookAt(0, 1.05, 0);
+  var camera = new PerspectiveCamera(30, 1280 / 720, 0.1, 120);
+  camera.position.set(0, 2.54, 7.25);
+  camera.lookAt(0, 1, 0);
   var GLSL = `
 float h11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
 float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
@@ -28442,7 +28442,7 @@ float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); retu
   var MAGENTA = new Color("#ff2ee0");
   var LILAC = new Color("#b8a8c8");
   var ground = new Mesh(
-    new PlaneGeometry(90, 90),
+    new PlaneGeometry(400, 400),
     new ShaderMaterial({
       uniforms: {
         uPool: { value: 0 },
@@ -28469,6 +28469,8 @@ float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); retu
         col += vec3(0.85,0.16,0.80)*pool*0.75;
         float res = exp(-d*d*2.2) * uRes;
         col += vec3(0.45,0.72,0.20)*res*0.05;
+        float dcam = length(vP - cameraPosition);
+        col = mix(col, vec3(0.0015,0.0018,0.0030), ssm(26.0, 105.0, dcam));
         gl_FragColor = vec4(col, 1.0);
       }`,
       fog: true
@@ -28758,7 +28760,7 @@ float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); retu
      vec3 col = mix(vec3(1.9,0.06,1.7), vec3(3.0,2.7,3.0), clamp(core,0.0,1.0)*(1.0-y*0.5));
      gl_FragColor = vec4(col*a*uI, 1.0);
    }`,
-    { uSize: { value: new Vector2(0.96, 3.2) } }
+    { uSize: { value: new Vector2(0.82, 3.2) } }
   );
   var flare = new Mesh(quad, flareMat);
   flare.position.set(EX, EY, 0);
