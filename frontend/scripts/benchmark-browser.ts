@@ -86,7 +86,7 @@ export async function run(
       },
       progress: (message) => console.log(`BENCHMARK: ${message}`),
       candidate: async (candidate) => {
-        const response = await fetch("/api/local-trials", {
+        const response = await fetch("/dev/vfx-lab/trials/data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

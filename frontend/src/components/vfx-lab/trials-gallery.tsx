@@ -6,7 +6,7 @@ import type { TrialSummary } from "@/lib/vfx-lab/trials";
 import { score } from "@/lib/vfx-lab/protocol";
 import "./trials-gallery.css";
 const asset = (id: string, file: string) =>
-  `/api/local-trials?id=${encodeURIComponent(id)}&file=${file}`;
+  `/dev/vfx-lab/trials/data?id=${encodeURIComponent(id)}&file=${file}`;
 export default function TrialsGallery() {
   const [trials, setTrials] = useState<TrialSummary[]>([]),
     [error, setError] = useState(""),
@@ -19,7 +19,7 @@ export default function TrialsGallery() {
   useEffect(() => {
     let active = true;
     const refresh = () =>
-      fetch("/api/local-trials")
+      fetch("/dev/vfx-lab/trials/data")
         .then(async (r) => {
           if (!r.ok)
             throw Error("This gallery is available on the local machine only.");

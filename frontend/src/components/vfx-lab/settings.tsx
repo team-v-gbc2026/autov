@@ -6,7 +6,7 @@ export default function LocalSettings() {
     [busy, setBusy] = useState(false);
   return (
     <main className="account-shell">
-      <a href="/local" className="wordmark">
+      <a href="/dev/vfx-lab" className="wordmark">
         autov.
       </a>
       <div className="account-card" style={{ margin: "10vh auto" }}>
@@ -52,7 +52,7 @@ export default function LocalSettings() {
           </button>
         </form>
         <p role="status">{message}</p>
-        <a href="/local">Return to studio ↗</a>
+        <a href="/dev/vfx-lab">Return to studio ↗</a>
       </div>
     </main>
   );

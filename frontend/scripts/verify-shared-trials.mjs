@@ -34,7 +34,7 @@ try {
     if (r.method() === "POST" && r.url().includes("/api/local-vfx"))
       paidRequests.push(r.url());
   });
-  await page.route("**/api/local-trials**", (r) => r.abort());
+  await page.route("**/dev/vfx-lab/trials/data**", (r) => r.abort());
   await page.goto(base + "/workspace");
   await page.getByLabel("Generated VFX preview").waitFor();
   const picker = page.getByLabel("Load preset", { exact: true });

@@ -195,7 +195,7 @@ export default function VfxStudio() {
       void fetch(
         sharedTrial && /^[-a-zA-Z0-9]{1,100}$/.test(sharedTrial)
           ? `/trial-presets/effects/${encodeURIComponent(sharedTrial)}/document.json`
-          : `/api/local-trials?id=${encodeURIComponent(trialId!)}&file=document`,
+          : `/dev/vfx-lab/trials/data?id=${encodeURIComponent(trialId!)}&file=document`,
       )
         .then(async (r) => {
           if (!r.ok) throw new Error("Saved trial unavailable.");
@@ -332,7 +332,7 @@ export default function VfxStudio() {
         let allTrialsSaved = true;
         const saveCandidate = async (item: Candidate, selected = false) => {
           try {
-            const saved = await fetch("/api/local-trials", {
+            const saved = await fetch("/dev/vfx-lab/trials/data", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -476,7 +476,7 @@ export default function VfxStudio() {
           <a className="lab-action" href="/trial-presets/index.html">
             Shared trials ↗
           </a>
-          <Link className="lab-action" href="/local/trials">
+          <Link className="lab-action" href="/dev/vfx-lab/trials">
             Trials ↗
           </Link>
           <select
@@ -766,7 +766,7 @@ export default function VfxStudio() {
               )}
               {!status?.configured && (
                 <p className="lab-hint">
-                  <Link href="/local/settings">Connect your OpenAI key ↗</Link>
+                  <Link href="/dev/vfx-lab/settings">Connect your OpenAI key ↗</Link>
                 </p>
               )}
               {report && (
@@ -903,7 +903,16 @@ export default function VfxStudio() {
       <PlaybackPanel
         playback={playback}
         duration={doc.duration}
-        name={doc.name}
+        minDuration={Math.max(0.01, ...doc.layers.map((l) => l.end))}
+        onDurationChange={(duration) => {
+          playback.setPlaying(false);
+          playback.setTime(Math.min(playback.time, duration));
+          try {
+            commit({ ...doc, duration });
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Invalid duration");
+          }
+        }}
         tracks={
           <EmitterTimeline
             layers={doc.layers}
@@ -954,7 +963,11 @@ export default function VfxStudio() {
             }}
           />
         }
-        effectControls={
+      />
+      {/* PlaybackPanel used to host these panels itself; it now renders only
+          the transport and the timeline, so the legacy studio keeps its own
+          emitter and environment controls below it. */}
+      <div className="lab-scroll lab-legacy-controls">
           <div className="lab-controls lab-emitter-controls">
             <h3 className="lab-section-label lab-wide">
               {layer.name} · {layer.kind} · {layer.start.toFixed(2)}–
@@ -1147,9 +1160,7 @@ export default function VfxStudio() {
               chat edit to preserve it outside a time window.
             </p>
           </div>
-        }
-        environmentLabel="Environment settings"
-      >
+        <h3 className="lab-section-label lab-wide">Environment settings</h3>
         <div className="lab-shelf">
           <div>
             <label className="lab-field">
@@ -1251,7 +1262,7 @@ export default function VfxStudio() {
             Capture evidence
           </button>
         </div>
-      </PlaybackPanel>
+      </div>
       <footer className="viewport-footer">
         <span className="lab-status">
           <i />

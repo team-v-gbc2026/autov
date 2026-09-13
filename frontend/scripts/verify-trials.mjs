@@ -15,7 +15,7 @@ try {
     }),
     errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(new URL("/local/trials", base).href);
+  await page.goto(new URL("/dev/vfx-lab/trials", base).href);
   await page.getByRole("button", { name: "Review trial ↗" }).first().waitFor();
   const cards = await page.locator(".trial-grid article").count();
   assert.ok(cards > 0);
@@ -58,12 +58,12 @@ try {
     true,
   );
   const noOrigin = await page.request.post(
-    new URL("/api/local-trials", base).href,
+    new URL("/dev/vfx-lab/trials/data", base).href,
     { data: {} },
   );
   assert.equal(noOrigin.status(), 403);
   const traversal = await page.request.get(
-    new URL("/api/local-trials?id=..%2F..%2F.env.local&file=document", base)
+    new URL("/dev/vfx-lab/trials/data?id=..%2F..%2F.env.local&file=document", base)
       .href,
   );
   assert.equal(traversal.status(), 404);
