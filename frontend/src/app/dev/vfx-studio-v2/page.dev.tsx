@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Studio from "@/components/studio";
+import FixturePicker from "./fixture-picker";
 import { createDocument } from "@/lib/vfx-lab/ui-bridge";
 import {
   knownFixtureIds,
@@ -36,16 +37,19 @@ export default async function VfxStudioV2Page({
 }) {
   const requested = (await searchParams).fixture;
   const id = requested ?? DEFAULT_FIXTURE;
+  const ids = fixtureIds();
   // Reproduce the product's empty-workspace transition without an account or
   // project writes, and distinguish it from mounting a ready-made document.
   const empty = id === "empty";
   const newEmitter = id === "new-emitter";
-  if (!empty && !newEmitter && !fixtureIds().includes(id)) notFound();
+  if (!empty && !newEmitter && !ids.includes(id)) notFound();
   const document = empty ? undefined : newEmitter
     ? createDocument("New workspace emitter")
     : await loadFixture(id);
   return (
     <Studio
+      key={id}
+      headerActions={<FixturePicker selectedId={id} fixtureIds={ids} />}
       project={{
         id: "00000000-0000-0000-0000-000000000000",
         name: document?.name ?? "Empty workspace",

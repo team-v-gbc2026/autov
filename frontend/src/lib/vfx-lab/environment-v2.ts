@@ -32,6 +32,10 @@ export interface EnvironmentV2 {
 }
 
 export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
+  // WebGPU caches fog nodes by object identity. Replacing FogExp2 on every
+  // playback/orbit frame invalidates the ground's node graph and pipeline.
+  const background = new THREE.Color();
+  const environmentFog = new THREE.FogExp2("#000000", 0);
   const gridColor = uniform(new THREE.Color("#737779"));
   const groundColor = uniform(new THREE.Color("#484b4e"));
   const gridOn = uniform(1);
@@ -68,12 +72,12 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
     ground,
     fill,
     apply(doc, target, showGround) {
-      target.background = new THREE.Color(doc.environment.background);
+      background.set(doc.environment.background);
+      target.background = background;
       const fog = doc.environment.fog;
-      target.fog =
-        fog.density > 0
-          ? new THREE.FogExp2(new THREE.Color(fog.color).getHex(), fog.density)
-          : null;
+      environmentFog.color.set(fog.color);
+      environmentFog.density = fog.density;
+      target.fog = fog.density > 0 ? environmentFog : null;
       gridOn.value = doc.environment.ground === "grid" ? 1 : 0;
       groundColor.value.set(doc.environment.groundColor);
       ground.position.y = doc.environment.groundY;

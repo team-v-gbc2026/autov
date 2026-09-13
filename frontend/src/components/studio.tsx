@@ -54,6 +54,7 @@ type StudioProps = {
   initialDocument?: VfxDocumentV2;
   /** Dev pages: no Supabase project behind the chat, generate locally only. */
   standalone?: boolean;
+  headerActions?: React.ReactNode;
 };
 
 /**
@@ -83,6 +84,7 @@ export default function Studio({
   versions,
   initialDocument,
   standalone = false,
+  headerActions,
 }: StudioProps) {
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const environmentPanel = useRef<HTMLElement>(null);
@@ -276,7 +278,7 @@ export default function Studio({
       <StudioHeader
         project={project}
         email={email}
-
+        actions={headerActions}
       />
       {environmentControls}
       <input
