@@ -87,6 +87,15 @@ export default function VfxStudio() {
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
     [error, setError] = useState("");
+  const [sharedTrials, setSharedTrials] = useState<
+    Array<{
+      id: string;
+      name: string;
+      caseId: string;
+      latest: boolean;
+      origin: string;
+    }>
+  >([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]),
     [selectedCandidate, setSelectedCandidate] = useState(""),
     [plan, setPlan] = useState<Plan | null>(null);
@@ -155,10 +164,33 @@ export default function VfxStudio() {
     } catch {
       /* History is optional. */
     }
-    const trialId = new URLSearchParams(window.location.search).get("trial");
-    if (trialId)
+    void fetch("/trial-presets/manifest.json")
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = await r.json();
+        if (
+          data.schemaVersion === "autov.shared-trials/1" &&
+          Array.isArray(data.trials)
+        )
+          setSharedTrials(
+            data.trials.filter(
+              (t: { id?: string; name?: string; caseId?: string }) =>
+                typeof t.id === "string" &&
+                /^[-a-zA-Z0-9]{1,100}$/.test(t.id) &&
+                typeof t.name === "string" &&
+                typeof t.caseId === "string",
+            ),
+          );
+      })
+      .catch(() => {});
+    const query = new URLSearchParams(window.location.search);
+    const trialId = query.get("trial");
+    const sharedTrial = query.get("sharedTrial");
+    if (trialId || (sharedTrial && /^[-a-zA-Z0-9]{1,100}$/.test(sharedTrial)))
       void fetch(
-        `/api/local-trials?id=${encodeURIComponent(trialId)}&file=document`,
+        sharedTrial && /^[-a-zA-Z0-9]{1,100}$/.test(sharedTrial)
+          ? `/trial-presets/effects/${encodeURIComponent(sharedTrial)}/document.json`
+          : `/api/local-trials?id=${encodeURIComponent(trialId!)}&file=document`,
       )
         .then(async (r) => {
           if (!r.ok) throw new Error("Saved trial unavailable.");
@@ -433,6 +465,9 @@ export default function VfxStudio() {
           <span className="lab-badge">LOCAL · SAVED ON THIS DEVICE</span>
         </div>
         <div className="header-actions">
+          <a className="lab-action" href="/trial-presets/index.html">
+            Shared trials ↗
+          </a>
           <Link className="lab-action" href="/local/trials">
             Trials ↗
           </Link>
@@ -442,18 +477,25 @@ export default function VfxStudio() {
             disabled={busy}
             value=""
             onChange={async (e) => {
+              const sharedId = e.target.value.startsWith("shared:")
+                ? e.target.value.slice(7)
+                : null;
               const example =
                 e.target.value === "texture-demo"
                   ? "generated-sigil.json"
                   : e.target.value === "smoke-trial"
                     ? "generated-smoke-trial.json"
                     : null;
-              if (!example) {
+              if (!example && !sharedId) {
                 choosePreset(e.target.value as RecipeId);
                 return;
               }
               try {
-                const response = await fetch(`/examples/${example}`);
+                const response = await fetch(
+                  sharedId
+                    ? `/trial-presets/effects/${encodeURIComponent(sharedId)}/document.json`
+                    : `/examples/${example}`,
+                );
                 if (!response.ok) throw new Error("Example unavailable.");
                 const next = validateDocument(await response.json());
                 commit(next);
@@ -464,9 +506,11 @@ export default function VfxStudio() {
                 setCandidates([]);
                 setPlan(null);
                 setNotice(
-                  example === "generated-smoke-trial.json"
-                    ? "Saved API-generated smoke example. Replay it or edit its layers."
-                    : "Authored demonstration using a Codex-generated texture. This is not a live generation result.",
+                  sharedId
+                    ? "DRAFT · Actual generated trial. Replay or edit it locally; no API call is needed."
+                    : example === "generated-smoke-trial.json"
+                      ? "Saved API-generated smoke example. Replay it or edit its layers."
+                      : "Authored demonstration using a Codex-generated texture. This is not a live generation result.",
                 );
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Demo failed.");
@@ -478,6 +522,20 @@ export default function VfxStudio() {
             </option>
             <option value="texture-demo">Generated texture demo</option>
             <option value="smoke-trial">Generated smoke example</option>
+            {[...new Set(sharedTrials.map((t) => t.caseId))]
+              .sort()
+              .map((caseId) => (
+                <optgroup key={caseId} label={`DRAFT · ${caseId}`}>
+                  {sharedTrials
+                    .filter((t) => t.caseId === caseId)
+                    .map((t, i) => (
+                      <option key={t.id} value={`shared:${t.id}`}>
+                        {t.latest ? "★ 最新 · " : ""}
+                        {t.name} · {t.origin} · {i + 1}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
             {Object.entries(RECIPES).map(([id, recipe]) => (
               <option key={id} value={id}>
                 {recipe.name}

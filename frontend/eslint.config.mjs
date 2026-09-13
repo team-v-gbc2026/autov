@@ -13,6 +13,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "public/vfx-runtime.js",
+    "public/trial-presets/**", // Generated output; lint the scripts/shared-trials source instead.
     ".autov-local/**",
     "test-results/**",
     "playwright-report/**",

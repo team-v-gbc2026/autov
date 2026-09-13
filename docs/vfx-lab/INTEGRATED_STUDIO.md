@@ -4,6 +4,8 @@ For the final overnight counts, measurements and limitations, see [OVERNIGHT_RES
 
 This branch retains the VFX generation pipeline from `codex/vfx-generation-studio` and merges the emitter timeline UI from `feature/vfx-studio-ui-add-emitter-timeline`. At integration, `main` was `0b97b55` and already an ancestor of the generation branch (`a75ddbc`). The initial UI source was `98086ce`; its subsequent update `c82e94f` is also merged. Both histories are preserved by a merge, not file replacement.
 
+For the committed 88 draft presets and team playback instructions, see [SHARED_TRIALS.md](SHARED_TRIALS.md). Videos and reference media remain local.
+
 ## Run and review
 
 ```sh
