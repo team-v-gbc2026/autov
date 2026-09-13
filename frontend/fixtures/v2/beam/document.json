@@ -1160,7 +1160,7 @@
         "erosion": null,
         "softParticle": 0.0,
         "fresnel": null,
-        "procedural": "energy-ribbon"
+        "procedural": "none"
       },
       "geometry": {
         "type": "plane",

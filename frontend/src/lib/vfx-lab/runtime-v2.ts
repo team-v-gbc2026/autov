@@ -57,13 +57,17 @@ export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186";
 //             lightning                  bolt length   bolt spread    bolt width
 //   trail     as beam, tapered to the tail by geometry.lightning.widthCurve
 //             when present, else a default taper toward the far end
-//             ribbon                     arc sweep     arc radius     width
+//             ribbon                     arc angle     arc radius     half-width
+//             (radians, uArc)
 //   ring      torus                      -             ring radius    tube width
-//             disc|auto                  -             disc radius    -
+//             disc|auto|plane            flat depth    disc/half-width -
+//             ribbon                     as trail's ribbon
 //   sprite    plane|auto                 -             half-size      -
 //             (always faces the camera; transform.rotation[2] rolls it)
 //   decal     plane|auto                 flat depth    flat half-width -
-//   shell     sphere|teardrop|auto|...   nose-to-tail  body radius    -
+//   shell     sphere|teardrop|auto       nose-to-tail  body radius    -
+//             crystal|crystal-cluster|cone|cylinder|streamer: the library mesh,
+//             turned to run along local +Z, scaled length x radius
 //             plane|disc|torus|...       falls through to the flat/bar shapes
 //   particles no geometry - see `emitter.shape` instead
 //
@@ -141,8 +145,20 @@ const BLEND_INDEX: Record<string, number> = {
   premultiplied: 2,
   screen: 3,
 };
-/** Procedural stand-ins the fragment shaders know about. Phase B: the rest. */
-const PROCEDURAL_INDEX: Record<string, number> = { flame: 1, smoke: 2, solid: 3 };
+/** Procedural patterns the fragment shaders know about; "none" is 0. */
+const PROCEDURAL_INDEX: Record<string, number> = {
+  flame: 1,
+  smoke: 2,
+  solid: 3,
+  hexagon: 4,
+  ice: 5,
+  water: 6,
+  "water-streaks": 7,
+  star: 8,
+  sparkle: 9,
+  portal: 10,
+  "energy-ribbon": 11,
+};
 const SUB_MODE_INDEX: Record<string, number> = {
   alongPath: 0,
   onDeath: 1,
@@ -744,6 +760,7 @@ function createParticleLayer(
     },
     uMaskScale: { value: new THREE.Vector2().fromArray(material.mask.uvScale) },
     uMaskPan: { value: new THREE.Vector2().fromArray(material.mask.uvPan) },
+    uMaskRot: { value: material.mask.rotation },
     uNoise: { value: noise },
     uHasNoise: { value: noise ? 1 : 0 },
     uNoiseScale: {
@@ -751,6 +768,11 @@ function createParticleLayer(
     },
     uNoisePan: {
       value: new THREE.Vector2().fromArray(material.noise?.uvPan ?? [0, 0]),
+    },
+    uDistortPan: {
+      value: new THREE.Vector2().fromArray(
+        material.noise?.distortionPan ?? [0, 0],
+      ),
     },
     uDistort: { value: material.noise?.distortion ?? 0 },
     uUseErosion: { value: material.erosion ? 1 : 0 },
@@ -900,6 +922,21 @@ function createParticleLayer(
       uniforms.uDistort.value = flags.textures ? (m.noise?.distortion ?? 0) : 0;
       uniforms.uHasMask.value = flags.textures && mask ? 1 : 0;
       uniforms.uHasNoise.value = flags.textures && noise ? 1 : 0;
+      // Re-read every UV uniform from the live material: a track on
+      // mask.uvPan, mask.rotation or noise.distortionPan has to move.
+      (uniforms.uMaskScale.value as THREE.Vector2).fromArray(m.mask.uvScale);
+      (uniforms.uMaskPan.value as THREE.Vector2).fromArray(m.mask.uvPan);
+      uniforms.uMaskRot.value = m.mask.rotation;
+      (uniforms.uNoiseScale.value as THREE.Vector2).fromArray(
+        m.noise?.uvScale ?? [1, 1],
+      );
+      (uniforms.uNoisePan.value as THREE.Vector2).fromArray(
+        m.noise?.uvPan ?? [0, 0],
+      );
+      (uniforms.uDistortPan.value as THREE.Vector2).fromArray(
+        m.noise?.distortionPan ?? [0, 0],
+      );
+      uniforms.uProcedural.value = proceduralIndex(m);
       uniforms.uUseErosion.value = flags.erosion && m.erosion ? 1 : 0;
       uniforms.uErodeSoft.value = m.erosion?.softness ?? 0.1;
       uniforms.uEdgeW.value = m.erosion?.edgeWidth ?? 0;
@@ -1019,17 +1056,11 @@ function createParticleLayer(
 /**
  * Geometry types the analytic teardrop (uShell=1 in surfaceVertexV2) can act
  * as the parametric domain for. Anything else a `shell` layer asks for -- a
- * plane, a torus, a bar -- is an explicit request for that shape and falls
- * through to the ordinary surface path instead of silently becoming a blob.
+ * crystal, a cone, a plane, a torus, a bar -- is an explicit request for that
+ * shape and falls through to the ordinary surface path (fresnel, surface-space
+ * ramp along local +Z, erosion) instead of silently becoming a blob.
  */
-const SHELL_VOLUME_TYPES = new Set([
-  "auto",
-  "sphere",
-  "teardrop",
-  "cone",
-  "crystal",
-  "crystal-cluster",
-]);
+const SHELL_VOLUME_TYPES = new Set(["auto", "sphere", "teardrop"]);
 
 /** True when this layer draws the analytic teardrop rather than a real mesh. */
 function isShellSurface(layer: LayerV2) {
@@ -1113,11 +1144,49 @@ function unitBarGeometry(
   return g;
 }
 
+/**
+ * A unit strip carrying (u along the arc, side, 0) in `position`; the arc
+ * itself is swept in surfaceVertexV2 from uRadius/uArc/uThickness, so a track
+ * on any of them re-sweeps it without rebuilding the mesh.
+ */
+function ribbonStripGeometry(segments: number) {
+  const rows = Math.max(4, Math.min(256, segments));
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= rows; i++) {
+    const u = i / rows;
+    for (const side of [-1, 1]) {
+      positions.push(u, side, 0);
+      uvs.push(u, (side + 1) / 2);
+    }
+    if (i < rows) {
+      const j = i * 2;
+      indices.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(indices);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** True when this layer sweeps the analytic arc ribbon rather than a bar. */
+function isArcRibbon(layer: LayerV2) {
+  return (
+    layer.geometry!.type === "ribbon" &&
+    (layer.kind === "trail" || layer.kind === "ring")
+  );
+}
+
 function meshGeometryFor(layer: LayerV2, seed = 0) {
   const geometry = layer.geometry!;
   const shell = isShellSurface(layer);
   if (geometry.type === "lightning" && geometry.lightning)
     return buildLightningGeometry(geometry, seed, 0);
+  if (isArcRibbon(layer)) return ribbonStripGeometry(geometry.segments);
   if (shell)
     // The shell's teardrop is analytic (see surfaceVertexV2): the sphere is the
     // parametric domain, not the silhouette.
@@ -1126,10 +1195,7 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
       Math.min(128, geometry.segments),
       Math.min(64, geometry.radialSegments),
     );
-  // A trail's `ribbon` is the one curved sweep in the set: a tapered arc in the
-  // local XY plane (the swoosh of a slash). Every other bar type is straight.
-  const arcRibbon = layer.kind === "trail" && geometry.type === "ribbon";
-  if (BAR_KINDS.has(layer.kind) && !arcRibbon) {
+  if (BAR_KINDS.has(layer.kind)) {
     // A beam is a straight bar of `length` along +Z, half-width `radius`; a
     // trail is the same bar narrowing toward its far end. Both are unit-sized
     // here and scaled per frame, so a track on geometry.length extends them.
@@ -1156,9 +1222,11 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
   if (layer.kind === "decal" && (geometry.type === "plane" || geometry.type === "auto"))
     // Flat dressing in local XY, scaled per frame to radius x length/2.
     return new THREE.PlaneGeometry(2, 2);
+  // Flat carriers are unit-sized and scaled per frame, so a track on
+  // geometry.radius or geometry.length really resizes them.
   if (geometry.type === "plane" || geometry.type === "auto")
-    return new THREE.PlaneGeometry(geometry.radius * 2, geometry.length);
-  if (geometry.type === "disc") return new THREE.CircleGeometry(geometry.radius, 48);
+    return new THREE.PlaneGeometry(2, 2);
+  if (geometry.type === "disc") return new THREE.CircleGeometry(1, 48);
   if (geometry.type === "torus")
     return new THREE.TorusGeometry(
       geometry.radius,
@@ -1166,7 +1234,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
       Math.max(6, Math.min(24, geometry.radialSegments)),
       Math.max(12, Math.min(96, geometry.segments)),
     );
-  return buildGeometry(
+  // Everything else is a real mesh from the shared library. Those are authored
+  // Y-up around the origin; the v2 axis convention is local +Z forward, so the
+  // shape is turned once at build time and then scaled by radius/length.
+  const built = buildGeometry(
     {
       id: layer.id,
       kind: layer.kind === "decal" ? "decal" : "shell",
@@ -1184,6 +1255,8 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
     } as Parameters<typeof buildGeometry>[0],
     0,
   );
+  built.rotateX(Math.PI / 2);
+  return built;
 }
 
 function createMeshLayer(
@@ -1209,8 +1282,13 @@ function createMeshLayer(
     uBolt: {
       value: geometry.type === "lightning" && geometry.lightning ? 1 : 0,
     },
+    uRibbon: { value: isArcRibbon(layer) ? 1 : 0 },
     uLength: { value: geometry.length },
     uRadius: { value: geometry.radius },
+    uThickness: { value: geometry.thickness },
+    uArc: { value: geometry.length },
+    uUseLocalZ: { value: 0 },
+    uZRange: { value: new THREE.Vector2(0, 1) },
     uHasVertexNoise: { value: vertexNoise ? 1 : 0 },
     uVertexAmp: { value: vertexNoise?.amplitude ?? 0 },
     uVertexFreq: { value: vertexNoise?.frequency ?? 1 },
@@ -1223,6 +1301,7 @@ function createMeshLayer(
     uHasMask: { value: mask ? 1 : 0 },
     uMaskScale: { value: new THREE.Vector2().fromArray(material.mask.uvScale) },
     uMaskPan: { value: new THREE.Vector2().fromArray(material.mask.uvPan) },
+    uMaskRot: { value: material.mask.rotation },
     uNoise: { value: noise },
     uHasNoise: { value: noise ? 1 : 0 },
     uNoiseScale: {
@@ -1230,6 +1309,11 @@ function createMeshLayer(
     },
     uNoisePan: {
       value: new THREE.Vector2().fromArray(material.noise?.uvPan ?? [0, 0]),
+    },
+    uDistortPan: {
+      value: new THREE.Vector2().fromArray(
+        material.noise?.distortionPan ?? [0, 0],
+      ),
     },
     uDistort: { value: material.noise?.distortion ?? 0 },
     uUseErosion: { value: material.erosion ? 1 : 0 },
@@ -1271,13 +1355,20 @@ function createMeshLayer(
    * *live* geometry every frame so a track on geometry.length or
    * geometry.radius animates the shape. See the table at the top of the file.
    */
+  const ribbon = isArcRibbon(layer);
+  const flatCard =
+    geometry.type === "plane" || geometry.type === "auto" || geometry.type === "disc";
   const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
-    if (BAR_KINDS.has(layer.kind) && !bolt && !(layer.kind === "trail" && g.type === "ribbon"))
-      return out.set(g.radius, g.radius, g.length);
+    // The arc ribbon, the analytic shell and the bolt build themselves from the
+    // live uniforms, so only transform.scale applies on top of them.
+    if (ribbon || shell || bolt) return out.set(1, 1, 1);
+    if (BAR_KINDS.has(layer.kind)) return out.set(g.radius, g.radius, g.length);
     if (layer.kind === "sprite") return out.set(g.radius, g.radius, 1);
-    if (layer.kind === "decal" && (g.type === "plane" || g.type === "auto"))
-      return out.set(g.radius, g.length * 0.5, 1);
-    return out.set(1, 1, 1);
+    if (g.type === "disc") return out.set(g.radius, g.radius, 1);
+    if (flatCard) return out.set(g.radius, g.length * 0.5, 1);
+    if (g.type === "torus") return out.set(1, 1, 1);
+    // A library mesh, turned to run along local +Z: radius across, length along.
+    return out.set(g.radius, g.radius, g.length * 0.5);
   };
   /** A ring's torus is baked, so a tracked radius/thickness has to rebuild it. */
   const ringTorus = layer.kind === "ring" && geometry.type === "torus";
@@ -1285,6 +1376,17 @@ function createMeshLayer(
   const size = new THREE.Vector3();
   const scratchScale = new THREE.Vector3();
   const mesh = new THREE.Mesh(meshGeometryFor(layer, boltSeed), shaderMaterial);
+  // A mesh whose extent really runs along local +Z keys its surface ramp and
+  // erosion on that axis instead of on uv.y; a flat card or an arc cannot.
+  if (!shell && !ribbon && !bolt && !flatCard) {
+    mesh.geometry.computeBoundingBox();
+    const box = mesh.geometry.boundingBox!;
+    const span = box.getSize(new THREE.Vector3());
+    if (span.z > 1e-3 && span.z >= Math.max(span.x, span.y) * 0.35) {
+      uniforms.uUseLocalZ.value = 1;
+      (uniforms.uZRange.value as THREE.Vector2).set(box.min.z, box.max.z);
+    }
+  }
   mesh.name = layer.id;
   mesh.frustumCulled = false;
   mesh.renderOrder = index;
@@ -1318,6 +1420,8 @@ function createMeshLayer(
       uniforms.uLayerU.value = u;
       uniforms.uLength.value = g.length;
       uniforms.uRadius.value = g.radius;
+      uniforms.uThickness.value = g.thickness;
+      uniforms.uArc.value = g.length;
       if (ringTorus) {
         const next = `${g.radius.toFixed(3)}:${g.thickness.toFixed(3)}`;
         if (next !== ringKey) {
@@ -1345,11 +1449,36 @@ function createMeshLayer(
       uniforms.uDisplaceShift.value = m.ramp.displacementShift;
       uniforms.uHasMask.value = flags.textures && mask ? 1 : 0;
       uniforms.uHasNoise.value = flags.textures && noise ? 1 : 0;
+      // Every UV uniform is re-read from the live material, so a track on
+      // mask.uvPan or noise.distortionPan actually scrolls the surface.
+      (uniforms.uMaskScale.value as THREE.Vector2).fromArray(m.mask.uvScale);
+      (uniforms.uMaskPan.value as THREE.Vector2).fromArray(m.mask.uvPan);
+      uniforms.uMaskRot.value = m.mask.rotation;
+      (uniforms.uNoiseScale.value as THREE.Vector2).fromArray(
+        m.noise?.uvScale ?? [1, 1],
+      );
+      (uniforms.uNoisePan.value as THREE.Vector2).fromArray(
+        m.noise?.uvPan ?? [0, 0],
+      );
+      (uniforms.uDistortPan.value as THREE.Vector2).fromArray(
+        m.noise?.distortionPan ?? [0, 0],
+      );
+      uniforms.uDistort.value = flags.textures ? (m.noise?.distortion ?? 0) : 0;
+      uniforms.uProcedural.value = proceduralIndex(m);
+      uniforms.uHasFresnel.value = m.fresnel ? 1 : 0;
+      uniforms.uFresnelPower.value = m.fresnel?.power ?? 2;
+      uniforms.uFresnelStrength.value = m.fresnel?.strength ?? 0;
       uniforms.uUseErosion.value = flags.erosion && m.erosion ? 1 : 0;
       uniforms.uErodeSoft.value = m.erosion?.softness ?? 0.1;
+      uniforms.uEdgeW.value = m.erosion?.edgeWidth ?? 0;
+      (uniforms.uEdgeCol.value as THREE.Color).set(
+        m.erosion?.edgeColor ?? "#ffffff",
+      );
       uniforms.uEdgeI.value = m.erosion?.edgeIntensity ?? 0;
       uniforms.uProtect.value = m.erosion?.displacementProtect ?? 0;
       uniforms.uRimBias.value = m.erosion?.rimBias ?? 0;
+      uniforms.uRampKeyMode.value =
+        m.ramp.space === "surface" ? 2 : m.ramp.space === "layerTime" ? 1 : 0;
       (uniforms.uCam.value as THREE.Vector3).copy(camera.position);
       writeRamp(uniforms, m.ramp);
       writeCurve(uniforms, "C", m.erosion?.curve ?? null);
@@ -1386,6 +1515,37 @@ function createMeshLayer(
               push(point.set(x, y, z).applyMatrix4(matrix).clone());
         return;
       }
+      if (ribbon) {
+        // Only the swept arc, not the full circle: a 90-degree swoosh must not
+        // claim the four quadrants it never reaches.
+        const scale = new THREE.Vector3().fromArray(live.transform.scale);
+        const local = new THREE.Matrix4().compose(
+          new THREE.Vector3().fromArray(live.transform.position),
+          new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(...live.transform.rotation),
+          ),
+          scale,
+        );
+        for (let step = 0; step <= 24; step++) {
+          const u = step / 24;
+          const a = u * g.length;
+          const w = g.thickness * Math.pow(Math.sin(Math.PI * u), 0.6);
+          for (const side of [-1, 1]) {
+            const r = g.radius + side * w;
+            push(
+              point
+                .set(
+                  Math.cos(a) * r,
+                  Math.sin(a) * r,
+                  0.12 * g.radius * Math.sin(a * 2),
+                )
+                .applyMatrix4(local)
+                .clone(),
+            );
+          }
+        }
+        return;
+      }
       if (shell) {
         // Envelope of the analytic teardrop, sampled along its axis: a plain
         // box around the whole sphere would claim the empty corners above the
@@ -1403,12 +1563,19 @@ function createMeshLayer(
           .normalize();
         const amplitude = g.vertexNoise?.amplitude ?? 0;
         const alongCurve = g.vertexNoise?.alongCurve ?? null;
+        // transform.scale shapes the analytic body in the vertex shader, so the
+        // envelope has to carry the same factors.
+        const s = live.transform.scale;
+        const sAxis = Math.abs(s[2]);
+        const sRad = (Math.abs(s[0]) + Math.abs(s[1])) * 0.5;
+        const length_ = g.length * sAxis;
+        const radius_ = g.radius * sRad;
         for (let step = 0; step <= 10; step++) {
           const a = step / 10;
-          const len = g.length * (a < 0.5 ? a * 0.9 : 0.45 + (a - 0.5) * 1.1);
+          const len = length_ * (a < 0.5 ? a * 0.9 : 0.45 + (a - 0.5) * 1.1);
           const taper = a * 2 - 1;
           const r =
-            g.radius *
+            radius_ *
             (1.05 * Math.sqrt(Math.max(0, 1 - taper * taper)) * (1 - a * 0.45) +
               0.06);
           let envelope = 1;
@@ -1425,10 +1592,10 @@ function createMeshLayer(
           }
           // |fbm| and the lobe noise both stay well under 1, and the lick is
           // gated the same way the vertex shader gates it.
-          const radius = r + 0.55 * amplitude * envelope * g.radius * 2.4;
+          const radius = r + 0.55 * amplitude * envelope * radius_ * 2.4;
           const gate = Math.min(1, Math.max(0, (a - 0.35) / 0.45));
-          const lick = g.radius * amplitude * 6.2 * 0.6 * gate * gate * (3 - 2 * gate);
-          const lift = g.length * 0.236 * a ** 2.3 + lick;
+          const lick = radius_ * amplitude * 6.2 * 0.6 * gate * gate * (3 - 2 * gate);
+          const lift = length_ * 0.236 * a ** 2.3 + lick;
           const center = head
             .clone()
             .addScaledVector(axis, len)
@@ -1475,6 +1642,9 @@ function spawnBoundsV2(
   const emitter = live.emitter!;
   const shape = emitter.shape;
   const extent = new THREE.Vector3();
+  // A "line" spawns from the origin *along* +axis for `length`, never behind
+  // it, so its box is one-sided; `lean` carries that asymmetry.
+  const lean = new THREE.Vector3();
   if (shape.type === "box") {
     extent.set(shape.size[0] * 0.5, shape.size[1] * 0.5, shape.size[2] * 0.5);
   } else if (shape.type !== "point") {
@@ -1485,19 +1655,28 @@ function spawnBoundsV2(
         : 0);
     extent.set(lateral, lateral, lateral);
     const axis = new THREE.Vector3().fromArray(shape.axis);
-    if (axis.lengthSq() > 1e-10)
-      extent.add(
-        new THREE.Vector3(
-          Math.abs(axis.x),
-          Math.abs(axis.y),
-          Math.abs(axis.z),
-        ).multiplyScalar(shape.length),
-      );
+    if (axis.lengthSq() > 1e-10) {
+      const reach = axis
+        .clone()
+        .normalize()
+        .multiplyScalar(shape.length);
+      if (shape.type === "line") lean.copy(reach);
+      else
+        extent.add(
+          new THREE.Vector3(
+            Math.abs(reach.x),
+            Math.abs(reach.y),
+            Math.abs(reach.z),
+          ),
+        );
+    }
   }
   const margin = emitter.render.size[1] * 0.5;
   const center = new THREE.Vector3().fromArray(live.transform.position);
-  push(center.clone().add(extent).addScalar(margin));
-  push(center.clone().sub(extent).addScalar(-margin));
+  const lo = center.clone().min(center.clone().add(lean));
+  const hi = center.clone().max(center.clone().add(lean));
+  push(hi.add(extent).addScalar(margin));
+  push(lo.sub(extent).addScalar(-margin));
 }
 
 function createLightLayer(layer: LayerV2): LayerObject {

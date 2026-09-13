@@ -96,14 +96,71 @@ float softDepth(){
 }
 `;
 
-/** Procedural stand-ins used when a layer references no mask texture. */
+/**
+ * Procedural patterns used when a layer references no mask texture. Ported from
+ * the v1 surface shader so every name in PROCEDURALS_V2 draws something; `none`
+ * keeps the plain soft disc the v2 renderer has always used.
+ *
+ * `p` is the centred quad coordinate (-.5 .. .5), `uv` the raw 0..1 surface
+ * coordinate, `n` a noise sample, `t` layer time, `fres` the fresnel term,
+ * `cell` material.mask.uvScale (pattern density) and `dims` the live
+ * (radius, length, thickness) of the geometry.
+ */
 export const glslProcedural = /* glsl */ `
-// uProcedural: 0 = soft disc, 1 = flame-ish, 2 = smoke-ish, 3 = solid.
-float proceduralShape(vec2 p, float n, int mode){
+float pointedShape(vec2 p,float arms,float outerRadius,float innerRadius){
+  float angle=atan(p.y,p.x), halfAngle=3.14159265/arms;
+  float q=abs(mod(angle-1.570796+halfAngle,halfAngle*2.)-halfAngle);
+  vec2 outer=vec2(outerRadius,0.), inner=innerRadius*vec2(cos(halfAngle),sin(halfAngle));
+  vec2 ray=vec2(cos(q),sin(q)), edge=inner-outer;
+  float boundary=(outer.x*inner.y)/(ray.x*edge.y-ray.y*edge.x);
+  return 1.-smoothstep(boundary-.008,boundary+.008,length(p));
+}
+/** Hex lattice with bright cell walls; density scales with material.mask.uvScale. */
+float hexCells(vec2 uv, vec2 cell){
+  vec2 q=uv*vec2(24.,12.)*max(cell,vec2(.02));
+  vec2 spacing=vec2(1.73205,3.);
+  vec2 h1=mod(q,spacing)-spacing*.5, h2=mod(q-spacing*.5,spacing)-spacing*.5;
+  vec2 h=dot(h1,h1)<dot(h2,h2)?h1:h2;
+  // Cell planes of the triangular lattice: neighbours at (sqrt(3),0) and (sqrt(3)/2,1.5).
+  float edge=abs(max(abs(h.x),abs(h.x)*.5+abs(h.y)*.866025)-.866025);
+  return 1.-smoothstep(.035,.10,edge);
+}
+// uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
+// 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon.
+float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, vec3 dims, int mode){
   if(mode==3) return 1.;
   float disc=smoothstep(.5,.1,length(p));
   if(mode==1) return clamp(disc*(.45+n*1.1),0.,1.);
   if(mode==2) return clamp(disc*(.6+n*.8),0.,1.);
+  vec2 q=p*2.;
+  if(mode==4) return clamp(.10+.90*hexCells(uv,cell),0.,1.);
+  if(mode==5){
+    // Frozen body: a fresnel-lit interior crossed by thin veins.
+    float field=.5+.5*snoise(vec3(uv*vec2(12.,6.)*max(cell,vec2(.02)),1.));
+    float veins=1.-smoothstep(.012,.03,abs(field-.5));
+    return clamp(.12+.55*fres*fres+.80*veins,0.,1.);
+  }
+  if(mode==6 || mode==7){
+    float bend=sin(q.y*2.8-t*2.2)*.12;
+    float waves=sin((q.x+bend)*9.5+q.y*.7);
+    float streak=smoothstep(.72,.92,waves)*(.65+.35*sin(q.y*2.-t*2.));
+    return clamp(mode==7?streak:.88+.12*streak,0.,1.);
+  }
+  if(mode==8) return pointedShape(q,5.,.78,.31);
+  if(mode==9) return pointedShape(q,4.,.9,.09);
+  if(mode==10){
+    // A framed portal: a rim of geometry.thickness metres inside the card, misty fill.
+    float edgeDistance=min((1.-abs(q.x))*max(dims.x,1e-3),(1.-abs(q.y))*max(dims.y,1e-3)*.5);
+    float border=1.-smoothstep(max(dims.z,.001)*.65,max(dims.z,.001)*1.15,edgeDistance);
+    return clamp(border*.8+(.08+.22*n)*(1.-border),0.,1.);
+  }
+  if(mode==11){
+    // Continuous core with a narrow moving edge; no longitudinal holes.
+    float edge=.48+.035*sin(q.y*18.-t*10.);
+    float side=1.-smoothstep(edge-.025,edge+.025,abs(q.x));
+    float ends=1.-smoothstep(.94,1.,abs(q.y));
+    return clamp(side*ends,0.,1.);
+  }
   return disc;
 }
 `;
@@ -494,8 +551,8 @@ export const particleFragmentV2 = /* glsl */ `
 precision highp float;
 uniform sampler2D uMask,uNoise;
 uniform int uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uAtlasCols,uAtlasRows;
-uniform float uTime,uDistort,uErodeSoft,uEdgeW,uEdgeI,uOpacity;
-uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan;
+uniform float uTime,uDistort,uErodeSoft,uEdgeW,uEdgeI,uOpacity,uMaskRot;
+uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
 ${glslNoise}
@@ -505,7 +562,10 @@ ${glslSoft}
 ${glslProcedural}
 void main(){
   if(vAlpha<=0.) discard;
-  vec2 p=vUv-.5; float c=cos(vRot), s=sin(vRot); p=mat2(c,-s,s,c)*p; vec2 uvp=p+.5;
+  // material.mask.rotation turns the mask on every instance; the per-particle
+  // random roll rides on top of it.
+  float rot=vRot+uMaskRot;
+  vec2 p=vUv-.5; float c=cos(rot), s=sin(rot); p=mat2(c,-s,s,c)*p; vec2 uvp=p+.5;
   float n=.5;
   if(uHasNoise==1){
     vec2 nuv=uvp*uNoiseScale+uNoisePan*uTime+vSeed.xy*7.;
@@ -515,13 +575,21 @@ void main(){
   } else {
     n=.5+.5*fbm3(vec3(uvp*uNoiseScale*2.+uNoisePan*uTime, vSeed.x*17.));
   }
-  vec2 duv=uvp+(n-.5)*uDistort*(.4+vU);
+  // noise.distortionPan scrolls the field that drives the distortion (never the
+  // mask lookup itself, which would slide the sprite out of its own UV range).
+  float nd=n;
+  vec2 dp=uDistortPan*uTime;
+  if(dot(dp,dp)>0.){
+    if(uHasNoise==1) nd=texture2D(uNoise, uvp*uNoiseScale+uNoisePan*uTime+dp+vSeed.xy*7.).r;
+    else nd=.5+.5*fbm3(vec3(uvp*uNoiseScale*2.+uNoisePan*uTime+dp, vSeed.x*17.));
+  }
+  vec2 duv=uvp+(nd-.5)*uDistort*(.4+vU);
   float inside=step(0.,duv.x)*step(duv.x,1.)*step(0.,duv.y)*step(duv.y,1.);
   vec2 muv=duv*uMaskScale+uMaskPan;
   vec2 auv=vec2(muv.x/float(max(uAtlasCols,1)), muv.y/float(max(uAtlasRows,1)))+vTile;
   float shape;
   if(uHasMask==1){ vec4 m=texture2D(uMask,auv); shape=m.a*max(m.r,max(m.g,m.b)); }
-  else shape=proceduralShape(p,n,uProcedural);
+  else shape=proceduralShape(p,uvp,n,uTime,0.,uMaskScale,vec3(1.,1.,.1),uProcedural);
   shape*=inside;
   float er=shape, edge=0.;
   if(uUseErosion==1){
@@ -545,17 +613,36 @@ void main(){
 // ---------------------------------------------------------------------------
 
 export const surfaceVertexV2 = /* glsl */ `
-uniform float uTime,uLength,uRadius,uVertexAmp,uVertexFreq,uVertexSpeed,uDisplaceShift,uRoll;
-uniform int uShell,uHasVertexNoise,uBillboard;
+uniform float uTime,uLength,uRadius,uThickness,uArc,uVertexAmp,uVertexFreq,uVertexSpeed,uDisplaceShift,uRoll;
+uniform int uShell,uHasVertexNoise,uBillboard,uRibbon,uUseLocalZ;
+uniform vec2 uZRange;
 uniform vec3 uVertexBias;
-varying vec3 vN,vWp; varying float vAlong,vLobe; varying vec2 vUv;
+varying vec3 vN,vWp; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslCurve("F")}
 vec3 orthoOf(vec3 a){ return safeDir(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0)), vec3(1,0,0)); }
 void main(){
-  vUv=uv; vLobe=0.;
+  vUv=uv; vLobe=0.; vRing=uv.x;
   vec3 worldPos, worldNormal;
-  if(uShell==1){
+  if(uRibbon==1){
+    // A tapered arc sweep in the local XY plane (the swoosh of a slash):
+    // geometry.radius is the arc radius, geometry.length the angle it sweeps
+    // (uArc, radians) and geometry.thickness its half-width at the fattest
+    // point. The strip carries (u along the arc, side) in the position attribute.
+    float ua=clamp(position.x,0.,1.); float side=position.y;
+    vAlong=clamp(uv.y,0.,1.);
+    float a=ua*uArc;
+    float taper=safePow(max(0.,sin(3.14159265*ua)),.6);
+    float w=max(1e-4,uThickness*taper);
+    float rr=uRadius+side*w;
+    vec3 local=vec3(cos(a)*rr, sin(a)*rr, .12*uRadius*sin(a*2.));
+    if(uHasVertexNoise==1){
+      float nz=fbm3(vec3(local.xy*uVertexFreq, a-uTime*uVertexSpeed));
+      local+=vec3(cos(a),sin(a),0.)*nz*uVertexAmp*uRadius*curveF(vAlong);
+    }
+    worldPos=(modelMatrix*vec4(local,1.)).xyz;
+    worldNormal=safeDir((modelMatrix*vec4(0.,0.,1.,0.)).xyz, vec3(0.,0.,1.));
+  } else if(uShell==1){
     // Unit sphere -> teardrop: along = (1-z)/2 on the local +Z axis (z=+1 is
     // the head). The tube frame is built from the WORLD axis so that the ring
     // "up" reference and the bias push direction live in the same space no
@@ -564,26 +651,35 @@ void main(){
     // Squaring, not pow(): a negative base would be clamped by safePow and the
     // bulbous nose would flatten into a full-radius cylinder.
     float taper=along*2.-1.;
-    float r=uRadius*(1.05*sqrt(max(0.,1.-taper*taper))*(1.-along*.45)+.06);
-    float len=uLength*(along<.5? along*.9 : .45+(along-.5)*1.1);
+    // transform.scale reaches the analytic body too: the axis column of the
+    // model matrix scales nose-to-tail, the lateral columns the body radius.
+    float sAxis=length(modelMatrix[2].xyz);
+    float sRad=.5*(length(modelMatrix[0].xyz)+length(modelMatrix[1].xyz));
+    float radius=uRadius*sRad, length_=uLength*sAxis;
+    // The tail is a fan of coincident vertices: closing it to a point over the
+    // last 5% of 'along' replaces a torn cap with a smooth taper.
+    float tailCap=smoothstep(1.,.95,along);
+    float r=radius*(1.05*sqrt(max(0.,1.-taper*taper))*(1.-along*.45)+.06)*tailCap;
+    float len=length_*(along<.5? along*.9 : .45+(along-.5)*1.1);
     vec3 head=(modelMatrix*vec4(0.,0.,0.,1.)).xyz;
     vec3 axis=safeDir((modelMatrix*vec4(0.,0.,1.,0.)).xyz, vec3(0.,0.,1.));
     vec3 t1=orthoOf(axis), t2=cross(axis,t1);
     vec2 ring=normalize(position.xy+vec2(1e-5));
+    vRing=atan(ring.y,ring.x)*.15915494+.5;
     vec3 radial=t1*ring.x+t2*ring.y;
     vec3 base=head+axis*len+radial*r;
     float amp=uHasVertexNoise==1?uVertexAmp:0.;
     float nz=fbm3(vec3(ring*uVertexFreq+vec2(along*3.5,0.), along*4.-uTime*uVertexSpeed)+vec3(0.,0.,along*3.));
-    float disp=nz*amp*curveF(along)*uRadius*2.4;
+    float disp=nz*amp*curveF(along)*radius*2.4*tailCap;
     // Low-frequency lobes on one side of the tube only: a few big licks lift
     // off the tail along the bias direction, so the body silhouette stays thin.
     vec3 bias=safeDir(uVertexBias,vec3(0.,1.,0.));
     float lobe=snoise(vec3(ring*(uVertexFreq*.36)+vec2(along*1.4,0.), along*2.2-uTime*(uVertexSpeed*.75)));
     float up=smoothstep(.2,.95,ring.y)*smoothstep(.35,.8,along);
     vLobe=max(0.,lobe)*up*step(1e-4,amp);
-    float lick=vLobe*uRadius*(amp*6.2);
+    float lick=vLobe*radius*(amp*6.2)*tailCap;
     worldPos=base+radial*disp+axis*nz*.25*along
-      +bias*(uLength*.236*safePow(along,2.3)*(.6+.4*nz)+lick);
+      +bias*(length_*.236*safePow(along,2.3)*(.6+.4*nz)+lick);
     worldNormal=safeDir(radial, vec3(0.,1.,0.));
   } else if(uBillboard==1){
     // A sprite is a camera-facing square of half-size geometry.radius: the quad
@@ -601,7 +697,11 @@ void main(){
     worldPos=centre+right*q.x+up*q.y;
     worldNormal=safeDir(cross(right,up), vec3(0.,0.,1.));
   } else {
-    vAlong=clamp(uv.y,0.,1.);
+    // A mesh whose axis really runs along local +Z (a bar, a crystal) keys its
+    // ramp and erosion on that axis; flat cards and lathed shapes keep uv.y.
+    vAlong=uUseLocalZ==1
+      ? clamp((position.z-uZRange.x)/max(uZRange.y-uZRange.x,1e-4),0.,1.)
+      : clamp(uv.y,0.,1.);
     vec3 pos=position;
     if(uHasVertexNoise==1){
       float nz=fbm3(vec3(position.xy*uVertexFreq, position.z*uVertexFreq-uTime*uVertexSpeed));
@@ -620,12 +720,12 @@ void main(){
 export const surfaceFragmentV2 = /* glsl */ `
 precision highp float;
 uniform float uTime,uOpacity,uErodeSoft,uEdgeW,uEdgeI,uProtect,uRimBias,uDisplaceShift;
-uniform float uFresnelPower,uFresnelStrength,uDistort,uRampKeyMode,uLayerU;
+uniform float uFresnelPower,uFresnelStrength,uDistort,uRampKeyMode,uLayerU,uMaskRot,uRadius,uLength,uThickness;
 uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFresnel,uBolt;
-uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan;
+uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol,uCam;
 uniform sampler2D uMask,uNoise;
-varying vec3 vN,vWp; varying float vAlong,vLobe; varying vec2 vUv;
+varying vec3 vN,vWp; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslRamp}
 ${glslCurve("C")}
@@ -647,16 +747,32 @@ void main(){
   }
 
   float shape=1.;
+  vec3 dims=vec3(uRadius,uLength,uThickness);
   if(uBolt==1){
     // A bolt is a tube: its normals face the camera along the centreline and
     // graze it at the silhouette, which is exactly the falloff a hot core with
     // a soft edge wants. Without it the tube reads as a flat blown-out slab.
     shape=safePow(abs(dot(vN,V)),.65);
-  } else if(uShell==0){
-    vec2 duv=vUv+(n-.5)*uDistort;
-    vec2 muv=duv*uMaskScale+uMaskPan;
+  } else if(uShell==1){
+    // The analytic body has no mask, but a procedural *pattern* still applies:
+    // its surface coordinate is (angle around the tube, distance along it).
+    // Modes below 4 are billboard silhouettes (a soft disc, a flame, a puff)
+    // and describe a sprite's outline, which a closed body already has.
+    if(uProcedural>=4)
+      shape=proceduralShape(vec2(vRing,vAlong)-.5,vec2(vRing,vAlong),n,uTime,fres,uMaskScale,dims,uProcedural);
+  } else {
+    // noise.distortionPan scrolls the field that drives the distortion.
+    float nd=n;
+    vec2 dp=uDistortPan*uTime;
+    if(dot(dp,dp)>0.)
+      nd=uHasNoise==1
+        ? texture2D(uNoise, vUv*uNoiseScale+uNoisePan*uTime+dp).r
+        : .5+.5*fbm3(vec3(vUv*uNoiseScale*2.+uNoisePan*uTime+dp, 3.1));
+    vec2 duv=vUv+(nd-.5)*uDistort;
+    float mc=cos(uMaskRot), ms=sin(uMaskRot);
+    vec2 muv=(mat2(mc,-ms,ms,mc)*(duv-.5)+.5)*uMaskScale+uMaskPan;
     if(uHasMask==1){ vec4 m=texture2D(uMask,muv); shape=m.a*max(m.r,max(m.g,m.b)); }
-    else shape=proceduralShape(vUv-.5,n,uProcedural);
+    else shape=proceduralShape(vUv-.5,vUv,n,uTime,fres,uMaskScale,dims,uProcedural);
   }
 
   float key;
@@ -678,14 +794,15 @@ void main(){
     float er=smoothstep(th,th+uErodeSoft,field);
     if(er<.01) discard;
     rim=smoothstep(th-uEdgeW,th+uErodeSoft*.5,field)-er;
-    alpha*=uShell==1?er:er;
+    alpha*=er;
   }
-  if(uShell==0) alpha*=shape;
+  // shape is 1 on an analytic shell with procedural "none", so this is a no-op
+  // there and the procedural pattern applies everywhere else.
+  alpha*=shape;
 
   vec3 col=rampColor(key);
   if(uShell==1){
     col*=mix(1.+(n-.5)*.18, 1., smoothstep(.08,.45,vAlong));
-    col+=vec3(.9,.82,.62)*.7*smoothstep(.04,0.,vAlong)*(.85+.15*n);
     alpha*=(1.-smoothstep(.5,1.,vAlong)*.5);
   }
   col+=uEdgeCol*uEdgeI*rim*(1.-smoothstep(.5,.95,vAlong));

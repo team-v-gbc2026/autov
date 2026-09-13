@@ -622,7 +622,7 @@
           "power": 3,
           "strength": 0.85
         },
-        "procedural": "hexagon"
+        "procedural": "none"
       },
       "geometry": {
         "type": "sphere",
@@ -824,12 +824,12 @@
           ],
           "displacementShift": 0
         },
-        "opacity": 0.24,
+        "opacity": 0.55,
         "mask": {
           "textureId": null,
           "uvScale": [
-            1,
-            1
+            1.0,
+            1.0
           ],
           "uvPan": [
             0,
@@ -900,19 +900,19 @@
           "keys": [
             [
               0,
-              0
+              0.0
             ],
             [
               0.06,
-              0.24
+              0.55
             ],
             [
               1.76,
-              0.24
+              0.55
             ],
             [
               2.1,
-              0
+              0.0
             ]
           ],
           "ease": "smooth"
@@ -982,7 +982,7 @@
     },
     {
       "id": "dome-cells-b",
-      "name": "Hex cell lattice — cross weave",
+      "name": "Hex cell lattice \u2014 cross weave",
       "role": "secondary",
       "kind": "shell",
       "start": 0.42,
@@ -1029,12 +1029,12 @@
           ],
           "displacementShift": 0
         },
-        "opacity": 0.18,
+        "opacity": 0.4,
         "mask": {
           "textureId": null,
           "uvScale": [
-            1,
-            1
+            2.1,
+            2.1
           ],
           "uvPan": [
             0,
@@ -1105,19 +1105,19 @@
           "keys": [
             [
               0,
-              0
+              0.0
             ],
             [
               0.08,
-              0.18
+              0.4
             ],
             [
               1.74,
-              0.18
+              0.4
             ],
             [
               2.08,
-              0
+              0.0
             ]
           ],
           "ease": "smooth"
@@ -1979,7 +1979,7 @@
           "power": 3,
           "strength": 0.5
         },
-        "procedural": "hexagon"
+        "procedural": "none"
       },
       "geometry": {
         "type": "sphere",
@@ -2147,7 +2147,7 @@
           "power": 3,
           "strength": 0.5
         },
-        "procedural": "hexagon"
+        "procedural": "none"
       },
       "geometry": {
         "type": "sphere",

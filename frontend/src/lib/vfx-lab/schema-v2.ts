@@ -506,7 +506,7 @@ export const CameraSchema = z
     fov: scalar(20, 70),
     azimuth: scalar(-Math.PI, Math.PI),
     elevation: scalar(-1.5, 1.5),
-    framing: scalar(0.3, 0.9),
+    framing: scalar(0.3, 1.2),
     shake: ShakeSchema.nullable(),
     pushIn: PushInSchema.nullable(),
   })
@@ -930,6 +930,12 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
       warnings.push(`Texture ${asset.id} is embedded but never referenced.`);
   const drawable = doc.layers.filter((l) => l.enabled && l.kind !== "light");
   if (!drawable.length) warnings.push("No drawable layer is enabled.");
+  // Above 1.0 the effect is wider than the frame; that is a deliberate crop for
+  // an effect that cannot otherwise fill the shot, never a fix for a small one.
+  if (doc.camera.framing > 1)
+    warnings.push(
+      `camera.framing ${doc.camera.framing.toFixed(2)} crops the effect; 0.6-1.0 is the normal range for a full-frame effect.`,
+    );
 
   // --- scale warnings ------------------------------------------------------
   // Nothing here is fatal: they describe a document that validates but renders
