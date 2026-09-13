@@ -7,6 +7,10 @@ import ReferenceComposer, { type ComposerHandle } from "./composer/reference-com
 import { displayPrompt } from "./composer/prompt-format";
 import type { Reference } from "@/lib/project-types";
 import { iconButton as button } from "./icon-button";
+import type { VfxUiDocument } from "@/components/vfx-studio/ui-model";
+
+export type ChatPanelHandle = ComposerHandle;
+type VfxEditing = { document: VfxUiDocument };
 
 export default function ChatPanel({
   projectId,
@@ -19,20 +23,26 @@ export default function ChatPanel({
   onCollapse,
   saving,
   setSaving,
+  vfx,
 }: {
   projectId: string;
   initialGenerations: Generation[];
   versions: EffectVersion[];
   references: Reference[];
   uploadFile: (file: File) => Promise<Reference>;
-  ref: Ref<ComposerHandle>;
+  ref: Ref<ChatPanelHandle>;
   busy: boolean;
   onCollapse: () => void;
   saving: boolean;
   setSaving: (value: boolean) => void;
+  vfx?: VfxEditing;
 }) {
   const composer = useRef<ComposerHandle>(null);
-  useImperativeHandle(ref, () => ({ mention: reference => composer.current?.mention(reference), setText: text => composer.current?.setText(text) }));
+  useImperativeHandle(ref, () => ({
+    mention: reference => composer.current?.mention(reference),
+    mentionEmitter: emitter => composer.current?.mentionEmitter(emitter),
+    setText: text => composer.current?.setText(text),
+  }));
   const [notice, setNotice] = useState("");
   const [messages, setMessages] = useState(initialGenerations);
   const [loaded, setLoaded] = useState(initialGenerations);
@@ -40,6 +50,10 @@ export default function ChatPanel({
     setLoaded(initialGenerations);
     setMessages(initialGenerations);
   }
+  const scopedEdits = vfx?.document.layers.flatMap(layer =>
+    layer.edits.map(edit => ({ layer, edit })),
+  ) || [];
+  const hasHistory = messages.length > 0 || versions.length > 0 || scopedEdits.length > 0;
   return (
     <aside className="glass chat-panel">
       <div className="panel-heading">
@@ -48,8 +62,8 @@ export default function ChatPanel({
         </div>
         <div>{button("panel", "Collapse creative assistant", onCollapse)}</div>
       </div>
-      <div className={`chat-content ${messages.length === 0 && versions.length === 0 ? "chat-content-empty" : ""}`}>
-        {messages.length === 0 && versions.length === 0 && <ChatEmptyState disabled={saving} onSelect={value => { composer.current?.setText(value); }} />}
+      <div className={`chat-content ${hasHistory ? "" : "chat-content-empty"}`}>
+        {!hasHistory && <ChatEmptyState disabled={saving} onSelect={value => { composer.current?.setText(value); }} />}
         <div className="messages" aria-live="polite">
           {messages.map((message) => (
             <div key={message.id}>
@@ -72,6 +86,14 @@ export default function ChatPanel({
               Download effect JSON · {version.schema_version} ↓
             </a>
           ))}
+          {scopedEdits.map(({ layer, edit }) => (
+            <div key={edit.id} className="scoped-edit-message">
+              <p className="user-message">{displayPrompt(edit.prompt)}</p>
+              <p className="assistant-message">
+                Scoped edit added to {layer.name} · {edit.start.toFixed(2)}–{edit.end.toFixed(2)} s.
+              </p>
+            </div>
+          ))}
           {notice && (
             <p className="account-notice" role="status">
               {notice}
@@ -79,7 +101,7 @@ export default function ChatPanel({
           )}
         </div>
       </div>
-      <ReferenceComposer ref={composer} references={references} uploadFile={uploadFile} busy={busy} saving={saving} onSend={async (prompt, referenceIds) => {
+      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy} saving={saving} onSend={async (prompt, referenceIds) => {
         if (saving || busy) return false;
         setSaving(true); setNotice("");
         try {
@@ -91,7 +113,7 @@ export default function ChatPanel({
         finally { setSaving(false); }
       }} />
       <div className="chat-footnote">
-        Generation not connected. Sample effect shown.
+        Generation not connected. Prompts are saved for later.
       </div>
     </aside>
   );

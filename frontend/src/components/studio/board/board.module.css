@@ -1,5 +1,5 @@
-.panel { position: absolute; left: 20px; top: 96px; width: 268px; height: min(540px, calc(100% - 154px)); display: flex; flex-direction: column; z-index: 4; }
-.expanded { width: min(850px, calc(100vw - 40px)); height: calc(100% - 150px); z-index: 9; }
+.panel { position: absolute; left: 20px; top: var(--workspace-panel-top, 96px); width: 268px; bottom: var(--timeline-bottom, 12px); display: flex; flex-direction: column; z-index: 4; }
+.expanded { width: min(850px, calc(100vw - 40px)); z-index: 9; }
 .viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; background: radial-gradient(circle, #ffffff14 1px, transparent 1px) 0 0 / 18px 18px, #151a1ddd; cursor: grab; }
 .viewport:active { cursor: grabbing; }
 .dropping { outline: 1px solid #b0c4ce; outline-offset: -4px; }
@@ -108,5 +108,5 @@
 .removeConfirmation button:last-child { background: #763e36; color: #fff0ec; }
 @media (max-width: 600px) { .preview { width: calc(100vw - 20px); border-radius: 10px; }.previewStage { padding: 12px; }.previewDetails { gap: 8px; padding: 10px; }.previewHeader { padding-left: 16px; }.removeConfirmation { flex-wrap: wrap; padding: 12px; } }
 @media (max-width: 1100px) { .panel { left: 15px; width: 225px; }.expanded { width: calc(100vw - 30px); } }
-@media (max-width: 800px) { .panel { top: 80px; height: calc(100% - 325px); }.expanded { height: calc(100% - 100px); } }
+@media (max-width: 800px) { .panel { top: var(--workspace-panel-top, 80px); bottom: calc(var(--timeline-height, 200px) + var(--timeline-bottom, 12px) + 12px); }.expanded { bottom: var(--timeline-bottom, 12px); } }
 @media (max-width: 480px) { .panel { width: calc(100% - 30px); } }

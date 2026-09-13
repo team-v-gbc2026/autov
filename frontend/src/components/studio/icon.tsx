@@ -6,8 +6,15 @@ export default function Icon({
   size?: number;
 }) {
   const paths: Record<string, React.ReactNode> = {
+    edit: <path d="m16 3 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-4-4L5 15l-1 5Z" />,
+    tag: <path d="M10 3 8 21M16 3l-2 18M4 9h16M3 15h16" />,
     plus: <path d="M12 5v14M5 12h14" />,
+    eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>,
+    solo: <><path d="m4 4 6-2 6 6-2 6-10-10ZM14 14l-3 7M16 12l5 3M16 16l4 4" /></>,
+    "eye-off": <><path d="m3 3 18 18M10.5 5.1A12 12 0 0 1 12 5c6.5 0 10 7 10 7a20 20 0 0 1-3.2 4.1M6.2 6.2A20 20 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.8-1.5M10 10a3 3 0 0 0 4 4" /></>,
     arrow: <path d="m7 14 5-5 5 5M12 9v11" />,
+    download: <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />,
+    upload: <path d="M12 15V3m-5 5 5-5 5 5M4 16v5h16v-5" />,
     close: <path d="m6 6 12 12M6 18 18 6" />,
     panel: (
       <>
