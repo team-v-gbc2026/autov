@@ -1,0 +1,167 @@
+import { clamp, windowWeight } from "./evaluate";
+import type { LayerV2, VfxDocumentV2 } from "./schema-v2";
+
+// ---------------------------------------------------------------------------
+// Per-time evaluation for autov.lab/2 layers.
+//
+// Same contract as v1's evaluateLayer: tracks are keyed on layer-local time and
+// applied first, then time-windowed overrides blend on top. An override outside
+// its window contributes nothing at all (weight 0 short-circuits before any
+// arithmetic), which is what keeps out-of-window frames byte-identical to the
+// unedited document.
+//
+// The one difference is the target vocabulary: v1 targets were flat parameter
+// names, v2 targets are dotted paths into the layer object
+// ("material.ramp.stops[0].intensity", "emitter.velocity.speed[1]", ...).
+// ---------------------------------------------------------------------------
+
+type Path = (string | number)[];
+
+const pathCache = new Map<string, Path>();
+
+/** "a.b[0].c" -> ["a","b",0,"c"]. Malformed paths resolve to nothing. */
+export function parseTargetPath(target: string): Path {
+  const cached = pathCache.get(target);
+  if (cached) return cached;
+  const path: Path = [];
+  for (const token of target.match(/[a-zA-Z0-9_]+|\[\d+\]/g) ?? []) {
+    path.push(
+      token.startsWith("[") ? Number(token.slice(1, -1)) : (token as string),
+    );
+  }
+  pathCache.set(target, path);
+  return path;
+}
+
+function container(root: unknown, path: Path): Record<string, unknown> | null {
+  let node = root as Record<string, unknown> | null;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (node === null || typeof node !== "object") return null;
+    node = (node as Record<string, unknown>)[path[i] as string] as Record<
+      string,
+      unknown
+    > | null;
+  }
+  return node && typeof node === "object" ? node : null;
+}
+
+export function readTarget(root: unknown, target: string): unknown {
+  const path = parseTargetPath(target);
+  if (!path.length) return undefined;
+  const parent = container(root, path);
+  return parent ? parent[path[path.length - 1] as string] : undefined;
+}
+
+/** Writes only over an existing leaf of the same type; unknown paths are ignored. */
+export function writeTarget(root: unknown, target: string, value: unknown) {
+  const path = parseTargetPath(target);
+  if (!path.length) return;
+  const parent = container(root, path);
+  if (!parent) return;
+  const key = path[path.length - 1] as string;
+  if (typeof parent[key] !== typeof value) return;
+  parent[key] = value;
+}
+
+function sampleKeys(
+  keys: readonly (readonly [number, number])[],
+  t: number,
+  ease: string,
+) {
+  if (t >= keys[keys.length - 1][0]) return keys[keys.length - 1][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (t <= keys[i][0]) {
+      let u = clamp((t - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
+      if (ease === "smooth") u = u * u * (3 - 2 * u);
+      if (ease === "outCubic") u = 1 - (1 - u) ** 3;
+      if (ease === "inQuad") u *= u;
+      return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * u;
+    }
+  }
+  return keys[0][1];
+}
+
+function mixColor(a: string, b: string, w: number) {
+  const channels = [1, 3, 5].map((i) =>
+    Math.round(
+      parseInt(a.slice(i, i + 2), 16) * (1 - w) +
+        parseInt(b.slice(i, i + 2), 16) * w,
+    )
+      .toString(16)
+      .padStart(2, "0"),
+  );
+  return `#${channels.join("")}`;
+}
+
+export interface EvaluatedLayerV2 {
+  layer: LayerV2;
+  visible: boolean;
+  age: number;
+  /** Layer-local time normalized to 0..1; the "layerTime" ramp space. */
+  u: number;
+}
+
+/**
+ * Resolve a layer at `time`: tracks, then overrides, applied to a deep clone so
+ * the source document is never mutated.
+ */
+export function evaluateLayerV2(layer: LayerV2, time: number): EvaluatedLayerV2 {
+  const next = structuredClone(layer) as LayerV2;
+  const age = time - layer.start;
+  const span = Math.max(layer.end - layer.start, 1e-6);
+
+  for (const track of next.tracks)
+    writeTarget(
+      next,
+      track.target,
+      sampleKeys(track.keys as [number, number][], age, track.ease),
+    );
+
+  if (next.motion) {
+    const keys = next.motion.keys;
+    let offset: number[] = keys[0].slice(1);
+    if (age >= keys[keys.length - 1][0])
+      offset = keys[keys.length - 1].slice(1);
+    else
+      for (let i = 1; i < keys.length; i++)
+        if (age <= keys[i][0]) {
+          let u = clamp((age - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
+          if (next.motion.ease === "smooth") u = u * u * (3 - 2 * u);
+          offset = [1, 2, 3].map(
+            (j) => keys[i - 1][j] + (keys[i][j] - keys[i - 1][j]) * u,
+          );
+          break;
+        }
+    next.transform.position = next.transform.position.map(
+      (v, i) => v + offset[i],
+    ) as [number, number, number];
+  }
+
+  for (const override of next.overrides) {
+    const w = windowWeight(override, time);
+    // Exactly preserve protected values; no round-trip conversion at weight 0.
+    if (w === 0) continue;
+    const current = readTarget(next, override.target);
+    if (typeof override.value === "string") {
+      if (typeof current === "string")
+        writeTarget(next, override.target, mixColor(current, override.value, w));
+    } else if (typeof current === "number") {
+      writeTarget(next, override.target, current + (override.value - current) * w);
+    }
+  }
+
+  return {
+    layer: next,
+    visible: layer.enabled && age >= 0 && time < layer.end,
+    age,
+    u: clamp(age / span),
+  };
+}
+
+/** Frames a viewer or capture should sample; mirrors v1's spacing rules. */
+export function sampleTimesV2(doc: VfxDocumentV2, count = 8) {
+  const times: number[] = [];
+  for (let i = 0; i < count; i++)
+    times.push((doc.duration * i) / Math.max(1, count - 1));
+  return times;
+}

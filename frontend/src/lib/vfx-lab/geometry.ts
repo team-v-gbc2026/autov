@@ -2,14 +2,30 @@ import * as THREE from "three";
 import type { Layer } from "./schema";
 import { random } from "./evaluate";
 
+/**
+ * What `buildGeometry` actually reads off a layer. v2 layers carry a different
+ * shape, so the v2 runtime adapts to this instead of faking a whole v1 layer,
+ * and `geometry` is widened to accept v2-only names ("sphere", ...).
+ */
+export type GeometrySource = Pick<
+  Layer,
+  "id" | "kind" | "surface" | "params"
+> & { geometry?: string | null };
+
 // Bounded, deterministic meshes. No model download, arbitrary code, or frame-dependent simulation.
 export function buildGeometry(
-  layer: Layer,
+  layer: GeometrySource,
   seed: number,
 ): THREE.BufferGeometry {
   switch (layer.geometry) {
     case "plane":
       return new THREE.PlaneGeometry(2, 2);
+    case "sphere":
+      return new THREE.SphereGeometry(1, 48, 28);
+    case "disc":
+      return new THREE.CircleGeometry(1, 48);
+    case "cylinder":
+      return new THREE.CylinderGeometry(1, 1, 2, 32, 1, true);
     case "teardrop": {
       const curve = new THREE.CatmullRomCurve3(
         [

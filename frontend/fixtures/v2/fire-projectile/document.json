@@ -3,7 +3,7 @@
   "name": "Fire projectile",
   "description": "Stylized fire projectile: an eroded teardrop shell with lifting tongues, a volume of small and large flame pieces streaming back along the tail, embers, velocity-stretched sparks and a purple-grey smoke plume over a lit grid ground. Ported from the hand-built v2 spike (round 4).",
   "seed": 11,
-  "duration": 3,
+  "duration": 3.5,
   "impact": 0.4,
   "quality": {
     "style": "modern",
@@ -26,7 +26,7 @@
     "fov": 32,
     "azimuth": -0.55,
     "elevation": 0.4,
-    "framing": 0.55,
+    "framing": 0.9,
     "shake": null,
     "pushIn": null
   },
@@ -55,7 +55,7 @@
       "role": "residue",
       "kind": "particles",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [0.105007, 0.634941, -0.267173],
@@ -145,7 +145,7 @@
           "mode": "continuous",
           "window": 2.4,
           "rate": 83.33,
-          "duration": 3,
+          "duration": 3.5,
           "bursts": []
         },
         "velocity": {
@@ -221,7 +221,7 @@
       "role": "residue",
       "kind": "particles",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [0.105007, 0.634941, -0.267173],
@@ -311,7 +311,7 @@
           "mode": "continuous",
           "window": 2.4,
           "rate": 41.67,
-          "duration": 3,
+          "duration": 3.5,
           "bursts": []
         },
         "velocity": {
@@ -387,7 +387,7 @@
       "role": "secondary",
       "kind": "decal",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [-0.25, 0.01, 0],
@@ -448,7 +448,7 @@
       "role": "primary",
       "kind": "shell",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [-0.6, 0.55, 0.2],
@@ -566,7 +566,7 @@
       "role": "primary",
       "kind": "particles",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [0.187949, 0.644934, -0.322134],
@@ -662,7 +662,7 @@
           "mode": "continuous",
           "window": 1.4,
           "rate": 128.57,
-          "duration": 3,
+          "duration": 3.5,
           "bursts": []
         },
         "velocity": {
@@ -742,7 +742,7 @@
       "role": "primary",
       "kind": "particles",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [0.187949, 0.644934, -0.322134],
@@ -838,7 +838,7 @@
           "mode": "continuous",
           "window": 1.4,
           "rate": 25.71,
-          "duration": 3,
+          "duration": 3.5,
           "bursts": []
         },
         "velocity": {
@@ -918,7 +918,7 @@
       "role": "secondary",
       "kind": "particles",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [-0.6, 0.55, 0.2],
@@ -1008,7 +1008,7 @@
           "mode": "continuous",
           "window": 1.2,
           "rate": 75,
-          "duration": 3,
+          "duration": 3.5,
           "bursts": []
         },
         "velocity": {
@@ -1080,7 +1080,7 @@
       "role": "secondary",
       "kind": "particles",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [-0.6, 0.6, 0.2],
@@ -1149,7 +1149,7 @@
           "mode": "continuous",
           "window": 1.6,
           "rate": 93.75,
-          "duration": 3,
+          "duration": 3.5,
           "bursts": []
         },
         "velocity": {
@@ -1221,7 +1221,7 @@
       "role": "primary",
       "kind": "light",
       "start": 0,
-      "end": 3,
+      "end": 3.5,
       "enabled": true,
       "transform": {
         "position": [-0.45, 0.7, 0.2],

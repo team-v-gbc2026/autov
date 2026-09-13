@@ -25,7 +25,11 @@ export function random(
   h ^= h >>> 16;
   return (h >>> 0) / 4294967296;
 }
-export function windowWeight(o: Override, t: number) {
+/** Shared by v1 overrides and v2 dotted-path overrides: only the window matters. */
+export function windowWeight(
+  o: Pick<Override, "start" | "end" | "fade">,
+  t: number,
+) {
   if (t < o.start || t >= o.end) return 0;
   if (!o.fade) return 1;
   const u = clamp(Math.min((t - o.start) / o.fade, (o.end - t) / o.fade));
