@@ -25587,7 +25587,7 @@ void main() {
         background.setClearAlpha(...arguments);
       };
       this.clear = function(color = true, depth2 = true, stencil2 = true) {
-        let bits = 0;
+        let bits2 = 0;
         if (color) {
           let isIntegerFormat = false;
           if (_currentRenderTarget !== null) {
@@ -25616,19 +25616,19 @@ void main() {
               _gl.clearBufferiv(_gl.COLOR, 0, intClearColor);
             }
           } else {
-            bits |= _gl.COLOR_BUFFER_BIT;
+            bits2 |= _gl.COLOR_BUFFER_BIT;
           }
         }
         if (depth2) {
-          bits |= _gl.DEPTH_BUFFER_BIT;
+          bits2 |= _gl.DEPTH_BUFFER_BIT;
           this.state.buffers.depth.setMask(true);
         }
         if (stencil2) {
-          bits |= _gl.STENCIL_BUFFER_BIT;
+          bits2 |= _gl.STENCIL_BUFFER_BIT;
           this.state.buffers.stencil.setMask(4294967295);
         }
-        if (bits !== 0) {
-          _gl.clear(bits);
+        if (bits2 !== 0) {
+          _gl.clear(bits2);
         }
       };
       this.clearColor = function() {
@@ -28027,10 +28027,12 @@ void main() {
   var ARC_R = 1.5;
   var ARC_SWEEP = 200 * Math.PI / 180;
   var ARC_PH0 = -1.746;
-  var W_MAX = 0.46;
+  var W_MAX = 0.52;
   var N_EMBER = 40;
-  var N_TONGUE = 28;
+  var N_TONGUE = 80;
+  var N_LICK = 8;
   var N_SLIVER = 12;
+  var N_BIT = 36;
   var N_SPARK = 30;
   var N_CHSPARK = 6;
   var P = window.spikeParams = {
@@ -28066,9 +28068,9 @@ void main() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   var scene = new Scene();
   scene.background = hex("#0d0c0f");
-  var camera = new PerspectiveCamera(32, 16 / 9, 0.1, 60);
+  var camera = new PerspectiveCamera(30, 16 / 9, 0.1, 60);
   {
-    const az = -0.3, el = 0.36, dist = 5.35;
+    const az = -0.3, el = 0.35, dist = 5;
     camera.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
     camera.lookAt(0.05, 1.14, 0);
   }
@@ -28193,9 +28195,9 @@ vec2 vor(vec2 p){
   ${GLSL}
   vec3 band(float q){
     vec3 c = uC0*uI0;
-    c = mix(c, uC1*uI1, smoothstep(0.00, 0.26, q));
-    c = mix(c, uC2*uI2, smoothstep(0.26, 0.62, q));
-    c = mix(c, uC3*uI3, smoothstep(0.70, 1.00, q));
+    c = mix(c, uC1*uI1, smoothstep(0.00, 0.25, q));   // core band = outer quarter only
+    c = mix(c, uC2*uI2, smoothstep(0.25, 0.68, q));   // the broad saturated body
+    c = mix(c, uC3*uI3, smoothstep(0.74, 1.00, q));   // red-dark underside
     return c;
   }
   void main(){
@@ -28218,7 +28220,7 @@ vec2 vor(vec2 p){
     vec3 col = band(vQ) * streak;
     col += uC0 * tip * uTipHot;
     col += uEdgeC * edge * uEdgeI;
-    float al = a * vWin * uAlpha * (0.72 + 0.28*(1.0-vQ)) * (0.62 + 0.55*streak);
+    float al = a * vWin * uAlpha * (0.86 + 0.14*(1.0-vQ)) * (0.78 + 0.35*streak);
     al *= mix(1.0, 0.18 + 0.95*tip, uTipHot > 1.0 ? 1.0 : 0.0);
     al = clamp(al, 0.0, 1.0);
     gl_FragColor = vec4(col * al, al);
@@ -28268,21 +28270,21 @@ vec2 vor(vec2 p){
     });
   }
   var shadowMat = crescentMat({
-    scale: 1.14,
-    radOff: -0.095,
+    scale: 1.2,
+    radOff: -0.135,
     push: -0.035,
     seed: 3.7,
     additive: false,
-    erode: 0.18,
+    erode: 0.16,
     tipHot: 0,
     edgeI: 0.3,
-    c0: "#e2540e",
-    i0: 0.9,
-    c1: "#ad2a06",
-    i1: 0.9,
-    c2: "#6b1103",
+    c0: "#c93a09",
+    i0: 1,
+    c1: "#7a1a08",
+    i1: 1,
+    c2: "#4e0f03",
     i2: 1,
-    c3: "#3a0701",
+    c3: "#240401",
     i3: 1
   });
   var midMat = crescentMat({
@@ -28291,38 +28293,58 @@ vec2 vor(vec2 p){
     push: 0,
     seed: 1.1,
     additive: false,
-    erode: 0.14,
-    tipHot: 0.3,
-    edgeI: 0.8,
-    c0: "#fff0b4",
-    i0: 1,
-    c1: "#ffa41f",
+    erode: 0.1,
+    tipHot: 0.18,
+    edgeI: 0.7,
+    c0: "#ffeeb8",
+    i0: 0.86,
+    c1: "#ff7a1a",
     i1: 1,
-    c2: "#ee4a08",
+    c2: "#ff3c10",
     i2: 1,
-    c3: "#7d1403",
+    c3: "#8e1e05",
     i3: 1
   });
   var hiMat = crescentMat({
-    scale: 0.58,
-    radOff: 0.08,
+    scale: 0.52,
+    radOff: 0.085,
     push: 0.035,
     seed: 8.3,
     additive: true,
     erode: 0.26,
-    tipHot: 1.05,
-    edgeI: 0.3,
+    tipHot: 0.85,
+    edgeI: 0.26,
     c0: "#fff6d6",
-    i0: 0.8,
+    i0: 0.48,
     c1: "#ffc25c",
-    i1: 0.38,
+    i1: 0.24,
     c2: "#ff7c1c",
     i2: 0.12,
     c3: "#c03806",
     i3: 0.03
   });
+  var smearMat = crescentMat({
+    scale: 1.02,
+    radOff: 0,
+    push: -0.07,
+    seed: 5.9,
+    additive: true,
+    erode: 0.3,
+    tipHot: 0,
+    edgeI: 0,
+    c0: "#ff9a40",
+    i0: 0.38,
+    c1: "#ff7a1a",
+    i1: 0.35,
+    c2: "#e03208",
+    i2: 0.3,
+    c3: "#5c1003",
+    i3: 0.1
+  });
+  smearMat.uniforms.uStreak.value = 0;
   var crescent = new Group();
   var copies = [
+    { mesh: new Mesh(stripGeo, smearMat), mat: smearMat, lead: -0.06, order: 0, smear: true },
     { mesh: new Mesh(stripGeo, shadowMat), mat: shadowMat, lead: -0.04, order: 1 },
     { mesh: new Mesh(stripGeo, midMat), mat: midMat, lead: 0, order: 2 },
     { mesh: new Mesh(stripGeo, hiMat), mat: hiMat, lead: 0.04, order: 3 }
@@ -28400,8 +28422,8 @@ vec2 vor(vec2 p){
       float u = clamp((0.10 - d) / 0.50, 0.0, 1.0);
       float live = step(d, 0.10) * step(-0.40, d) * step(s, uHead) * sin(3.14159*u);
       vec3 c = arcAt(s) + arcTan(s)*(-0.06 - 0.30*u*h2) + uN*(h3-0.5)*0.10;
-      c += vec3(0.0, 0.22*u*(0.4+h2), 0.0);
-      float size = (0.22 + 0.26*h2) * (0.30 + 0.90*sin(3.14159*clamp(u,0.0,1.0)));
+      c += vec3(0.0, 0.34*u*(0.35+h2), 0.0);            // the licks drift up as they tear
+      float size = (0.15 + 0.35*h2) * (0.30 + 0.90*sin(3.14159*clamp(u,0.0,1.0)));
       vA = live * (0.62 + 0.38*sin(uTime*9.0 + aSeed*2.3));
       vErode = u; vSeed = aSeed; vUv = uv;
       vec2 p = position.xy;
@@ -28421,6 +28443,84 @@ vec2 vor(vec2 p){
   tongues.renderOrder = 4;
   tongues.frustumCulled = false;
   scene.add(tongues);
+  function lickGeo(n) {
+    const NS = 14, pos = [], idx = [];
+    for (let i = 0; i <= NS; i++) {
+      const u = i / NS;
+      pos.push(u, -1, 0, u, 1, 0);
+    }
+    for (let i = 0; i < NS; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    const g = new InstancedBufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    const seed = new Float32Array(n), side = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      seed[i] = i * 3.7 + 1.3;
+      side[i] = i % 2 === 0 ? 1 : -1;
+    }
+    g.setAttribute("aSeed", new InstancedBufferAttribute(seed, 1));
+    g.setAttribute("aSide", new InstancedBufferAttribute(side, 1));
+    g.instanceCount = n;
+    g.boundingSphere = new Sphere(ARC_C.clone(), 6);
+    return g;
+  }
+  var lickMat = new ShaderMaterial({
+    uniforms: Object.assign(arcUniforms(), {
+      uTime: { value: 0 },
+      uTail: { value: 0 },
+      uI: { value: 0 },
+      uHot: { value: hex("#ffc457") },
+      uBody: { value: hex("#ff6412") }
+    }),
+    vertexShader: `
+    attribute float aSeed, aSide; uniform float uTime, uTail;
+    varying float vS, vSeed, vA;
+    ${GLSL} ${BILLBOARD} ${ARC_GLSL}
+    void main(){
+      float u = position.x, v = position.y;
+      float k = floor(uTime*10.0) + aSeed;             // flipbook: the shape holds 1/10 s
+      float L = 0.32 + 0.46*hash11(k*1.31);
+      float W = 0.14 + 0.26*hash11(k*3.77+2.1);
+      float h1 = hash11(aSeed*2.3+0.4), h2 = hash11(aSeed*4.9+6.6);
+      float birth = 0.65 + 0.34*h1;                    // peel off between 0.65 and 1.10
+      float life = 0.28 + 0.30*h2;
+      float age = uTime - birth;
+      float a01 = clamp(age/life, 0.0, 1.0);
+      float alive = step(0.0, age)*step(a01, 0.999);
+      float sb = clamp(uTail + 0.03 + 0.16*h2, 0.0, 1.0);
+      vec3 base = arcAt(sb) + uN*(h1-0.5)*0.10 + vec3(0.0, 0.30*a01*(0.4+h2), 0.0);
+      vec3 R = bbRight(), Up = bbUp();
+      vec3 tn = -arcTan(sb);                           // the licks trail behind the sweep
+      vec2 dir = normalize(vec2(dot(tn,R), dot(tn,Up)) + vec2(0.0, 0.55) + vec2(1e-4));
+      vec2 pr = vec2(-dir.y, dir.x);
+      float w = W*0.5 * pow(u+0.06, 0.30) * pow(max(1.0-u, 0.0), 0.85);
+      float curl = 0.22*sin(u*3.0 + h1*6.2831)*u*aSide;
+      vec2 q = dir*(u*L*(0.45+0.85*a01)) + pr*(aSide*0.045 + curl + v*w);
+      vS = u; vSeed = aSeed;
+      vA = alive * sin(3.14159*pow(a01, 0.7));
+      vec3 wp = base + (R*q.x + Up*q.y)*alive;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(wp, 1.0);
+    }`,
+    fragmentShader: `
+    varying float vS, vSeed, vA; uniform vec3 uHot, uBody; uniform float uI;
+    void main(){
+      float a = vA*uI;
+      if (a <= 0.004) discard;
+      vec3 col = vS < 0.42 ? uHot : uBody;             // two flat bands: cel, not gradient
+      gl_FragColor = vec4(col*a, a);                   // premultiplied
+    }`,
+    transparent: true,
+    premultipliedAlpha: true,
+    depthWrite: false,
+    side: DoubleSide
+  });
+  var licks = new Mesh(lickGeo(N_LICK), lickMat);
+  licks.renderOrder = 4;
+  licks.frustumCulled = false;
+  scene.add(licks);
   var emberMat = new ShaderMaterial({
     uniforms: Object.assign(arcUniforms(), {
       uTime: { value: 0 },
@@ -28500,9 +28600,12 @@ vec2 vor(vec2 p){
       vec2 d = vec2(cos(ang), sin(ang));
       vec2 pr = vec2(-d.y, d.x);
       float along = (position.x+0.5);
-      float halfw = (0.020 + 0.030*h3) * (1.0 - along) * (0.25 + 0.9*sin(3.14159*along));
+      float halfw = (0.008 + 0.052*h3*h3) * (1.0 - along) * (0.25 + 0.9*sin(3.14159*along));
       float start = 0.10 + 0.22*h1;
-      vec2 q = d*(start + len*grow*along) + pr*position.y*2.0*halfw;
+      // 2-3 hashed bends, so no two slivers are the same straight needle
+      float bends = 2.0 + floor(h2*2.0);
+      float bend = (0.055 + 0.10*h1) * sin(along*3.14159*bends + h3*6.2831) * along;
+      vec2 q = d*(start + len*grow*along) + pr*(position.y*2.0*halfw + bend);
       vUv = vec2(along, position.y+0.5);
       vec3 wp = uP + bbRight()*q.x + bbUp()*q.y;
       gl_Position = projectionMatrix*modelViewMatrix*vec4(wp,1.0);
@@ -28523,6 +28626,55 @@ vec2 vor(vec2 p){
   slivers.renderOrder = 6;
   slivers.frustumCulled = false;
   scene.add(slivers);
+  var bitMat = new ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uI: { value: 0 },
+      uP: { value: IMPACT },
+      uCol: { value: hex("#ffa33a") },
+      uHot: { value: hex("#fff2cc") }
+    },
+    vertexShader: `
+    attribute float aSeed; uniform float uTime, uI; uniform vec3 uP;
+    varying vec2 vQ; varying float vA;
+    ${GLSL} ${BILLBOARD}
+    void main(){
+      float par = floor(aSeed/3.0);                    // which sliver this bit rides
+      float h1 = hash11(par*1.7+0.9), h2 = hash11(par*3.1+5.5), h3 = hash11(par*6.7+17.3);
+      float g1 = hash11(aSeed*2.9+3.3), g2 = hash11(aSeed*5.3+9.1);
+      float ang = (par/${N_SLIVER}.0)*6.2831853 + (h1-0.5)*0.42;
+      ang = ang*0.78 + 1.5707963*0.30 + (g1-0.5)*0.22;
+      float len = 0.45 + 0.75*h2;
+      float u = clamp(uTime/(0.14 + 0.10*h3), 0.0, 1.0);
+      float grow = 1.0 - pow(1.0-u, 3.0);
+      float fade = 1.0 - smoothstep(0.30, 1.0, clamp(uTime/(0.34+0.20*g2), 0.0, 1.0));
+      vA = uI*fade*(0.45 + 0.55*sin(uTime*34.0 + aSeed*5.1));
+      vec2 d = vec2(cos(ang), sin(ang));
+      vec2 pr = vec2(-d.y, d.x);
+      float at = 0.25 + 0.70*g1;                       // where along the sliver it sits
+      float bl = (0.06 + 0.14*g2);                     // short
+      float along = (position.x+0.5);
+      float r = 0.10 + len*grow*(at + bl*(along-0.5));
+      float halfw = (0.010 + 0.012*g2)*(0.4 + 0.9*sin(3.14159*along));
+      vec2 q = d*r + pr*(position.y*2.0*halfw + (g2-0.5)*0.05);
+      vQ = vec2(along, position.y+0.5)*2.0-1.0;
+      vec3 wp = uP + bbRight()*q.x + bbUp()*q.y;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(wp,1.0);
+    }`,
+    fragmentShader: `varying vec2 vQ; varying float vA; uniform vec3 uCol, uHot;
+    void main(){
+      float across = abs(vQ.y);
+      float a = (1.0-smoothstep(0.30,1.0,across))*(1.0-smoothstep(0.5,1.0,abs(vQ.x)))*vA;
+      gl_FragColor = vec4(mix(uCol,uHot,1.0-across)*a*1.5, a);
+    }`,
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending
+  });
+  var bits = new Mesh(quads(N_BIT, 1), bitMat);
+  bits.renderOrder = 6;
+  bits.frustumCulled = false;
+  scene.add(bits);
   var flashMat = new ShaderMaterial({
     uniforms: { uI: { value: 0 }, uCol: { value: hex("#ffe3a0") } },
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
@@ -28687,20 +28839,27 @@ vec2 vor(vec2 p){
       u.uTail.value = tailOf(tt);
       u.uTear.value = 0.9 * tear;
       u.uWiden.value = 0.42 * tear;
-      u.uAlpha.value = 1;
-      c.mesh.visible = L.crescent && headOf(tt) > 2e-3 && tailOf(tt) < 0.999;
+      u.uAlpha.value = c.smear ? 0.4 * ss(T_SW0, T_SW0 + 0.06, t) * (1 - ss(T_TE0 + 0.05, T_TE0 + 0.3, t)) : 1;
+      c.mesh.visible = L.crescent && headOf(tt) > 2e-3 && tailOf(tt) < 0.999 && u.uAlpha.value > 0.01;
     }
     crescent.visible = L.crescent;
     tongueMat.uniforms.uTime.value = t;
     tongueMat.uniforms.uTail.value = tailOf(t);
     tongueMat.uniforms.uHead.value = headOf(t);
     tongues.visible = L.tongues && t > T_SW0 && t < T_TE1 + 0.3;
+    lickMat.uniforms.uTime.value = t;
+    lickMat.uniforms.uTail.value = tailOf(t);
+    lickMat.uniforms.uI.value = L.tongues ? 0.85 : 0;
+    licks.visible = L.tongues && t > T_TE0 - 0.05 && t < 1.35;
     emberMat.uniforms.uTime.value = t;
     embers.visible = L.embers && t > T_SW0;
     const bt = t - T_BURST;
     sliverMat.uniforms.uTime.value = Math.max(0, bt);
     sliverMat.uniforms.uI.value = bt >= 0 ? 1 : 0;
     slivers.visible = L.burst && bt >= 0 && bt < 0.55;
+    bitMat.uniforms.uTime.value = Math.max(0, bt);
+    bitMat.uniforms.uI.value = bt >= 0 ? 1 : 0;
+    bits.visible = L.burst && bt >= 0 && bt < 0.7;
     sparkMat.uniforms.uTime.value = Math.max(0, bt);
     sparkMat.uniforms.uI.value = bt >= 0 ? 1 : 0;
     sparks.visible = L.burst && bt >= 0 && bt < 1.3;
@@ -28756,8 +28915,8 @@ vec2 vor(vec2 p){
     P.time = t;
     apply(t);
   };
-  window.spikeMats = { shadowMat, midMat, hiMat, tongueMat, emberMat, sliverMat, sparkMat, flashMat, emberPuffMat };
-  window.spikeObjs = { crescent, tongues, embers, slivers, sparks, flash, emberPuff };
+  window.spikeMats = { shadowMat, midMat, hiMat, smearMat, lickMat, bitMat, tongueMat, emberMat, sliverMat, sparkMat, flashMat, emberPuffMat };
+  window.spikeObjs = { crescent, tongues, licks, bits, embers, slivers, sparks, flash, emberPuff };
   window.spikePieces = { arc: { c: ARC_C, ex: ARC_EX, ey: ARC_EY, r: ARC_R, sweep: ARC_SWEEP, ph0: ARC_PH0 }, copies };
   window.__spikeReady = true;
 })();
