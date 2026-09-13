@@ -77,7 +77,10 @@ export async function callModel<T extends z.ZodType>(
   // On timeout, disconnection or failed parsing, retain the reservation: a remote call may still be billable.
   const client = new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 0 });
   const startedAt = Date.now();
-  const response = await client.responses.create(
+  // Stream so response headers arrive at once. Long v2 document calls otherwise
+  // exceed Node's undici headersTimeout (300 s) before the SDK timeout, because a
+  // non-streamed Responses call sends no headers until the whole answer is ready.
+  const stream = client.responses.stream(
     {
       model,
       store: false,
@@ -102,6 +105,7 @@ export async function callModel<T extends z.ZodType>(
     },
     { signal },
   );
+  const response = await stream.finalResponse();
   const usage: Usage = {
     input: response.usage?.input_tokens || 0,
     output: response.usage?.output_tokens || 0,
