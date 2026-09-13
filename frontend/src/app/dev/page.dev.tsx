@@ -37,6 +37,16 @@ const cards = [
     body: "Standalone renderer spike served from dev-assets/vfx-v2/spike.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-heal",
+    title: "Toolbox v2 spike — healing aura",
+    body: "Standalone healing-aura spike served from dev-assets/vfx-v2/spike-heal.html.",
+  },
+  {
+    href: "/dev/vfx-v2/spike-smoke",
+    title: "Toolbox v2 spike — smoke burst",
+    body: "Blob-mesh anime smoke spike served from dev-assets/vfx-v2/spike-smoke.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
