@@ -1,0 +1,420 @@
+// autoV toolbox v2 — S1 hand-built spike: "fire projectile" (no LLM)
+// Everything is state = f(time, seed). No simulation, no history.
+import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+const TEX = window.__SPIKE_TEXTURES__ || {};
+const params = {
+  play: true, time: 0, speed: 1,
+  aa: true, textures: true, erosion: true, curl: true, light: true, post: true, ground: true,
+  smoke: true, sparks: true, tongues: true, embers: true, shell: true, decal: true,
+  bloom: 0.45, threshold: 1.3, exposure: 1.0,
+};
+window.spikeParams = params;
+
+// ---------- GLSL common ----------
+const glslNoise = /* glsl */`
+vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.); const vec4 D=vec4(0.,.5,1.,2.);
+  vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));
+  float n_=.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.*x_);
+  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.+1.; vec4 s1=floor(b1)*2.+1.; vec4 sh=-step(h,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.); m=m*m;
+  return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+float fbm3(vec3 p){ return .5*snoise(p)+.25*snoise(p*2.02+7.)+.125*snoise(p*4.05+3.)+.0625*snoise(p*8.1+1.); }
+vec3 curl3(vec3 p){
+  float e=.1;
+  vec3 dx=vec3(e,0.,0.), dy=vec3(0.,e,0.), dz=vec3(0.,0.,e);
+  // three potential fields a,b,c (offset copies of the same noise)
+  float dady=snoise(p+dy)-snoise(p-dy), dadz=snoise(p+dz)-snoise(p-dz);
+  float dbdx=snoise(p+dx+31.4)-snoise(p-dx+31.4), dbdz=snoise(p+dz+31.4)-snoise(p-dz+31.4);
+  float dcdx=snoise(p+dx-17.2)-snoise(p-dx-17.2), dcdy=snoise(p+dy-17.2)-snoise(p-dy-17.2);
+  vec3 c=vec3(dcdy-dbdz, dadz-dcdx, dbdx-dady);
+  return c/(2.*e);
+}
+`;
+const glslRamp = /* glsl */`
+uniform vec4 uRamp[6]; uniform int uRampN;
+vec3 ramp(float u){
+  u=clamp(u,0.,1.);
+  vec3 c=uRamp[0].rgb*uRamp[0].a; float prev=uRampT[0];
+  for(int i=1;i<6;i++){ if(i>=uRampN) break; float t=uRampT[i]; vec3 ci=uRamp[i].rgb*uRamp[i].a; float f=smoothstep(prev,t,u); c=mix(c,ci,f); prev=t; }
+  return c;
+}
+`;
+const glslRampHead = `uniform float uRampT[6];`;
+const glslCurve = /* glsl */`
+uniform vec2 uCurveA[8]; uniform int uCurveAN;
+float curveA(float u){ u=clamp(u,0.,1.); float v=uCurveA[0].y; for(int i=1;i<8;i++){ if(i>=uCurveAN) break; float f=smoothstep(uCurveA[i-1].x,uCurveA[i].x,u); v=mix(v,uCurveA[i].y,f);} return v; }
+uniform vec2 uCurveB[8]; uniform int uCurveBN;
+float curveB(float u){ u=clamp(u,0.,1.); float v=uCurveB[0].y; for(int i=1;i<8;i++){ if(i>=uCurveBN) break; float f=smoothstep(uCurveB[i-1].x,uCurveB[i].x,u); v=mix(v,uCurveB[i].y,f);} return v; }
+uniform vec2 uCurveC[8]; uniform int uCurveCN;
+float curveC(float u){ u=clamp(u,0.,1.); float v=uCurveC[0].y; for(int i=1;i<8;i++){ if(i>=uCurveCN) break; float f=smoothstep(uCurveC[i-1].x,uCurveC[i].x,u); v=mix(v,uCurveC[i].y,f);} return v; }
+`;
+const glslSoft = /* glsl */`
+uniform sampler2D tDepth; uniform vec2 uResolution; uniform float uNear,uFar,uSoft;
+float linDepth(float z){ float zn=z*2.-1.; return (2.*uNear*uFar)/(uFar+uNear-zn*(uFar-uNear)); }
+float softDepth(){
+  if(uSoft<=0.) return 1.;
+  vec2 sc=gl_FragCoord.xy/uResolution; float sd=linDepth(texture2D(tDepth,sc).x); float fd=linDepth(gl_FragCoord.z);
+  return clamp((sd-fd)/uSoft,0.,1.);
+}
+`;
+
+// ---------- helpers ----------
+function hex(h){ return new THREE.Color(h); }
+function rampUniforms(stops){
+  const arr=[]; const ts=[];
+  for(let i=0;i<6;i++){ const s=stops[Math.min(i,stops.length-1)]; const c=hex(s.color); arr.push(new THREE.Vector4(c.r,c.g,c.b,s.intensity)); ts.push(s.t); }
+  return { uRamp:{value:arr}, uRampT:{value:ts}, uRampN:{value:stops.length} };
+}
+function curveUniform(name, keys){
+  const arr=[]; for(let i=0;i<8;i++){ const k=keys[Math.min(i,keys.length-1)]; arr.push(new THREE.Vector2(k[0],k[1])); }
+  return { [`uCurve${name}`]:{value:arr}, [`uCurve${name}N`]:{value:keys.length} };
+}
+function loadTex(id, opts={}){
+  const t=new THREE.Texture(); const img=new Image();
+  img.onload=()=>{ t.image=img; t.needsUpdate=true; };
+  img.src=TEX[id];
+  t.colorSpace = opts.color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.wrapS=t.wrapT= opts.repeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  t.minFilter=THREE.LinearMipmapLinearFilter; t.magFilter=THREE.LinearFilter; t.anisotropy=4;
+  return t;
+}
+const texNoise=loadTex("noise-cloud-tile-01",{repeat:true});
+const texNoise2=loadTex("noise-cloud-tile-02",{repeat:true});
+const texFlame=loadTex("flame-atlas");
+const texFire=loadTex("fire-atlas"); // 2x2 mix of irregular blob / lick cluster / tongue cluster / soft falloff
+const texSmoke=loadTex("smoke-atlas");
+const texSpark=loadTex("spark-dot-01");
+const texGlow=loadTex("ground-glow-01");
+const texSoft=loadTex("mask-soft-01");
+const white=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1); white.needsUpdate=true;
+
+// ---------- scene ----------
+const canvas=document.getElementById("c");
+const renderer=new THREE.WebGLRenderer({canvas, antialias:false, powerPreference:"high-performance"});
+renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=params.exposure;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+const scene=new THREE.Scene(); scene.background=hex("#1b1a1f"); scene.fog=new THREE.FogExp2(hex("#1b1a1f").getHex(),0.03);
+const camera=new THREE.PerspectiveCamera(32,16/9,0.1,60);
+// reference camera: elevated ~22°, fireball sits lower-left, tail runs to the upper-right
+const HEAD=new THREE.Vector3(-0.6,0.55,0.2); const TAIL=new THREE.Vector3(0.83,0.10,-0.55).normalize(); // direction the tail streams
+{ const az=-0.55, el=0.40, dist=6.6; camera.position.set(Math.sin(az)*Math.cos(el)*dist, Math.sin(el)*dist, Math.cos(az)*Math.cos(el)*dist).add(new THREE.Vector3(0.6,0,0)); camera.lookAt(0.45,0.25,-0.2); }
+
+// ground: plane + procedural grid, lit by point light
+const groundUniforms={ uGrid:{value:hex("#9a9cab")}, uBase:{value:hex("#2b2a2f")}, uGlowT:{value:0} };
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(60,60), new THREE.MeshStandardMaterial({color:hex("#4a4952"), roughness:0.9, metalness:0}));
+ground.material.onBeforeCompile=(sh)=>{
+  sh.uniforms.uGrid=groundUniforms.uGrid;
+  sh.vertexShader=sh.vertexShader.replace("#include <common>","#include <common>\nvarying vec3 vWp;").replace("#include <worldpos_vertex>","#include <worldpos_vertex>\nvWp=(modelMatrix*vec4(transformed,1.)).xyz;");
+  sh.fragmentShader=sh.fragmentShader.replace("#include <common>","#include <common>\nuniform vec3 uGrid; varying vec3 vWp;")
+    .replace("#include <color_fragment>",`#include <color_fragment>
+      vec2 g=abs(fract(vWp.xz*1.0-0.5)-0.5)/fwidth(vWp.xz*1.0); float line=1.-min(min(g.x,g.y),1.);
+      vec2 g2=abs(fract(vWp.xz*4.0-0.5)-0.5)/fwidth(vWp.xz*4.0); float line2=1.-min(min(g2.x,g2.y),1.);
+      diffuseColor.rgb=mix(diffuseColor.rgb, uGrid, line*0.30+line2*0.07);`);
+};
+ground.rotation.x=-Math.PI/2; ground.position.y=0; ground.receiveShadow=false; scene.add(ground);
+scene.add(new THREE.HemisphereLight(hex("#8a8894").getHex(), hex("#3a3840").getHex(), 5));
+const fireLight=new THREE.PointLight(hex("#ffa24a").getHex(), 12, 14, 2); fireLight.position.copy(HEAD); scene.add(fireLight);
+const fireLight2=new THREE.PointLight(hex("#7a3fc0").getHex(), 3, 8, 2); scene.add(fireLight2);
+
+// ---------- depth pre-pass target (soft particles) ----------
+const depthRT=new THREE.WebGLRenderTarget(1,1,{depthTexture:new THREE.DepthTexture(1,1,THREE.UnsignedIntType), depthBuffer:true});
+const depthMat=new THREE.MeshDepthMaterial();
+
+// ---------- particle system (analytic) ----------
+function makeParticles(cfg){
+  const {count}=cfg;
+  const geo=new THREE.InstancedBufferGeometry(); const plane=new THREE.PlaneGeometry(1,1);
+  geo.index=plane.index; geo.attributes.position=plane.attributes.position; geo.attributes.uv=plane.attributes.uv;
+  const seed=new Float32Array(count*4), extra=new Float32Array(count*4), extra2=new Float32Array(count*4);
+  let s=cfg.seed||1; const rnd=()=>{ s=(s*16807)%2147483647; return (s-1)/2147483646; };
+  for(let i=0;i<count;i++){ for(let k=0;k<4;k++){ seed[i*4+k]=rnd(); extra[i*4+k]=rnd(); extra2[i*4+k]=rnd(); } }
+  geo.setAttribute("aSeed",new THREE.InstancedBufferAttribute(seed,4));
+  geo.setAttribute("aExtra",new THREE.InstancedBufferAttribute(extra,4));
+  geo.setAttribute("aExtra2",new THREE.InstancedBufferAttribute(extra2,4));
+  geo.instanceCount=count;
+  const uniforms=Object.assign({
+    uTime:{value:0}, uCount:{value:count}, uPeriod:{value:cfg.period}, uSpawnWindow:{value:cfg.spawnWindow ?? cfg.period},
+    uOrigin:{value:cfg.origin.clone()}, uAxis:{value:cfg.axis.clone()}, uSpawnLen:{value:cfg.spawnLength||0}, uSpawnRadius:{value:cfg.spawnRadius||0}, uUpBias:{value:cfg.upBias||0}, uMinY:{value:cfg.minY??-1e3}, uFrontFade:{value:cfg.frontFade?1:0},
+    uLife:{value:new THREE.Vector2(...cfg.life)}, uSpeed:{value:new THREE.Vector2(...cfg.speed)}, uDir:{value:cfg.dir.clone()}, uSpread:{value:cfg.spread ?? 1},
+    uGravity:{value:cfg.gravity||new THREE.Vector3()}, uDrag:{value:cfg.drag||0}, uWind:{value:cfg.wind||new THREE.Vector3()},
+    uCurl:{value:cfg.curl||0}, uCurlFreq:{value:cfg.curlFreq||1}, uCurlSpeed:{value:cfg.curlSpeed||1},
+    uSize:{value:new THREE.Vector2(...cfg.size)}, uStretch:{value:cfg.stretch||0}, uAlign:{value:cfg.align?1:0},
+    uRot:{value:new THREE.Vector2(...(cfg.rotSpeed||[0,0]))}, uRandomRot:{value:cfg.randomRot?1:0},
+    uMask:{value:cfg.mask||white}, uHasMask:{value:cfg.mask?1:0}, uAtlas:{value:cfg.atlas||1}, uTilesUsed:{value:cfg.tiles||(cfg.atlas||1)*(cfg.atlas||1)}, uSkipTile:{value:cfg.skipTile??-1},
+    uNoise:{value:cfg.noise||texNoise}, uNoiseScale:{value:cfg.noiseScale||1}, uNoisePan:{value:cfg.noisePan||new THREE.Vector2(0,0.2)}, uDistort:{value:cfg.distort||0},
+    uErodeSoft:{value:cfg.erodeSoft||0.1}, uEdgeW:{value:cfg.edgeWidth||0}, uEdgeCol:{value:hex(cfg.edgeColor||"#ffffff")}, uEdgeI:{value:cfg.edgeIntensity||0}, uUseErosion:{value:1},
+    uOpacity:{value:cfg.opacity??1}, uPremul:{value:cfg.blend==="alpha"?1:0}, uBlendAdd:{value:cfg.blend==="additive"?1:0},
+    tDepth:{value:depthRT.depthTexture}, uResolution:{value:new THREE.Vector2(1,1)}, uNear:{value:camera.near}, uFar:{value:camera.far}, uSoft:{value:cfg.soft||0},
+    uLightDir:{value:new THREE.Vector3(0,1,0)}, uLit:{value:cfg.lit||0}, uLitColor:{value:hex("#ff7a2a")},
+  }, rampUniforms(cfg.ramp), curveUniform("A",cfg.sizeCurve||[[0,1],[1,1]]), curveUniform("B",cfg.alphaCurve||[[0,1],[1,1]]), curveUniform("C",cfg.erosionCurve||[[0,0],[1,1]]));
+  const mat=new THREE.ShaderMaterial({
+    uniforms, transparent:true, depthWrite:false, depthTest:true, side:THREE.DoubleSide,
+    blending: cfg.blend==="additive"?THREE.AdditiveBlending: cfg.blend==="alpha"?THREE.NormalBlending: THREE.CustomBlending,
+    blendSrc:THREE.OneFactor, blendDst:THREE.OneMinusSrcAlphaFactor,
+    vertexShader: /* glsl */`
+      attribute vec4 aSeed, aExtra, aExtra2; uniform float uTime,uCount,uPeriod,uSpawnWindow,uSpawnLen,uSpawnRadius,uUpBias,uMinY,uFrontFade,uSpread,uDrag,uCurl,uCurlFreq,uCurlSpeed,uStretch,uTilesUsed,uSkipTile; uniform int uAlign,uRandomRot,uAtlas;
+      uniform vec3 uOrigin,uAxis,uDir,uGravity,uWind; uniform vec2 uLife,uSpeed,uSize,uRot;
+      varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+      ${glslNoise} ${glslCurve}
+      vec3 ortho(vec3 a){ return normalize(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0))); }
+      void main(){
+        vUv=uv; vSeed=aExtra2.xyz;
+        float birth=aSeed.x*uSpawnWindow; float life=mix(uLife.x,uLife.y,aSeed.y);
+        float age=mod(uTime-birth+uPeriod*4., uPeriod); // continuous looping emitter
+        if(age>=life || uTime<birth){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); return; }
+        float u=age/life; vU=u;
+        // spawn position: along the axis (tail) + random sphere
+        float ca=aExtra.x*6.2831853, cz=aExtra.y*2.-1., cr=sqrt(max(0.,1.-cz*cz));
+        vec3 sph=vec3(cr*cos(ca),cz,cr*sin(ca))*pow(aExtra.z,.5);
+        // upper-hemisphere bias: mirror the lower half up so licks peel off the top of the tail
+        sph.y=mix(sph.y, abs(sph.y), uUpBias);
+        vec3 origin=uOrigin+uAxis*(uSpawnLen*aExtra.w)+sph*uSpawnRadius+vec3(0.,1.,0.)*uUpBias*.42*aExtra.w;
+        // velocity: direction cone
+        vec3 t1=ortho(uDir), t2=cross(uDir,t1);
+        float ph=aSeed.z*6.2831853, cone=aSeed.w*uSpread;
+        vec3 dir=normalize(uDir+ (t1*cos(ph)+t2*sin(ph))*cone);
+        float v0=mix(uSpeed.x,uSpeed.y,aExtra2.w);
+        float d=uDrag<.001?age:(1.-exp(-uDrag*age))/uDrag;
+        vec3 pos=origin+dir*v0*d+.5*uGravity*age*age+uWind*age;
+        vec3 vel=dir*v0*exp(-uDrag*age)+uGravity*age+uWind;
+        if(uCurl>0.){ vec3 c=curl3(pos*uCurlFreq+vec3(0.,-uTime*uCurlSpeed,0.)+vSeed*3.); float env=smoothstep(0.,.25,u); pos+=c*uCurl*env*age; }
+        // soft floor: stragglers get lifted back toward the tail line instead of sinking to the ground
+        pos.y=uMinY+max(pos.y-uMinY, (pos.y-uMinY)*.15);
+        vWp=pos;
+        float size=mix(uSize.x,uSize.y,aExtra2.x)*curveA(u);
+        vec4 mv=modelViewMatrix*vec4(pos,1.);
+        vec3 sv3=(modelViewMatrix*vec4(vel,0.)).xyz;
+        vec2 sv=vec2(sv3.x,sv3.y);
+        float svl=length(sv);
+        float rot=(uRandomRot==1?aExtra2.y*6.2831853:0.)+mix(uRot.x,uRot.y,aExtra2.z)*age;
+        vec2 along=vec2(0.,1.);
+        vec2 across=vec2(1.,0.);
+        float stretch=1.;
+        if(uAlign==1 && svl>1e-4){ along=sv/svl; across=vec2(along.y,-along.x); rot=0.; stretch=1.+uStretch*svl; }
+        vRot=rot;
+        mv.xy+=across*position.x*size+along*position.y*size*stretch;
+        gl_Position=projectionMatrix*mv;
+        vAlpha=curveB(u)*smoothstep(0.,.03,age);
+        // flecks born near the front of the spawn line stay faint so they never wash out the head
+        vAlpha*=mix(1., smoothstep(.05,.6,aExtra.w), uFrontFade);
+        // atlas tile pick
+        float tiles=float(uAtlas); float ti=floor(aExtra.z*uTilesUsed*.9999); if(uSkipTile>=0. && ti>=uSkipTile) ti+=1.; vTile=vec2(mod(ti,tiles),floor(ti/tiles))/tiles;
+      }`,
+    fragmentShader: /* glsl */`
+      precision highp float;
+      uniform sampler2D uMask,uNoise; uniform int uHasMask,uAtlas,uUseErosion,uPremul,uBlendAdd,uLit; uniform float uTime,uNoiseScale,uDistort,uErodeSoft,uEdgeW,uEdgeI,uOpacity; uniform vec2 uNoisePan; uniform vec3 uEdgeCol,uLightDir,uLitColor;
+      varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+      ${glslRampHead} ${glslRamp} ${glslCurve} ${glslSoft}
+      void main(){
+        if(vAlpha<=0.) discard;
+        vec2 p=vUv-.5; float c=cos(vRot), s=sin(vRot); p=mat2(c,-s,s,c)*p; vec2 uv=p+.5;
+        vec2 nuv=uv*uNoiseScale+uNoisePan*uTime+vSeed.xy*7.;
+        float n=texture2D(uNoise,nuv).r;
+        float n2=texture2D(uNoise,nuv*1.7+vec2(.3,.1)-uNoisePan*uTime*.6).r;
+        n=n*.65+n2*.35;
+        vec2 duv=uv+(n-.5)*uDistort*(.4+vU);
+        float inside=step(0.,duv.x)*step(duv.x,1.)*step(0.,duv.y)*step(duv.y,1.);
+        vec2 auv=duv/float(uAtlas)+vTile;
+        vec4 m=uHasMask==1?texture2D(uMask,auv):vec4(1.);
+        float shape=uHasMask==1?m.a*max(m.r,max(m.g,m.b)):smoothstep(.5,.1,length(p));
+        shape*=inside;
+        float th=curveC(vU);
+        float field=mix(shape, shape*(.35+n*.9), uUseErosion==1?1.:0.);
+        float er=uUseErosion==1?smoothstep(th,th+uErodeSoft,field):shape;
+        float edge=uUseErosion==1?(smoothstep(th-uEdgeW,th+uErodeSoft*.5,field)-er):0.;
+        vec3 col=ramp(vU);
+        col+=uEdgeCol*uEdgeI*edge*shape;
+        float a=er*vAlpha*uOpacity*softDepth();
+        if(uLit==1){ float prox=1./(1.+dot(uLightDir-vWp,uLightDir-vWp)*.6); col=col*(.6+.4*n)+uLitColor*.08*prox*(.4+.6*n)*(1.-vU*.5); }
+        if(a<.002) discard;
+        if(uBlendAdd==1) gl_FragColor=vec4(col*a,a);
+        else if(uPremul==1) gl_FragColor=vec4(col,a);
+        else gl_FragColor=vec4(col*a,a);
+      }`,
+  });
+  const mesh=new THREE.Mesh(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=cfg.order||10; scene.add(mesh);
+  return {mesh,mat,uniforms,cfg};
+}
+
+// ---------- flame shell (mesh, stylized tongues) ----------
+function makeShell(){
+  const geo=new THREE.SphereGeometry(1,96,64); // deformed in vertex shader into a teardrop along +z
+  const uniforms=Object.assign({ uTime:{value:0}, uUseErosion:{value:1}, uUseNoise:{value:1}, uNoise:{value:texNoise2}, uHead:{value:HEAD.clone()}, uAxis:{value:TAIL.clone()}, uLen:{value:3.6}, uRad:{value:0.42}, uOpacity:{value:1}, uCam:{value:camera.position} },
+    rampUniforms([
+      {t:0.0,color:"#fff2c8",intensity:1.05},{t:0.08,color:"#ffbe10",intensity:0.85},{t:0.28,color:"#ff8f1e",intensity:0.9},{t:0.55,color:"#e03a2e",intensity:0.8},{t:0.78,color:"#7a2470",intensity:0.45},{t:1.0,color:"#2a1233",intensity:0.25}]));
+  const mat=new THREE.ShaderMaterial({ uniforms, transparent:true, depthWrite:false, side:THREE.DoubleSide, blending:THREE.NormalBlending,
+    vertexShader:/* glsl */`
+      uniform float uTime,uLen,uRad; uniform vec3 uHead,uAxis; varying vec3 vN,vWp; varying float vAlong,vLobe; varying vec2 vUv;
+      ${glslNoise}
+      vec3 ortho(vec3 a){ return normalize(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0))); }
+      void main(){
+        vUv=uv;
+        // sphere -> teardrop: along = (1 - z)/2  (z=+1 head, z=-1 tail tip)
+        float along=clamp((1.-position.z)*.5,0.,1.); vAlong=along;
+        float r=uRad*(1.05*sqrt(1.-pow(along*2.-1.,2.))*(1.-along*.45)+ .06);       // bulbous head, narrow tail
+        float len=uLen*(along<.5? along*.9 : .45+(along-.5)*1.1);
+        // noise displacement grows toward the tail (licks)
+        vec3 t1=ortho(uAxis), t2=cross(uAxis,t1);
+        vec2 ring=normalize(position.xy+vec2(1e-5));
+        vec3 base=uHead+uAxis*len + (t1*ring.x+t2*ring.y)*r;
+        float nz=fbm3(vec3(ring*2.2+vec2(along*3.5,0.), along*4.-uTime*3.2)+vec3(0.,0.,along*3.));
+        float disp=nz*(.03+.6*pow(along,1.8))*uRad*2.;
+        // low-frequency lobes on the upper rear only: a few big licks lifting off the tail,
+        // pushed along +y rather than radially so the body silhouette does not fatten.
+        float lobe=snoise(vec3(ring*.8+vec2(along*1.4,0.), along*2.2-uTime*2.4));
+        float up=smoothstep(.2,.95,ring.y)*smoothstep(.35,.8,along);
+        vLobe=max(0.,lobe)*up;
+        float lick=vLobe*uRad*2.6;
+        vec3 pos=base+(t1*ring.x+t2*ring.y)*disp + uAxis*nz*.25*along + vec3(0.,1.,0.)*(.85*pow(along,2.3)*(.6+.4*nz) + lick);
+        vWp=pos; vN=normalize(t1*ring.x+t2*ring.y);
+        gl_Position=projectionMatrix*viewMatrix*vec4(pos,1.);
+      }`,
+    fragmentShader:/* glsl */`
+      precision highp float; uniform float uTime,uOpacity; uniform int uUseErosion,uUseNoise; uniform sampler2D uNoise; uniform vec3 uCam; varying vec3 vN,vWp; varying float vAlong,vLobe; varying vec2 vUv;
+      ${glslNoise} ${glslRampHead} ${glslRamp}
+      void main(){
+        vec3 V=normalize(uCam-vWp); float fres=1.-abs(dot(normalize(vN),V));
+        // flowing noise along the body
+        float n=uUseNoise==1? .5+.5*(.7*snoise(vec3(vUv.x*3.0, vAlong*3.2-uTime*2.0, .7))+.3*snoise(vec3(vUv.x*6.0, vAlong*6.0-uTime*3.1, 2.3))) : .5;
+        float ntex=texture2D(uNoise, vec2(vUv.x*1.5, vAlong*1.6-uTime*.7)).r;
+        n=n*.75+ntex*.25;
+        // erosion field is mostly LOW frequency so the tail carves into 2-4 long tongues, not confetti
+        float low=uUseNoise==1? .5+.5*snoise(vec3(vUv.x*1.15, vAlong*1.25-uTime*1.5, 4.1)) : .5;
+        float field=(.25*low+.75*n)*.9+.2;
+        // threshold ramps hard at the very end so the tip trails off instead of ending in a wall
+        // protruding lobes are protected from erosion so they stay fat and solid instead of
+        // being carved into spikes; the tip still trails off.
+        float th=max(0., smoothstep(.28,1.,vAlong)*.97+smoothstep(.88,1.,vAlong)*.25 - vLobe*.55);
+        float er=uUseErosion==1? smoothstep(th,th+.045,field) : 1.;
+        if(er<.01) discard;
+        // heat: head hot; noise pulls cooler bands forward (stylized)
+        float heat=clamp(vAlong*1.08 + (n-.5)*.35*smoothstep(.15,.7,vAlong) + fres*.12*smoothstep(.0,.4,vAlong), 0.,1.);
+        vec3 col=ramp(heat);
+        // subtle noise shading on the head: scale intensity only, so the hue never shifts
+        col*=mix(1.+(n-.5)*.18, 1., smoothstep(.08,.45,vAlong));
+        // small white hot-spot at the very front tip only
+        col+=vec3(.9,.82,.62)*.7*smoothstep(.04,0.,vAlong)*(.85+.15*n);
+        // hard rim near erosion boundary = bright ember edge
+        float rim=smoothstep(th-.03,th+.05,field)-er; col+=vec3(1.8,.9,.25)*rim*(1.-smoothstep(.5,.95,vAlong));
+        gl_FragColor=vec4(col, uOpacity*(1.-smoothstep(.5,1.,vAlong)*.5));
+      }`});
+  const mesh=new THREE.Mesh(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=5; scene.add(mesh);
+  return {mesh,mat,uniforms};
+}
+
+// ---------- ground decal ----------
+function makeDecal(){
+  const mat=new THREE.MeshBasicMaterial({map:texGlow, color:hex("#ff7a2a"), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0.75});
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(2.6,2.6),mat); m.rotation.x=-Math.PI/2; m.position.set(HEAD.x+0.35,0.01,HEAD.z-0.2); m.renderOrder=2; scene.add(m); return m;
+}
+
+// ---------- build the fire projectile ----------
+const shell=makeShell();
+const decal=makeDecal();
+// fire volume: many small, heavily eroded, randomly rotated pieces streaming back along the tail.
+// No screen-velocity alignment — that is what made the sprites stand upright and read as stamps.
+const fireVolumeCfg={ seed:11, period:1.4, life:[0.30,0.65], origin:HEAD.clone().add(TAIL.clone().multiplyScalar(0.95)), axis:TAIL, spawnLength:1.4, spawnRadius:0.16, upBias:0.6, frontFade:true,
+  dir:TAIL.clone().add(new THREE.Vector3(0,0.18,0)).normalize(), spread:0.55, speed:[1.6,3.0], drag:1.8, gravity:new THREE.Vector3(0,0.5,0),
+  curl:0.3, curlFreq:1.6, curlSpeed:1.2, size:[0.16,0.38], sizeCurve:[[0,0.5],[0.3,1],[1,1.25]], alphaCurve:[[0,0],[0.08,1],[0.6,0.9],[1,0]],
+  randomRot:true, rotSpeed:[-1.5,1.5], mask:texFire, atlas:2, noise:texNoise, noiseScale:2.2, noisePan:new THREE.Vector2(0.1,0.9), distort:0.32,
+  erosionCurve:[[0,0.15],[0.35,0.3],[0.7,0.6],[1,0.98]], erodeSoft:0.14, edgeWidth:0.1, edgeColor:"#ffb040", edgeIntensity:2.0,
+  ramp:[{t:0,color:"#fff0b0",intensity:0.8},{t:0.25,color:"#ffb428",intensity:0.7},{t:0.55,color:"#ff5a1a",intensity:0.6},{t:0.8,color:"#b0203a",intensity:0.3},{t:1,color:"#3a1040",intensity:0.1}],
+  opacity:0.6, blend:"additive", soft:0.35, order:12 };
+const tongues=makeParticles(Object.assign({},fireVolumeCfg,{ count:180 }));
+// a few large tears among the many small ones -> size hierarchy
+const fireBig=makeParticles(Object.assign({},fireVolumeCfg,{ count:36, seed:71, size:[0.34,0.62], life:[0.45,0.85], opacity:0.5, erodeSoft:0.2, order:11 }));
+const sparks=makeParticles({ count:150, seed:23, period:1.6, life:[0.5,1.5], origin:HEAD.clone().add(new THREE.Vector3(0,0.05,0)), axis:TAIL, spawnLength:1.6, spawnRadius:0.3,
+  dir:new THREE.Vector3(0.25,1,0).normalize(), spread:0.9, speed:[0.6,2.2], drag:1.6, gravity:new THREE.Vector3(0,0.5,0), wind:TAIL.clone().multiplyScalar(0.4),
+  curl:0.6, curlFreq:2.2, curlSpeed:1.5, size:[0.06,0.15], sizeCurve:[[0,0.6],[0.2,1],[1,0.2]], alphaCurve:[[0,0],[0.05,1],[0.6,1],[1,0]],
+  align:true, stretch:0.25, mask:texSpark, atlas:1, distort:0, erosionCurve:[[0,0],[1,0]], erodeSoft:0.2,
+  ramp:[{t:0,color:"#fff6d0",intensity:5},{t:0.3,color:"#ffc040",intensity:4},{t:0.8,color:"#ff5a10",intensity:2.2},{t:1,color:"#7a1010",intensity:0.6}],
+  blend:"additive", soft:0.1, order:20 });
+const smoke=makeParticles({ count:300, seed:37, period:2.4, life:[1.1,1.9], origin:HEAD.clone().add(TAIL.clone().multiplyScalar(0.85)), axis:TAIL, spawnLength:1.9, spawnRadius:0.22, minY:0.35,
+  dir:TAIL.clone().add(new THREE.Vector3(0,0.25,0)).normalize(), spread:0.35, speed:[0.35,0.8], drag:1.6, gravity:new THREE.Vector3(0,0.10,0),
+  curl:0.3, curlFreq:1.0, curlSpeed:0.5, size:[0.7,1.15], sizeCurve:[[0,0.4],[0.35,1],[1,1.35]], alphaCurve:[[0,0],[0.06,0.4],[0.3,0.85],[0.65,0.7],[1,0]],
+  randomRot:true, rotSpeed:[-0.5,0.5], mask:texSmoke, atlas:2, noise:texNoise, noiseScale:1.2, noisePan:new THREE.Vector2(0.03,0.12), distort:0.22,
+  erosionCurve:[[0,0.05],[0.5,0.2],[1,0.8]], erodeSoft:0.6, edgeWidth:0.0, /* drawn before the shell so the plume always reads as one mass behind the body */ edgeColor:"#ff6a2a", edgeIntensity:0.0,
+  ramp:[{t:0,color:"#5a2a6a",intensity:0.48},{t:0.3,color:"#30204a",intensity:0.42},{t:0.7,color:"#221a38",intensity:0.34},{t:1,color:"#16121e",intensity:0.26}],
+  blend:"premul", soft:0.6, order:3, lit:1 });
+const embers=makeParticles({ count:90, seed:53, period:1.2, life:[0.25,0.6], origin:HEAD.clone(), axis:TAIL, spawnLength:0.7, spawnRadius:0.35,
+  dir:TAIL.clone().add(new THREE.Vector3(0,0.3,0)).normalize(), spread:0.8, speed:[0.8,1.9], drag:2.5, gravity:new THREE.Vector3(0,0.6,0),
+  curl:0.3, curlFreq:2.5, curlSpeed:1.5, size:[0.06,0.16], sizeCurve:[[0,0.5],[0.3,1],[1,0.3]], alphaCurve:[[0,0],[0.1,1],[0.6,0.8],[1,0]],
+  randomRot:true, rotSpeed:[-2,2], mask:texFlame, atlas:2, tiles:3, skipTile:1, noise:texNoise, noiseScale:1.8, noisePan:new THREE.Vector2(0.1,0.4), distort:0.15,
+  erosionCurve:[[0,0.1],[0.5,0.4],[1,0.95]], erodeSoft:0.05, edgeWidth:0.1, edgeColor:"#ffd060", edgeIntensity:3,
+  ramp:[{t:0,color:"#fff6d0",intensity:2.5},{t:0.4,color:"#ff9a20",intensity:1.6},{t:0.8,color:"#ff3a10",intensity:1},{t:1,color:"#4a1020",intensity:0.3}],
+  blend:"additive", soft:0.3, order:14 });
+const systems=[tongues,fireBig,sparks,smoke,embers]; window.spikeSystems={tongues,fireBig,sparks,smoke,embers,shell}; window.spikeRenderer=renderer;
+
+// ---------- post ----------
+let composer, bloomPass, smaaPass, vignettePass, renderPass;
+function buildPost(){
+  const w=renderer.domElement.width, h=renderer.domElement.height;
+  const rt=new THREE.WebGLRenderTarget(w,h,{type:THREE.HalfFloatType, samples: params.aa?4:0});
+  composer=new EffectComposer(renderer, rt);
+  renderPass=new RenderPass(scene,camera); composer.addPass(renderPass);
+  bloomPass=new UnrealBloomPass(new THREE.Vector2(w,h), params.bloom, 0.4, params.threshold); composer.addPass(bloomPass);
+  vignettePass=new ShaderPass({ uniforms:{tDiffuse:{value:null}, uV:{value:0.35}, uCA:{value:0.0025}},
+    vertexShader:`varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader:`uniform sampler2D tDiffuse; uniform float uV,uCA; varying vec2 vUv; void main(){ vec2 d=(vUv-.5); vec3 c; c.r=texture2D(tDiffuse,vUv+d*uCA).r; c.g=texture2D(tDiffuse,vUv).g; c.b=texture2D(tDiffuse,vUv-d*uCA).b; float v=1.-uV*smoothstep(.35,1.05,length(d)*1.6); gl_FragColor=vec4(c*v,1.);}` });
+  composer.addPass(vignettePass);
+  composer.addPass(new OutputPass());
+  smaaPass=new SMAAPass(); composer.addPass(smaaPass);
+}
+function resize(){
+  const host=canvas.parentElement; const w=host.clientWidth, h=Math.round(w*9/16);
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+  const pw=renderer.domElement.width, ph=renderer.domElement.height;
+  depthRT.setSize(pw,ph);
+  for(const s of systems) s.uniforms.uResolution.value.set(pw,ph);
+  buildPost();
+}
+window.addEventListener("resize",resize); resize();
+
+// ---------- frame ----------
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.1,(now-last)/1000); last=now; if(params.play) params.time+=dt*params.speed;
+  const t=params.time;
+  // deterministic flicker
+  const fl=0.85+0.15*Math.sin(t*23.1)+0.1*Math.sin(t*7.3+1.2)+0.06*Math.sin(t*41.7);
+  fireLight.intensity=params.light?12*fl:0; fireLight.position.copy(HEAD).add(new THREE.Vector3(0.15,0.15,0));
+  fireLight2.intensity=params.light?4:0; fireLight2.position.copy(HEAD).add(TAIL.clone().multiplyScalar(1.6)).add(new THREE.Vector3(0,0.5,0));
+  decal.material.opacity=params.decal?0.28*fl:0; decal.visible=params.decal;
+  shell.uniforms.uTime.value=t; shell.uniforms.uUseErosion.value=params.erosion?1:0; shell.uniforms.uUseNoise.value=params.textures?1:0; shell.mesh.visible=params.shell;
+  for(const s of systems){ s.uniforms.uTime.value=t; s.uniforms.uUseErosion.value=params.erosion?1:0; s.uniforms.uCurl.value=params.curl?s.cfg.curl:0; s.uniforms.uHasMask.value=params.textures&&s.cfg.mask?1:0; s.uniforms.uDistort.value=params.textures?s.cfg.distort||0:0; s.uniforms.uLightDir.value.copy(fireLight.position); }
+  tongues.mesh.visible=fireBig.mesh.visible=params.tongues; embers.mesh.visible=params.embers; sparks.mesh.visible=params.sparks; smoke.mesh.visible=params.smoke;
+  ground.visible=params.ground;
+  renderer.toneMappingExposure=params.exposure; bloomPass.strength=params.bloom; bloomPass.threshold=params.threshold;
+  // depth pre-pass (opaque only) for soft particles
+  const vis=[]; for(const s of systems){ vis.push(s.mesh.visible); s.mesh.visible=false; } const sv=shell.mesh.visible, dv=decal.visible; shell.mesh.visible=false; decal.visible=false;
+  renderer.setRenderTarget(depthRT); renderer.clear(); renderer.render(scene,camera); renderer.setRenderTarget(null);
+  systems.forEach((s,i)=>s.mesh.visible=vis[i]); shell.mesh.visible=sv; decal.visible=dv;
+  if(params.post){ smaaPass.enabled=params.aa; composer.render(); } else { renderer.render(scene,camera); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.spikeRebuildPost=buildPost;
