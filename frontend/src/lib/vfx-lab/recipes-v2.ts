@@ -162,6 +162,8 @@ type EmitterOptions = {
   life?: [number, number];
   forces?: Partial<Emitter["forces"]>;
   render?: Partial<Emitter["render"]>;
+  trail?: Emitter["trail"];
+  sub?: Emitter["sub"];
 };
 
 function emit(options: EmitterOptions = {}): Emitter {
@@ -174,8 +176,8 @@ function emit(options: EmitterOptions = {}): Emitter {
     life: options.life ?? base.life,
     forces: { ...base.forces, ...(options.forces ?? {}) },
     render: { ...base.render, ...(options.render ?? {}) },
-    trail: null,
-    sub: null,
+    trail: options.trail ?? null,
+    sub: options.sub ?? null,
   };
 }
 
@@ -254,6 +256,10 @@ function document(
     elevation?: number;
     bloom?: { strength: number; radius: number; threshold: number };
     exposure?: number;
+    shake?: VfxDocumentV2["camera"]["shake"];
+    pushIn?: VfxDocumentV2["camera"]["pushIn"];
+    grade?: VfxDocumentV2["post"]["grade"];
+    motionBlur?: number;
   },
   layers: LayerV2[],
 ): VfxDocumentV2 {
@@ -276,11 +282,15 @@ function document(
       azimuth: shell.azimuth ?? defaults.camera.azimuth,
       elevation: shell.elevation ?? defaults.camera.elevation,
       framing: shell.framing ?? 0.58,
+      shake: shell.shake ?? null,
+      pushIn: shell.pushIn ?? null,
     },
     post: {
       ...defaults.post,
       bloom: shell.bloom ?? { strength: 0.5, radius: 0.42, threshold: 0.85 },
       exposure: shell.exposure ?? 1,
+      grade: shell.grade ?? defaults.post.grade,
+      motionBlur: shell.motionBlur ?? 0,
     },
     textures: [],
     layers,
@@ -687,21 +697,21 @@ function lightningImpact(): VfxDocumentV2 {
         position: [0, 1.1, 0],
         material: mat({
           stops: [
-            { t: 0, color: "#bfe6ff", intensity: 3.4 },
-            { t: 1, color: "#3f7fd8", intensity: 1.6 },
+            { t: 0, color: "#bfe6ff", intensity: 2.2 },
+            { t: 1, color: "#3f7fd8", intensity: 1.1 },
           ],
           procedural: "solid",
         }),
         geometry: geo({
           type: "lightning",
-          radius: 0.3,
+          radius: 0.62,
           length: 2.2,
-          thickness: 0.09,
+          thickness: 0.075,
           lightning: {
-            points: 28,
-            jitter: 0.45,
+            points: 24,
+            jitter: 0.8,
             branches: 3,
-            branchDepth: 1,
+            branchDepth: 2,
             widthCurve: curve([
               [0, 1],
               [1, 0.35],
@@ -731,19 +741,19 @@ function lightningImpact(): VfxDocumentV2 {
         position: [0, 1.1, 0],
         material: mat({
           stops: [
-            { t: 0, color: "#fdfdf6", intensity: 5 },
-            { t: 1, color: "#cfe9ff", intensity: 3 },
+            { t: 0, color: "#fdfdf6", intensity: 3.6 },
+            { t: 1, color: "#cfe9ff", intensity: 2.2 },
           ],
           procedural: "solid",
         }),
         geometry: geo({
           type: "lightning",
-          radius: 0.3,
+          radius: 0.62,
           length: 2.2,
-          thickness: 0.035,
+          thickness: 0.026,
           lightning: {
-            points: 28,
-            jitter: 0.45,
+            points: 24,
+            jitter: 0.8,
             branches: 0,
             branchDepth: 1,
             widthCurve: curve([
@@ -821,6 +831,17 @@ function lightningImpact(): VfxDocumentV2 {
             sizeCurve: sparkSize,
             alphaCurve: sparkAlpha,
             rotation: { initial: [0, 0], speed: [0, 0] },
+          },
+          // Each spark drags its own analytic ribbon: vertex k is the spark's
+          // own position at age - k*spacing, so the streak follows the arc.
+          trail: {
+            segments: 8,
+            spacing: 0.022,
+            widthCurve: curve([
+              [0, 1],
+              [1, 0],
+            ]),
+            textureId: null,
           },
         }),
       }),
@@ -1396,6 +1417,17 @@ function beam(): VfxDocumentV2 {
             alphaCurve: sparkAlpha,
             rotation: { initial: [0, 0], speed: [0, 0] },
           },
+          // textureId stays null: the library streak masks are multi-streak
+          // sheets, and one sheet stretched over a ribbon reads as a worm.
+          trail: {
+            segments: 6,
+            spacing: 0.016,
+            widthCurve: curve([
+              [0, 0.8],
+              [1, 0],
+            ]),
+            textureId: null,
+          },
         }),
       }),
       particles({
@@ -1476,6 +1508,9 @@ function shield(): VfxDocumentV2 {
       duration: 2.6,
       impact: 0.4,
       background: "#101620",
+      // The camera eases in as the dome lights up; the grade cools the frame.
+      pushIn: { from: 1.12, to: 0.94, start: 0.3, end: 1.6, ease: "smooth" },
+      grade: { contrast: 1.08, saturation: 1.12, tint: "#dceaff", lift: 0.01 },
     },
     [
       mesh({
@@ -1620,9 +1655,23 @@ function shield(): VfxDocumentV2 {
             direction: unit(0, 1, 0),
             angle: 0.4,
             speed: [0.3, 0.8],
+            inherit: 0,
+            // A mote leaves quickly, then coasts: the curve is integrated in
+            // closed form, so it stays a pure function of the particle's age.
+            speedCurve: curve([
+              [0, 1.6],
+              [0.35, 0.8],
+              [1, 0.25],
+            ]),
           },
           life: [0.9, 1.8],
-          forces: { gravity: [0, 0.15, 0], drag: 1.2 },
+          forces: {
+            gravity: [0, 0.15, 0],
+            drag: 1.2,
+            // The motes are dragged around the dome's vertical axis, strongest
+            // near it and weaker out at the rim.
+            vortex: { axis: unit(0, 1, 0), strength: 2.2, falloff: 0.8 },
+          },
           render: {
             size: [0.05, 0.14],
             sizeCurve: softSize,
@@ -1699,6 +1748,9 @@ function meteorRain(): VfxDocumentV2 {
       duration: 2.8,
       impact: 0.9,
       background: "#150f10",
+      // The landing punches the camera: trauma decays about 1.5/s from impact.
+      shake: { amplitude: 0.16, frequency: 22, start: 0.9, end: 1.7, fade: 0.5 },
+      motionBlur: 0.35,
     },
     [
       mesh({
@@ -1822,6 +1874,56 @@ function meteorRain(): VfxDocumentV2 {
           },
         }),
       }),
+      particles({
+        id: "trail-embers",
+        name: "Shed embers",
+        role: "secondary",
+        start: 0.06,
+        end: 1.4,
+        position: [0, 0.35, 0],
+        motion: {
+          keys: [
+            [0, 2.6, 4.4, -1.6],
+            [0.84, 0, 0, 0],
+          ],
+          ease: "linear",
+        },
+        material: mat({
+          space: "life",
+          stops: [
+            { t: 0, color: "#ffd79a", intensity: 3 },
+            { t: 1, color: "#6b2410", intensity: 0.3 },
+          ],
+          mask: "ember-01",
+        }),
+        emitter: emit({
+          count: 220,
+          shape: { type: "point", radius: 0 },
+          spawn: { mode: "continuous", window: 0.5, rate: 260, duration: 1.1 },
+          velocity: {
+            mode: "cone",
+            direction: unit(0, 1, 0),
+            angle: 1.2,
+            speed: [0.3, 1.1],
+          },
+          life: [0.3, 0.7],
+          forces: { gravity: [0, -1.2, 0], drag: 1.4 },
+          render: {
+            size: [0.03, 0.09],
+            sizeCurve: sparkSize,
+            alphaCurve: sparkAlpha,
+            rotation: { initial: [0, 0], speed: [0, 0] },
+          },
+          // Born from the fire trail itself: each ember starts where its
+          // parent particle was partway along its own life.
+          sub: {
+            parentLayerId: "fire-trail",
+            offset: [0.05, 0.3],
+            mode: "alongPath",
+            inheritVelocity: 0.45,
+          },
+        }),
+      }),
       mesh({
         id: "impact-flash",
         name: "Impact flash",
@@ -1935,8 +2037,12 @@ function meteorRain(): VfxDocumentV2 {
             { t: 1, color: "#2b262c", intensity: 0.2 },
           ],
           opacity: 0.8,
-          mask: "smoke-puff-02",
-          maskOptions: { randomRotation: true },
+          mask: "flipbook-smoke-8x8",
+          maskOptions: {
+            randomRotation: true,
+            // One 8x8 sheet played once over each particle's life.
+            flipbook: { cols: 8, rows: 8, mode: "life", fps: 24 },
+          },
           erosion: { curve: erosionCurve, softness: 0.2, edgeIntensity: 0.4 },
           softParticle: 0.7,
         }),
@@ -1962,7 +2068,9 @@ function meteorRain(): VfxDocumentV2 {
             },
           },
           render: {
-            size: [0.4, 1],
+            // A flipbook cell fills less of the quad than a single puff mask,
+            // so the sizes are bigger than the same layer with a plain mask.
+            size: [0.7, 1.7],
             sizeCurve: curve([
               [0, 0.5],
               [1, 1.4],

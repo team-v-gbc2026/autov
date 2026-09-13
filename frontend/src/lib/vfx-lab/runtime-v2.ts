@@ -10,34 +10,45 @@ import type { VfxDocument } from "./schema";
 import {
   isV2,
   validateDocumentV2,
+  type Curve,
   type Emitter,
   type LayerV2,
   type Material,
   type VfxDocumentV2,
 } from "./schema-v2";
 import {
+  CURVE_KEYS,
   curveUniforms,
   particleFragmentV2,
-  particleVertexV2,
+  particleVertexSource,
   rampUniforms,
   surfaceFragmentV2,
   surfaceVertexV2,
+  trailFragmentV2,
+  trailVertexSource,
   writeCurve,
   writeRamp,
 } from "./shaders-v2";
+import { STRIKE_HZ, buildLightningGeometry, lightningBounds } from "./lightning-v2";
 
 export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186";
 
 // ---------------------------------------------------------------------------
 // autov.lab/2 renderer.
 //
-// Phase A. Parsed-and-ignored for now (every one of these is read off the
-// document without throwing, and simply has no effect):
-//   emitter.trail, emitter.sub, emitter.velocity.inherit,
-//   emitter.velocity.speedCurve, emitter.forces.vortex,
-//   material.mask.flipbook, geometry.lightning, camera.shake, camera.pushIn,
-//   post.motionBlur, post.grade, environment.groundReflect.
-// See the "phase B" comments at each site.
+// Everything is closed form in time: state = f(document, time, seed), no
+// accumulation anywhere, so seeking to t draws exactly what playing to t draws.
+//
+// Still parsed and ignored (read off the document without throwing, no effect):
+//   environment.groundReflect.
+//
+// Deliberate approximations, all of them bounded:
+//   - the CPU mirror used for depth sorting and camera framing ignores the
+//     curl and vortex offsets and evaluates sub-emitters from their parent's
+//     sample points rather than per instance;
+//   - a sub-emitter binds its parent's authored emitter, so tracks that
+//     animate the *parent's* emitter do not move the children (the parent's
+//     transform, including motion keys, is sampled and does move them).
 // ---------------------------------------------------------------------------
 
 export type FeatureFlagsV2 = {
@@ -98,7 +109,12 @@ const BLEND_INDEX: Record<string, number> = {
   screen: 3,
 };
 /** Procedural stand-ins the fragment shaders know about. Phase B: the rest. */
-const PROCEDURAL_INDEX: Record<string, number> = { flame: 1, smoke: 2 };
+const PROCEDURAL_INDEX: Record<string, number> = { flame: 1, smoke: 2, solid: 3 };
+const SUB_MODE_INDEX: Record<string, number> = {
+  alongPath: 0,
+  onDeath: 1,
+  continuous: 2,
+};
 
 const TEXTURE_FILES = new Map(
   TEXTURE_MANIFEST_V2.map((entry) => [entry.id, entry.file] as const),
@@ -229,10 +245,25 @@ function orthoOf(a: THREE.Vector3, out: THREE.Vector3) {
   return out.lengthSq() > 1e-10 ? out.normalize() : out.set(1, 0, 0);
 }
 
+/** Integral of a piecewise-linear speed curve from 0 to u; mirrors selfSpeedI. */
+function speedIntegral(curve: Curve, u: number) {
+  const keys = curve.keys;
+  const x = clamp01(u);
+  let acc = Math.min(x, keys[0][0]) * keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    const [a, va] = keys[i - 1];
+    const [b, vb] = keys[i];
+    const f = clamp01((x - a) / Math.max(b - a, 1e-5));
+    acc += (b - a) * f * (va + (vb - va) * f * 0.5);
+    if (i === keys.length - 1) acc += Math.max(x - b, 0) * vb;
+  }
+  return acc;
+}
+
 /**
- * Positions for bounds and depth sorting. Deliberately ignores the curl offset
- * (a bounded perturbation) so the CPU mirror stays cheap; everything else
- * matches the shader term for term.
+ * Positions for bounds and depth sorting. Deliberately ignores the curl and
+ * vortex offsets (both bounded perturbations) and sub-emitter parentage so the
+ * CPU mirror stays cheap; everything else matches the shader term for term.
  */
 function particlePositionV2(
   emitter: Emitter,
@@ -373,7 +404,11 @@ function particlePositionV2(
     emitter.velocity.speed[0] +
     (emitter.velocity.speed[1] - emitter.velocity.speed[0]) * x3;
   const drag = emitter.forces.drag;
-  const d = drag < 0.001 ? age : (1 - Math.exp(-drag * age)) / drag;
+  const d = emitter.velocity.speedCurve
+    ? life * speedIntegral(emitter.velocity.speedCurve, age / Math.max(life, 1e-4))
+    : drag < 0.001
+      ? age
+      : (1 - Math.exp(-drag * age)) / drag;
   out
     .copy(origin)
     .addScaledVector(dir, v0 * d)
@@ -427,6 +462,121 @@ function proceduralIndex(material: Material) {
   return PROCEDURAL_INDEX[material.procedural] ?? 0;
 }
 
+const FLAT_CURVE: Curve = {
+  keys: [
+    [0, 1],
+    [1, 1],
+  ],
+  ease: "linear",
+};
+
+/**
+ * The trajectory uniforms of one emitter, under a name prefix. Emitted twice
+ * for a sub-emitter layer: once for the layer itself ("") and once for the
+ * parent it is launched from ("Parent").
+ */
+function emitterCoreUniforms(
+  P: string,
+  emitter: Emitter,
+  duration: number,
+): Record<string, THREE.IUniform> {
+  const period = spawnPeriod(emitter, duration);
+  const speed = emitter.velocity.speedCurve ?? FLAT_CURVE;
+  const keys: THREE.Vector2[] = [];
+  for (let i = 0; i < CURVE_KEYS; i++) {
+    const key = speed.keys[Math.min(i, speed.keys.length - 1)];
+    keys.push(new THREE.Vector2(key[0], key[1]));
+  }
+  const uniforms: Record<string, THREE.IUniform> = {
+    [`u${P}Period`]: { value: period },
+    [`u${P}SpawnWindow`]: { value: spawnWindowOf(emitter, period) },
+    [`u${P}SpawnDuration`]: {
+      value:
+        emitter.spawn.mode === "continuous" ? emitter.spawn.duration : duration,
+    },
+    [`u${P}SpawnMode`]: {
+      value:
+        emitter.spawn.mode === "continuous"
+          ? 1
+          : emitter.spawn.mode === "bursts"
+            ? 2
+            : 0,
+    },
+    [`u${P}BurstT`]: { value: new Array(CURVE_KEYS).fill(0) },
+    [`u${P}BurstC`]: { value: new Array(CURVE_KEYS).fill(1) },
+    [`u${P}BurstN`]: { value: Math.max(1, emitter.spawn.bursts.length) },
+    [`u${P}ShapeType`]: { value: SHAPE_INDEX[emitter.shape.type] ?? 0 },
+    [`u${P}ShapeLength`]: { value: emitter.shape.length },
+    [`u${P}ShapeRadius`]: { value: emitter.shape.radius },
+    [`u${P}ShapeInner`]: { value: emitter.shape.innerRadius },
+    [`u${P}ShapeAngle`]: { value: emitter.shape.angle },
+    [`u${P}ShapeSize`]: {
+      value: new THREE.Vector3().fromArray(emitter.shape.size),
+    },
+    [`u${P}SurfaceOnly`]: { value: emitter.shape.surfaceOnly ? 1 : 0 },
+    [`u${P}Bias`]: { value: new THREE.Vector3().fromArray(emitter.shape.bias) },
+    [`u${P}Axis`]: { value: new THREE.Vector3().fromArray(emitter.shape.axis) },
+    [`u${P}VelMode`]: { value: VELOCITY_INDEX[emitter.velocity.mode] ?? 3 },
+    [`u${P}Dir`]: {
+      value: new THREE.Vector3().fromArray(emitter.velocity.direction),
+    },
+    [`u${P}Angle`]: { value: emitter.velocity.angle },
+    [`u${P}Speed`]: {
+      value: new THREE.Vector2().fromArray(emitter.velocity.speed),
+    },
+    [`u${P}SpeedKey`]: { value: keys },
+    [`u${P}SpeedN`]: { value: emitter.velocity.speedCurve ? speed.keys.length : 0 },
+    [`u${P}Life`]: { value: new THREE.Vector2().fromArray(emitter.life) },
+    [`u${P}Gravity`]: {
+      value: new THREE.Vector3().fromArray(emitter.forces.gravity),
+    },
+    [`u${P}Drag`]: { value: emitter.forces.drag },
+    [`u${P}Wind`]: { value: new THREE.Vector3().fromArray(emitter.forces.wind) },
+    [`u${P}Curl`]: { value: emitter.forces.curl?.strength ?? 0 },
+    [`u${P}CurlFreq`]: { value: emitter.forces.curl?.frequency ?? 1 },
+    [`u${P}CurlSpeed`]: { value: emitter.forces.curl?.speed ?? 1 },
+    [`u${P}VortexAxis`]: {
+      value: new THREE.Vector3().fromArray(emitter.forces.vortex?.axis ?? [0, 1, 0]),
+    },
+    [`u${P}VortexW`]: { value: emitter.forces.vortex?.strength ?? 0 },
+    [`u${P}VortexFalloff`]: { value: emitter.forces.vortex?.falloff ?? 0 },
+    [`u${P}FloorY`]: { value: emitter.forces.floor?.y ?? 0 },
+    [`u${P}FloorSoft`]: { value: emitter.forces.floor?.softness ?? 1 },
+    [`u${P}HasFloor`]: { value: emitter.forces.floor ? 1 : 0 },
+  };
+  if (emitter.spawn.bursts.length) {
+    const total = emitter.spawn.bursts.reduce((n, b) => n + b.count, 0) || 1;
+    const times = uniforms[`u${P}BurstT`].value as number[];
+    const cumulative = uniforms[`u${P}BurstC`].value as number[];
+    let sum = 0;
+    for (let i = 0; i < CURVE_KEYS; i++) {
+      const burst =
+        emitter.spawn.bursts[Math.min(i, emitter.spawn.bursts.length - 1)];
+      if (i < emitter.spawn.bursts.length) sum += burst.count / total;
+      times[i] = burst.t;
+      cumulative[i] = sum;
+    }
+  }
+  return uniforms;
+}
+
+/**
+ * Strip of `segments` rows x 2 vertices per instance. `position` carries
+ * (side, k, 0); the vertex shader turns k into an age offset.
+ */
+function trailStripGeometry(segments: number) {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let k = 0; k < segments; k++) {
+    positions.push(-1, k, 0, 1, k, 0);
+    if (k < segments - 1) {
+      const a = k * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  return { positions: new Float32Array(positions), indices };
+}
+
 function createParticleLayer(
   doc: VfxDocumentV2,
   layer: LayerV2,
@@ -439,6 +589,23 @@ function createParticleLayer(
   const density = doc.quality.particleDensity;
   const count = Math.max(1, Math.round(emitter.count * density));
   const attrs = makeAttributes(count, hashSeed(doc.seed, layer.id));
+
+  // Sub-emitter: the parent's attributes ride along on the child instances so
+  // the parent trajectory can be evaluated in the child's vertex shader.
+  const sub = emitter.sub ?? null;
+  const parentLayer = sub
+    ? (doc.layers.find((l) => l.id === sub.parentLayerId) ?? null)
+    : null;
+  // The schema already rejects a non-particles parent; the runtime refuses to
+  // bind one anyway rather than reading an absent emitter.
+  const parentEmitter =
+    parentLayer && parentLayer.kind === "particles" ? parentLayer.emitter! : null;
+  const parentAttrs = parentEmitter
+    ? makeAttributes(
+        Math.max(1, Math.round(parentEmitter.count * density)),
+        hashSeed(doc.seed, parentLayer!.id),
+      )
+    : null;
 
   const plane = new THREE.PlaneGeometry(1, 1);
   const geometry = new THREE.InstancedBufferGeometry();
@@ -460,62 +627,65 @@ function createParticleLayer(
   geometry.setAttribute("aSeed", seedAttr);
   geometry.setAttribute("aExtra", extraAttr);
   geometry.setAttribute("aExtra2", extra2Attr);
+  const parentAttributes: THREE.InstancedBufferAttribute[] = [];
+  if (parentAttrs) {
+    const pick = (source: Float32Array) => {
+      const out = new Float32Array(count * 4);
+      for (let i = 0; i < count; i++) {
+        const from = (i % parentAttrs.count) * 4;
+        for (let k = 0; k < 4; k++) out[i * 4 + k] = source[from + k];
+      }
+      return new THREE.InstancedBufferAttribute(out, 4);
+    };
+    const names = ["aPSeed", "aPExtra", "aPExtra2"] as const;
+    const sources = [parentAttrs.seed, parentAttrs.extra, parentAttrs.extra2];
+    names.forEach((name, i) => {
+      const attribute = pick(sources[i]);
+      geometry.setAttribute(name, attribute);
+      parentAttributes.push(attribute);
+    });
+  }
   geometry.instanceCount = count;
   plane.dispose();
 
   const atlas = material.mask.atlas;
+  const flipbook = material.mask.flipbook;
   const mask = textures.resolve(material.mask.textureId, doc, false);
   const noise = textures.resolve(material.noise?.textureId ?? null, doc, true);
+  const trail = emitter.trail;
+  const trailTexture = textures.resolve(trail?.textureId ?? null, doc, false);
   const period = spawnPeriod(emitter, doc.duration);
 
   const uniforms: Record<string, THREE.IUniform> = {
     uTime: { value: 0 },
-    uPeriod: { value: period },
-    uSpawnWindow: { value: spawnWindowOf(emitter, period) },
-    uSpawnDuration: {
-      value:
-        emitter.spawn.mode === "continuous"
-          ? emitter.spawn.duration
-          : doc.duration,
+    ...emitterCoreUniforms("", emitter, doc.duration),
+    ...(parentEmitter
+      ? emitterCoreUniforms("Parent", parentEmitter, doc.duration)
+      : {}),
+    uParentTimeShift: {
+      value: parentLayer ? layer.start - parentLayer.start : 0,
     },
-    uSpawnMode: {
-      value:
-        emitter.spawn.mode === "continuous"
-          ? 1
-          : emitter.spawn.mode === "bursts"
-            ? 2
-            : 0,
+    uSubMode: { value: sub ? (SUB_MODE_INDEX[sub.mode] ?? 0) : 0 },
+    uSubOffset: {
+      value: new THREE.Vector2().fromArray(sub?.offset ?? [0, 0]),
     },
-    uBurstT: { value: new Array(8).fill(0) },
-    uBurstC: { value: new Array(8).fill(1) },
-    uBurstN: { value: Math.max(1, emitter.spawn.bursts.length) },
-    uShapeType: { value: SHAPE_INDEX[emitter.shape.type] ?? 0 },
-    uShapeLength: { value: emitter.shape.length },
-    uShapeRadius: { value: emitter.shape.radius },
-    uShapeInner: { value: emitter.shape.innerRadius },
-    uShapeAngle: { value: emitter.shape.angle },
-    uShapeSize: { value: new THREE.Vector3().fromArray(emitter.shape.size) },
-    uSurfaceOnly: { value: emitter.shape.surfaceOnly ? 1 : 0 },
-    uBias: { value: new THREE.Vector3().fromArray(emitter.shape.bias) },
-    uAxis: { value: new THREE.Vector3().fromArray(emitter.shape.axis) },
-    // phase B: emitter.velocity.inherit and emitter.velocity.speedCurve.
-    uVelMode: { value: VELOCITY_INDEX[emitter.velocity.mode] ?? 3 },
-    uDir: { value: new THREE.Vector3().fromArray(emitter.velocity.direction) },
-    uAngle: { value: emitter.velocity.angle },
-    uSpeed: { value: new THREE.Vector2().fromArray(emitter.velocity.speed) },
-    uLife: { value: new THREE.Vector2().fromArray(emitter.life) },
-    uGravity: { value: new THREE.Vector3().fromArray(emitter.forces.gravity) },
-    uDrag: { value: emitter.forces.drag },
-    uWind: { value: new THREE.Vector3().fromArray(emitter.forces.wind) },
-    // phase B: emitter.forces.vortex.
-    uCurl: { value: emitter.forces.curl?.strength ?? 0 },
-    uCurlFreq: { value: emitter.forces.curl?.frequency ?? 1 },
-    uCurlSpeed: { value: emitter.forces.curl?.speed ?? 1 },
-    uFloorY: { value: emitter.forces.floor?.y ?? 0 },
-    uFloorSoft: { value: emitter.forces.floor?.softness ?? 1 },
-    uHasFloor: { value: emitter.forces.floor ? 1 : 0 },
+    // emitter.sub.inheritVelocity is the sub-emitter site; emitter.velocity.
+    // inherit is the layer-level fallback when the former is left at 0.
+    uInherit: {
+      value: sub ? sub.inheritVelocity || emitter.velocity.inherit : 0,
+    },
+    uParentPath: {
+      value: Array.from({ length: CURVE_KEYS }, () => new THREE.Vector3()),
+    },
+    uPathT0: { value: 0 },
+    uPathDt: {
+      value: parentLayer
+        ? Math.max(1e-3, (parentLayer.end - parentLayer.start) / (CURVE_KEYS - 1))
+        : 1,
+    },
     uRenderMode: { value: RENDER_INDEX[emitter.render.mode] ?? 0 },
     uStretch: { value: emitter.render.stretch },
+    uMotionBlur: { value: doc.post.motionBlur },
     uSize: { value: new THREE.Vector2().fromArray(emitter.render.size) },
     uRot: { value: new THREE.Vector2().fromArray(emitter.render.rotation.speed) },
     uRotInit: {
@@ -526,10 +696,19 @@ function createParticleLayer(
     uHasAlphaSpawn: { value: emitter.render.alphaAlongSpawn ? 1 : 0 },
     uMask: { value: mask },
     uHasMask: { value: mask ? 1 : 0 },
-    // phase B: material.mask.flipbook (atlas tiles only for now).
-    uAtlasCols: { value: atlas?.cols ?? 1 },
-    uAtlasRows: { value: atlas?.rows ?? 1 },
-    uAtlasTiles: { value: atlas?.tiles ?? 1 },
+    uSegments: { value: trail?.segments ?? 2 },
+    uSpacing: { value: trail?.spacing ?? 0.02 },
+    uTrail: { value: trailTexture },
+    uHasTrail: { value: trailTexture ? 1 : 0 },
+    // A flipbook replaces the random atlas tile with a tile keyed on life or
+    // on wall time; both are functions of the particle's age alone.
+    uFlipMode: { value: flipbook ? (flipbook.mode === "life" ? 1 : 2) : 0 },
+    uFlipFps: { value: flipbook?.fps ?? 12 },
+    uAtlasCols: { value: flipbook?.cols ?? atlas?.cols ?? 1 },
+    uAtlasRows: { value: flipbook?.rows ?? atlas?.rows ?? 1 },
+    uAtlasTiles: {
+      value: flipbook ? flipbook.cols * flipbook.rows : (atlas?.tiles ?? 1),
+    },
     uMaskScale: { value: new THREE.Vector2().fromArray(material.mask.uvScale) },
     uMaskPan: { value: new THREE.Vector2().fromArray(material.mask.uvPan) },
     uNoise: { value: noise },
@@ -562,24 +741,12 @@ function createParticleLayer(
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("D", emitter.render.alphaAlongSpawn),
     ...curveUniforms("E", emitter.forces.curl?.envelope ?? null),
+    ...curveUniforms("G", trail?.widthCurve ?? null),
   };
-  if (emitter.spawn.bursts.length) {
-    const total = emitter.spawn.bursts.reduce((n, b) => n + b.count, 0) || 1;
-    const times = uniforms.uBurstT.value as number[];
-    const cumulative = uniforms.uBurstC.value as number[];
-    let sum = 0;
-    for (let i = 0; i < 8; i++) {
-      const burst =
-        emitter.spawn.bursts[Math.min(i, emitter.spawn.bursts.length - 1)];
-      if (i < emitter.spawn.bursts.length) sum += burst.count / total;
-      times[i] = burst.t;
-      cumulative[i] = sum;
-    }
-  }
 
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: particleVertexV2,
+    vertexShader: particleVertexSource(!!parentEmitter),
     fragmentShader: particleFragmentV2,
     transparent: true,
     depthWrite: false,
@@ -594,7 +761,48 @@ function createParticleLayer(
   mesh.frustumCulled = false;
   mesh.renderOrder = index;
 
-  // phase B: emitter.trail and emitter.sub.
+  // The ribbon is a second instanced draw over the same instance attributes:
+  // one strip per particle, each vertex evaluating the same closed-form
+  // position at age - k*spacing.
+  const group = new THREE.Group();
+  group.name = layer.id;
+  group.add(mesh);
+  let trailMaterial: THREE.ShaderMaterial | null = null;
+  let trailGeometry: THREE.InstancedBufferGeometry | null = null;
+  if (trail) {
+    const strip = trailStripGeometry(trail.segments);
+    trailGeometry = new THREE.InstancedBufferGeometry();
+    trailGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(strip.positions, 3),
+    );
+    trailGeometry.setIndex(strip.indices);
+    trailGeometry.setAttribute("aSeed", seedAttr);
+    trailGeometry.setAttribute("aExtra", extraAttr);
+    trailGeometry.setAttribute("aExtra2", extra2Attr);
+    if (parentAttributes.length) {
+      trailGeometry.setAttribute("aPSeed", parentAttributes[0]);
+      trailGeometry.setAttribute("aPExtra", parentAttributes[1]);
+      trailGeometry.setAttribute("aPExtra2", parentAttributes[2]);
+    }
+    trailGeometry.instanceCount = count;
+    trailMaterial = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: trailVertexSource(!!parentEmitter),
+      fragmentShader: trailFragmentV2,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      ...blendingFor(material.blend),
+    });
+    const ribbon = new THREE.Mesh(trailGeometry, trailMaterial);
+    ribbon.name = `${layer.id}-trail`;
+    ribbon.frustumCulled = false;
+    ribbon.renderOrder = index;
+    group.add(ribbon);
+  }
+
   const sortable =
     emitter.render.sortMode === "byDistance" &&
     count <= SORT_LIMIT &&
@@ -606,18 +814,33 @@ function createParticleLayer(
   return {
     id: layer.id,
     source: layer,
-    object: mesh,
+    object: group,
     soft: material.softParticle > 0,
     trim: true,
     update(time, flags, camera) {
       const { layer: live, visible, age } = evaluateLayerV2(layer, time);
-      mesh.visible = visible;
+      group.visible = visible;
       if (!visible) return;
       const e = live.emitter!;
       const m = live.material!;
-      mesh.position.fromArray(live.transform.position);
-      mesh.rotation.set(...live.transform.rotation);
-      mesh.scale.fromArray(live.transform.scale);
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+
+      if (parentLayer) {
+        // Where the parent layer's transform was, sampled over its own live
+        // window, relative to where this layer is now: the sub-emitter's
+        // origins ride the parent's motion instead of this layer's.
+        const table = uniforms.uParentPath.value as THREE.Vector3[];
+        const dt = uniforms.uPathDt.value as number;
+        for (let i = 0; i < CURVE_KEYS; i++) {
+          const local = i * dt;
+          const at = evaluateLayerV2(parentLayer, parentLayer.start + local);
+          table[i]
+            .fromArray(at.layer.transform.position)
+            .sub(new THREE.Vector3().fromArray(live.transform.position));
+        }
+      }
 
       uniforms.uTime.value = age;
       uniforms.uShapeLength.value = e.shape.length;
@@ -657,6 +880,16 @@ function createParticleLayer(
       writeCurve(uniforms, "C", m.erosion?.curve ?? null);
       writeCurve(uniforms, "D", e.render.alphaAlongSpawn);
       writeCurve(uniforms, "E", e.forces.curl?.envelope ?? null);
+      writeCurve(uniforms, "G", e.trail?.widthCurve ?? null);
+      if (e.trail) {
+        uniforms.uSegments.value = e.trail.segments;
+        uniforms.uSpacing.value = e.trail.spacing;
+      }
+      uniforms.uVortexW.value = e.forces.vortex?.strength ?? 0;
+      uniforms.uVortexFalloff.value = e.forces.vortex?.falloff ?? 0;
+      (uniforms.uVortexAxis.value as THREE.Vector3).fromArray(
+        e.forces.vortex?.axis ?? [0, 1, 0],
+      );
 
       if (!sortable) return;
       // Alpha-blended sprites need a back-to-front draw order; reordering the
@@ -715,17 +948,46 @@ function createParticleLayer(
         push(point.clone().addScalar(margin));
         push(point.clone().addScalar(-margin));
       }
+      if (!parentEmitter || !parentAttrs || !parentLayer) return;
+      // Sub-emitter children live around the parent's path, not around this
+      // layer's origin, so the parent's own sample points claim the room.
+      const parentPeriod = spawnPeriod(parentEmitter, doc.duration);
+      const parentWindow = spawnWindowOf(parentEmitter, parentPeriod);
+      const reach =
+        Math.abs(e.velocity.speed[1]) * e.life[1] + e.render.size[1] * 0.5;
+      const parentStride = Math.max(1, Math.floor(parentAttrs.count / 48));
+      for (let i = 0; i < parentAttrs.count; i += parentStride) {
+        if (
+          !particlePositionV2(
+            parentEmitter,
+            parentAttrs,
+            i,
+            time - parentLayer.start,
+            parentPeriod,
+            parentWindow,
+            point,
+          )
+        )
+          continue;
+        point.applyMatrix4(matrix);
+        push(point.clone().addScalar(reach));
+        push(point.clone().addScalar(-reach));
+      }
     },
     dispose() {
       geometry.dispose();
       shaderMaterial.dispose();
+      trailGeometry?.dispose();
+      trailMaterial?.dispose();
     },
   };
 }
 
-function meshGeometryFor(layer: LayerV2) {
+function meshGeometryFor(layer: LayerV2, seed = 0) {
   const geometry = layer.geometry!;
   const shell = layer.kind === "shell";
+  if (geometry.type === "lightning" && geometry.lightning)
+    return buildLightningGeometry(geometry, seed, 0);
   if (shell || geometry.type === "sphere" || geometry.type === "teardrop")
     // The shell's teardrop is analytic (see surfaceVertexV2): the sphere is the
     // parametric domain, not the silhouette.
@@ -779,9 +1041,11 @@ function createMeshLayer(
     uLayerU: { value: 0 },
     uRampKeyMode: { value: rampSpace },
     uShell: { value: shell ? 1 : 0 },
+    uBolt: {
+      value: geometry.type === "lightning" && geometry.lightning ? 1 : 0,
+    },
     uLength: { value: geometry.length },
     uRadius: { value: geometry.radius },
-    // phase B: geometry.lightning.
     uHasVertexNoise: { value: vertexNoise ? 1 : 0 },
     uVertexAmp: { value: vertexNoise?.amplitude ?? 0 },
     uVertexFreq: { value: vertexNoise?.frequency ?? 1 },
@@ -833,10 +1097,15 @@ function createMeshLayer(
     side: THREE.DoubleSide,
     ...blendingFor(material.blend),
   });
-  const mesh = new THREE.Mesh(meshGeometryFor(layer), shaderMaterial);
+  const boltSeed = hashSeed(doc.seed, layer.id);
+  const bolt = geometry.type === "lightning" && geometry.lightning ? geometry : null;
+  const mesh = new THREE.Mesh(meshGeometryFor(layer, boltSeed), shaderMaterial);
   mesh.name = layer.id;
   mesh.frustumCulled = false;
   mesh.renderOrder = index;
+  // The bolt re-shapes STRIKE_HZ times a second. The strike index is a pure
+  // function of layer time, so rebuilding on a change keeps seek == play.
+  let strike = 0;
 
   return {
     id: layer.id,
@@ -857,6 +1126,15 @@ function createMeshLayer(
       uniforms.uLayerU.value = u;
       uniforms.uLength.value = g.length;
       uniforms.uRadius.value = g.radius;
+      if (bolt && g.lightning) {
+        const next = Math.max(0, Math.floor(age * STRIKE_HZ));
+        if (next !== strike || mesh.geometry.userData.bolt !== true) {
+          strike = next;
+          mesh.geometry.dispose();
+          mesh.geometry = buildLightningGeometry(g, boltSeed, strike);
+          mesh.geometry.userData.bolt = true;
+        }
+      }
       uniforms.uVertexAmp.value = flags.textures
         ? (g.vertexNoise?.amplitude ?? 0)
         : 0;
@@ -889,6 +1167,11 @@ function createMeshLayer(
       );
       const g = live.geometry!;
       const point = new THREE.Vector3();
+      if (bolt) {
+        // Strike-independent: the envelope every strike of this bolt fits in.
+        for (const p of lightningBounds(g, boltSeed)) push(p.applyMatrix4(matrix));
+        return;
+      }
       if (shell) {
         // Envelope of the analytic teardrop, sampled along its axis: a plain
         // box around the whole sphere would claim the empty corners above the
@@ -1038,6 +1321,8 @@ export class VfxRuntimeV2 {
   private doc?: VfxDocumentV2;
   private flags: FeatureFlagsV2 = { ...DEFAULT_FLAGS };
   private frame = { center: new THREE.Vector3(), distance: 6 };
+  /** Seeds the camera-shake noise; set from the document. */
+  private shakeSeed = 1;
   private disposed = false;
   private width = 1280;
   private height = 720;
@@ -1114,7 +1399,7 @@ export class VfxRuntimeV2 {
     }
     this.environment.apply(this.doc, this.scene, this.flags.ground);
     this.renderer.toneMappingExposure = this.doc.post.exposure;
-    // phase B: camera.shake and camera.pushIn.
+    this.shakeSeed = hashSeed(this.doc.seed, "camera-shake");
     this.camera.fov = this.doc.camera.fov;
     this.rebuildPost();
     this.computeFraming();
@@ -1241,18 +1526,79 @@ export class VfxRuntimeV2 {
     const pixelWidth = this.renderer.domElement.width;
     const pixelHeight = this.renderer.domElement.height;
     this.depthTarget.setSize(pixelWidth, pixelHeight);
-    for (const object of this.objects) {
-      const material = (object.object as THREE.Mesh)
-        .material as THREE.ShaderMaterial;
-      const resolution = material?.uniforms?.uResolution?.value as
-        | THREE.Vector2
-        | undefined;
-      resolution?.set(pixelWidth, pixelHeight);
-    }
+    for (const object of this.objects)
+      object.object.traverse((node) => {
+        const material = (node as THREE.Mesh).material as
+          | THREE.ShaderMaterial
+          | undefined;
+        const resolution = material?.uniforms?.uResolution?.value as
+          | THREE.Vector2
+          | undefined;
+        resolution?.set(pixelWidth, pixelHeight);
+      });
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.computeFraming();
     this.resetCamera();
+  }
+
+  /**
+   * camera.shake and camera.pushIn, applied as an offset on top of whatever
+   * the camera already is — the auto-framed pose, or the orbit pose when the
+   * gallery is interactive. Both are pure functions of time, and the base pose
+   * is restored right after the frame, so nothing accumulates.
+   */
+  private applyCameraMove(time: number) {
+    const doc = this.doc;
+    if (!doc) return null;
+    const { shake, pushIn } = doc.camera;
+    if (!shake && !pushIn) return null;
+    const base = {
+      position: this.camera.position.clone(),
+      quaternion: this.camera.quaternion.clone(),
+    };
+    const target = this.controls.target;
+    if (pushIn) {
+      const span = Math.max(pushIn.end - pushIn.start, 1e-4);
+      let f = clamp01((time - pushIn.start) / span);
+      if (pushIn.ease === "smooth") f = f * f * (3 - 2 * f);
+      const scale = pushIn.from + (pushIn.to - pushIn.from) * f;
+      this.camera.position
+        .sub(target)
+        .multiplyScalar(Math.max(0.05, scale))
+        .add(target);
+    }
+    if (shake) {
+      // Trauma model: trauma decays linearly from the start of the window and
+      // the shake is amplitude * trauma^2, so it dies away fast and smoothly.
+      const decay = 1 + shake.fade;
+      const span = Math.max(shake.end - shake.start, 1e-4);
+      const trauma = clamp01(
+        Math.min(1 - (time - shake.start) * decay, (shake.end - time) / span),
+      );
+      const strength = shake.amplitude * trauma * trauma;
+      if (time >= shake.start && strength > 1e-5) {
+        const phase = time * shake.frequency;
+        const nx = seededNoise1D(phase, this.shakeSeed);
+        const ny = seededNoise1D(phase, this.shakeSeed + 977);
+        const nz = seededNoise1D(phase * 0.6, this.shakeSeed + 4013);
+        // Rotation is what sells a shake: +-5 degrees at full trauma.
+        const swing = (5 * Math.PI) / 180 / 0.3;
+        const euler = new THREE.Euler(
+          ny * strength * swing,
+          nx * strength * swing,
+          nz * strength * swing * 0.6,
+          "XYZ",
+        );
+        this.camera.quaternion.multiply(new THREE.Quaternion().setFromEuler(euler));
+        this.camera.position.addScaledVector(
+          new THREE.Vector3(nx, ny, nz),
+          strength * 0.35,
+        );
+      }
+    }
+    this.camera.updateMatrixWorld();
+    return base;
   }
 
   render(time: number, solo?: string, diagnostic = false) {
@@ -1261,6 +1607,7 @@ export class VfxRuntimeV2 {
     // the last frame. Skipped entirely in the deterministic capture path
     // (setInteractive(false)) so captures never depend on controls state.
     if (this.interactive) this.controls.update();
+    const move = this.applyCameraMove(time);
     const doc = this.doc;
     for (const object of this.objects) {
       object.update(time, this.flags, this.camera);
@@ -1290,6 +1637,12 @@ export class VfxRuntimeV2 {
 
     if (this.flags.post && !diagnostic) this.post.composer.render(0);
     else this.renderer.render(this.scene, this.camera);
+
+    if (move) {
+      this.camera.position.copy(move.position);
+      this.camera.quaternion.copy(move.quaternion);
+      this.camera.updateMatrixWorld();
+    }
   }
 
   private disposeObjects() {
@@ -1313,6 +1666,22 @@ export class VfxRuntimeV2 {
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
+}
+
+/**
+ * Smooth value noise in [-1,1], deterministic in (x, seed). Used only by the
+ * camera shake, which must stay a pure function of time.
+ */
+function seededNoise1D(x: number, seed: number) {
+  const i = Math.floor(x);
+  const f = x - i;
+  const at = (n: number) => {
+    let v = Math.imul((n ^ seed) >>> 0, 2246822519) >>> 0;
+    v = Math.imul(v ^ (v >>> 13), 3266489917) >>> 0;
+    return (v / 4294967296) * 2 - 1;
+  };
+  const s = f * f * (3 - 2 * f);
+  return at(i) + (at(i + 1) - at(i)) * s;
 }
 
 function directionOf(azimuth: number, elevation: number) {
@@ -1339,6 +1708,7 @@ function applyStyle(doc: VfxDocumentV2): VfxDocumentV2 {
     if (!layer.material) continue;
     layer.material.mask.textureId = null;
     if (layer.material.noise) layer.material.noise.textureId = null;
+    if (layer.emitter?.trail) layer.emitter.trail.textureId = null;
   }
   return next;
 }

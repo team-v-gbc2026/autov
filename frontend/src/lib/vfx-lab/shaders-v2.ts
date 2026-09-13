@@ -98,8 +98,9 @@ float softDepth(){
 
 /** Procedural stand-ins used when a layer references no mask texture. */
 export const glslProcedural = /* glsl */ `
-// uProcedural: 0 = soft disc, 1 = flame-ish, 2 = smoke-ish.
+// uProcedural: 0 = soft disc, 1 = flame-ish, 2 = smoke-ish, 3 = solid.
 float proceduralShape(vec2 p, float n, int mode){
+  if(mode==3) return 1.;
   float disc=smoothstep(.5,.1,length(p));
   if(mode==1) return clamp(disc*(.45+n*1.1),0.,1.);
   if(mode==2) return clamp(disc*(.6+n*.8),0.,1.);
@@ -109,100 +110,251 @@ float proceduralShape(vec2 p, float n, int mode){
 
 // ---------------------------------------------------------------------------
 // Particles
+//
+// The whole trajectory — spawn position, initial direction, speed curve,
+// forces, vortex, curl, floor — lives in one GLSL chunk that is emitted twice
+// when a layer has a sub-emitter: once under the layer's own uniforms (prefix
+// "", functions `self*`) and once under the parent layer's uniforms (prefix
+// "Parent", functions `parent*`). Both the billboard vertex shader and the
+// trail ribbon vertex shader call the same functions, so a trail vertex at
+// age - k*spacing is exactly the position the billboard had at that age.
 // ---------------------------------------------------------------------------
 
-export const particleVertexV2 = /* glsl */ `
+/**
+ * Trajectory chunk. `P` prefixes the uniform names, `p` the function names and
+ * `curlEnv` is the curl envelope expression (the parent copy has none, so its
+ * caller passes a constant).
+ */
+export function glslParticleCore(P: string, p: string, curlEnv: string) {
+  return /* glsl */ `
+uniform float u${P}Period,u${P}SpawnWindow,u${P}SpawnDuration,u${P}ShapeLength,u${P}ShapeRadius,u${P}ShapeInner,u${P}ShapeAngle;
+uniform float u${P}Drag,u${P}Curl,u${P}CurlFreq,u${P}CurlSpeed,u${P}FloorY,u${P}FloorSoft,u${P}Angle;
+uniform float u${P}VortexW,u${P}VortexFalloff;
+uniform int u${P}SpawnMode,u${P}ShapeType,u${P}VelMode,u${P}HasFloor,u${P}SurfaceOnly,u${P}SpeedN,u${P}BurstN;
+uniform vec3 u${P}Axis,u${P}Dir,u${P}Gravity,u${P}Wind,u${P}Bias,u${P}ShapeSize,u${P}VortexAxis;
+uniform vec2 u${P}Life,u${P}Speed;
+uniform vec2 u${P}SpeedKey[${CURVE_KEYS}];
+uniform float u${P}BurstT[${CURVE_KEYS}]; uniform float u${P}BurstC[${CURVE_KEYS}];
+
+float ${p}Life(vec4 s){ return mix(u${P}Life.x,u${P}Life.y,s.y); }
+
+/** Birth time in layer-local seconds, or 1e9 when the instance never spawns. */
+float ${p}Birth(vec4 s, float t){
+  float instance=s.x;
+  float birth=instance*u${P}SpawnWindow;
+  if(u${P}SpawnMode==1){
+    // continuous: the emitter loops with period = count / rate.
+    float cycle=floor((t-birth)/max(u${P}Period,1e-4));
+    float absBirth=birth+cycle*u${P}Period;
+    if(absBirth<0. || absBirth>u${P}SpawnDuration) return 1e9;
+    return absBirth;
+  }
+  if(u${P}SpawnMode==2){
+    // bursts: pick the burst whose cumulative share covers this instance.
+    float t0=u${P}BurstT[0];
+    for(int i=0;i<${CURVE_KEYS};i++){ if(i>=u${P}BurstN) break; if(instance<=u${P}BurstC[i]){ t0=u${P}BurstT[i]; break; } }
+    return t0+fract(instance*7.13+0.37)*u${P}SpawnWindow;
+  }
+  return birth;
+}
+
+vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
+  float ca=e.x*6.2831853, cz=e.y*2.-1., cr=sqrt(max(0.,1.-cz*cz));
+  vec3 unit=vec3(cr*cos(ca),cz,cr*sin(ca));
+  float fill=u${P}SurfaceOnly==1?1.:safePow(e.z,.5);
+  vec3 sph=unit*fill;
+  // bias mirrors samples toward the positive axis (0 = symmetric, 1 = fully biased).
+  sph=mix(sph,abs(sph),clamp(u${P}Bias,0.,1.));
+  vec3 axis=safeDir(u${P}Axis,vec3(0,1,0));
+  vec3 a1=orthoOf(axis), a2=cross(axis,a1);
+  if(u${P}ShapeType==0) return vec3(0.);
+  if(u${P}ShapeType==1) return sph*u${P}ShapeRadius;
+  if(u${P}ShapeType==2) return vec3(sph.x,abs(sph.y),sph.z)*u${P}ShapeRadius;
+  if(u${P}ShapeType==3){
+    float h=e.w*u${P}ShapeLength;
+    float rr=u${P}ShapeRadius+h*tan(min(u${P}ShapeAngle,1.5));
+    return axis*h+(a1*cos(ca)+a2*sin(ca))*rr*safePow(e.z,.5);
+  }
+  if(u${P}ShapeType==4) return (a1*cos(ca)+a2*sin(ca))*u${P}ShapeRadius;
+  if(u${P}ShapeType==5){
+    float rr=mix(u${P}ShapeInner,u${P}ShapeRadius,safePow(e.z,.5));
+    return (a1*cos(ca)+a2*sin(ca))*rr;
+  }
+  if(u${P}ShapeType==6) return vec3(e.x*2.-1.,e.y*2.-1.,e.z*2.-1.)*u${P}ShapeSize*.5;
+  return axis*(u${P}ShapeLength*e.w)+sph*u${P}ShapeRadius;
+}
+
+vec3 ${p}Dir(vec4 s, vec4 e, vec4 e2, vec3 origin){
+  vec3 axis=safeDir(u${P}Axis,vec3(0,1,0));
+  vec3 base=safeDir(u${P}Dir,vec3(0,1,0));
+  vec3 radial=safeDir(origin,axis);
+  if(u${P}VelMode==0) return safeDir(origin,radial);
+  if(u${P}VelMode==1) return base;
+  if(u${P}VelMode==2) return safeDir(cross(axis,radial),base);
+  vec3 t1=orthoOf(base), t2=cross(base,t1);
+  float ph=s.z*6.2831853, cone=s.w*u${P}Angle;
+  return safeDir(base+(t1*cos(ph)+t2*sin(ph))*cone, base);
+}
+
+/** Speed multiplier at normalized life u (1 when the layer has no speedCurve). */
+float ${p}SpeedAt(float u){
+  if(u${P}SpeedN<2) return 1.;
+  u=clamp(u,0.,1.);
+  float v=u${P}SpeedKey[0].y;
+  for(int i=1;i<${CURVE_KEYS};i++){
+    if(i>=u${P}SpeedN) break;
+    float a=u${P}SpeedKey[i-1].x, b=u${P}SpeedKey[i].x;
+    float f=clamp((u-a)/max(b-a,1e-5),0.,1.);
+    v=mix(v,u${P}SpeedKey[i].y,step(a,u)*f);
+  }
+  return v;
+}
+
+/**
+ * Integral of the piecewise-linear speed table from 0 to u. Each trapezoid is
+ * closed form, so distance travelled stays a pure function of time.
+ */
+float ${p}SpeedI(float u){
+  u=clamp(u,0.,1.);
+  float acc=min(u,u${P}SpeedKey[0].x)*u${P}SpeedKey[0].y;
+  for(int i=1;i<${CURVE_KEYS};i++){
+    if(i>=u${P}SpeedN) break;
+    float a=u${P}SpeedKey[i-1].x, b=u${P}SpeedKey[i].x;
+    float va=u${P}SpeedKey[i-1].y, vb=u${P}SpeedKey[i].y;
+    float f=clamp((u-a)/max(b-a,1e-5),0.,1.);
+    acc+=(b-a)*f*(va+(vb-va)*f*.5);
+    if(i==u${P}SpeedN-1) acc+=max(u-b,0.)*vb;
+  }
+  return acc;
+}
+
+void ${p}Traj(vec4 s, vec4 e, vec4 e2, float age, float life, float t, out vec3 pos, out vec3 vel){
+  vec3 origin=${p}Origin(s,e,e2);
+  vec3 dir=${p}Dir(s,e,e2,origin);
+  float a=max(age,0.);
+  float u=clamp(a/max(life,1e-4),0.,1.);
+  float v0=mix(u${P}Speed.x,u${P}Speed.y,e2.w);
+  float d,scale;
+  if(u${P}SpeedN>1){
+    // speedCurve replaces the drag integral: distance = v0 * life * I(u).
+    d=life*${p}SpeedI(u); scale=${p}SpeedAt(u);
+  } else {
+    d=u${P}Drag<.001?a:(1.-exp(-u${P}Drag*a))/u${P}Drag; scale=exp(-u${P}Drag*a);
+  }
+  pos=origin+dir*v0*d+.5*u${P}Gravity*a*a+u${P}Wind*a;
+  vel=dir*v0*scale+u${P}Gravity*a+u${P}Wind;
+  if(abs(u${P}VortexW)>1e-5){
+    // Rotate the radial part of the displacement about the vortex axis by
+    // omega*age, with omega falling off with distance from that axis.
+    vec3 ax=safeDir(u${P}VortexAxis,vec3(0.,1.,0.));
+    float h=dot(pos,ax); vec3 rad=pos-ax*h; float r=length(rad);
+    if(r>1e-5){
+      float w=u${P}VortexW/(1.+u${P}VortexFalloff*r);
+      float ang=w*a, c=cos(ang), sn=sin(ang);
+      pos=ax*h+rad*c+cross(ax,rad)*sn;
+      vel=vel*c+cross(ax,vel)*sn;
+    }
+  }
+  if(u${P}Curl>0.){
+    vec3 c=curl3(pos*u${P}CurlFreq+vec3(0.,-t*u${P}CurlSpeed,0.)+e2.xyz*3.);
+    pos+=c*u${P}Curl*(${curlEnv})*a;
+  }
+  if(u${P}HasFloor==1){ float dy=pos.y-u${P}FloorY; pos.y=u${P}FloorY+max(dy,dy*u${P}FloorSoft); }
+}
+`;
+}
+
+/** Sub-emitter uniforms plus the sampled parent-transform path. */
+const glslSubEmitter = /* glsl */ `
+uniform float uParentTimeShift,uInherit,uPathT0,uPathDt;
+uniform int uSubMode;
+uniform vec2 uSubOffset;
+uniform vec3 uParentPath[${CURVE_KEYS}];
+/** Parent layer transform delta at absolute time t, from an 8-sample table. */
+vec3 parentPathAt(float t){
+  float x=clamp((t-uPathT0)/max(uPathDt,1e-4),0.,float(${CURVE_KEYS}-1));
+  float i0=floor(x), f=x-i0;
+  vec3 a=vec3(0.), b=vec3(0.);
+  for(int i=0;i<${CURVE_KEYS};i++){
+    float fi=float(i);
+    a+=uParentPath[i]*step(abs(fi-i0),.5);
+    b+=uParentPath[i]*step(abs(fi-min(i0+1.,float(${CURVE_KEYS}-1))),.5);
+  }
+  return mix(a,b,f);
+}
+`;
+
+const glslOrtho = /* glsl */ `
+vec3 orthoOf(vec3 a){ return safeDir(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0)), vec3(1,0,0)); }
+`;
+
+/**
+ * Resolves this instance's birth, life and — for sub-emitters — the parent
+ * state it is launched from. `dead` is set when the instance is not alive at
+ * the sampled time; both vertex shaders then push it to clip space.
+ */
+const glslResolveBirth = (sub: boolean) => /* glsl */ `
+  float life=selfLife(aSeed);
+  float birth; vec3 subOrigin=vec3(0.); vec3 subVel=vec3(0.);
+  bool dead=false;
+${
+  sub
+    ? /* glsl */ `
+  // Sub-emitter: the child is born where and when the parent was at
+  // parentBirth + offset, in the parent's own closed-form trajectory.
+  float pLife=parentLife(aPSeed);
+  float r=fract(aSeed.x*13.37+aSeed.w*7.77+0.113);
+  float off = uSubMode==1 ? pLife
+            : uSubMode==2 ? mix(uSubOffset.x,uSubOffset.y,r)
+            : mix(uSubOffset.x,uSubOffset.y,fract(aSeed.x*3.0));
+  off=clamp(off,0.,pLife);
+  float pNow=uTime+uParentTimeShift;
+  float pBirth=parentBirth(aPSeed,pNow-off);
+  vec3 ppos,pvel;
+  parentTraj(aPSeed,aPExtra,aPExtra2,off,pLife,pBirth+off,ppos,pvel);
+  birth=pBirth+off-uParentTimeShift;
+  subOrigin=ppos+parentPathAt(pBirth+off);
+  subVel=pvel*uInherit;
+  if(pBirth>1e8) dead=true;
+`
+    : `  birth=selfBirth(aSeed,uTime);
+  if(birth>1e8) dead=true;
+`
+}
+  float age=uTime-birth;
+  if(age<0. || age>=life) dead=true;
+  float u=clamp(age/max(life,1e-4),0.,1.);
+`;
+
+export function particleVertexSource(sub = false) {
+  return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
-uniform float uTime,uPeriod,uSpawnWindow,uSpawnDuration,uShapeLength,uShapeRadius,uShapeInner,uShapeAngle;
-uniform float uDrag,uCurl,uCurlFreq,uCurlSpeed,uStretch,uFloorY,uFloorSoft,uAngle,uAtlasTiles;
-uniform int uSpawnMode,uShapeType,uVelMode,uRenderMode,uHasFloor,uHasAlphaSpawn,uSurfaceOnly,uAtlasCols,uAtlasRows;
-uniform vec3 uAxis,uDir,uGravity,uWind,uBias,uShapeSize;
-uniform vec2 uLife,uSpeed,uSize,uRot,uRotInit;
-uniform float uBurstT[${CURVE_KEYS}]; uniform float uBurstC[${CURVE_KEYS}]; uniform int uBurstN;
+${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
+uniform float uTime,uStretch,uAtlasTiles,uMotionBlur,uFlipFps;
+uniform int uRenderMode,uHasAlphaSpawn,uAtlasCols,uAtlasRows,uFlipMode;
+uniform vec2 uSize,uRot,uRotInit;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
 ${glslNoise}
+${glslOrtho}
 ${glslCurve("A")}
 ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
-vec3 orthoOf(vec3 a){ return safeDir(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0)), vec3(1,0,0)); }
+${glslParticleCore("", "self", "curveE(u)")}
+${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
+${sub ? glslSubEmitter : ""}
+void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); }
 
 void main(){
   vUv=uv; vSeed=aExtra2.xyz;
-  float instance=aSeed.x;
+${glslResolveBirth(sub)}
+  if(dead){ kill(); return; }
+  vU=u;
 
-  // --- birth time (closed form) --------------------------------------------
-  float birth=instance*uSpawnWindow;
-  float life=mix(uLife.x,uLife.y,aSeed.y);
-  float age;
-  if(uSpawnMode==1){
-    // continuous: the emitter loops with period = count / rate.
-    float cycle=floor((uTime-birth)/max(uPeriod,1e-4));
-    float absBirth=birth+cycle*uPeriod;
-    age=uTime-absBirth;
-    if(absBirth<0. || absBirth>uSpawnDuration){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); return; }
-  } else if(uSpawnMode==2){
-    // bursts: pick the burst whose cumulative share covers this instance.
-    float t0=uBurstT[0];
-    for(int i=0;i<${CURVE_KEYS};i++){ if(i>=uBurstN) break; if(instance<=uBurstC[i]){ t0=uBurstT[i]; break; } }
-    birth=t0+fract(instance*7.13+0.37)*uSpawnWindow;
-    age=uTime-birth;
-  } else {
-    age=uTime-birth;
-  }
-  if(age<0. || age>=life){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); return; }
-  float u=age/max(life,1e-4); vU=u;
-
-  // --- spawn position -------------------------------------------------------
-  float ca=aExtra.x*6.2831853, cz=aExtra.y*2.-1., cr=sqrt(max(0.,1.-cz*cz));
-  vec3 unit=vec3(cr*cos(ca),cz,cr*sin(ca));
-  float fill=uSurfaceOnly==1?1.:safePow(aExtra.z,.5);
-  vec3 sph=unit*fill;
-  // bias mirrors samples toward the positive axis (0 = symmetric, 1 = fully biased).
-  sph=mix(sph,abs(sph),clamp(uBias,0.,1.));
-
-  vec3 axis=safeDir(uAxis,vec3(0,1,0));
-  vec3 a1=orthoOf(axis), a2=cross(axis,a1);
-  vec3 origin=vec3(0.);
-  vec3 radial=safeDir(sph,axis);
-  if(uShapeType==0){ origin=vec3(0.); }
-  else if(uShapeType==1){ origin=sph*uShapeRadius; }
-  else if(uShapeType==2){ origin=vec3(sph.x,abs(sph.y),sph.z)*uShapeRadius; }
-  else if(uShapeType==3){
-    float h=aExtra.w*uShapeLength;
-    float rr=uShapeRadius+h*tan(min(uShapeAngle,1.5));
-    origin=axis*h+(a1*cos(ca)+a2*sin(ca))*rr*safePow(aExtra.z,.5);
-  }
-  else if(uShapeType==4){ origin=(a1*cos(ca)+a2*sin(ca))*uShapeRadius; }
-  else if(uShapeType==5){
-    float rr=mix(uShapeInner,uShapeRadius,safePow(aExtra.z,.5));
-    origin=(a1*cos(ca)+a2*sin(ca))*rr;
-  }
-  else if(uShapeType==6){ origin=vec3(aExtra.x*2.-1.,aExtra.y*2.-1.,aExtra.z*2.-1.)*uShapeSize*.5; }
-  else { origin=axis*(uShapeLength*aExtra.w)+sph*uShapeRadius; }
-
-  // --- initial direction ----------------------------------------------------
-  vec3 dir;
-  vec3 base=safeDir(uDir,vec3(0,1,0));
-  if(uVelMode==0) dir=safeDir(origin,radial);
-  else if(uVelMode==1) dir=base;
-  else if(uVelMode==2) dir=safeDir(cross(axis,safeDir(origin,radial)),base);
-  else {
-    vec3 t1=orthoOf(base), t2=cross(base,t1);
-    float ph=aSeed.z*6.2831853, cone=aSeed.w*uAngle;
-    dir=safeDir(base+(t1*cos(ph)+t2*sin(ph))*cone, base);
-  }
-
-  // --- trajectory -----------------------------------------------------------
-  float v0=mix(uSpeed.x,uSpeed.y,aExtra2.w);
-  float d=uDrag<.001?age:(1.-exp(-uDrag*age))/uDrag;
-  vec3 pos=origin+dir*v0*d+.5*uGravity*age*age+uWind*age;
-  vec3 vel=dir*v0*exp(-uDrag*age)+uGravity*age+uWind;
-  if(uCurl>0.){
-    vec3 c=curl3(pos*uCurlFreq+vec3(0.,-uTime*uCurlSpeed,0.)+vSeed*3.);
-    pos+=c*uCurl*curveE(u)*age;
-  }
-  if(uHasFloor==1){ float dy=pos.y-uFloorY; pos.y=uFloorY+max(dy,dy*uFloorSoft); }
+  vec3 pos,vel;
+  selfTraj(aSeed,aExtra,aExtra2,age,life,uTime,pos,vel);
+  pos+=subOrigin+subVel*age;
+  vel+=subVel;
   vWp=pos;
 
   // --- billboard ------------------------------------------------------------
@@ -228,9 +380,16 @@ void main(){
       // Winding: the across axis must be the clockwise perpendicular or the
       // quad is mirrored and back-face culled away.
       across=vec2(along.y,-along.x);
-      rot=0.; stretch=1.+uStretch*svl;
+      // post.motionBlur is a multiplier on the velocity stretch, nothing else.
+      rot=0.; stretch=1.+uStretch*(1.+2.*uMotionBlur)*svl;
     }
-    mv.xy+=across*position.x*size+along*position.y*size*stretch;
+    vec2 off=across*position.x*size+along*position.y*size*stretch;
+    if(uMotionBlur>0. && svl>1e-4){
+      // Non-stretched modes still elongate along screen velocity, never rotate.
+      vec2 vdir=sv/svl;
+      off+=vdir*dot(off,vdir)*uMotionBlur*min(svl,8.)*.25;
+    }
+    mv.xy+=off;
   }
   vRot=rot;
   gl_Position=projectionMatrix*mv;
@@ -239,8 +398,95 @@ void main(){
   if(uHasAlphaSpawn==1) vAlpha*=curveD(aExtra.w);
 
   float cols=float(max(uAtlasCols,1)), rows=float(max(uAtlasRows,1));
-  float ti=floor(aExtra.z*max(uAtlasTiles,1.)*.9999);
+  float tiles=max(uAtlasTiles,1.);
+  // uFlipMode: 0 = random atlas tile, 1 = flipbook over life, 2 = flipbook at fps.
+  float ti=floor(aExtra.z*tiles*.9999);
+  if(uFlipMode==1) ti=floor(clamp(u,0.,.9999)*tiles);
+  else if(uFlipMode==2) ti=floor(mod(max(age,0.)*uFlipFps,tiles));
   vTile=vec2(mod(ti,cols)/cols, floor(ti/cols)/rows);
+}
+`;
+}
+
+export const particleVertexV2 = particleVertexSource(false);
+
+// --- trails -----------------------------------------------------------------
+
+/**
+ * One analytic ribbon per particle: vertex k evaluates the same closed-form
+ * position at age - k*spacing, so the ribbon is the particle's own past
+ * without any history buffer. `position` carries (side, k, 0).
+ */
+export function trailVertexSource(sub = false) {
+  return /* glsl */ `
+attribute vec4 aSeed, aExtra, aExtra2;
+${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
+uniform float uTime,uSegments,uSpacing;
+uniform int uHasAlphaSpawn;
+uniform vec2 uSize;
+varying vec2 vUv; varying float vU,vAlpha; varying vec3 vSeed; varying vec3 vWp;
+${glslNoise}
+${glslOrtho}
+${glslCurve("A")}
+${glslCurve("B")}
+${glslCurve("D")}
+${glslCurve("E")}
+${glslCurve("G")}
+${glslParticleCore("", "self", "curveE(u)")}
+${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
+${sub ? glslSubEmitter : ""}
+void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vUv=vec2(0.); vWp=vec3(0.); }
+
+void main(){
+  vSeed=aExtra2.xyz;
+${glslResolveBirth(sub)}
+  if(dead){ kill(); return; }
+  vU=u;
+
+  float side=position.x;
+  float k=position.y;
+  float kn=clamp(k/max(uSegments-1.,1.),0.,1.);
+  vUv=vec2(side*.5+.5, kn);
+
+  float ageK=max(age-k*uSpacing,0.);
+  vec3 pos,vel;
+  selfTraj(aSeed,aExtra,aExtra2,ageK,life,uTime,pos,vel);
+  pos+=subOrigin+subVel*ageK;
+  vel+=subVel;
+  vWp=pos;
+
+  vec4 mv=modelViewMatrix*vec4(pos,1.);
+  vec3 sv3=(modelViewMatrix*vec4(vel,0.)).xyz;
+  vec2 sv=vec2(sv3.x,sv3.y);
+  float svl=length(sv);
+  vec2 across=svl>1e-4?vec2(sv.y,-sv.x)/svl:vec2(1.,0.);
+  float width=mix(uSize.x,uSize.y,aExtra2.x)*curveA(u)*curveG(kn)*.5;
+  mv.xy+=across*side*width;
+  gl_Position=projectionMatrix*mv;
+
+  vAlpha=curveB(u)*smoothstep(0.,.03,age);
+  if(uHasAlphaSpawn==1) vAlpha*=curveD(aExtra.w);
+}
+`;
+}
+
+export const trailFragmentV2 = /* glsl */ `
+precision highp float;
+uniform sampler2D uTrail;
+uniform int uHasTrail,uBlendMode;
+uniform float uOpacity;
+varying vec2 vUv; varying float vU,vAlpha; varying vec3 vSeed; varying vec3 vWp;
+${glslRamp}
+void main(){
+  if(vAlpha<=0.) discard;
+  float shape;
+  if(uHasTrail==1){ vec4 m=texture2D(uTrail,vUv); shape=m.a*max(m.r,max(m.g,m.b)); }
+  else shape=smoothstep(1.,0.,abs(vUv.x*2.-1.));
+  vec3 col=rampColor(vU);
+  float a=shape*vAlpha*uOpacity;
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
 }
 `;
 
@@ -360,7 +606,7 @@ export const surfaceFragmentV2 = /* glsl */ `
 precision highp float;
 uniform float uTime,uOpacity,uErodeSoft,uEdgeW,uEdgeI,uProtect,uRimBias,uDisplaceShift;
 uniform float uFresnelPower,uFresnelStrength,uDistort,uRampKeyMode,uLayerU;
-uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFresnel;
+uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFresnel,uBolt;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan;
 uniform vec3 uEdgeCol,uCam;
 uniform sampler2D uMask,uNoise;
@@ -386,7 +632,12 @@ void main(){
   }
 
   float shape=1.;
-  if(uShell==0){
+  if(uBolt==1){
+    // A bolt is a tube: its normals face the camera along the centreline and
+    // graze it at the silhouette, which is exactly the falloff a hot core with
+    // a soft edge wants. Without it the tube reads as a flat blown-out slab.
+    shape=safePow(abs(dot(vN,V)),.65);
+  } else if(uShell==0){
     vec2 duv=vUv+(n-.5)*uDistort;
     vec2 muv=duv*uMaskScale+uMaskPan;
     if(uHasMask==1){ vec4 m=texture2D(uMask,muv); shape=m.a*max(m.r,max(m.g,m.b)); }

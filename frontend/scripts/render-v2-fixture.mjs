@@ -7,6 +7,12 @@
 //
 // Usage: node scripts/render-v2-fixture.mjs [fixtureId] [times...]
 //   node scripts/render-v2-fixture.mjs fire-projectile 2.0 3.1
+//   node scripts/render-v2-fixture.mjs --doc lightning-impact 0.36 0.42
+//   node scripts/render-v2-fixture.mjs --doc ./some/document.json 1.0
+//
+// --doc takes either a recipe-v2 example id (rendered through createPresetV2)
+// or a path to a document JSON. Screenshots are written under a per-document
+// sub-directory of .autov-local/v2-verify/.
 
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -32,16 +38,40 @@ const esbuild = load("esbuild");
 // The sandbox's pre-installed browsers match the pinned playwright next door.
 const { chromium } = load("playwright", fs.existsSync(FALLBACK_MODULES));
 
-const fixtureId = process.argv[2] || "fire-projectile";
-const times = (process.argv.slice(3).length ? process.argv.slice(3) : ["2.0", "3.1"]).map(
-  Number,
-);
-const outDir = path.join(root, ".autov-local", "v2-verify");
+const argv = process.argv.slice(2);
+const docFlag = argv.indexOf("--doc");
+let docId = null;
+if (docFlag >= 0) {
+  docId = argv[docFlag + 1];
+  argv.splice(docFlag, 2);
+  if (!docId) throw new Error("--doc needs a recipe id or a path");
+}
+const fixtureId = docId ?? argv.shift() ?? "fire-projectile";
+const times = (argv.length ? argv : ["2.0", "3.1"]).map(Number);
+const label = fixtureId.replace(/[^a-zA-Z0-9._-]+/g, "_");
+const outDir = path.join(root, ".autov-local", "v2-verify", label);
 fs.mkdirSync(outDir, { recursive: true });
+
+// --doc: a recipe example id, or a path to a document JSON.
+const RECIPE_IDS = new Set([
+  "fire-projectile",
+  "smoke-burst",
+  "lightning-impact",
+  "fire-slash",
+  "beam",
+  "shield",
+  "meteor-rain",
+  "ice-blast",
+]);
+const docImport = !docId
+  ? `import doc from "../fixtures/v2/${fixtureId}/document.json";`
+  : RECIPE_IDS.has(docId)
+    ? `import { createPresetV2 } from "../src/lib/vfx-lab/recipes-v2";\nconst doc = createPresetV2(${JSON.stringify(docId)});`
+    : `import doc from ${JSON.stringify(path.resolve(process.cwd(), docId))};`;
 
 const entry = `
 import { VfxRuntimeV2, RUNTIME_VERSION_V2 } from "../src/lib/vfx-lab/runtime-v2";
-import doc from "../fixtures/v2/${fixtureId}/document.json";
+${docImport}
 
 const host = document.getElementById("host");
 const runtime = new VfxRuntimeV2(host);
@@ -180,13 +210,24 @@ const stats = await page.evaluate(() => {
   let sum = 0;
   let max = 0;
   let bright = 0;
+  // Same rule as capture-v2's evidence: anything that differs from the corner
+  // background by more than 12 counts as drawn.
+  const bg = [data[0], data[1], data[2]];
+  let renderedPixels = 0;
   for (let i = 0; i < data.length; i += 4) {
     const l = (data[i] + data[i + 1] + data[i + 2]) / 3;
     sum += l;
     if (l > max) max = l;
     if (l > 40) bright++;
+    if (Math.max(...bg.map((v, c) => Math.abs(data[i + c] - v))) > 12)
+      renderedPixels++;
   }
-  return { mean: sum / (data.length / 4), max, brightFraction: bright / (data.length / 4) };
+  return {
+    mean: sum / (data.length / 4),
+    max,
+    brightFraction: bright / (data.length / 4),
+    renderedPixels,
+  };
 });
 
 const frame = await page.evaluate(() => window.__frame());

@@ -8,14 +8,42 @@ import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import type { VfxDocumentV2 } from "./schema-v2";
 
 // ---------------------------------------------------------------------------
-// Post stack: HalfFloat (MSAA x4) target -> render -> bloom -> vignette +
-// chromatic aberration -> output (tone map + sRGB) -> SMAA.
+// Post stack: HalfFloat (MSAA x4) target -> render -> bloom -> grade ->
+// vignette + chromatic aberration -> output (tone map + sRGB) -> SMAA.
 //
-// The vignette/chromatic pass runs before OutputPass so it operates on linear
-// HDR; SMAA runs last, on the already display-referred image.
+// The grade and vignette/chromatic passes run before OutputPass so they operate
+// on linear HDR; SMAA runs last, on the already display-referred image.
 // ---------------------------------------------------------------------------
 
 const MSAA_SAMPLES = 4;
+
+/** Contrast / saturation / tint / lift, on linear HDR, after bloom. */
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    uContrast: { value: 1 },
+    uSaturation: { value: 1 },
+    uTint: { value: new THREE.Color(1, 1, 1) },
+    uLift: { value: 0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float uContrast,uSaturation,uLift; uniform vec3 uTint;
+    varying vec2 vUv;
+    void main(){
+      vec4 src=texture2D(tDiffuse,vUv);
+      vec3 c=max(src.rgb,0.);
+      // Contrast pivots around mid grey in linear light.
+      c=max((c-0.18)*uContrast+0.18,0.);
+      float l=dot(c,vec3(.2126,.7152,.0722));
+      c=max(mix(vec3(l),c,uSaturation),0.);
+      c*=uTint;
+      c=max(c+uLift,0.);
+      gl_FragColor=vec4(c,src.a);
+    }`,
+};
 
 const VignetteShader = {
   uniforms: {
@@ -44,6 +72,7 @@ export interface PostStackV2 {
   bloom: UnrealBloomPass;
   smaa: SMAAPass;
   vignette: ShaderPass;
+  grade: ShaderPass;
   setSize(width: number, height: number): void;
   apply(doc: VfxDocumentV2, flags: { post: boolean; aa: boolean }): void;
   dispose(): void;
@@ -70,6 +99,8 @@ export function createPostStack(
     1.3,
   );
   composer.addPass(bloom);
+  const grade = new ShaderPass(GradeShader);
+  composer.addPass(grade);
   const vignette = new ShaderPass(VignetteShader);
   composer.addPass(vignette);
   composer.addPass(new OutputPass());
@@ -81,6 +112,7 @@ export function createPostStack(
     bloom,
     smaa,
     vignette,
+    grade,
     setSize(w, h) {
       composer.setSize(Math.max(1, w), Math.max(1, h));
     },
@@ -89,6 +121,14 @@ export function createPostStack(
       bloom.strength = doc.post.bloom.strength;
       bloom.radius = doc.post.bloom.radius;
       bloom.threshold = doc.post.bloom.threshold;
+      const g = doc.post.grade;
+      const neutral =
+        g.contrast === 1 && g.saturation === 1 && g.lift === 0 && g.tint === "#ffffff";
+      grade.enabled = flags.post && !neutral;
+      grade.uniforms.uContrast.value = g.contrast;
+      grade.uniforms.uSaturation.value = g.saturation;
+      grade.uniforms.uLift.value = g.lift;
+      (grade.uniforms.uTint.value as THREE.Color).set(g.tint);
       vignette.enabled = flags.post;
       vignette.uniforms.uVignette.value = doc.post.vignette;
       vignette.uniforms.uChromatic.value = doc.post.chromatic;
