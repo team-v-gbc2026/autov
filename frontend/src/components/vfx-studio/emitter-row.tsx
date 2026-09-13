@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type PointerEvent, type ReactNode } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { autoUpdate, flip, FloatingFocusManager, FloatingPortal, offset, safePolygon, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from "@floating-ui/react";
 import IconButton from "../studio/icon-button";
 import styles from "./emitter-row.module.css";
@@ -16,6 +16,16 @@ export default function EmitterRow({ name, selected, editing, onEdit, onClose, o
   children: ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const drag = useRef<{ x: number; y: number } | null>(null);
+  const move = (x: number, y: number) => {
+    const panel = refs.floating.current;
+    if (!panel) return;
+    setPosition({
+      x: Math.max(12, Math.min(x, window.innerWidth - panel.offsetWidth - 12)),
+      y: Math.max(12, Math.min(y, window.innerHeight - panel.offsetHeight - 12)),
+    });
+  };
   const open = hovered || editing;
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -56,9 +66,37 @@ export default function EmitterRow({ name, selected, editing, onEdit, onClose, o
     </div>
     {open && <FloatingPortal>
       <FloatingFocusManager context={context} modal={false} disabled={!editing} initialFocus={0} returnFocus={editing}>
-        <div ref={node => refs.setFloating(node)} style={floatingStyles} className={`${styles.panel} ${editing ? styles.editor : ""}`} {...getFloatingProps({ "aria-label": editing ? `Edit ${name}` : `${name} actions` })}>
+        <div ref={node => refs.setFloating(node)} style={editing && position ? { position: "fixed", left: `clamp(12px, ${position.x}px, calc(100vw - min(320px, 100vw - 24px) - 12px))`, top: `clamp(12px, ${position.y}px, calc(100dvh - min(260px, 100dvh - 24px) - 12px))` } : floatingStyles} className={`${styles.panel} ${editing ? styles.editor : ""}`} {...getFloatingProps({ "aria-label": editing ? `Edit ${name}` : `${name} actions` })}>
           {editing ? <>
-            <div className={styles.heading}><div><span className={styles.eyebrow}>EMITTER</span><h2 title={name}>{name}</h2></div><IconButton name="close" label="Close emitter controls" onClick={close} /></div>
+            <div className={styles.heading}>
+              <button type="button" className={styles.dragHandle} aria-label={`Move ${name} settings`} title="Drag to move · Arrow keys to reposition"
+                onPointerDown={event => {
+                  if (event.button !== 0) return;
+                  const bounds = refs.floating.current?.getBoundingClientRect();
+                  if (!bounds) return;
+                  drag.current = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={event => {
+                  if (drag.current) move(event.clientX - drag.current.x, event.clientY - drag.current.y);
+                }}
+                onPointerUp={event => {
+                  drag.current = null;
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                }}
+                onPointerCancel={() => { drag.current = null; }}
+                onLostPointerCapture={() => { drag.current = null; }}
+                onKeyDown={event => {
+                  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+                  event.preventDefault();
+                  const bounds = refs.floating.current?.getBoundingClientRect();
+                  if (!bounds) return;
+                  const step = event.shiftKey ? 40 : 10;
+                  move(bounds.left + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0), bounds.top + (event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0));
+                }}
+              ><span>{name}</span></button>
+              <IconButton name="close" label="Close emitter controls" onClick={close} />
+            </div>
             <div className={styles.controls}>{controls}</div>
           </> : <div className={styles.actions}>
             <IconButton name="edit" label={`Edit ${name}`} onClick={onEdit} />
