@@ -38,6 +38,7 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
   const fileInput = useRef<HTMLInputElement>(null);
   const retryFiles = useRef(new Map<string, File>());
   const uploadLock = useRef(false);
+  const sendLock = useRef(false);
   const editor = useEditor({
     immediatelyRender: false,
     // Tiptap stores these callbacks; refs are read only when suggestions run.
@@ -142,7 +143,7 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
     try { await upload(id, file); } finally { uploadLock.current = false; setUploading(false); }
   }
   async function send() {
-    if (!editor || editor.isEmpty || saving || busy || uploading) return;
+    if (!editor || editor.isEmpty || saving || busy || uploading || sendLock.current) return;
     const ids = new Set<string>(); let invalid = false; let invalidEmitter = false;
     editor.state.doc.descendants(node => {
       if (node.type.name === "emitterMention" && !emitters.some(item => item.id === node.attrs.id)) invalidEmitter = true;
@@ -156,7 +157,22 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
     const text = editor.getText({ textSerializers: { emitterMention: ({ node }) => encodeEmitterMention(node.attrs.id, emitters.find(item => item.id === node.attrs.id)?.name || node.attrs.label), mention: ({ node }) => encodeMention(node.attrs.id, references.find(ref => ref.id === node.attrs.id)?.name || node.attrs.label) } });
     if (text.length > 10000) { setError("Keep the prompt under 10,000 characters."); return; }
     setError("");
-    if (await onSend(text, [...ids])) editor.commands.clearContent();
+    const draft = editor.getJSON();
+    sendLock.current = true;
+    editor.commands.clearContent();
+    let confirmed = false;
+    try {
+      confirmed = await onSend(text, [...ids]);
+    } catch {
+      setError("Your message could not be sent. Your draft has been restored.");
+    } finally {
+      // Preserve rich mention chips, and never erase anything typed meanwhile.
+      if (!confirmed && !editor.isDestroyed) {
+        if (editor.isEmpty) editor.commands.setContent(draft);
+        else editor.commands.insertContentAt(0, draft.content || []);
+      }
+      sendLock.current = false;
+    }
   }
   return <EmitterContext.Provider value={emitters}><ReferenceContext.Provider value={{ references, retry: id => { void retry(id); } }}>
     <form className={`composer ${styles.composer}`} onSubmit={event => { event.preventDefault(); void send(); }}>
@@ -178,7 +194,7 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
         <Tooltip content="Upload reference images" side="top"><button type="button" className="icon-button" disabled={saving || busy || uploading} aria-label="Upload reference images" onMouseDown={event => event.preventDefault()} onClick={() => fileInput.current?.click()}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 12 7-7a3 3 0 0 1 4 4L9 19a5 5 0 0 1-7-7L12 2M6 14l9-9" /></svg></button></Tooltip>
         <Tooltip content="Choose from board" side="top"><button type="button" className="icon-button" aria-label="Choose from board" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" @").run()}>@</button></Tooltip>
         {emitters.length > 0 && <Tooltip content="Tag an emitter" side="top"><button type="button" className="icon-button" aria-label="Tag an emitter" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" #").run()}>#</button></Tooltip>}
-        <span role="status">{uploading ? "Uploading..." : stopping ? "Stopping…" : responding ? "Responding…" : saving ? "Connecting…" : ""}</span>
+        <span role="status">{uploading ? "Uploading..." : responding ? "" : saving ? "Connecting…" : ""}</span>
       </div><button type={responding ? "button" : "submit"} className={`send-button ${responding ? styles.stop : ""}`} disabled={responding ? stopping || !onStop : !hasText || saving || busy || uploading} aria-label={responding ? stopping ? "Stopping response" : "Stop response" : sendLabel} title={responding ? "Stop response" : "Send message (Enter)"} onClick={responding ? async () => {
         if (stopping || !onStop) return;
         setStopping(true);

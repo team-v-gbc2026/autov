@@ -85,3 +85,33 @@ test("forging the database pointer cannot grant access to another eve session", 
     assert.equal(resolvedAddress, `studio:${userId}:${projectId}`);
   }
 });
+
+test("an idle owned session accepts a follow-up and preserves Eve delivery metadata", async () => {
+  mockDatabase();
+  process.env.AI_GATEWAY_API_KEY = "test-key";
+  const databaseFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/rest/v1/rpc/claim_project_conversation") return Response.json(true);
+    if (url.pathname === "/rest/v1/project_conversations" && init?.method === "PATCH") return new Response(null, { status: 204 });
+    return databaseFetch(input, init);
+  };
+  let deliveries = 0;
+  const session = {
+    id: "owned-session",
+    getStreamTailIndex: async () => 10,
+    getEventStream: async () => new ReadableStream({ start(controller) { controller.enqueue({ type: "session.waiting" }); controller.close(); } }),
+    send: async (message: unknown, options: { auth: { principalId: string } }) => {
+      assert.deepEqual(message, [{ type: "text", text: "fire" }]);
+      assert.equal(options.auth.principalId, userId);
+      deliveries++;
+      return { status: "accepted", sessionId: "owned-session", deliveryId: "delivery-2" };
+    },
+  };
+  const response = await route("/eve/v1/session/:sessionId", "POST").handler(request("/eve/v1/session/owned-session", "POST"), {
+    params: { sessionId: "owned-session" }, resolveSession: async () => session, attachSession: () => session,
+  } as unknown as RouteHandlerArgs);
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).deliveryId, "delivery-2");
+  assert.equal(deliveries, 1);
+});

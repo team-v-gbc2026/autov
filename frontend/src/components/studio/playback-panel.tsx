@@ -6,12 +6,16 @@ import type { Playback } from "./use-playback";
 
 export default function PlaybackPanel({
   playback,
+  effectName,
+  onEffectNameChange,
   duration = 8,
   minDuration,
   onDurationChange,
   tracks,
 }: {
   playback: Playback;
+  effectName: string;
+  onEffectNameChange: (name: string) => void;
   duration?: number;
   minDuration: number;
   onDurationChange: (duration: number) => void;
@@ -20,6 +24,7 @@ export default function PlaybackPanel({
   const { playing, setPlaying, time, setTime, loop, setLoop } = playback;
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [durationError, setDurationError] = useState("");
+  const [editingName, setEditingName] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const hasTracks = Boolean(tracks);
 
@@ -120,6 +125,43 @@ export default function PlaybackPanel({
               />
               <span>s</span>
             </span>
+            <div className="timeline-effect-name">
+              {editingName ? (
+                <input
+                  aria-label="Effect name"
+                  defaultValue={effectName}
+                  autoFocus
+                  onFocus={event => event.currentTarget.select()}
+                  onBlur={event => {
+                    const name = event.currentTarget.value.trim();
+                    if (name && name !== effectName) onEffectNameChange(name);
+                    setEditingName(false);
+                  }}
+                  onKeyDown={event => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      event.currentTarget.value = effectName;
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  title={`${effectName} · Double-click to rename`}
+                  aria-label={`Effect name: ${effectName}. Double-click or press Enter to rename.`}
+                  onDoubleClick={() => setEditingName(true)}
+                  onKeyDown={event => {
+                    if (event.key === "Enter" || event.key === "F2") {
+                      event.preventDefault();
+                      setEditingName(true);
+                    }
+                  }}
+                >
+                  {effectName}
+                </button>
+              )}
+            </div>
             <button
               className="icon-button timeline-collapse"
               onClick={() => setTimelineOpen(false)}

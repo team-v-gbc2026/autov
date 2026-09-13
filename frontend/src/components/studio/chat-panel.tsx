@@ -153,7 +153,7 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
     headers: () => agentHeaders(projectId),
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
     resume: !!sessionId,
-    optimistic: false,
+    optimistic: true,
     onEvent: event => { if (event.type === "message.received") accepted.current = true; },
   });
   useEffect(() => { onHistory(agent.data.messages.length > 0); }, [agent.data.messages.length, onHistory]);
@@ -186,6 +186,7 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
       text={displayPrompt(message.parts.filter(part => part.type === "text").map(part => part.text).join("\n\n"))}
       files={message.parts.filter(part => part.type === "file").map(part => part.filename || "Reference image")}
       streaming={message.metadata?.status === "streaming"}
+      caption={message.role === "user" ? message.metadata?.status === "failed" ? "Not confirmed · draft restored" : message.metadata?.optimistic ? "Sending…" : undefined : undefined}
     />)}
     {resuming && <div className={styles.reconnecting} role="status"><svg className={styles.spinner} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity=".2" /><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg><span>Reconnecting</span></div>}
     {active && <div className={styles.notice} role="status"><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span>{agent.status === "submitted" ? "Sending your message" : "Responding"}</div>}

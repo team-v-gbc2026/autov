@@ -41,3 +41,14 @@ export function responseError(error: unknown) {
   const known = error instanceof ChatError;
   return Response.json({ ok: false, code: known ? error.code : "CHAT_ERROR", error: known ? error.message : "The assistant could not complete the request. Reconnect before retrying." }, { status: known ? error.status : 500, headers: { "Cache-Control": "no-store" } });
 }
+
+// Construct from the URL so framework Request wrappers work across runtimes.
+// The replacement body has a different length from the incoming request.
+export function jsonRequest(request: Request, body: unknown): Request {
+  const headers = new Headers(request.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+  return new Request(request.url, {
+    method: request.method, headers, signal: request.signal, body: JSON.stringify(body),
+  });
+}

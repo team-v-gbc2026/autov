@@ -270,6 +270,8 @@ export default function Studio({
       </div>
       <PlaybackPanel
         playback={playback}
+        effectName={vfxDocument.name}
+        onEffectNameChange={name => setVfxDocument(document => ({ ...document, name }))}
         duration={vfxDocument.duration}
         minDuration={Math.max(0.01, ...vfxDocument.layers.flatMap(layer => [layer.end, ...layer.edits.map(edit => edit.end)]))}
         onDurationChange={duration => {

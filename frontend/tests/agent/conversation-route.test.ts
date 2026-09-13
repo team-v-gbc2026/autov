@@ -35,3 +35,14 @@ test("framework request reaches the actionable missing Gateway response after au
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /AI_GATEWAY_API_KEY/);
 });
+
+test("forwarding a framework POST preserves authentication with a fresh JSON body", async () => {
+  const { jsonRequest } = await import("../../agent/lib/contracts");
+  const request = { ...frameworkRequest("user-token"), method: "POST" } as Request;
+  request.headers.set("content-length", "9999");
+  const forwarded = jsonRequest(request, { turnId: "turn-1" });
+  assert.equal(forwarded.method, "POST");
+  assert.equal(forwarded.headers.get("authorization"), "Bearer user-token");
+  assert.equal(forwarded.headers.get("content-length"), null);
+  assert.deepEqual(await forwarded.json(), { turnId: "turn-1" });
+});
