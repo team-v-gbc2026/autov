@@ -46,3 +46,7 @@ test-results/
 playwright-report/
 public/vfx-runtime.js
 public/vfx-runtime.js.LICENSE.txt
+
+# dev-only routes, linked in from dev-pages/ for local dev only —
+# never present in a production build
+/src/app/(dev)/

@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node scripts/dev-pages.mjs link && next dev",
+    "dev:pages": "NEXT_PUBLIC_DEV_PAGES=1 npm run dev",
+    "build": "node scripts/dev-pages.mjs unlink && next build && node scripts/dev-pages.mjs verify",
     "start": "next start",
     "lint": "eslint",
     "dev:local": "AUTOV_LOCAL_MODE=1 next dev --hostname 127.0.0.1 --port 3000",
