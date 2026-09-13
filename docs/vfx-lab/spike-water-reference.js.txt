@@ -12,7 +12,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 const DUR = 4.0;
 const T_IN = 0.40;          // appear window
 const T_OUT0 = 3.0, T_OUT1 = 3.95;
-const N_MEM = 16;           // curved membrane sheets
+const N_MEM = 20;           // curved membrane sheets
 const N_DROP = 26;          // rounded droplets
 const N_CHIP = 8;           // tiny splash chips
 
@@ -47,9 +47,9 @@ const scene = new THREE.Scene();
 scene.background = hex("#141316");
 const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 60);
 {
-  const az = -0.55, el = 0.38, dist = 5.9;
+  const az = -0.55, el = 0.38, dist = 5.75;
   camera.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist).add(new THREE.Vector3(0.55, 0, 0));
-  camera.lookAt(0.34, 0.36, -0.14);
+  camera.lookAt(0.86, 0.40, -0.40);
 }
 
 // ground: dark plane + two grid frequencies + the analytic cyan pool under the head
@@ -72,8 +72,8 @@ const groundMat = new THREE.ShaderMaterial({
       vec3 c=mix(uBase,uGrid,line*0.24+line2*0.16);
       // the pool is analytic: a soft ellipse under the head, stretched along the flow
       vec2 d=vWp.xz-uHead.xz; d.x*=0.62;
-      float pool=exp(-dot(d,d)*4.6);
-      c+=uPool*pool*uPoolI*0.62;
+      float pool=exp(-dot(d,d)*9.0);
+      c+=uPool*pool*uPoolI*0.68;
       float dist=length(vWp.xz-uCam.xz);
       c=mix(c,uBase*0.55,smoothstep(9.,26.,dist));
       gl_FragColor=vec4(c,1.);
@@ -183,12 +183,14 @@ const headMat = new THREE.ShaderMaterial({
       col*=mix(1., .52, crease*.72);
       // surface streaks: thin white bands panning backward along the body, broken into
       // segments by the angular noise so they read as flowing water, not as rings
-      float band=fract(vAlong*3.2-uTime*1.5+n*0.30);
-      float stripe=smoothstep(.10,.0,abs(band-.5)-.045);
-      float seg=smoothstep(.40,.66,.5+.5*snoise(vec3(ang*5.0,vAlong*.45,uTime*.35)));
-      col+=vec3(.80,.96,1.)*stripe*seg*uStreak*0.50*(1.-smoothstep(.45,.98,vAlong));
+      // streaks RADIATE from the nose: thin hard-edged lines running back along the body,
+      // panning slowly around it, so they read as creases in a flowing skin
+      float band=fract(ang*2.15+vAlong*0.9-uTime*0.22+n*0.10);
+      float stripe=smoothstep(.034,.012,abs(band-.5));
+      float seg=smoothstep(.34,.58,.5+.5*snoise(vec3(ang*3.2,vAlong*.35,uTime*.3)));
+      col+=vec3(.82,.97,1.)*stripe*seg*uStreak*0.85*smoothstep(.02,.14,vAlong)*(1.-smoothstep(.60,1.,vAlong));
       // soft white rim all round, brightest on the nose
-      col+=vec3(.42,.80,1.)*pow(fres,3.4)*(.20-.12*smoothstep(.2,.9,vAlong));
+      col+=vec3(.42,.80,1.)*pow(fres,2.6)*(.26-.16*smoothstep(.2,.9,vAlong));
       // hot core at the very nose (the only part that exceeds 1.0 for bloom)
       col+=vec3(.62,.92,1.)*.55*smoothstep(.05,0.,vAlong)*(.8+.2*n);
       col+=vec3(.45,.80,1.)*uFlash*0.7;
@@ -205,7 +207,7 @@ const haloMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
   vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
   fragmentShader: `precision highp float; varying vec2 vUv; uniform vec3 uCol; uniform float uI;
-    void main(){ float d=length(vUv-.5)*2.; float a=pow(clamp(1.-d,0.,1.),2.9); gl_FragColor=vec4(uCol*a*uI,a*uI); }`,
+    void main(){ float d=length(vUv-.5)*2.; float a=pow(clamp(1.-d,0.,1.),2.2); gl_FragColor=vec4(uCol*a*uI,a*uI); }`,
 });
 const halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), haloMat);
 halo.renderOrder = 4; scene.add(halo);
@@ -214,17 +216,25 @@ halo.renderOrder = 4; scene.add(halo);
 // 2 bands against a FIXED world light + a thin lighter rim; this is the smoke spike's
 // cel material with the band count dropped to two, which is what the reference shows.
 const toonVert = /* glsl */`
-varying vec3 vN,vV;
+varying vec3 vN,vV; varying vec2 vUv;
 void main(){
+  vUv=uv;
   vec4 wp=modelMatrix*vec4(position,1.);
   vN=normalize(mat3(modelMatrix)*normal);
   vV=normalize(cameraPosition-wp.xyz);
   gl_Position=projectionMatrix*viewMatrix*wp;
 }`;
 const toonFrag = /* glsl */`
-precision highp float; varying vec3 vN,vV;
-uniform vec3 uShadow,uHigh,uRim,uLight; uniform float uRimPow,uRimAmt,uOpacity;
+precision highp float; varying vec3 vN,vV; varying vec2 vUv;
+uniform vec3 uShadow,uHigh,uRim,uLight; uniform float uRimPow,uRimAmt,uOpacity,uTear,uSeed;
+${glslNoise}
 void main(){
+  // torn edge: a low-frequency field eats the border, so the crescent silhouette is ragged
+  if(uTear>0.){
+    float fld=.5+.5*snoise(vec3(vUv.x*3.4,vUv.y*2.2,uSeed));
+    float edge=min(min(vUv.x,1.-vUv.x)*2.2,min(vUv.y,1.-vUv.y)*1.5);
+    if(edge+fld*.55 < uTear) discard;
+  }
   vec3 N=normalize(vN); if(!gl_FrontFacing) N=-N;
   float ndl=dot(N,normalize(uLight))*.5+.5;
   vec3 c = ndl<.55 ? uShadow : uHigh;
@@ -241,6 +251,7 @@ function toonMat(shadow, high, rim, opts = {}) {
       uShadow: { value: hex(shadow) }, uHigh: { value: hex(high) }, uRim: { value: hex(rim) },
       uLight: { value: LIGHT.clone() }, uRimPow: { value: opts.rimPow ?? 3.0 },
       uRimAmt: { value: opts.rimAmt ?? 0.36 }, uOpacity: { value: 1 },
+      uTear: { value: opts.tear ?? 0 }, uSeed: { value: opts.seed ?? 0 },
     },
   });
 }
@@ -250,7 +261,7 @@ function toonMat(shadow, high, rim, opts = {}) {
 // reads as a torn ribbon of water rather than as a card.
 function sheetGeo(len, width, curl, seed) {
   const NU = 18, NV = 7;
-  const pos = [], idx = [], nrm = [];
+  const pos = [], idx = [], nrm = [], uvs = [];
   const R = width / Math.max(0.25, curl);
   for (let i = 0; i <= NU; i++) {
     const u = i / NU;
@@ -263,6 +274,7 @@ function sheetGeo(len, width, curl, seed) {
       const a = v * curl * (w / Math.max(1e-3, width));
       pos.push(u * len - len * 0.5, R * Math.sin(a) * (w / Math.max(1e-3, width)) + bow, R * (Math.cos(a) - 1) * (w / Math.max(1e-3, width)));
       nrm.push(0, Math.cos(a), -Math.sin(a));
+      uvs.push(u, v + 0.5);
     }
   }
   for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
@@ -272,40 +284,54 @@ function sheetGeo(len, width, curl, seed) {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
 }
 
-const MEM_DT = 0.095, MEM_PERIOD = N_MEM * MEM_DT;       // one slot fires every 0.095 s
+// two cadences, so the far crescents can outlive the near collar: a slot's period must
+// exceed its own life or the re-fire clips the piece before it can travel. Births are spread
+// evenly INSIDE each cadence, which keeps the coverage uniform at every t.
+const MEM_BIG_PERIOD = 2.55, MEM_NEAR_PERIOD = 1.20;
 const membranes = [];
-for (let i = 0; i < N_MEM; i++) {
-  const h1 = h11(i * 2.7 + 0.4), h2 = h11(i * 5.3 + 3.1), h3 = h11(i * 1.9 + 11.7), h4 = h11(i * 7.1 + 21.3);
-  const big = i % 4 === 0;                       // one sheet in four is a large crescent
-  const len = (big ? 0.88 : 0.44) + h1 * (big ? 0.40 : 0.34);
-  const width = (big ? 0.50 : 0.23) + h2 * 0.26;
-  const curl = 1.05 + h3 * 1.15;
-  const dark = h4 < 0.62;
-  const mat = dark
-    ? toonMat("#0b2a86", "#1e52cf", "#7fc6ff", { rimAmt: 0.30 })
-    : toonMat("#1449a8", "#3f8fe8", "#a8e2ff", { rimAmt: 0.34 });
-  const mesh = new THREE.Mesh(sheetGeo(len, width, curl, i + 1), mat);
-  mesh.frustumCulled = false; mesh.renderOrder = 10;
-  scene.add(mesh);
-  membranes.push({
-    mesh, mat, len,
-    birth: i * MEM_DT + h1 * 0.05,
-    life: 1.30 + h2 * 0.55,
-    speed: (big ? 0.88 : 1.50) + h3 * 0.80,
-    start: (big ? -0.18 : 0.0) + h4 * 0.26,   // how far behind the nose it peels off (negative = still inside)
-    lat: (h1 - 0.5) * 0.42,
-    amp: 0.070 + h2 * 0.105,          // undulation
-    w: 3.4 + h3 * 2.6,
-    ph: h4 * 6.2831853,
-    spin: (h2 - 0.5) * 3.4,
-    spin0: h3 * 6.2831853,
-    yaw: (h4 - 0.5) * 0.7,
-  });
+{
+  let nBig = 0, nNear = 0;
+  const cls = [];
+  for (let i = 0; i < N_MEM; i++) { cls[i] = i % 3 === 0 ? 2 : i % 2 === 0 ? 1 : 0; if (cls[i] === 2) nBig++; else nNear++; }
+  let iBig = 0, iNear = 0;
+  for (let i = 0; i < N_MEM; i++) {
+    const h1 = h11(i * 2.7 + 0.4), h2 = h11(i * 5.3 + 3.1), h3 = h11(i * 1.9 + 11.7), h4 = h11(i * 7.1 + 21.3);
+    // three sizes: large crescents that travel far, mid sheets, and small chips near the head
+    const c = cls[i], big = c === 2;
+    const len = [0.42, 0.58, 0.74][c] + h1 * [0.26, 0.32, 0.62][c];
+    const width = [0.21, 0.28, 0.32][c] + h2 * [0.13, 0.16, 0.20][c];
+    const curl = 1.05 + h3 * 1.15;
+    const dark = h4 < 0.64;
+    const mat = dark
+      ? toonMat("#0b2a86", "#1a4fd0", "#7fc6ff", { rimAmt: 0.32, tear: 0.18 + h1 * 0.14, seed: i * 3.7 })
+      : toonMat("#123f9e", "#3f8fe8", "#a8e2ff", { rimAmt: 0.36, tear: 0.16 + h2 * 0.14, seed: i * 5.1 });
+    const mesh = new THREE.Mesh(sheetGeo(len, width, curl, i + 1), mat);
+    mesh.frustumCulled = false; mesh.renderOrder = 10;
+    scene.add(mesh);
+    const period = big ? MEM_BIG_PERIOD : MEM_NEAR_PERIOD;
+    const slot = big ? iBig++ : iNear++;
+    const n = big ? nBig : nNear;
+    membranes.push({
+      mesh, mat, len, period,
+      birth: (slot + h1 * 0.35) * (period / n),
+      life: big ? 1.95 + h2 * 0.45 : 1.02 + h2 * 0.14,
+      speed: (big ? 1.30 : 0.82) + h3 * (big ? 0.60 : 0.46),
+      start: (c === 0 ? -0.20 : c === 1 ? -0.10 : 0.04) + h4 * 0.22,   // negative = still inside the head
+      lat: (h1 - 0.5) * 0.42,
+      amp: 0.070 + h2 * 0.105,          // undulation
+      w: 3.4 + h3 * 2.6,
+      ph: h4 * 6.2831853,
+      spin: (h2 - 0.5) * 3.4,
+      spin0: h3 * 6.2831853,
+      yaw: (h4 - 0.5) * 0.7,
+    });
+  }
 }
 
 // ---------------------------------------------------------------- droplets
@@ -340,8 +366,8 @@ for (let i = 0; i < N_DROP + N_CHIP; i++) {
     mesh, r, chip,
     birth: (i % N_DROP) * DROP_DT + h4 * 0.03,
     period: DROP_PERIOD,
-    life: chip ? 0.45 + h2 * 0.35 : 0.80 + h3 * 0.60,
-    speed: (chip ? 1.7 : 1.20) + h4 * 0.85,
+    life: chip ? 0.45 + h2 * 0.35 : 0.80 + h3 * 0.95,
+    speed: (chip ? 1.7 : 0.95) + h4 * 0.95,
     start: -0.10 + h1 * 0.50,
     lat: (h2 - 0.5) * (chip ? 0.34 : 0.20),
     up: (h3 - 0.5) * 0.14,
@@ -402,9 +428,9 @@ function apply(t) {
   const hc = HEAD.clone().add(TAIL.clone().multiplyScalar(-0.18));
   halo.position.copy(hc);
   halo.quaternion.copy(camera.quaternion);
-  const hs = 2.45 * headScale;
+  const hs = 3.00 * headScale;
   halo.scale.set(hs, hs * 0.86, 1);
-  haloMat.uniforms.uI.value = L.head ? headDim * (0.44 + 0.50 * headU.uFlash.value) : 0;
+  haloMat.uniforms.uI.value = L.head ? headDim * (0.22 + 0.40 * headU.uFlash.value) : 0;
   halo.visible = L.head && headDim > 0.01;
 
   groundMat.uniforms.uHead.value.copy(HEAD);
@@ -412,7 +438,7 @@ function apply(t) {
 
   // ---- membranes
   for (const m of membranes) {
-    const birthAbs = cycleBirth(m.birth, MEM_PERIOD, t);
+    const birthAbs = cycleBirth(m.birth, m.period, t);
     const age = t - birthAbs;
     const live = birthAbs > T_IN * 0.5 && birthAbs < T_OUT0 && age >= 0 && age < m.life;
     m.mesh.visible = L.membranes && live;
@@ -432,7 +458,7 @@ function apply(t) {
     m.mesh.rotateX(m.spin0 + m.spin * age);
     m.mesh.rotateY(m.yaw * Math.sin(age * 1.7 + m.ph));
     const grow = ss(0, 0.10, age);
-    const shrink = 1 - ss(0.75, 1.0, u);
+    const shrink = 1 - ss(0.88, 1.0, u);
     const s = grow * shrink * (0.85 + 0.15 * u) * (birthAbs > T_OUT0 - 0.5 ? 0.8 : 1);
     m.mesh.scale.set(s, s, s);
     if (s < 0.02) m.mesh.visible = false;
@@ -456,7 +482,7 @@ function apply(t) {
     dp.mesh.position.copy(_p);
     dp.mesh.rotation.set(dp.spin * age, dp.ph + dp.spin * age * 0.6, dp.lat * 4);
     const grow = ss(0, 0.08, age);
-    const shrink = 1 - ss(0.78, 1.0, u);
+    const shrink = 1 - ss(0.86, 1.0, u);
     const s = dp.r * grow * shrink;
     dp.mesh.scale.set(s * (dp.chip ? 1 : 1.15), s, s);
     if (s < 0.004) dp.mesh.visible = false;
@@ -480,4 +506,6 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+// inspection hook (same role as the fire spike's window.spikeSystems)
+window.spikePieces = { membranes, droplets, head: HEAD, tail: TAIL };
 window.__spikeReady = true;

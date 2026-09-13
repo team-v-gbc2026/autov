@@ -28056,7 +28056,7 @@ void main() {
   var T_IN = 0.4;
   var T_OUT0 = 3;
   var T_OUT1 = 3.95;
-  var N_MEM = 16;
+  var N_MEM = 20;
   var N_DROP = 26;
   var N_CHIP = 8;
   var P = window.spikeParams = {
@@ -28097,9 +28097,9 @@ void main() {
   scene.background = hex("#141316");
   var camera = new PerspectiveCamera(32, 16 / 9, 0.1, 60);
   {
-    const az = -0.55, el = 0.38, dist = 5.9;
+    const az = -0.55, el = 0.38, dist = 5.75;
     camera.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist).add(new Vector3(0.55, 0, 0));
-    camera.lookAt(0.34, 0.36, -0.14);
+    camera.lookAt(0.86, 0.4, -0.4);
   }
   var groundMat = new ShaderMaterial({
     uniforms: {
@@ -28128,8 +28128,8 @@ void main() {
       vec3 c=mix(uBase,uGrid,line*0.24+line2*0.16);
       // the pool is analytic: a soft ellipse under the head, stretched along the flow
       vec2 d=vWp.xz-uHead.xz; d.x*=0.62;
-      float pool=exp(-dot(d,d)*4.6);
-      c+=uPool*pool*uPoolI*0.62;
+      float pool=exp(-dot(d,d)*9.0);
+      c+=uPool*pool*uPoolI*0.68;
       float dist=length(vWp.xz-uCam.xz);
       c=mix(c,uBase*0.55,smoothstep(9.,26.,dist));
       gl_FragColor=vec4(c,1.);
@@ -28265,12 +28265,14 @@ vec3 ramp(float u){
       col*=mix(1., .52, crease*.72);
       // surface streaks: thin white bands panning backward along the body, broken into
       // segments by the angular noise so they read as flowing water, not as rings
-      float band=fract(vAlong*3.2-uTime*1.5+n*0.30);
-      float stripe=smoothstep(.10,.0,abs(band-.5)-.045);
-      float seg=smoothstep(.40,.66,.5+.5*snoise(vec3(ang*5.0,vAlong*.45,uTime*.35)));
-      col+=vec3(.80,.96,1.)*stripe*seg*uStreak*0.50*(1.-smoothstep(.45,.98,vAlong));
+      // streaks RADIATE from the nose: thin hard-edged lines running back along the body,
+      // panning slowly around it, so they read as creases in a flowing skin
+      float band=fract(ang*2.15+vAlong*0.9-uTime*0.22+n*0.10);
+      float stripe=smoothstep(.034,.012,abs(band-.5));
+      float seg=smoothstep(.34,.58,.5+.5*snoise(vec3(ang*3.2,vAlong*.35,uTime*.3)));
+      col+=vec3(.82,.97,1.)*stripe*seg*uStreak*0.85*smoothstep(.02,.14,vAlong)*(1.-smoothstep(.60,1.,vAlong));
       // soft white rim all round, brightest on the nose
-      col+=vec3(.42,.80,1.)*pow(fres,3.4)*(.20-.12*smoothstep(.2,.9,vAlong));
+      col+=vec3(.42,.80,1.)*pow(fres,2.6)*(.26-.16*smoothstep(.2,.9,vAlong));
       // hot core at the very nose (the only part that exceeds 1.0 for bloom)
       col+=vec3(.62,.92,1.)*.55*smoothstep(.05,0.,vAlong)*(.8+.2*n);
       col+=vec3(.45,.80,1.)*uFlash*0.7;
@@ -28291,7 +28293,7 @@ vec3 ramp(float u){
     blending: AdditiveBlending,
     vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
     fragmentShader: `precision highp float; varying vec2 vUv; uniform vec3 uCol; uniform float uI;
-    void main(){ float d=length(vUv-.5)*2.; float a=pow(clamp(1.-d,0.,1.),2.9); gl_FragColor=vec4(uCol*a*uI,a*uI); }`
+    void main(){ float d=length(vUv-.5)*2.; float a=pow(clamp(1.-d,0.,1.),2.2); gl_FragColor=vec4(uCol*a*uI,a*uI); }`
   });
   var halo = new Mesh(new PlaneGeometry(1, 1), haloMat);
   halo.renderOrder = 4;
@@ -28299,8 +28301,9 @@ vec3 ramp(float u){
   var toonVert = (
     /* glsl */
     `
-varying vec3 vN,vV;
+varying vec3 vN,vV; varying vec2 vUv;
 void main(){
+  vUv=uv;
   vec4 wp=modelMatrix*vec4(position,1.);
   vN=normalize(mat3(modelMatrix)*normal);
   vV=normalize(cameraPosition-wp.xyz);
@@ -28310,9 +28313,16 @@ void main(){
   var toonFrag = (
     /* glsl */
     `
-precision highp float; varying vec3 vN,vV;
-uniform vec3 uShadow,uHigh,uRim,uLight; uniform float uRimPow,uRimAmt,uOpacity;
+precision highp float; varying vec3 vN,vV; varying vec2 vUv;
+uniform vec3 uShadow,uHigh,uRim,uLight; uniform float uRimPow,uRimAmt,uOpacity,uTear,uSeed;
+${glslNoise}
 void main(){
+  // torn edge: a low-frequency field eats the border, so the crescent silhouette is ragged
+  if(uTear>0.){
+    float fld=.5+.5*snoise(vec3(vUv.x*3.4,vUv.y*2.2,uSeed));
+    float edge=min(min(vUv.x,1.-vUv.x)*2.2,min(vUv.y,1.-vUv.y)*1.5);
+    if(edge+fld*.55 < uTear) discard;
+  }
   vec3 N=normalize(vN); if(!gl_FrontFacing) N=-N;
   float ndl=dot(N,normalize(uLight))*.5+.5;
   vec3 c = ndl<.55 ? uShadow : uHigh;
@@ -28336,13 +28346,15 @@ void main(){
         uLight: { value: LIGHT.clone() },
         uRimPow: { value: opts.rimPow ?? 3 },
         uRimAmt: { value: opts.rimAmt ?? 0.36 },
-        uOpacity: { value: 1 }
+        uOpacity: { value: 1 },
+        uTear: { value: opts.tear ?? 0 },
+        uSeed: { value: opts.seed ?? 0 }
       }
     });
   }
   function sheetGeo(len, width, curl, seed) {
     const NU = 18, NV = 7;
-    const pos = [], idx = [], nrm = [];
+    const pos = [], idx = [], nrm = [], uvs = [];
     const R = width / Math.max(0.25, curl);
     for (let i = 0; i <= NU; i++) {
       const u = i / NU;
@@ -28353,6 +28365,7 @@ void main(){
         const a = v * curl * (w / Math.max(1e-3, width));
         pos.push(u * len - len * 0.5, R * Math.sin(a) * (w / Math.max(1e-3, width)) + bow, R * (Math.cos(a) - 1) * (w / Math.max(1e-3, width)));
         nrm.push(0, Math.cos(a), -Math.sin(a));
+        uvs.push(u, v + 0.5);
       }
     }
     for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
@@ -28362,43 +28375,58 @@ void main(){
     const g = new BufferGeometry();
     g.setAttribute("position", new Float32BufferAttribute(pos, 3));
     g.setAttribute("normal", new Float32BufferAttribute(nrm, 3));
+    g.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
     return g;
   }
-  var MEM_DT = 0.095;
-  var MEM_PERIOD = N_MEM * MEM_DT;
+  var MEM_BIG_PERIOD = 2.55;
+  var MEM_NEAR_PERIOD = 1.2;
   var membranes = [];
-  for (let i = 0; i < N_MEM; i++) {
-    const h1 = h11(i * 2.7 + 0.4), h2 = h11(i * 5.3 + 3.1), h3 = h11(i * 1.9 + 11.7), h4 = h11(i * 7.1 + 21.3);
-    const big = i % 4 === 0;
-    const len = (big ? 0.88 : 0.44) + h1 * (big ? 0.4 : 0.34);
-    const width = (big ? 0.5 : 0.23) + h2 * 0.26;
-    const curl = 1.05 + h3 * 1.15;
-    const dark = h4 < 0.62;
-    const mat = dark ? toonMat("#0b2a86", "#1e52cf", "#7fc6ff", { rimAmt: 0.3 }) : toonMat("#1449a8", "#3f8fe8", "#a8e2ff", { rimAmt: 0.34 });
-    const mesh = new Mesh(sheetGeo(len, width, curl, i + 1), mat);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 10;
-    scene.add(mesh);
-    membranes.push({
-      mesh,
-      mat,
-      len,
-      birth: i * MEM_DT + h1 * 0.05,
-      life: 1.3 + h2 * 0.55,
-      speed: (big ? 0.88 : 1.5) + h3 * 0.8,
-      start: (big ? -0.18 : 0) + h4 * 0.26,
-      // how far behind the nose it peels off (negative = still inside)
-      lat: (h1 - 0.5) * 0.42,
-      amp: 0.07 + h2 * 0.105,
-      // undulation
-      w: 3.4 + h3 * 2.6,
-      ph: h4 * 6.2831853,
-      spin: (h2 - 0.5) * 3.4,
-      spin0: h3 * 6.2831853,
-      yaw: (h4 - 0.5) * 0.7
-    });
+  {
+    let nBig = 0, nNear = 0;
+    const cls = [];
+    for (let i = 0; i < N_MEM; i++) {
+      cls[i] = i % 3 === 0 ? 2 : i % 2 === 0 ? 1 : 0;
+      if (cls[i] === 2) nBig++;
+      else nNear++;
+    }
+    let iBig = 0, iNear = 0;
+    for (let i = 0; i < N_MEM; i++) {
+      const h1 = h11(i * 2.7 + 0.4), h2 = h11(i * 5.3 + 3.1), h3 = h11(i * 1.9 + 11.7), h4 = h11(i * 7.1 + 21.3);
+      const c = cls[i], big = c === 2;
+      const len = [0.42, 0.58, 0.74][c] + h1 * [0.26, 0.32, 0.62][c];
+      const width = [0.21, 0.28, 0.32][c] + h2 * [0.13, 0.16, 0.2][c];
+      const curl = 1.05 + h3 * 1.15;
+      const dark = h4 < 0.64;
+      const mat = dark ? toonMat("#0b2a86", "#1a4fd0", "#7fc6ff", { rimAmt: 0.32, tear: 0.18 + h1 * 0.14, seed: i * 3.7 }) : toonMat("#123f9e", "#3f8fe8", "#a8e2ff", { rimAmt: 0.36, tear: 0.16 + h2 * 0.14, seed: i * 5.1 });
+      const mesh = new Mesh(sheetGeo(len, width, curl, i + 1), mat);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 10;
+      scene.add(mesh);
+      const period = big ? MEM_BIG_PERIOD : MEM_NEAR_PERIOD;
+      const slot = big ? iBig++ : iNear++;
+      const n = big ? nBig : nNear;
+      membranes.push({
+        mesh,
+        mat,
+        len,
+        period,
+        birth: (slot + h1 * 0.35) * (period / n),
+        life: big ? 1.95 + h2 * 0.45 : 1.02 + h2 * 0.14,
+        speed: (big ? 1.3 : 0.82) + h3 * (big ? 0.6 : 0.46),
+        start: (c === 0 ? -0.2 : c === 1 ? -0.1 : 0.04) + h4 * 0.22,
+        // negative = still inside the head
+        lat: (h1 - 0.5) * 0.42,
+        amp: 0.07 + h2 * 0.105,
+        // undulation
+        w: 3.4 + h3 * 2.6,
+        ph: h4 * 6.2831853,
+        spin: (h2 - 0.5) * 3.4,
+        spin0: h3 * 6.2831853,
+        yaw: (h4 - 0.5) * 0.7
+      });
+    }
   }
   var dropGeo = new SphereGeometry(1, 20, 14);
   var tearGeo = (() => {
@@ -28436,8 +28464,8 @@ void main(){
       chip,
       birth: i % N_DROP * DROP_DT + h4 * 0.03,
       period: DROP_PERIOD,
-      life: chip ? 0.45 + h2 * 0.35 : 0.8 + h3 * 0.6,
-      speed: (chip ? 1.7 : 1.2) + h4 * 0.85,
+      life: chip ? 0.45 + h2 * 0.35 : 0.8 + h3 * 0.95,
+      speed: (chip ? 1.7 : 0.95) + h4 * 0.95,
       start: -0.1 + h1 * 0.5,
       lat: (h2 - 0.5) * (chip ? 0.34 : 0.2),
       up: (h3 - 0.5) * 0.14,
@@ -28494,14 +28522,14 @@ void main(){
     const hc = HEAD.clone().add(TAIL.clone().multiplyScalar(-0.18));
     halo.position.copy(hc);
     halo.quaternion.copy(camera.quaternion);
-    const hs = 2.45 * headScale;
+    const hs = 3 * headScale;
     halo.scale.set(hs, hs * 0.86, 1);
-    haloMat.uniforms.uI.value = L.head ? headDim * (0.44 + 0.5 * headU.uFlash.value) : 0;
+    haloMat.uniforms.uI.value = L.head ? headDim * (0.22 + 0.4 * headU.uFlash.value) : 0;
     halo.visible = L.head && headDim > 0.01;
     groundMat.uniforms.uHead.value.copy(HEAD);
     groundMat.uniforms.uPoolI.value = L.pool ? headDim * 0.95 : 0;
     for (const m of membranes) {
-      const birthAbs = cycleBirth(m.birth, MEM_PERIOD, t);
+      const birthAbs = cycleBirth(m.birth, m.period, t);
       const age = t - birthAbs;
       const live = birthAbs > T_IN * 0.5 && birthAbs < T_OUT0 && age >= 0 && age < m.life;
       m.mesh.visible = L.membranes && live;
@@ -28517,7 +28545,7 @@ void main(){
       m.mesh.rotateX(m.spin0 + m.spin * age);
       m.mesh.rotateY(m.yaw * Math.sin(age * 1.7 + m.ph));
       const grow = ss(0, 0.1, age);
-      const shrink = 1 - ss(0.75, 1, u);
+      const shrink = 1 - ss(0.88, 1, u);
       const s = grow * shrink * (0.85 + 0.15 * u) * (birthAbs > T_OUT0 - 0.5 ? 0.8 : 1);
       m.mesh.scale.set(s, s, s);
       if (s < 0.02) m.mesh.visible = false;
@@ -28536,7 +28564,7 @@ void main(){
       dp.mesh.position.copy(_p);
       dp.mesh.rotation.set(dp.spin * age, dp.ph + dp.spin * age * 0.6, dp.lat * 4);
       const grow = ss(0, 0.08, age);
-      const shrink = 1 - ss(0.78, 1, u);
+      const shrink = 1 - ss(0.86, 1, u);
       const s = dp.r * grow * shrink;
       dp.mesh.scale.set(s * (dp.chip ? 1 : 1.15), s, s);
       if (s < 4e-3) dp.mesh.visible = false;
@@ -28563,6 +28591,7 @@ void main(){
     P.time = t;
     apply(t);
   };
+  window.spikePieces = { membranes, droplets, head: HEAD, tail: TAIL };
   window.__spikeReady = true;
 })();
 /*! Bundled license information:
