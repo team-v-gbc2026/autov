@@ -1,0 +1,2464 @@
+{
+  "schemaVersion": "autov.lab/2",
+  "name": "Hex shield",
+  "description": "A hexagonal energy shield cast around a point: a ground sigil fades in and turns while motes converge on it, the dome snaps up with a scale overshoot, a base shockwave and an ignition spark ring, holds while its cells pulse and two hits ripple up the shell, then erodes away from the apex down as the motes scatter and the sigil fades. Hand-tuned hero exemplar for the shield family.",
+  "seed": 8812,
+  "duration": 3,
+  "impact": 0.42,
+  "quality": {
+    "style": "modern",
+    "particleDensity": 1,
+    "aa": "msaa+smaa",
+    "softParticles": true
+  },
+  "environment": {
+    "ground": "grid",
+    "groundColor": "#4a4952",
+    "groundReflect": 0,
+    "ambient": 1,
+    "groundY": 0,
+    "fog": {
+      "color": "#0b1622",
+      "density": 0.035
+    },
+    "background": "#0b1622"
+  },
+  "camera": {
+    "fov": 34,
+    "azimuth": -0.55,
+    "elevation": 0.28,
+    "framing": 0.85,
+    "shake": null,
+    "pushIn": {
+      "from": 1.1,
+      "to": 0.95,
+      "start": 0.3,
+      "end": 1.4,
+      "ease": "smooth"
+    }
+  },
+  "post": {
+    "bloom": {
+      "strength": 0.38,
+      "radius": 0.45,
+      "threshold": 1.3
+    },
+    "exposure": 1,
+    "grade": {
+      "contrast": 1.06,
+      "saturation": 1.12,
+      "tint": "#dceaff",
+      "lift": 0.01
+    },
+    "vignette": 0.38,
+    "chromatic": 0.002,
+    "motionBlur": 0
+  },
+  "textures": [],
+  "layers": [
+    {
+      "id": "ground-pool",
+      "name": "Ground pool",
+      "role": "anticipation",
+      "kind": "decal",
+      "start": 0.05,
+      "end": 2.95,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.006,
+          0
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "layerTime",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#2e8fc8",
+              "intensity": 0.55
+            },
+            {
+              "t": 1,
+              "color": "#14456e",
+              "intensity": 0.3
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.45,
+        "mask": {
+          "textureId": "ground-glow-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 1.6,
+        "length": 3.2,
+        "thickness": 0.01,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              0.45
+            ],
+            [
+              2.35,
+              0.4
+            ],
+            [
+              2.9,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "cast-sigil",
+      "name": "Cast sigil",
+      "role": "anticipation",
+      "kind": "decal",
+      "start": 0,
+      "end": 2.95,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.012,
+          0
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "layerTime",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#d2f4ff",
+              "intensity": 3.2
+            },
+            {
+              "t": 0.55,
+              "color": "#6fcbf2",
+              "intensity": 1.8
+            },
+            {
+              "t": 1,
+              "color": "#316fa8",
+              "intensity": 0.6
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.9,
+        "mask": {
+          "textureId": "magic-sigil-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 1.26,
+        "length": 2.52,
+        "thickness": 0.01,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "transform.rotation[2]",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2.95,
+              1.75
+            ]
+          ],
+          "ease": "linear"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.3,
+              0.9
+            ],
+            [
+              2.3,
+              0.8
+            ],
+            [
+              2.9,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "gather-motes",
+      "name": "Gathering motes",
+      "role": "anticipation",
+      "kind": "particles",
+      "start": 0,
+      "end": 0.46,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.22,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#cdeeff",
+              "intensity": 2.2
+            },
+            {
+              "t": 0.6,
+              "color": "#8fe0ff",
+              "intensity": 3.4
+            },
+            {
+              "t": 1,
+              "color": "#ffffff",
+              "intensity": 4
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "spark-dot-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 240,
+        "shape": {
+          "type": "ring",
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "length": 0,
+          "radius": 2.3,
+          "innerRadius": 1.35,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 0.3,
+          "rate": 900,
+          "duration": 0.34,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            -4.2,
+            -2.6
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.45,
+          "inherit": 0,
+          "speedCurve": {
+            "keys": [
+              [
+                0,
+                0.7
+              ],
+              [
+                0.55,
+                1.15
+              ],
+              [
+                1,
+                1.35
+              ]
+            ],
+            "ease": "smooth"
+          }
+        },
+        "life": [
+          0.26,
+          0.44
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
+          "drag": 0.4,
+          "curl": null,
+          "vortex": {
+            "axis": [
+              0,
+              1,
+              0
+            ],
+            "strength": 3.4,
+            "falloff": 0.5
+          },
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.06,
+            0.18
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                1
+              ],
+              [
+                0.7,
+                0.9
+              ],
+              [
+                1,
+                0.25
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.15,
+                1
+              ],
+              [
+                0.8,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1,
+              1
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "dome",
+      "name": "Hex dome",
+      "role": "primary",
+      "kind": "shell",
+      "start": 0.3,
+      "end": 2.88,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          2.04,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#2ba4d2",
+              "intensity": 0.95
+            },
+            {
+              "t": 0.3,
+              "color": "#1d84bd",
+              "intensity": 0.85
+            },
+            {
+              "t": 0.55,
+              "color": "#44cfe9",
+              "intensity": 1.3
+            },
+            {
+              "t": 0.75,
+              "color": "#b6f0ff",
+              "intensity": 1.9
+            },
+            {
+              "t": 1,
+              "color": "#eafcff",
+              "intensity": 2.2
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.34,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            10,
+            7
+          ],
+          "uvPan": [
+            0,
+            -0.3
+          ],
+          "distortion": 0.05,
+          "distortionPan": [
+            0,
+            0
+          ]
+        },
+        "erosion": {
+          "softness": 0.05,
+          "edgeWidth": 0.11,
+          "edgeColor": "#e4faff",
+          "edgeIntensity": 6,
+          "displacementProtect": 0,
+          "rimBias": 0,
+          "curve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "linear"
+          }
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 3,
+          "strength": 0.85
+        },
+        "procedural": "hexagon"
+      },
+      "geometry": {
+        "type": "sphere",
+        "segments": 128,
+        "radialSegments": 64,
+        "radius": 1.78,
+        "length": 3.4,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              0.4
+            ],
+            [
+              0.16,
+              2.04
+            ],
+            [
+              0.27,
+              1.7
+            ],
+            [
+              0.38,
+              1.78
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "geometry.length",
+          "keys": [
+            [
+              0,
+              0.76
+            ],
+            [
+              0.16,
+              3.9
+            ],
+            [
+              0.27,
+              3.26
+            ],
+            [
+              0.38,
+              3.4
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "transform.position[1]",
+          "keys": [
+            [
+              0,
+              0.456
+            ],
+            [
+              0.16,
+              2.34
+            ],
+            [
+              0.27,
+              1.956
+            ],
+            [
+              0.38,
+              2.04
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.13,
+              0.4
+            ],
+            [
+              0.3,
+              0.32
+            ],
+            [
+              2.5,
+              0.32
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[0][1]",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              1.88,
+              0
+            ],
+            [
+              2.04,
+              0.5
+            ],
+            [
+              2.36,
+              1.4
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[1][1]",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              2.02,
+              0
+            ],
+            [
+              2.3,
+              0.45
+            ],
+            [
+              2.58,
+              1.4
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "dome-cells",
+      "name": "Hex cell lattice",
+      "role": "primary",
+      "kind": "shell",
+      "start": 0.4,
+      "end": 2.62,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          2.04,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#4fd4ee",
+              "intensity": 1.1
+            },
+            {
+              "t": 0.45,
+              "color": "#79e4f6",
+              "intensity": 1.5
+            },
+            {
+              "t": 0.8,
+              "color": "#e6fbff",
+              "intensity": 2
+            },
+            {
+              "t": 1,
+              "color": "#ffffff",
+              "intensity": 2.2
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.24,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            16,
+            11
+          ],
+          "uvPan": [
+            0,
+            -0.45
+          ],
+          "distortion": 0.04,
+          "distortionPan": [
+            0,
+            0
+          ]
+        },
+        "erosion": {
+          "softness": 0.02,
+          "edgeWidth": 0.09,
+          "edgeColor": "#ffffff",
+          "edgeIntensity": 7,
+          "displacementProtect": 0,
+          "rimBias": 0,
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.64
+              ],
+              [
+                1,
+                0.64
+              ]
+            ],
+            "ease": "linear"
+          }
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 3,
+          "strength": 0.5
+        },
+        "procedural": "hexagon"
+      },
+      "geometry": {
+        "type": "sphere",
+        "segments": 128,
+        "radialSegments": 64,
+        "radius": 1.7087999999999999,
+        "length": 3.4,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.06,
+              0.24
+            ],
+            [
+              1.76,
+              0.24
+            ],
+            [
+              2.1,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[0][1]",
+          "keys": [
+            [
+              0,
+              0.68
+            ],
+            [
+              0.42,
+              0.56
+            ],
+            [
+              0.9,
+              0.7
+            ],
+            [
+              1.36,
+              0.57
+            ],
+            [
+              1.8,
+              0.71
+            ],
+            [
+              2.18,
+              0.82
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[1][1]",
+          "keys": [
+            [
+              0,
+              0.6
+            ],
+            [
+              0.56,
+              0.72
+            ],
+            [
+              1.08,
+              0.58
+            ],
+            [
+              1.54,
+              0.71
+            ],
+            [
+              1.96,
+              0.6
+            ],
+            [
+              2.18,
+              0.82
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "dome-cells-b",
+      "name": "Hex cell lattice — cross weave",
+      "role": "secondary",
+      "kind": "shell",
+      "start": 0.42,
+      "end": 2.6,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          2.04,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#63dcf2",
+              "intensity": 1
+            },
+            {
+              "t": 0.5,
+              "color": "#a6ecfa",
+              "intensity": 1.4
+            },
+            {
+              "t": 1,
+              "color": "#ffffff",
+              "intensity": 1.8
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.18,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            9,
+            15
+          ],
+          "uvPan": [
+            0,
+            -0.16
+          ],
+          "distortion": 0.03,
+          "distortionPan": [
+            0,
+            0
+          ]
+        },
+        "erosion": {
+          "softness": 0.02,
+          "edgeWidth": 0.08,
+          "edgeColor": "#ffffff",
+          "edgeIntensity": 6,
+          "displacementProtect": 0,
+          "rimBias": 0,
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.6
+              ],
+              [
+                1,
+                0.6
+              ]
+            ],
+            "ease": "linear"
+          }
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 3,
+          "strength": 0.4
+        },
+        "procedural": "hexagon"
+      },
+      "geometry": {
+        "type": "sphere",
+        "segments": 128,
+        "radialSegments": 64,
+        "radius": 1.6554000000000002,
+        "length": 3.4,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.08,
+              0.18
+            ],
+            [
+              1.74,
+              0.18
+            ],
+            [
+              2.08,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[0][1]",
+          "keys": [
+            [
+              0,
+              0.56
+            ],
+            [
+              0.48,
+              0.68
+            ],
+            [
+              0.98,
+              0.55
+            ],
+            [
+              1.46,
+              0.67
+            ],
+            [
+              1.9,
+              0.56
+            ],
+            [
+              2.18,
+              0.8
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[1][1]",
+          "keys": [
+            [
+              0,
+              0.66
+            ],
+            [
+              0.5,
+              0.55
+            ],
+            [
+              1.02,
+              0.68
+            ],
+            [
+              1.5,
+              0.56
+            ],
+            [
+              1.94,
+              0.67
+            ],
+            [
+              2.18,
+              0.8
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "base-rim",
+      "name": "Base contact rim",
+      "role": "secondary",
+      "kind": "decal",
+      "start": 0.36,
+      "end": 2.8,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.018,
+          0
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "layerTime",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#c3eeff",
+              "intensity": 1.6
+            },
+            {
+              "t": 0.25,
+              "color": "#4fc2ea",
+              "intensity": 1.1
+            },
+            {
+              "t": 1,
+              "color": "#1a5f95",
+              "intensity": 0.4
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.75,
+        "mask": {
+          "textureId": "ring-soft-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 1.92,
+        "length": 3.84,
+        "thickness": 0.01,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.1,
+              0.5
+            ],
+            [
+              0.6,
+              0.34
+            ],
+            [
+              1.1,
+              0.47
+            ],
+            [
+              1.7,
+              0.34
+            ],
+            [
+              2.1,
+              0.45
+            ],
+            [
+              2.44,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "snap-shock",
+      "name": "Base shockwave",
+      "role": "impact",
+      "kind": "decal",
+      "start": 0.4,
+      "end": 1.05,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.03,
+          0
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "layerTime",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ecfbff",
+              "intensity": 2.8
+            },
+            {
+              "t": 0.4,
+              "color": "#6fd4f6",
+              "intensity": 1.6
+            },
+            {
+              "t": 1,
+              "color": "#1a5f97",
+              "intensity": 0.35
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.9,
+        "mask": {
+          "textureId": "ring-gradient-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 0.75,
+        "length": 1.5,
+        "thickness": 0.01,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              0.75
+            ],
+            [
+              0.65,
+              2.7
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "geometry.length",
+          "keys": [
+            [
+              0,
+              1.5
+            ],
+            [
+              0.65,
+              5.4
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0.72
+            ],
+            [
+              0.22,
+              0.5
+            ],
+            [
+              0.65,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "snap-sparks",
+      "name": "Ignition sparks",
+      "role": "impact",
+      "kind": "particles",
+      "start": 0.38,
+      "end": 1.1,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.08,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#f2fdff",
+              "intensity": 4
+            },
+            {
+              "t": 0.5,
+              "color": "#7ad6ff",
+              "intensity": 2.2
+            },
+            {
+              "t": 1,
+              "color": "#1f5d95",
+              "intensity": 0.3
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "spark-dot-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 190,
+        "shape": {
+          "type": "ring",
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "length": 0,
+          "radius": 1.44,
+          "innerRadius": 1.05,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.1,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            1.6,
+            4.4
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.95,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.3,
+          0.72
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            -3,
+            0
+          ],
+          "drag": 1.5,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.04,
+            0.14
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.6
+              ],
+              [
+                0.2,
+                1
+              ],
+              [
+                1,
+                0.15
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                1
+              ],
+              [
+                0.55,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1,
+              1
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "orbit-motes",
+      "name": "Orbiting motes",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.5,
+      "end": 2.45,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.62,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#f6feff",
+              "intensity": 5.5
+            },
+            {
+              "t": 0.5,
+              "color": "#9ae4ff",
+              "intensity": 3.2
+            },
+            {
+              "t": 1,
+              "color": "#2a6ba6",
+              "intensity": 0.3
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "spark-dot-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 280,
+        "shape": {
+          "type": "sphere",
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "length": 0,
+          "radius": 1.5,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": true,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.4,
+          "rate": 150,
+          "duration": 1.75,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "tangential",
+          "speed": [
+            0.25,
+            0.75
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.35,
+          "inherit": 0,
+          "speedCurve": {
+            "keys": [
+              [
+                0,
+                1.5
+              ],
+              [
+                0.35,
+                0.85
+              ],
+              [
+                1,
+                0.3
+              ]
+            ],
+            "ease": "smooth"
+          }
+        },
+        "life": [
+          0.85,
+          1.7
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.12,
+            0
+          ],
+          "drag": 1.2,
+          "curl": null,
+          "vortex": {
+            "axis": [
+              0,
+              1,
+              0
+            ],
+            "strength": 2.1,
+            "falloff": 0.8
+          },
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.07,
+            0.22
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                0.7
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.12,
+                1
+              ],
+              [
+                0.62,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1,
+              1
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "ripple-a",
+      "name": "Hit ripple A",
+      "role": "impact",
+      "kind": "shell",
+      "start": 1.08,
+      "end": 1.62,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          2.04,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#8ce4ff",
+              "intensity": 1.1
+            },
+            {
+              "t": 0.35,
+              "color": "#b6f0ff",
+              "intensity": 1.5
+            },
+            {
+              "t": 0.65,
+              "color": "#eafaff",
+              "intensity": 2
+            },
+            {
+              "t": 1,
+              "color": "#ffffff",
+              "intensity": 2.2
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.3,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            11,
+            7
+          ],
+          "uvPan": [
+            0,
+            -0.3
+          ],
+          "distortion": 0,
+          "distortionPan": [
+            0,
+            0
+          ]
+        },
+        "erosion": {
+          "softness": 0.12,
+          "edgeWidth": 0.05,
+          "edgeColor": "#eafaff",
+          "edgeIntensity": 2.4,
+          "displacementProtect": 0,
+          "rimBias": 0,
+          "curve": {
+            "keys": [
+              [
+                0,
+                1.4
+              ],
+              [
+                0.5,
+                1.4
+              ],
+              [
+                1,
+                1.4
+              ]
+            ],
+            "ease": "linear"
+          }
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 3,
+          "strength": 0.5
+        },
+        "procedural": "hexagon"
+      },
+      "geometry": {
+        "type": "sphere",
+        "segments": 128,
+        "radialSegments": 64,
+        "radius": 1.83,
+        "length": 3.4,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "material.erosion.curve.keys[1][1]",
+          "keys": [
+            [
+              0,
+              1.4
+            ],
+            [
+              0.054,
+              0.26
+            ],
+            [
+              0.216,
+              1.4
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[0][1]",
+          "keys": [
+            [
+              0,
+              1.4
+            ],
+            [
+              0.205,
+              0.26
+            ],
+            [
+              0.367,
+              1.4
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "ripple-b",
+      "name": "Hit ripple B",
+      "role": "impact",
+      "kind": "shell",
+      "start": 1.72,
+      "end": 2.2,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          2.04,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#8ce4ff",
+              "intensity": 1.1
+            },
+            {
+              "t": 0.35,
+              "color": "#b6f0ff",
+              "intensity": 1.5
+            },
+            {
+              "t": 0.65,
+              "color": "#eafaff",
+              "intensity": 2
+            },
+            {
+              "t": 1,
+              "color": "#ffffff",
+              "intensity": 2.2
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.3,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            11,
+            7
+          ],
+          "uvPan": [
+            0,
+            -0.3
+          ],
+          "distortion": 0,
+          "distortionPan": [
+            0,
+            0
+          ]
+        },
+        "erosion": {
+          "softness": 0.12,
+          "edgeWidth": 0.05,
+          "edgeColor": "#eafaff",
+          "edgeIntensity": 2.4,
+          "displacementProtect": 0,
+          "rimBias": 0,
+          "curve": {
+            "keys": [
+              [
+                0,
+                1.4
+              ],
+              [
+                0.5,
+                1.4
+              ],
+              [
+                1,
+                1.4
+              ]
+            ],
+            "ease": "linear"
+          }
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 3,
+          "strength": 0.5
+        },
+        "procedural": "hexagon"
+      },
+      "geometry": {
+        "type": "sphere",
+        "segments": 128,
+        "radialSegments": 64,
+        "radius": 1.83,
+        "length": 3.4,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "material.erosion.curve.keys[1][1]",
+          "keys": [
+            [
+              0,
+              1.4
+            ],
+            [
+              0.048,
+              0.3
+            ],
+            [
+              0.192,
+              1.4
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.erosion.curve.keys[0][1]",
+          "keys": [
+            [
+              0,
+              1.4
+            ],
+            [
+              0.182,
+              0.3
+            ],
+            [
+              0.326,
+              1.4
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": []
+    },
+    {
+      "id": "scatter-motes",
+      "name": "Scattering motes",
+      "role": "residue",
+      "kind": "particles",
+      "start": 2.18,
+      "end": 2.98,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.85,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#f2fdff",
+              "intensity": 4.2
+            },
+            {
+              "t": 0.5,
+              "color": "#7fd6f6",
+              "intensity": 2.2
+            },
+            {
+              "t": 1,
+              "color": "#1d5486",
+              "intensity": 0.2
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "spark-dot-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 220,
+        "shape": {
+          "type": "sphere",
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "length": 0,
+          "radius": 1.35,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": true,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 0.4,
+          "rate": 620,
+          "duration": 0.42,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            0.9,
+            2.6
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.7,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.38,
+          0.7
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            -1.1,
+            0
+          ],
+          "drag": 1.3,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.045,
+            0.14
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.6
+              ],
+              [
+                0.2,
+                1
+              ],
+              [
+                1,
+                0.15
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.08,
+                1
+              ],
+              [
+                0.5,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1,
+              1
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "shield-light",
+      "name": "Shield light",
+      "role": "primary",
+      "kind": "light",
+      "start": 0.24,
+      "end": 2.95,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          0.9,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "light": {
+        "color": "#7fd4ff",
+        "intensity": {
+          "keys": [
+            [
+              0,
+              1.5
+            ],
+            [
+              0.1,
+              12
+            ],
+            [
+              0.24,
+              9
+            ],
+            [
+              0.8,
+              8
+            ],
+            [
+              1,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        },
+        "radius": 12,
+        "decay": 2
+      },
+      "tracks": [],
+      "overrides": []
+    }
+  ]
+}
