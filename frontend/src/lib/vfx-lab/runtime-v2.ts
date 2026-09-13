@@ -13,6 +13,7 @@ import {
   validateDocumentV2,
   type Curve,
   type Emitter,
+  type GeometryV2,
   type LayerV2,
   type Material,
   type PathV2,
@@ -40,6 +41,13 @@ import {
   type Lobe,
 } from "./blob-v2";
 import {
+  crystalBounds,
+  crystalGeometry,
+  crystalInstances,
+  crystalSpawnSites,
+} from "./crystals-v2";
+import { latticeTexture } from "./lattice-v2";
+import {
   splashSlivers,
   sliverGeometry,
   sliverStateAt,
@@ -57,6 +65,8 @@ import {
   ribbonVertexV2,
   splashFragmentV2,
   splashVertexV2,
+  crystalFragmentV2,
+  crystalVertexV2,
   surfaceFragmentV2,
   surfaceVertexV2,
   trailFragmentV2,
@@ -164,6 +174,7 @@ const SHAPE_INDEX: Record<string, number> = {
   box: 6,
   line: 7,
   path: 8,
+  layerInstances: 9,
 };
 const VELOCITY_INDEX: Record<string, number> = {
   radial: 0,
@@ -201,6 +212,7 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   softRadial: 13,
   swirlRing: 14,
   ringFill: 15,
+  sigil: 16,
 };
 /**
  * Spawn modes the vertex shader knows about. It has to stay in step with the
@@ -399,6 +411,8 @@ function particlePositionV2(
   /** The layer's own span and path, for the two path-driven modes. */
   span = 1,
   path: PathV2 | null = null,
+  /** Borrowed spawn sites, for shape "layerInstances". */
+  sites: { positions: Float32Array; axes: Float32Array } | null = null,
 ): boolean {
   const i4 = index * 4;
   const s0 = attrs.seed[i4],
@@ -513,6 +527,13 @@ function particlePositionV2(
         .addScaledVector(up, (e1 - 0.5) * 1.5 * shape.radius);
       break;
     }
+    case "layerInstances": {
+      if (!sites) break;
+      origin
+        .fromArray(sites.positions, index * 3)
+        .addScaledVector(sph, shape.radius);
+      break;
+    }
     default:
       origin
         .copy(axis)
@@ -524,7 +545,9 @@ function particlePositionV2(
   if (base.lengthSq() < 1e-10) base.set(0, 1, 0);
   base.normalize();
   const dir = new THREE.Vector3();
-  if (emitter.velocity.mode === "radial")
+  if (sites && shape.type === "layerInstances" && emitter.velocity.mode === "radial")
+    dir.fromArray(sites.axes, index * 3).normalize();
+  else if (emitter.velocity.mode === "radial")
     dir.copy(origin.lengthSq() > 1e-10 ? origin.clone().normalize() : base);
   else if (emitter.velocity.mode === "directional") dir.copy(base);
   else if (emitter.velocity.mode === "tangential")
@@ -560,6 +583,14 @@ function particlePositionV2(
       0.5 * age * age,
     )
     .addScaledVector(new THREE.Vector3().fromArray(emitter.forces.wind), age);
+  const planar = emitter.forces.planarDrag;
+  if (planar > 0) {
+    // Mirrors the shader: the horizontal travel gets its own drag integral, the
+    // vertical stays ballistic.
+    const dp = (1 - Math.exp(-planar * age)) / planar;
+    out.x = origin.x + dir.x * v0 * dp + emitter.forces.wind[0] * age;
+    out.z = origin.z + dir.z * v0 * dp + emitter.forces.wind[2] * age;
+  }
   const floor = emitter.forces.floor;
   if (floor) {
     const dy = out.y - floor.y;
@@ -692,6 +723,7 @@ function emitterCoreUniforms(
     [`u${P}FloorY`]: { value: emitter.forces.floor?.y ?? 0 },
     [`u${P}FloorSoft`]: { value: emitter.forces.floor?.softness ?? 1 },
     [`u${P}HasFloor`]: { value: emitter.forces.floor ? 1 : 0 },
+    [`u${P}PlanarDrag`]: { value: emitter.forces.planarDrag },
   };
   if (emitter.spawn.bursts.length) {
     const total = emitter.spawn.bursts.reduce((n, b) => n + b.count, 0) || 1;
@@ -724,6 +756,46 @@ function trailStripGeometry(segments: number) {
     }
   }
   return { positions: new Float32Array(positions), indices };
+}
+
+/**
+ * Spawn sites borrowed from another layer's generator, for
+ * `emitter.shape.type:"layerInstances"`. Returns null for every other shape.
+ *
+ * Only generator kinds can be borrowed from, because only their instances are
+ * hashed out of their own spec: `crystals` gives a point along each spike's
+ * axis plus that spike's direction, and `blob` gives each lobe's birth position
+ * plus the direction it drifts in. Both are pure functions of the source spec,
+ * never of anything the renderer holds.
+ */
+function borrowedSites(doc: VfxDocumentV2, layer: LayerV2, count: number) {
+  const shape = layer.emitter!.shape;
+  if (shape.type !== "layerInstances" || !shape.sourceLayerId) return null;
+  const source = doc.layers.find((l) => l.id === shape.sourceLayerId);
+  if (!source) return null;
+  if (source.crystals)
+    return crystalSpawnSites(
+      source.crystals,
+      count,
+      doc.environment.groundY + 0.02,
+    );
+  if (source.blob) {
+    const lobes = blobLobes(source.blob);
+    const positions = new Float32Array(count * 3);
+    const axes = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const lobe = lobes[i % lobes.length];
+      positions.set(lobe.base, i * 3);
+      const away = new THREE.Vector3(
+        lobe.drift[0],
+        Math.max(0.2, lobe.rise * 0.2),
+        lobe.drift[1],
+      ).normalize();
+      axes.set(away.toArray(), i * 3);
+    }
+    return { positions, axes };
+  }
+  return null;
 }
 
 function createParticleLayer(
@@ -781,6 +853,22 @@ function createParticleLayer(
   geometry.setAttribute("aExtra", extraAttr);
   geometry.setAttribute("aExtra2", extra2Attr);
   geometry.setAttribute("aIndex", indexAttr);
+  // emitter.shape "layerInstances": the spawn sites come from the SOURCE
+  // layer's own generator hash, computed once here and uploaded as instance
+  // attributes. That keeps the burst closed form — nothing is read back out of
+  // the source layer at draw time, so the two layers cannot disagree however
+  // they are ordered.
+  const sites = borrowedSites(doc, layer, count);
+  if (sites) {
+    geometry.setAttribute(
+      "aSrcPos",
+      new THREE.InstancedBufferAttribute(sites.positions, 3),
+    );
+    geometry.setAttribute(
+      "aSrcDir",
+      new THREE.InstancedBufferAttribute(sites.axes, 3),
+    );
+  }
   const parentAttributes: THREE.InstancedBufferAttribute[] = [];
   if (parentAttrs) {
     const pick = (source: Float32Array) => {
@@ -923,7 +1011,7 @@ function createParticleLayer(
 
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
-    vertexShader: particleVertexSource(!!parentEmitter),
+    vertexShader: particleVertexSource(!!parentEmitter, !!sites),
     fragmentShader: particleFragmentV2,
     transparent: true,
     depthWrite: false,
@@ -958,6 +1046,10 @@ function createParticleLayer(
     trailGeometry.setAttribute("aExtra", extraAttr);
     trailGeometry.setAttribute("aExtra2", extra2Attr);
     trailGeometry.setAttribute("aIndex", indexAttr);
+    if (sites) {
+      trailGeometry.setAttribute("aSrcPos", geometry.getAttribute("aSrcPos"));
+      trailGeometry.setAttribute("aSrcDir", geometry.getAttribute("aSrcDir"));
+    }
     if (parentAttributes.length) {
       trailGeometry.setAttribute("aPSeed", parentAttributes[0]);
       trailGeometry.setAttribute("aPExtra", parentAttributes[1]);
@@ -966,7 +1058,7 @@ function createParticleLayer(
     trailGeometry.instanceCount = count;
     trailMaterial = new THREE.ShaderMaterial({
       uniforms,
-      vertexShader: trailVertexSource(!!parentEmitter),
+      vertexShader: trailVertexSource(!!parentEmitter, !!sites),
       fragmentShader: trailFragmentV2,
       transparent: true,
       depthWrite: false,
@@ -1037,6 +1129,7 @@ function createParticleLayer(
       uniforms.uCurl.value = flags.curl ? (e.forces.curl?.strength ?? 0) : 0;
       uniforms.uCurlFreq.value = e.forces.curl?.frequency ?? 1;
       uniforms.uCurlSpeed.value = e.forces.curl?.speed ?? 1;
+      uniforms.uPlanarDrag.value = e.forces.planarDrag;
       uniforms.uStretch.value = e.render.stretch;
       (uniforms.uSize.value as THREE.Vector2).fromArray(e.render.size);
       (uniforms.uRot.value as THREE.Vector2).fromArray(e.render.rotation.speed);
@@ -1109,6 +1202,7 @@ function createParticleLayer(
           point,
           span,
           path,
+          sites,
         )
           ? point.dot(view)
           : -Infinity;
@@ -1152,7 +1246,18 @@ function createParticleLayer(
       const stride = Math.max(1, Math.floor(count / 96));
       for (let i = 0; i < count; i += stride) {
         if (
-          !particlePositionV2(e, attrs, i, age, period, window, point, span, path)
+          !particlePositionV2(
+            e,
+            attrs,
+            i,
+            age,
+            period,
+            window,
+            point,
+            span,
+            path,
+            sites,
+          )
         )
           continue;
         point.applyMatrix4(matrix);
@@ -1207,7 +1312,33 @@ const SHELL_VOLUME_TYPES = new Set(["auto", "sphere", "teardrop"]);
 function isShellSurface(layer: LayerV2) {
   const geometry = layer.geometry!;
   if (geometry.type === "lightning" && geometry.lightning) return false;
+  // A lattice needs a real sphere to wrap: its cells are looked up on the
+  // object-space normal, which the analytic teardrop does not have.
+  if (layer.material?.lattice) return false;
   return layer.kind === "shell" && SHELL_VOLUME_TYPES.has(geometry.type);
+}
+
+/**
+ * A spherical belt: the strip of a sphere of `geometry.radius` whose angular
+ * width is `geometry.thickness` metres of arc, leant over by `band.tilt`. uv.x
+ * runs ALONG the belt and uv.y ACROSS it, so a "surface" ramp colours the
+ * section and the stripes run round it.
+ */
+function bandGeometry(geometry: GeometryV2) {
+  const band = geometry.band!;
+  const radius = geometry.radius;
+  const dTheta = Math.min(Math.PI * 0.9, geometry.thickness / Math.max(radius, 1e-3));
+  const strip = new THREE.SphereGeometry(
+    radius,
+    Math.max(24, Math.min(256, geometry.segments)),
+    Math.max(2, Math.min(16, geometry.radialSegments)),
+    0,
+    Math.PI * 2,
+    Math.PI / 2 - dTheta / 2,
+    dTheta,
+  );
+  strip.rotateZ(band.tilt);
+  return strip;
 }
 
 /** Bar-shaped kinds: their mesh is a unit shape scaled by length/radius. */
@@ -1328,6 +1459,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
   if (geometry.type === "lightning" && geometry.lightning)
     return buildLightningGeometry(geometry, seed, 0);
   if (isArcRibbon(layer)) return ribbonStripGeometry(geometry.segments);
+  if (geometry.type === "band" && geometry.band) return bandGeometry(geometry);
+  // A lattice layer IS the sphere its cells wrap; geometry.radius scales it.
+  if (layer.material?.lattice)
+    return new THREE.IcosahedronGeometry(1, Math.max(3, Math.min(6, Math.round(geometry.segments / 12))));
   if (shell)
     // The shell's teardrop is analytic (see surfaceVertexV2): the sphere is the
     // parametric domain, not the silhouette.
@@ -1407,6 +1542,37 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
   return built;
 }
 
+/**
+ * Ripple origins as (x, y, z, birth time). A null origin is hashed off the
+ * document seed and the ripple's index, so it is stable across seeks and still
+ * different for every ripple.
+ */
+function rippleOrigins(
+  ripples: NonNullable<Material["ripples"]>,
+  seed: number,
+) {
+  return Array.from({ length: 4 }, (_, i) => {
+    const ripple = ripples[i];
+    if (!ripple) return new THREE.Vector4(0, 1, 0, -1);
+    if (ripple.origin)
+      return new THREE.Vector4(...ripple.origin, ripple.time);
+    const a = ((hashSeed(seed, `ripple-${i}`) % 10007) / 10007) * Math.PI * 2;
+    const y = 0.15 + 0.7 * ((hashSeed(seed, `ripple-y-${i}`) % 9973) / 9973);
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    return new THREE.Vector4(Math.cos(a) * r, y, Math.sin(a) * r, ripple.time);
+  });
+}
+
+/** Ripple (speed, width, decay) alongside the origins above. */
+function rippleParams(ripples: NonNullable<Material["ripples"]>) {
+  return Array.from({ length: 4 }, (_, i) => {
+    const ripple = ripples[i];
+    return ripple
+      ? new THREE.Vector4(ripple.speed, ripple.width, ripple.decay, 0)
+      : new THREE.Vector4(1, 0.1, 1, 0);
+  });
+}
+
 function createMeshLayer(
   doc: VfxDocumentV2,
   layer: LayerV2,
@@ -1420,6 +1586,12 @@ function createMeshLayer(
   const noise = textures.resolve(material.noise?.textureId ?? null, doc, true);
   const vertexNoise = geometry.vertexNoise;
   const rampSpace = rampKeyMode(material);
+  // Relaxed once per (cells, seed) and shared by every layer that asks for the
+  // same lattice; see lattice-v2.ts.
+  const lattice = material.lattice
+    ? latticeTexture(material.lattice, doc.seed)
+    : null;
+  const ripples = material.ripples ?? [];
 
   const uniforms: Record<string, THREE.IUniform> = {
     uTime: { value: 0 },
@@ -1490,17 +1662,61 @@ function createMeshLayer(
     uChannel: { value: -1 },
     uSplitOffset: { value: material.rgbSplit?.offset ?? 0 },
     uSplitGrowth: { value: material.rgbSplit?.growth ?? 0 },
+    // material.lattice: the relaxed site table plus the pattern's own weights.
+    uSites: { value: lattice?.texture ?? null },
+    uCells: { value: lattice?.sites.count ?? 1 },
+    uCellA: { value: lattice?.sites.cellRadius ?? 1 },
+    uHasLattice: { value: material.lattice ? 1 : 0 },
+    uTileCol: {
+      value: new THREE.Color(material.lattice?.tileColor ?? "#ffffff"),
+    },
+    uLatEdgeCol: {
+      value: new THREE.Color(material.lattice?.edgeColor ?? "#ffffff"),
+    },
+    uLatEdge: { value: material.lattice?.edgeWidth ?? 0.2 },
+    uLatGap: { value: material.lattice?.gapWidth ?? 0.08 },
+    uPulseSpeed: { value: material.lattice?.pulse.speed ?? 0 },
+    uPhaseJitter: { value: material.lattice?.pulse.phaseJitter ?? 0 },
+    uGrazeFade: { value: material.lattice?.grazeFade ?? 0.3 },
+    uHasDissolve: { value: material.lattice?.dissolve ? 1 : 0 },
+    uDisStart: { value: material.lattice?.dissolve?.start ?? 1 },
+    uDisStagger: { value: material.lattice?.dissolve?.stagger ?? 0 },
+    uDisSoft: { value: material.lattice?.dissolve?.softness ?? 0.2 },
+    // material.reveal: a travelling front over the layer's own progress.
+    uHasReveal: { value: material.reveal ? 1 : 0 },
+    uRevealMode: { value: material.reveal?.mode === "scan" ? 1 : 0 },
+    uRevealFrom: { value: material.reveal?.from ?? 0 },
+    uRevealTo: { value: material.reveal?.to ?? 1 },
+    uRevealWidth: { value: material.reveal?.frontWidth ?? 0.1 },
+    // material.planeGlow: analytic proximity to the ground plane.
+    uHasPlaneGlow: { value: material.planeGlow ? 1 : 0 },
+    uPlaneDist: { value: material.planeGlow?.distance ?? 0.4 },
+    uPlaneI: { value: material.planeGlow?.intensity ?? 0 },
+    uPlaneCol: {
+      value: new THREE.Color(material.planeGlow?.color ?? "#ffffff"),
+    },
+    // material.ripples: up to four expanding great circles.
+    uRippleN: { value: ripples.length },
+    uRipple: { value: rippleOrigins(ripples, doc.seed) },
+    uRippleP: {
+      value: rippleParams(ripples),
+    },
+    uBand: { value: geometry.type === "band" && geometry.band ? 1 : 0 },
+    uBandStripes: { value: geometry.band?.stripes ?? 1 },
     ...rampUniforms(material.ramp),
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
   };
 
+  // A band is real geometry sorting against a body, so it writes depth: without
+  // it the far arc of the belt glows through the dome it is meant to go behind.
+  const isBand = geometry.type === "band" && !!geometry.band;
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: surfaceVertexV2,
     fragmentShader: surfaceFragmentV2,
     transparent: true,
-    depthWrite: false,
+    depthWrite: isBand && material.blend === "alpha",
     side: THREE.DoubleSide,
     ...blendingFor(material.blend),
   });
@@ -1515,9 +1731,11 @@ function createMeshLayer(
   const flatCard =
     geometry.type === "plane" || geometry.type === "auto" || geometry.type === "disc";
   const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
-    // The arc ribbon, the analytic shell and the bolt build themselves from the
-    // live uniforms, so only transform.scale applies on top of them.
-    if (ribbon || shell || bolt) return out.set(1, 1, 1);
+    // The arc ribbon, the analytic shell, the bolt and the band build themselves
+    // at their own radius, so only transform.scale applies on top of them.
+    if (ribbon || shell || bolt || isBand) return out.set(1, 1, 1);
+    // A lattice wraps a unit sphere scaled to geometry.radius.
+    if (material.lattice) return out.set(g.radius, g.radius, g.radius);
     if (BAR_KINDS.has(layer.kind)) return out.set(g.radius, g.radius, g.length);
     if (layer.kind === "sprite") return out.set(g.radius, g.radius, 1);
     if (g.type === "disc") return out.set(g.radius, g.radius, 1);
@@ -1534,7 +1752,7 @@ function createMeshLayer(
   const mesh = new THREE.Mesh(meshGeometryFor(layer, boltSeed), shaderMaterial);
   // A mesh whose extent really runs along local +Z keys its surface ramp and
   // erosion on that axis instead of on uv.y; a flat card or an arc cannot.
-  if (!shell && !ribbon && !bolt && !flatCard) {
+  if (!shell && !ribbon && !bolt && !flatCard && !isBand && !material.lattice) {
     mesh.geometry.computeBoundingBox();
     const box = mesh.geometry.boundingBox!;
     const span = box.getSize(new THREE.Vector3());
@@ -1589,6 +1807,9 @@ function createMeshLayer(
     object,
     soft: false,
     trim: false,
+    // A depth-writing band has to stay visible through the soft-particle depth
+    // pre-pass, or the particles behind it would not be occluded by it.
+    occluder: shaderMaterial.depthWrite,
     update(time, flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
       mesh.visible = visible;
@@ -1679,6 +1900,45 @@ function createMeshLayer(
       uniforms.uRampKeyMode.value = rampKeyMode(m);
       uniforms.uGroundY.value = doc.environment.groundY;
       uniforms.uHeightSpan.value = m.ramp.heightSpan;
+      // Everything the ice/shield vocabulary adds is re-read from the LIVE
+      // material, so a track on a reveal front, a lattice edge or a ground glow
+      // really moves.
+      if (m.lattice) {
+        uniforms.uLatEdge.value = m.lattice.edgeWidth;
+        uniforms.uLatGap.value = m.lattice.gapWidth;
+        uniforms.uPulseSpeed.value = m.lattice.pulse.speed;
+        uniforms.uPhaseJitter.value = m.lattice.pulse.phaseJitter;
+        uniforms.uGrazeFade.value = m.lattice.grazeFade;
+        (uniforms.uTileCol.value as THREE.Color).set(m.lattice.tileColor);
+        (uniforms.uLatEdgeCol.value as THREE.Color).set(m.lattice.edgeColor);
+        if (m.lattice.dissolve) {
+          uniforms.uDisStart.value = m.lattice.dissolve.start;
+          uniforms.uDisStagger.value = m.lattice.dissolve.stagger;
+          uniforms.uDisSoft.value = m.lattice.dissolve.softness;
+        }
+      }
+      if (m.reveal) {
+        uniforms.uRevealFrom.value = m.reveal.from;
+        uniforms.uRevealTo.value = m.reveal.to;
+        uniforms.uRevealWidth.value = m.reveal.frontWidth;
+      }
+      if (m.planeGlow) {
+        uniforms.uPlaneDist.value = m.planeGlow.distance;
+        uniforms.uPlaneI.value = m.planeGlow.intensity;
+        (uniforms.uPlaneCol.value as THREE.Color).set(m.planeGlow.color);
+      }
+      if (m.ripples) {
+        uniforms.uRippleN.value = m.ripples.length;
+        (uniforms.uRipple.value as THREE.Vector4[]).forEach((v, i) =>
+          v.copy(rippleOrigins(m.ripples!, doc.seed)[i]),
+        );
+        (uniforms.uRippleP.value as THREE.Vector4[]).forEach((v, i) =>
+          v.copy(rippleParams(m.ripples!)[i]),
+        );
+      }
+      // geometry.band.spin adds to the layer's own Y rotation, so a belt turns
+      // without a track and still follows whatever the transform says.
+      if (isBand && g.band) mesh.rotation.y += g.band.spin * Math.max(age, 0);
       (uniforms.uCam.value as THREE.Vector3).copy(camera.position);
       writeRamp(uniforms, m.ramp);
       writeCurve(uniforms, "C", m.erosion?.curve ?? null);
@@ -2034,6 +2294,179 @@ function createBlobLayer(
       for (const part of parts) {
         part.fill.dispose();
         part.hull.dispose();
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Crystal layers
+// ---------------------------------------------------------------------------
+
+/**
+ * An instanced faceted crystal cluster, generated from `layer.crystals` (see
+ * crystals-v2.ts for the generator itself).
+ *
+ * One draw call for the fill, one more for `material.outline`'s inverted hull.
+ * Both run the same vertex program — the hull with back faces and a positive
+ * inflation — so the dark separator tracks the facets instead of a smooth cone.
+ * The growth, the hold breath and the collapse are all evaluated in the vertex
+ * shader from layer time, so nothing is rebuilt as the cluster erupts.
+ *
+ * The fill writes depth: that is what makes overlapping spikes read as solid
+ * ice with real intersections, and it is why the layer is an `occluder` for the
+ * soft-particle depth pre-pass.
+ */
+function createCrystalsLayer(
+  doc: VfxDocumentV2,
+  layer: LayerV2,
+  index: number,
+): LayerObject {
+  const material = layer.material!;
+  const spec = layer.crystals!;
+  const table = crystalInstances(spec);
+  const base = crystalGeometry();
+  const span = Math.max(layer.end - layer.start, 1e-6);
+
+  const instanced = () => {
+    const g = new THREE.InstancedBufferGeometry();
+    g.setAttribute("position", base.getAttribute("position"));
+    g.setAttribute("normal", base.getAttribute("normal"));
+    g.setAttribute("aAlong", base.getAttribute("aAlong"));
+    const direction = new Float32Array(table.length * 3);
+    const origin = new Float32Array(table.length * 3);
+    const length = new Float32Array(table.length);
+    const width = new Float32Array(table.length);
+    const start = new Float32Array(table.length);
+    const seed = new Float32Array(table.length);
+    table.forEach((spike, i) => {
+      direction.set(spike.direction, i * 3);
+      origin.set(spike.origin, i * 3);
+      length[i] = spike.length;
+      width[i] = spike.width;
+      start[i] = spike.start;
+      seed[i] = spike.seed;
+    });
+    g.setAttribute("aDir", new THREE.InstancedBufferAttribute(direction, 3));
+    g.setAttribute("aOrg", new THREE.InstancedBufferAttribute(origin, 3));
+    g.setAttribute("aLen", new THREE.InstancedBufferAttribute(length, 1));
+    g.setAttribute("aWid", new THREE.InstancedBufferAttribute(width, 1));
+    g.setAttribute("aT0", new THREE.InstancedBufferAttribute(start, 1));
+    g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+    g.instanceCount = table.length;
+    return g;
+  };
+
+  const makeUniforms = (hull: boolean): Record<string, THREE.IUniform> => ({
+    uTime: { value: 0 },
+    uSpan: { value: span },
+    uGrowDur: { value: spec.growth.duration },
+    uOvershoot: { value: spec.growth.overshoot },
+    uHasCollapse: { value: spec.collapse ? 1 : 0 },
+    uCollapseStart: { value: spec.collapse?.start ?? 1 },
+    uCollapseDur: { value: spec.collapse?.duration ?? 0.16 },
+    uInflate: { value: 0 },
+    uTip: { value: new THREE.Color(spec.tipColor) },
+    uFace: { value: new THREE.Color(spec.faceColor) },
+    uEdge: {
+      value: new THREE.Color(
+        hull ? (material.outline?.color ?? "#000000") : spec.edgeColor,
+      ),
+    },
+    uCam: { value: new THREE.Vector3() },
+    uFresPow: { value: spec.fresnelPower },
+    uGlintFreq: { value: spec.glint.frequency },
+    uGlintSpeed: { value: spec.glint.speed },
+    uOpacity: { value: material.opacity },
+    uFlat: { value: hull ? 1 : 0 },
+    uBlendMode: { value: BLEND_INDEX[material.blend] ?? 1 },
+  });
+
+  const group = new THREE.Group();
+  group.name = layer.id;
+  const opaque = material.blend === "alpha";
+  const build = (hull: boolean) => {
+    const uniforms = makeUniforms(hull);
+    const shader = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: crystalVertexV2,
+      fragmentShader: crystalFragmentV2,
+      transparent: !opaque,
+      depthWrite: true,
+      depthTest: true,
+      side: hull ? THREE.BackSide : THREE.DoubleSide,
+      ...blendingFor(material.blend),
+    });
+    const geometry = instanced();
+    const mesh = new THREE.Mesh(geometry, shader);
+    mesh.name = hull ? `${layer.id}-outline` : layer.id;
+    mesh.frustumCulled = false;
+    // The hull draws first, so it only ever shows past the fill's silhouette.
+    mesh.renderOrder = index * 8 + (hull ? 0 : 1);
+    group.add(mesh);
+    return { mesh, shader, geometry, uniforms };
+  };
+  const hull = build(true);
+  const fill = build(false);
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: group,
+    soft: false,
+    trim: false,
+    occluder: opaque,
+    update(time, flags, camera) {
+      const { layer: live, visible, age } = evaluateLayerV2(layer, time);
+      group.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const c = live.crystals!;
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+      hull.mesh.visible = !!m.outline && flags.textures;
+      for (const part of [hull, fill]) {
+        part.uniforms.uTime.value = age;
+        part.uniforms.uGrowDur.value = c.growth.duration;
+        part.uniforms.uOvershoot.value = c.growth.overshoot;
+        part.uniforms.uCollapseStart.value = c.collapse?.start ?? 1;
+        part.uniforms.uCollapseDur.value = c.collapse?.duration ?? 0.16;
+        part.uniforms.uOpacity.value = m.opacity;
+        part.uniforms.uFresPow.value = c.fresnelPower;
+        part.uniforms.uGlintFreq.value = c.glint.frequency;
+        part.uniforms.uGlintSpeed.value = c.glint.speed;
+        (part.uniforms.uCam.value as THREE.Vector3).copy(camera.position);
+        (part.uniforms.uTip.value as THREE.Color).set(c.tipColor);
+        (part.uniforms.uFace.value as THREE.Color).set(c.faceColor);
+      }
+      (fill.uniforms.uEdge.value as THREE.Color).set(c.edgeColor);
+      if (m.outline) {
+        (hull.uniforms.uEdge.value as THREE.Color).set(m.outline.color);
+        hull.uniforms.uInflate.value = m.outline.width;
+      }
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      const [lo, hi] = crystalBounds(live.crystals!);
+      for (const x of [lo.x, hi.x])
+        for (const y of [lo.y, hi.y])
+          for (const z of [lo.z, hi.z])
+            push(new THREE.Vector3(x, y, z).applyMatrix4(matrix));
+    },
+    dispose() {
+      base.dispose();
+      for (const part of [hull, fill]) {
+        part.geometry.dispose();
+        part.shader.dispose();
       }
     },
   };
@@ -2414,6 +2847,19 @@ function spawnBoundsV2(
         : 0);
     extent.set(lateral, lateral, lateral);
     const axis = new THREE.Vector3().fromArray(shape.axis);
+    // A ring and a disc lie in the plane PERPENDICULAR to their axis, so they
+    // claim nothing along it. Without this an upright ring of radius 1.5 asks
+    // the camera for three metres of headroom it never uses.
+    if ((shape.type === "ring" || shape.type === "disc") && axis.lengthSq() > 1e-10) {
+      const unit = axis.clone().normalize();
+      extent.multiply(
+        new THREE.Vector3(
+          1 - Math.abs(unit.x),
+          1 - Math.abs(unit.y),
+          1 - Math.abs(unit.z),
+        ),
+      );
+    }
     if (axis.lengthSq() > 1e-10) {
       const reach = axis
         .clone()
@@ -2584,6 +3030,8 @@ export class VfxRuntimeV2 {
         if (layer.kind === "particles")
           return createParticleLayer(this.doc!, layer, index, this.textures, depth);
         if (layer.kind === "blob") return createBlobLayer(this.doc!, layer, index);
+        if (layer.kind === "crystals")
+          return createCrystalsLayer(this.doc!, layer, index);
         if (layer.kind === "splash") return createSplashLayer(layer, index);
         if (layer.kind === "ribbon")
           return createRibbonLayer(this.doc!, layer, index);

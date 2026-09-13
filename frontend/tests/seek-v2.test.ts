@@ -21,6 +21,12 @@ import {
   buildWireBurstGeometry,
   wireBurstBounds,
 } from "../src/lib/vfx-lab/wire-burst-v2";
+import {
+  crystalInstances,
+  crystalScaleAt,
+  crystalSpawnSites,
+} from "../src/lib/vfx-lab/crystals-v2";
+import { latticeSites } from "../src/lib/vfx-lab/lattice-v2";
 import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
 import { defaultGeometry, type GeometryV2 } from "../src/lib/vfx-lab/schema-v2";
 
@@ -421,4 +427,108 @@ test("both new exemplars carry a path every referencing layer can resolve", () =
         assert.ok(ids.has(layer.emitter.shape.pathId), layer.id);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// Crystal clusters and the spherical hex lattice: the two Phase E generators
+// whose tables the CPU builds. `crystalInstances` / `crystalScaleAt` are the
+// same functions the renderer fills its instance attributes from and the
+// framing pass measures, and `crystalSpawnSites` is what a borrowed shatter
+// emitter uploads, so verifying determinism here verifies all three.
+// ---------------------------------------------------------------------------
+
+const iceDoc = createPresetV2("ice-blast");
+const clusterLayer = iceDoc.layers.find((l) => l.crystals)!;
+const clusterSpec = clusterLayer.crystals!;
+
+test("a spike table is a pure function of the crystals spec", () => {
+  assert.deepEqual(
+    crystalInstances(clusterSpec),
+    crystalInstances(structuredClone(clusterSpec)),
+  );
+  assert.equal(crystalInstances(clusterSpec).length, clusterSpec.count);
+  const reseeded = crystalInstances({
+    ...structuredClone(clusterSpec),
+    seed: clusterSpec.seed + 1,
+  });
+  assert.notDeepEqual(
+    reseeded.map((s) => s.direction),
+    crystalInstances(clusterSpec).map((s) => s.direction),
+  );
+});
+
+test("every spike stays inside the bands the document declared", () => {
+  const table = crystalInstances(clusterSpec);
+  const sinLo = Math.sin((clusterSpec.direction.elevation[0] * Math.PI) / 180);
+  const sinHi = Math.sin((clusterSpec.direction.elevation[1] * Math.PI) / 180);
+  const groups = new Set<number>();
+  for (const spike of table) {
+    groups.add(spike.group);
+    assert.ok(Math.abs(Math.hypot(...spike.direction) - 1) < 1e-6);
+    assert.ok(spike.direction[1] >= sinLo - 1e-6 && spike.direction[1] <= sinHi + 1e-6);
+    assert.ok(
+      spike.length >= clusterSpec.length[0] - 1e-6 &&
+        spike.length <= clusterSpec.length[1] + 1e-6,
+    );
+    assert.ok(
+      spike.width >= clusterSpec.width[0] - 1e-6 &&
+        spike.width <= clusterSpec.width[1] + 1e-6,
+    );
+    assert.ok(
+      spike.start >= clusterSpec.stagger[0] - 1e-6 &&
+        spike.start <= clusterSpec.stagger[1] + 1e-6,
+    );
+  }
+  assert.equal(groups.size, clusterSpec.groups, "every length class is populated");
+});
+
+test("seeking a crystal cluster draws the same spikes as playing to it", () => {
+  const span = clusterLayer.end - clusterLayer.start;
+  const table = crystalInstances(clusterSpec);
+  const at = (age: number) =>
+    table.map((spike) => crystalScaleAt(spike, clusterSpec, age, span));
+  for (const age of [0, 0.2, 0.9, 2.3, span * 0.99])
+    assert.deepEqual(at(age), at(age));
+  // Nothing exists before its own staggered start, everything is grown by the
+  // hold, and the collapse takes every spike back to nothing.
+  assert.ok(at(-0.01).every((s) => s === 0));
+  assert.ok(at(1.4).every((s) => s > 0.9));
+  const collapse = clusterSpec.collapse!;
+  assert.ok(
+    at(collapse.start * span + collapse.duration * 2.3).every((s) => s === 0),
+    "the shatter finishes",
+  );
+});
+
+test("borrowed spawn sites are closed form in the source spec", () => {
+  const sites = crystalSpawnSites(clusterSpec, 64, 0.02);
+  assert.deepEqual(sites, crystalSpawnSites(clusterSpec, 64, 0.02));
+  assert.equal(sites.positions.length, 64 * 3);
+  for (let i = 0; i < 64; i++) {
+    const axis = Array.from(sites.axes.slice(i * 3, i * 3 + 3));
+    assert.ok(Math.abs(Math.hypot(...axis) - 1) < 1e-6);
+    // Never below the floor the caller asked for.
+    assert.ok(sites.positions[i * 3 + 1] >= 0.02 - 1e-6);
+  }
+});
+
+test("the relaxed lattice is deterministic and cached by (cells, seed)", () => {
+  const shieldDoc = createPresetV2("shield");
+  const spec = shieldDoc.layers.find((l) => l.material?.lattice)!.material!
+    .lattice!;
+  const first = latticeSites(spec.cells, shieldDoc.seed);
+  // Cached: the same call returns the very same object, so two layers sharing a
+  // lattice share one relaxation pass and one texture.
+  assert.equal(latticeSites(spec.cells, shieldDoc.seed), first);
+  assert.equal(first.count, spec.cells);
+  // Sorted by descending y, which is what lets the shader scan a latitude band.
+  for (let i = 1; i < spec.cells; i++)
+    assert.ok(first.data[i * 4 + 1] <= first.data[(i - 1) * 4 + 1] + 1e-6);
+  // Every site is on the unit sphere, and relaxation kept them apart.
+  for (let i = 0; i < spec.cells; i++) {
+    const p = [first.data[i * 4], first.data[i * 4 + 1], first.data[i * 4 + 2]];
+    assert.ok(Math.abs(Math.hypot(...p) - 1) < 1e-4);
+  }
+  const other = latticeSites(spec.cells, shieldDoc.seed + 1);
+  assert.notDeepEqual(Array.from(other.data), Array.from(first.data));
 });

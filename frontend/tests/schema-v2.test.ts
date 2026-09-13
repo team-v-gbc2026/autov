@@ -260,6 +260,7 @@ test("wire round-trip: homogeneous arrays parse back into the runtime contract",
       splash: layer.splash ?? null,
       ribbon: layer.ribbon ?? null,
       wireBurst: layer.wireBurst ?? null,
+      crystals: layer.crystals ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -378,6 +379,7 @@ test("blob and splash round-trip through the wire contract", () => {
       splash: layer.splash ?? null,
       ribbon: layer.ribbon ?? null,
       wireBurst: layer.wireBurst ?? null,
+      crystals: layer.crystals ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -611,6 +613,7 @@ test("paths, ribbons and bursts round-trip through the wire contract", () => {
         splash: layer.splash ?? null,
         ribbon: layer.ribbon ?? null,
         wireBurst: layer.wireBurst ?? null,
+        crystals: layer.crystals ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -752,4 +755,233 @@ rejectGlitch(
     };
   },
   /not particles/,
+);
+
+// ---------------------------------------------------------------------------
+// Crystals, the spherical hex lattice, reveal fronts, ground proximity glow,
+// great-circle ripples, the band belt, borrowed spawn sites and planar drag
+// (the ice / shield spike port)
+// ---------------------------------------------------------------------------
+
+const ICE = path.join(process.cwd(), "fixtures/v2/ice-blast/document.json");
+const SHIELD = path.join(process.cwd(), "fixtures/v2/shield/document.json");
+const iceRaw = JSON.parse(readFileSync(ICE, "utf8"));
+const shieldRaw = JSON.parse(readFileSync(SHIELD, "utf8"));
+const ice = (): VfxDocumentV2 => structuredClone(iceRaw);
+const shield = (): VfxDocumentV2 => structuredClone(shieldRaw);
+
+test("the ice exemplar is a sigil, a crystal cluster and a borrowed shatter", () => {
+  const doc = validateDocumentV2(ice());
+  assert.deepEqual(lintDocumentV2(doc), []);
+
+  const sigil = doc.layers.find((l) => l.id === "cast-sigil")!;
+  assert.equal(sigil.material!.procedural, "sigil");
+  assert.equal(sigil.material!.reveal!.mode, "radial");
+  // The front runs past the rim before the layer ends: that is how a reveal
+  // finishes early inside a layer that keeps holding.
+  assert.ok(sigil.material!.reveal!.to > 1);
+  assert.ok(
+    sigil.tracks.some((t) => t.target === "material.proceduralParams[3]"),
+    "the gold rim pops on a track, not on the base colour",
+  );
+
+  const cluster = doc.layers.find((l) => l.kind === "crystals")!;
+  const spec = cluster.crystals!;
+  assert.equal(spec.count, 320);
+  assert.equal(spec.groups, 3);
+  assert.ok(spec.length[1] > spec.length[0]);
+  assert.ok(spec.direction.elevation[0] < 0, "short spikes stab downward");
+  assert.ok(spec.collapse, "the cluster shatters");
+  assert.ok(cluster.material!.outline, "the dark separator hull is on");
+
+  // The shatter borrows its spawn sites from the cluster and settles on XZ drag.
+  const chips = doc.layers.filter(
+    (l) => l.emitter?.shape.type === "layerInstances",
+  );
+  assert.equal(chips.length, 2);
+  for (const layer of chips) {
+    assert.equal(layer.emitter!.shape.sourceLayerId, "crystals");
+    assert.ok(layer.emitter!.forces.planarDrag > 0);
+    assert.ok(layer.emitter!.forces.floor);
+  }
+});
+
+test("the shield exemplar is one lattice sphere plus a real belt", () => {
+  const doc = validateDocumentV2(shield());
+  assert.deepEqual(lintDocumentV2(doc), []);
+
+  const dome = doc.layers.find((l) => l.id === "dome")!;
+  const lattice = dome.material!.lattice!;
+  assert.equal(lattice.cells, 377);
+  assert.ok(lattice.gapWidth < lattice.edgeWidth);
+  assert.ok(lattice.dissolve, "the shell comes apart cell by cell");
+  assert.equal(dome.material!.reveal!.mode, "scan");
+  assert.ok(dome.material!.planeGlow, "the floor contact ring is analytic");
+  assert.equal(dome.material!.ripples!.length, 2);
+  assert.ok(dome.material!.fresnel!.power >= 8, "a shield rim is a hard fresnel");
+
+  const belt = doc.layers.find((l) => l.geometry?.type === "band")!;
+  assert.ok(belt.geometry!.band);
+  assert.ok(belt.geometry!.band!.spin > 0);
+  // Real geometry, alpha blended, so the far arc sorts behind the shell.
+  assert.equal(belt.material!.blend, "alpha");
+});
+
+test("the ice and shield exemplars round-trip through the wire contract", () => {
+  for (const source of [ice, shield]) {
+    const doc = validateDocumentV2(source());
+    const wire = {
+      ...structuredClone(doc),
+      layers: doc.layers.map((layer) => ({
+        ...structuredClone(layer),
+        material: layer.material ?? null,
+        emitter: layer.emitter ?? null,
+        geometry: layer.geometry ?? null,
+        light: layer.light ?? null,
+        blob: layer.blob ?? null,
+        splash: layer.splash ?? null,
+        ribbon: layer.ribbon ?? null,
+        wireBurst: layer.wireBurst ?? null,
+        crystals: layer.crystals ?? null,
+      })),
+    };
+    delete (wire as Record<string, unknown>).textures;
+    DocumentV2WireSchema.parse(wire);
+    assert.deepEqual(fromWireV2(wire), { ...doc, textures: [] });
+  }
+});
+
+test("the ice/shield fields are all defaulted, so an archived document loads", () => {
+  const bare = load();
+  for (const layer of bare.layers) {
+    if (layer.material)
+      for (const key of ["reveal", "lattice", "planeGlow", "ripples"])
+        delete (layer.material as Record<string, unknown>)[key];
+    if (layer.geometry) delete (layer.geometry as Record<string, unknown>).band;
+    if (layer.emitter) {
+      delete (layer.emitter.shape as Record<string, unknown>).sourceLayerId;
+      delete (layer.emitter.forces as Record<string, unknown>).planarDrag;
+    }
+  }
+  const doc = validateDocumentV2(bare);
+  for (const layer of doc.layers) {
+    if (layer.material) {
+      assert.equal(layer.material.reveal, null);
+      assert.equal(layer.material.lattice, null);
+      assert.equal(layer.material.planeGlow, null);
+      assert.equal(layer.material.ripples, null);
+    }
+    if (layer.geometry) assert.equal(layer.geometry.band, null);
+    if (layer.emitter) {
+      assert.equal(layer.emitter.shape.sourceLayerId, null);
+      assert.equal(layer.emitter.forces.planarDrag, 0);
+    }
+  }
+});
+
+const rejectIce = (
+  name: string,
+  mutate: (doc: VfxDocumentV2) => void,
+  message: RegExp,
+) =>
+  test(`rejects: ${name}`, () => {
+    const doc = ice();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), message);
+  });
+
+rejectIce(
+  "a crystals layer without a crystals spec",
+  (d) => {
+    delete d.layers.find((l) => l.kind === "crystals")!.crystals;
+  },
+  /Crystals layer needs crystals/,
+);
+rejectIce(
+  "a crystals spec on a layer that is not a crystals layer",
+  (d) => {
+    d.layers.find((l) => l.kind === "decal")!.crystals = defaultsV2().crystals;
+  },
+  /Only crystals layers carry crystals/,
+);
+rejectIce(
+  "a descending crystal length band",
+  (d) => {
+    d.layers.find((l) => l.kind === "crystals")!.crystals!.length = [1.2, 0.2];
+  },
+  /crystals.length/,
+);
+rejectIce(
+  "a descending crystal elevation band",
+  (d) => {
+    d.layers.find((l) => l.kind === "crystals")!.crystals!.direction.elevation = [
+      60, -10,
+    ];
+  },
+  /crystals.direction.elevation/,
+);
+rejectIce(
+  "a layer-instance emitter with no source layer",
+  (d) => {
+    d.layers.find(
+      (l) => l.emitter?.shape.type === "layerInstances",
+    )!.emitter!.shape.sourceLayerId = null;
+  },
+  /needs shape.sourceLayerId/,
+);
+rejectIce(
+  "a layer-instance emitter borrowing from a layer that generates nothing",
+  (d) => {
+    d.layers.find(
+      (l) => l.emitter?.shape.type === "layerInstances",
+    )!.emitter!.shape.sourceLayerId = "cold-pool";
+  },
+  /must be a crystals or blob layer/,
+);
+rejectIce(
+  "a reveal on a particles layer",
+  (d) => {
+    d.layers.find((l) => l.kind === "particles")!.material!.reveal = {
+      mode: "radial",
+      from: 0,
+      to: 1,
+      frontWidth: 0.1,
+    };
+  },
+  /material.reveal is for mesh layers/,
+);
+
+const rejectShield = (
+  name: string,
+  mutate: (doc: VfxDocumentV2) => void,
+  message: RegExp,
+) =>
+  test(`rejects: ${name}`, () => {
+    const doc = shield();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), message);
+  });
+
+rejectShield(
+  "a lattice whose gap is as wide as its wall",
+  (d) => {
+    d.layers.find((l) => l.id === "dome")!.material!.lattice!.gapWidth = 0.3;
+  },
+  /no wall is drawn/,
+);
+rejectShield(
+  "a ripple origin that is not a unit vector",
+  (d) => {
+    d.layers.find((l) => l.id === "dome")!.material!.ripples![0].origin = [
+      0, 0.5, 0,
+    ];
+  },
+  /unit vector/,
+);
+rejectShield(
+  "band geometry with no band spec",
+  (d) => {
+    d.layers.find((l) => l.geometry?.type === "band")!.geometry!.band = null;
+  },
+  /Band geometry needs geometry.band/,
 );

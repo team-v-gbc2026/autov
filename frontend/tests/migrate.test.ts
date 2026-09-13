@@ -162,8 +162,11 @@ test("a v1 particles layer maps spin and speed onto emitter paths", () => {
 test("an upgraded v1 document carries the neutral value of every later field", () => {
   const v2 = upgradeDocument(createPreset("projectile"));
   // v1 had no paths, no screen glitch, no jitter, no channel split, no
-  // procedural parameters, no cylinder taper, no path emitters and no twinkle;
-  // an upgraded document must render exactly as it did before they existed.
+  // procedural parameters, no cylinder taper, no path emitters, no twinkle, no
+  // crystal clusters, no hex lattice, no reveal front, no ground proximity
+  // glow, no ripples, no belt geometry, no borrowed spawn sites and no planar
+  // drag; an upgraded document must render exactly as it did before they
+  // existed.
   assert.deepEqual(v2.paths, []);
   assert.equal(v2.post.glitch, null);
   for (const layer of v2.layers) {
@@ -172,12 +175,24 @@ test("an upgraded v1 document carries the neutral value of every later field", (
     assert.equal(layer.wireBurst, undefined);
     assert.deepEqual(layer.material!.proceduralParams, [0, 0, 0, 0]);
     assert.equal(layer.material!.rgbSplit, null);
-    if (layer.geometry) assert.equal(layer.geometry.taper, 1);
+    assert.equal(layer.crystals, undefined);
+    assert.equal(layer.material!.reveal, null);
+    assert.equal(layer.material!.lattice, null);
+    assert.equal(layer.material!.planeGlow, null);
+    assert.equal(layer.material!.ripples, null);
+    if (layer.geometry) {
+      assert.equal(layer.geometry.taper, 1);
+      assert.equal(layer.geometry.band, null);
+      assert.notEqual(layer.geometry.type, "band");
+    }
     if (layer.emitter) {
       assert.equal(layer.emitter.shape.pathId, null);
+      assert.equal(layer.emitter.shape.sourceLayerId, null);
       assert.equal(layer.emitter.spawn.headCurve, null);
       assert.equal(layer.emitter.render.twinkle, null);
+      assert.equal(layer.emitter.forces.planarDrag, 0);
       assert.notEqual(layer.emitter.shape.type, "path");
+      assert.notEqual(layer.emitter.shape.type, "layerInstances");
       assert.notEqual(layer.emitter.spawn.mode, "pathAnchored");
     }
   }

@@ -268,6 +268,23 @@ export function applyKnobs(
       ];
       sp.width = clamp(sp.width * kMeshScale, 0.02, 1.5);
     }
+    // A crystal cluster scales by how long and how fat its spikes are and how
+    // far their bases sit out; verticalStretch reaches only the length, so the
+    // cluster changes proportion the way a mesh's y scale does. The count, the
+    // groups and the elevation band are topology, so the knob space never
+    // touches them.
+    if (layer.crystals) {
+      const c = layer.crystals;
+      c.length = [
+        clamp(c.length[0] * kMeshScale * kVertical, 0.05, 6),
+        clamp(c.length[1] * kMeshScale * kVertical, 0.05, 6),
+      ];
+      c.width = [
+        clamp(c.width[0] * kMeshScale, 0.005, 1),
+        clamp(c.width[1] * kMeshScale, 0.005, 1),
+      ];
+      c.baseRadius = clamp(c.baseRadius * kMeshScale, 0, 4);
+    }
     // A ribbon's size is its strand width and how far the strands sit apart;
     // its path is the effect's geometry and belongs to the document, so
     // meshScale deliberately does not move it. verticalStretch has nothing to

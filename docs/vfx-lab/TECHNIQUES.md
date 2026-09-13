@@ -24,7 +24,7 @@ A **technique card** is that missing layer. Each one is a named, reusable constr
 - `vocabulary.missing` — the vocabulary the renderer does not have yet.
 - `sources` — which research doc it came from.
 
-21 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the eight `RecipeV2Id`
+22 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the eight `RecipeV2Id`
 families to its 3-4 most relevant cards; `TECHNIQUE_KEYWORDS` is a list of `[RegExp, TechniqueId[]]`
 pairs that add cards for shapes the eight families don't cover directly — aura/heal, portal,
 vortex/tornado, glitch/hologram, energy column, water, a second look at meteor, crystal/ice
@@ -48,10 +48,11 @@ It is wired into the v2 candidate call (`route.ts`, `action: "candidate"`, along
 `technique: techniqueBrief(family, run.prompt)` in the same JSON payload as everything else the
 model already reads.
 
-## The 21 cards
+## The 22 cards
 
 | Card | One line |
 |---|---|
+| `cast-sigil-reveal` | A whole magic circle from one `sigil` card, drawn outward by a radial reveal front. |
 | `cauliflower-blob-cluster` | A generated cluster of toon-shaded lobes for a smoke/cloud silhouette, not one fuzzy blob. |
 | `inverted-hull-outline` | Back-face-pushed second pass for a crisp dark crease on a toon mesh. |
 | `flat-splash-accent` | A generated fan of flat, unshaded slivers that sells "something popped". |
@@ -98,6 +99,7 @@ model already reads.
 | `column\|overload\|pillar` | blinking-arc-ribbons, upright-glow-cylinder |
 | `water\|liquid` | two-layer-noise-mist, polar-swirl-disc |
 | `meteor` | speed-line-cap, instanced-shard-burst |
+| `sigil\|rune\|circle\|summon\|cast` | cast-sigil-reveal, ground-ring-with-inner-fill |
 | `crystal\|ice\|frost` | instanced-shard-burst, two-layer-noise-mist, hex-lattice-fresnel-shield |
 | `smoke\|puff\|cloud` | cauliflower-blob-cluster, inverted-hull-outline, flat-splash-accent, two-layer-noise-mist |
 
@@ -113,7 +115,6 @@ the model, so it is exposed here instead, for whoever picks up renderer work nex
 | ease `"outBack"` (overshoot-and-settle scale-in, beyond `outCubic`) | ground-ring-with-inner-fill | `CurveSchema.ease` today is `linear \| smooth` only (`easing` on tracks adds `outCubic \| inQuad`, no back-ease). |
 | polar swirl UV remap (`angle += strength / dist`, baked into material panning) | polar-swirl-disc | Approximated with stacked discs at different `uvPan` speeds plus `emitter.forces.vortex` on fleck particles. |
 | per-segment blink gating inside a single arc layer | blinking-arc-ribbons | Today: `ribbon.strands` gives independent strands in one layer and `layer.jitter` breaks the whole arc, but a single arc cannot blink segment by segment. |
-| depth-intersection glow (reconstructed world position vs. dome radius -> contact line) | hex-lattice-fresnel-shield | Needs a depth pre-pass comparison; noted as a renderer gap directly in the card. |
 | scanline overlay | stepped-hash-glitch | `post.glitch` covers band displacement, channel split and block dropout, but not a standing scanline pattern. |
 
 ### Closed 2026-09-14 — the heal / glitch spike port
@@ -148,7 +149,23 @@ The four entries at the top of this table were closed by the Phase C port of the
 `flat-splash-accent` also moved from "a decal plus a jagged mask" to `kind:"splash"`, a generated
 fan of flat slivers, though it never contributed a backlog entry.
 
-15 of the 21 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
-remaining 6 — `stripe-panner-core-and-sheath`, `ground-ring-with-inner-fill`, `polar-swirl-disc`,
-`blinking-arc-ribbons`, `hex-lattice-fresnel-shield` and `stepped-hash-glitch` — each contribute
-exactly one entry to the renderer backlog above.
+### Closed 2026-09-14 — the ice / shield spike port
+
+The Phase E port of the S3 ice and shield spikes (`TOOLBOX_V2_MAPPING.md` §7–§8) closed the last
+shield entry and rewrote four cards around real fields:
+
+| Was missing | Now | Card |
+|---|---|---|
+| depth-intersection glow (world position vs. dome radius -> contact line) | `material.planeGlow{plane,distance,color,intensity}` — analytic proximity to the ground plane, no depth texture, so it cannot flicker | hex-lattice-fresnel-shield |
+| (none, added outright) | `kind:"crystals"` + `layer.crystals` — an instanced faceted cluster generated from a direction band, length/width bands, groups, stagger, easeOutBack growth and a collapse | instanced-shard-burst, staggered-instance-timing |
+| (none, added outright) | `material.lattice` (relaxed spherical Voronoi cells, pulse, dissolve, grazeFade), `material.reveal` (radial / scan front), `material.ripples` (great circles), `geometry.type:"band"` + `geometry.band` | hex-lattice-fresnel-shield |
+| (none, added outright) | `emitter.shape.type:"layerInstances"` + `shape.sourceLayerId` (borrowed spawn sites) and `emitter.forces.planarDrag` (XZ-only drag) | instanced-shard-burst |
+| (none, added outright) | `material.procedural:"sigil"` with `proceduralParams` [ring pairs, rune cells, spokes, gold rim] | cast-sigil-reveal (new) |
+
+`hex-lattice-fresnel-shield` no longer asks for two cross-woven hexagon passes: one relaxed
+lattice gives real cells with no seam, no pole and no moire, so the card is one sphere now.
+
+17 of the 22 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
+remaining 5 — `stripe-panner-core-and-sheath`, `ground-ring-with-inner-fill`, `polar-swirl-disc`,
+`blinking-arc-ribbons` and `stepped-hash-glitch` — each contribute exactly one entry to the
+renderer backlog above.

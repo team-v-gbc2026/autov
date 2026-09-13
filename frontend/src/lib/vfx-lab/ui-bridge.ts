@@ -23,8 +23,8 @@
 //                |                                                        | keys scale by ratio
 //   Radius       | emitter.shape.radius (0..12)    | geometry.radius      | light.radius
 //                | blob.radius[1] / splash.length[1] / ribbon.width /
-//                | wireBurst.radius on the generated kinds, scaled as a band so
-//                | the population keeps its size hierarchy
+//                | wireBurst.radius / crystals.length[1] on the generated kinds,
+//                | scaled as a band so the population keeps its size hierarchy
 //                |                                 | (0.01..8)            | (0.5..30)
 //   Opacity      | material.opacity (0..1)         | material.opacity     | — (no material)
 //   Speed        | max |emitter.velocity.speed|    | geometry.vertexNoise | —
@@ -142,6 +142,8 @@ function layerRadius(layer: LayerV2) {
   // A ribbon's "radius" is its strand width; a burst's is how far it throws.
   if (layer.ribbon) return toUi(layer.ribbon.width, RIBBON_WIDTH);
   if (layer.wireBurst) return toUi(layer.wireBurst.radius, MESH_RADIUS);
+  // A crystal cluster's "radius" is the longest spike it grows.
+  if (layer.crystals) return toUi(layer.crystals.length[1], MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
   return 0;
 }
@@ -299,6 +301,15 @@ function writeRadius(layer: LayerV2, ui: number) {
     ];
   } else if (layer.ribbon) {
     layer.ribbon.width = fromUi(ui, RIBBON_WIDTH);
+  } else if (layer.crystals) {
+    // The band, not one number: spikes that all grow to the same length read as
+    // a mace, not as ice.
+    const target = Math.min(6, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.crystals.length[1], 1e-6);
+    layer.crystals.length = [
+      clamp(layer.crystals.length[0] * factor, 0.05, 6),
+      target,
+    ];
   } else if (layer.wireBurst) {
     // The band, not one number: a burst whose outlines grow without flying
     // further just turns into a solid ball.

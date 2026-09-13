@@ -590,6 +590,7 @@ test("structural repair is bounded by the baseline document", () => {
         "splash",
         "ribbon",
         "wireBurst",
+        "crystals",
       ])
         if (layer[slot] === undefined) layer[slot] = null;
     return { document: copy, explanation: "repair" };

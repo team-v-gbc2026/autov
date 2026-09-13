@@ -43,8 +43,8 @@ test("brief stays within budget for every family on an empty prompt", () => {
   for (const id of RECIPE_V2_IDS) {
     const brief = techniqueBrief(id, "");
     assert.ok(
-      brief.length <= 5600,
-      `${id} brief is ${brief.length} chars, over the 5600 budget`,
+      brief.length <= 6800,
+      `${id} brief is ${brief.length} chars, over the 6800 budget`,
     );
     assert.ok(!brief.includes("…"), `${id} brief truncates text with an ellipsis`);
     assert.ok(brief.length > 0, `${id} brief is empty`);
@@ -118,4 +118,47 @@ test("the smoke-spike cards now implement inside schema v2", () => {
   assert.match(brief, /kind:"splash"/);
   // No card may advertise vocabulary the renderer does not have.
   assert.doesNotMatch(brief, /metaball|SDF fusion/);
+});
+
+test("the ice and shield cards name the vocabulary the port added", () => {
+  const shield = TECHNIQUES_V2["hex-lattice-fresnel-shield"];
+  const fields = shield.vocabulary.available.join(" ");
+  for (const field of [
+    "material.lattice",
+    "material.reveal",
+    "material.planeGlow",
+    "material.ripples",
+    'geometry.type:"band"',
+  ])
+    assert.ok(fields.includes(field), `hex shield card is missing ${field}`);
+  // The card's only backlog entry (depth-intersection glow) is closed by
+  // material.planeGlow, so it claims nothing missing any more.
+  assert.deepEqual(shield.vocabulary.missing, []);
+
+  const shards = TECHNIQUES_V2["instanced-shard-burst"].vocabulary.available.join(" ");
+  assert.ok(shards.includes('shape.type:"layerInstances"'));
+  assert.ok(shards.includes("planarDrag"));
+
+  const stagger = TECHNIQUES_V2["staggered-instance-timing"].vocabulary.available.join(" ");
+  assert.ok(stagger.includes("crystals."), "the mesh side of the stagger is named");
+
+  const sigil = TECHNIQUES_V2["cast-sigil-reveal"].vocabulary.available.join(" ");
+  assert.ok(sigil.includes('material.procedural:"sigil"'));
+  assert.ok(sigil.includes("material.reveal"));
+});
+
+test("the cards this port rewrote keep the 3-6 construction-step contract", () => {
+  for (const id of [
+    "hex-lattice-fresnel-shield",
+    "instanced-shard-burst",
+    "staggered-instance-timing",
+    "two-layer-noise-mist",
+    "cast-sigil-reveal",
+  ] as const) {
+    const card = TECHNIQUES_V2[id];
+    assert.ok(
+      card.construction.length >= 3 && card.construction.length <= 6,
+      `${id} has ${card.construction.length} construction steps`,
+    );
+  }
 });

@@ -131,6 +131,10 @@ type MaterialOptions = {
   procedural?: Material["procedural"];
   proceduralParams?: Material["proceduralParams"];
   rgbSplit?: Material["rgbSplit"];
+  reveal?: Material["reveal"];
+  lattice?: Material["lattice"];
+  planeGlow?: Material["planeGlow"];
+  ripples?: Material["ripples"];
 };
 
 function mat(options: MaterialOptions): Material {
@@ -177,6 +181,10 @@ function mat(options: MaterialOptions): Material {
     outline: options.outline ?? null,
     opaqueUntil: options.opaqueUntil ?? null,
     rgbSplit: options.rgbSplit ?? null,
+    reveal: options.reveal ?? null,
+    lattice: options.lattice ?? null,
+    planeGlow: options.planeGlow ?? null,
+    ripples: options.ripples ?? null,
   };
 }
 
@@ -808,7 +816,7 @@ export const RECIPES_V2: Record<
     name: "Hex shield",
     subtitle: "A standing construct with a rim and a sigil.",
     knowledge:
-      "A ring emitter converges motes inward (negative radial speed) onto a rotating sigil decal before the dome snaps up with a radius/position overshoot. The dome is three stacked spherical shells — a plain fresnel shell plus a primary and a cross-weave secondary hexagon-procedural cell lattice — each pulsed over time by tracking its material.erosion.curve.keys per stop rather than eroding once. A base rim, an expanding base-shockwave decal and a burst of ignition sparks land the cast; tangential orbit-motes circle the dome under a vortex force, and two brief 'hit ripple' shells (same sphere geometry, erosion pulsed for ~0.5 s) simulate strikes mid-hold. Scattering motes and one light close it out.",
+      'The shield is ONE sphere, not a stack. A kind:"shell" of radius 1.2 with its centre at y 1.25 (so the shell just clears the floor) carries material.lattice: 377 relaxed Voronoi cells, edgeWidth 0.2 over gapWidth 0.08, a mint tile over a pale-gold edge, lattice.pulse running outward from the crown on a hashed per-cell phase, and lattice.dissolve switching the cells off one by one from 70% of the layer. material.reveal mode "scan" lights those cells up from the crown down over the first 0.9 s — with `to` past 1, so the scan finishes early and the shell then holds. material.fresnel power 8 against a cream last ramp stop carries the silhouette where lattice.grazeFade drops the cells out; material.planeGlow draws the contact ring against the floor analytically; material.ripples are two great circles at 1.8 s and 2.7 s. Around it, a geometry.type "band" belt — real geometry, radius 1.22, width 0.28, geometry.band tilt 30 degrees and spin 0.754 rad/s, alpha blended so it sorts BEHIND the shell on its far arc — plus a wider additive halo band for the bloom. Converging star4 sparks fall onto the shell in the first second, a swirlRing gold ring and a ringFill cyan pool sit on the floor, and one cyan point light finishes it. No caster is ever in frame.',
   },
   "healing-aura": {
     name: "Healing aura",
@@ -826,7 +834,7 @@ export const RECIPES_V2: Record<
     name: "Ice blast",
     subtitle: "Erupting crystals with frost and mist.",
     knowledge:
-      "A frost decal and cold-pool glow ease in under a cold anticipation sprite before a crystal-cluster shell erupts by tracking transform.scale on all three axes through an overshoot-and-settle curve (not geometry.length), using the ice procedural, a blue-to-white surface ramp and fresnel. An expanding, thinning torus ring, a disc-shaped ground mist with floor collision, a two-burst mist eruption, hemisphere-burst ice shards and continuous sphere-emitted glitter fly outward on gravity and drag. A late burst of ground frost glints adds a final flourish near the base. One blue-white point light and the frost decal, already faded in before impact, tie it together.",
+      'Four beats: the sigil draws itself, the cluster erupts, it holds, it shatters. A kind:"decal" of radius 1.5 on the ground uses material.procedural "sigil" (proceduralParams [3 ring pairs, 64 rune cells, 16 spokes, gold rim]) with a radial material.reveal whose `to` overshoots 1 so the circle finishes drawing at the flash and then holds; a track on proceduralParams[3] pops the gold rim on that frame. Motes converge inward on a disc emitter with NEGATIVE radial speed, a star4 sprite glints and a ringFill decal flashes. The hero is a kind:"crystals" layer: 320 faceted spikes in 3 length groups over a 0.12-1.02 m band, elevation -31..82 degrees with upBias so the long ones stay above the horizon and the short ones stab downward, baseRadius 0.3, growth easeOutBack (duration 0.3, overshoot 1.7), material.outline for the dark separator hull between overlapping spikes, and crystals.collapse at the shatter. Around it: velocity-stretched chips orbiting a ring emitter, two counter-panning "smoke" decals with erosion for the chillfog, and a soft core sprite. The shatter is two particles layers whose emitter.shape.type is "layerInstances" pointing at the crystals layer, so every chip is born ON a spike and thrown along ITS axis, with emitter.forces.planarDrag settling the burst into a drifting disc over the floor. One cold point light flares at the eruption and again at the shatter.',
   },
 };
 
@@ -860,6 +868,7 @@ export function exampleScaleSummary(id: RecipeV2Id) {
   const splashes = doc.layers.filter((l) => l.splash);
   const ribbons = doc.layers.filter((l) => l.ribbon);
   const bursts = doc.layers.filter((l) => l.wireBurst);
+  const clusters = doc.layers.filter((l) => l.crystals);
   const lights = doc.layers.filter((l) => l.light);
   const round = (v: number) => Number(v.toFixed(2));
   return {
@@ -882,6 +891,11 @@ export function exampleScaleSummary(id: RecipeV2Id) {
             l.blob!.spread * 2 + l.blob!.radius[1] * 2,
             l.blob!.height + l.blob!.radius[1] * 2,
           ),
+        ),
+        // A cluster's silhouette is the furthest tip on either side of its own
+        // centre, which is what the framing pass claims for it.
+        ...clusters.map(
+          (l) => (l.crystals!.baseRadius + l.crystals!.length[1]) * 2,
         ),
       ),
     ),
@@ -907,6 +921,15 @@ export function exampleScaleSummary(id: RecipeV2Id) {
       width: l.ribbon!.width,
       tail: l.ribbon!.window.tail,
       morphs: !!l.ribbon!.morph,
+    })),
+    crystals: clusters.map((l) => ({
+      spikes: l.crystals!.count,
+      length: l.crystals!.length,
+      width: l.crystals!.width,
+      baseRadius: l.crystals!.baseRadius,
+      groups: l.crystals!.groups,
+      collapses: !!l.crystals!.collapse,
+      outline: !!l.material?.outline,
     })),
     wireBursts: bursts.map((l) => ({
       shapes: l.wireBurst!.shapes,

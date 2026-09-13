@@ -50,6 +50,9 @@ export const KINDS_V2 = [
   // rule: their own spec object, never `geometry` or `emitter`.
   "ribbon",
   "wireBurst",
+  // Instanced faceted crystal cluster (layer.crystals): the same rule again,
+  // its own spec object and never `geometry` or `emitter`.
+  "crystals",
 ] as const;
 export const BLOB_ARRANGEMENTS = ["mound", "column", "ring", "string"] as const;
 // Kinds that draw a mesh and therefore carry `geometry`.
@@ -90,6 +93,9 @@ export const PROCEDURALS_V2 = [
   // halves of a heal ground ring.
   "swirlRing",
   "ringFill",
+  // A cast sigil: concentric rings, a band of hashed rune ticks, radial spokes
+  // and a two-layer polar mist, all in one flat-card pattern.
+  "sigil",
 ] as const;
 export const GEOMETRIES_V2 = [
   "auto",
@@ -105,6 +111,9 @@ export const GEOMETRIES_V2 = [
   "cylinder",
   "disc",
   "sphere",
+  // A spherical strip: a belt of angular width `thickness` at `radius`, tilted
+  // and spun by geometry.band. Real geometry, so it sorts against a dome.
+  "band",
 ] as const;
 export const EMITTER_SHAPES = [
   "point",
@@ -118,6 +127,10 @@ export const EMITTER_SHAPES = [
   // Instances sit ON a document path (emitter.shape.pathId), at u = index /
   // (count - 1), scattered by shape.radius across the path frame.
   "path",
+  // Instances are born AT another layer's generated instances (emitter.shape.
+  // sourceLayerId): each particle inherits one crystal's position and axis, so
+  // a shatter burst leaves the spikes it broke off instead of a bare sphere.
+  "layerInstances",
 ] as const;
 export const SPAWN_MODES = [
   "burst",
@@ -340,6 +353,91 @@ export const RgbSplitSchema = z
   .object({ offset: scalar(0, 0.08), growth: scalar(0, 4) })
   .strict();
 
+// A travelling reveal front. `from` and `to` are the front's position at the
+// start and the end of the layer's own 0..1 progress, in the mode's own key:
+//   "radial"  distance from the layer origin as a fraction of the card's
+//             half-size (0 centre, 1 rim) — the sigil drawing itself outward.
+//   "scan"    (1 - objectY)/2 on a unit body (0 top, 1 bottom) — the shield
+//             lattice lighting up cell by cell from the crown down.
+// Values outside 0..1 are allowed and are how a reveal finishes early inside a
+// longer layer: a front that has passed 1 leaves the whole surface revealed.
+// `frontWidth` is the width of the bright leading band, in the same key.
+export const RevealSchema = z
+  .object({
+    mode: z.enum(["radial", "scan"]),
+    from: scalar(-8, 8),
+    to: scalar(-8, 8),
+    frontWidth: scalar(0, 1),
+  })
+  .strict();
+
+// Spherical hex lattice. The cells are the Voronoi regions of a Lloyd-relaxed
+// Fibonacci point set on the unit sphere — uniform, pole-free and seam-free,
+// i.e. a Goldberg sphere with no authored mesh. The renderer generates and
+// caches the sites by (cells, seed) and the fragment shader looks up the
+// nearest two of them; `edgeWidth` and `gapWidth` are fractions of a cell's
+// circumradius, so the wall weight is independent of `cells`.
+export const LatticePulseSchema = z
+  .object({ speed: scalar(0, 12), phaseJitter: scalar(0, 1) })
+  .strict();
+
+// Cells switch off one by one from `start` (a fraction of the layer's own 0..1
+// progress); each cell's own delay is its hash times `stagger`, and `softness`
+// is how long one cell takes to go.
+export const LatticeDissolveSchema = z
+  .object({
+    start: scalar(0, 1),
+    stagger: scalar(0, 2),
+    softness: scalar(0.01, 1),
+  })
+  .strict();
+
+export const LatticeSchema = z
+  .object({
+    cells: integer(60, 600),
+    edgeWidth: scalar(0.01, 0.6),
+    gapWidth: scalar(0, 0.4),
+    tileColor: hex,
+    edgeColor: hex,
+    pulse: LatticePulseSchema,
+    dissolve: LatticeDissolveSchema.nullable(),
+    // At grazing angles the cells compress below a pixel and shimmer; below
+    // this |N.V| the lattice fades out and the fresnel rim carries the edge.
+    grazeFade: scalar(0.02, 1),
+  })
+  .strict();
+
+// Analytic proximity glow against the ground plane: a soft ring of light where
+// the surface comes closest to environment.groundY, from the fragment's own
+// world height. No depth texture, so it costs nothing and cannot flicker.
+export const PlaneGlowSchema = z
+  .object({
+    plane: z.literal("ground"),
+    distance: scalar(0.01, 4),
+    color: hex,
+    intensity: scalar(0, 8),
+  })
+  .strict();
+
+// An expanding great-circle ring on a shell: at layer-local `time` a ring is
+// born at `origin` (a unit direction, or null for one hashed off the document
+// seed and the ripple's index) and its great-circle radius grows at `speed`
+// radians a second, `width` radians wide, its brightness decaying as
+// exp(-decay * age). At most four; each is closed form, so a seek lands on the
+// same rings playback would have drawn.
+export const RippleSchema = z
+  .object({
+    time: localTime,
+    origin: unit3.nullable(),
+    speed: scalar(0, 8),
+    width: scalar(0.01, 1.5),
+    decay: scalar(0, 8),
+  })
+  .strict();
+
+/** Ripples one material may carry; each costs a uniform slot per layer. */
+export const RIPPLE_BUDGET_V2 = 4;
+
 export const MaterialSchema = z
   .object({
     blend: z.enum(BLEND_MODES_V2),
@@ -357,10 +455,18 @@ export const MaterialSchema = z
     //              wobble amplitude, rotation rate rad/s]
     //   ringFill   [fill radius (0..1 of the card), pulse rate rad/s,
     //              noise amount 0..1, edge softness 0..1]
+    //   sigil      [ring pairs 1-6, rune cells around the band, radial spokes,
+    //              gold rim 0..1]
     // Every other pattern ignores it today. Defaulted, so archived documents
-    // load unchanged.
+    // load unchanged. The band is wide enough to carry a count (the sigil's
+    // rune cells), not only a normalized weight.
     proceduralParams: z
-      .tuple([scalar(-8, 8), scalar(-8, 8), scalar(-8, 8), scalar(-8, 8)])
+      .tuple([
+        scalar(-64, 64),
+        scalar(-64, 64),
+        scalar(-64, 64),
+        scalar(-64, 64),
+      ])
       .default([0, 0, 0, 0]),
     // The three cel-shading fields. All defaulted, not required: documents
     // authored before they existed load unchanged and render exactly as before.
@@ -371,6 +477,13 @@ export const MaterialSchema = z
     // the old behaviour (always transparent, never depth-writing).
     opaqueUntil: scalar(0, 1).nullable().default(null),
     rgbSplit: RgbSplitSchema.nullable().default(null),
+    // The ice/shield vocabulary. All defaulted, so archived documents load
+    // unchanged: a reveal front, a spherical hex lattice, an analytic ground
+    // proximity glow and up to four great-circle ripples.
+    reveal: RevealSchema.nullable().default(null),
+    lattice: LatticeSchema.nullable().default(null),
+    planeGlow: PlaneGlowSchema.nullable().default(null),
+    ripples: z.array(RippleSchema).max(RIPPLE_BUDGET_V2).nullable().default(null),
   })
   .strict();
 
@@ -391,6 +504,11 @@ export const EmitterShapeSchema = z
     // Which document path shape "path" samples. Ignored by every other shape;
     // defaulted so archived documents load unchanged.
     pathId: PathIdSchema.nullable().default(null),
+    // Which layer shape "layerInstances" borrows its spawn sites from. The
+    // source must be a generator kind whose instances are hashed out of its own
+    // spec (crystals, blob), so the sites are closed form and independent of
+    // draw order. Ignored by every other shape.
+    sourceLayerId: z.string().max(48).nullable().default(null),
   })
   .strict();
 
@@ -453,6 +571,11 @@ export const ForcesSchema = z
     vortex: VortexSchema.nullable(),
     wind: vec3,
     floor: FloorSchema.nullable(),
+    // Drag applied in XZ only: the horizontal travel settles onto an asymptote
+    // while the vertical stays ballistic, so a burst of chips flies out, stops
+    // spreading and drifts as a flat disc instead of coasting off screen.
+    // Defaulted, so archived documents load unchanged.
+    planarDrag: scalar(0, 6).default(0),
   })
   .strict();
 
@@ -542,6 +665,14 @@ export const LightningSchema = z
   })
   .strict();
 
+export const BandSchema = z
+  .object({
+    tilt: scalar(-Math.PI, Math.PI),
+    spin: scalar(-8, 8),
+    stripes: integer(0, 64),
+  })
+  .strict();
+
 export const GeometryV2Schema = z
   .object({
     type: z.enum(GEOMETRIES_V2),
@@ -558,6 +689,75 @@ export const GeometryV2Schema = z
     taper: scalar(0.05, 1).default(1),
     vertexNoise: VertexNoiseSchema.nullable(),
     lightning: LightningSchema.nullable(),
+    // type "band" only: how the belt sits and turns. `tilt` leans it about +Z,
+    // `spin` turns it about +Y at that many radians a second of layer time, and
+    // `stripes` is how many bright bands run along it. Defaulted, so archived
+    // documents load unchanged.
+    band: BandSchema.nullable().default(null),
+  })
+  .strict();
+
+// --- crystals ---------------------------------------------------------------
+//
+// An instanced faceted crystal cluster. Like blob and wireBurst it is a
+// GENERATOR: the document says how the cluster is shaped and the renderer
+// hashes every spike's direction, length, width, base offset and start time out
+// of (crystals.seed, index). One elongated hex prism capped by a pyramid is
+// built non-indexed, so every face is flat, and the whole cluster is one
+// instanced draw (plus one more for material.outline's inverted hull).
+export const CrystalDirectionSchema = z
+  .object({
+    // Degrees above the horizon the spikes may point, [min,max]. A negative
+    // minimum lets the short ones stab downward into the ground.
+    elevation: range(-90, 90),
+    // Pulls the hashed elevation toward the top of the band, so the cluster
+    // reads as an upward urchin rather than an even sphere of spikes.
+    upBias: scalar(0, 1),
+  })
+  .strict();
+
+// easeOutBack: a spike overshoots its length by `overshoot` and settles, over
+// `duration` seconds from its own staggered start.
+export const CrystalGrowthSchema = z
+  .object({ duration: scalar(0.02, 4), overshoot: scalar(0, 3) })
+  .strict();
+
+// The shatter: from `start` (a fraction of the LAYER window, jittered per
+// instance) each spike collapses to nothing over `duration` seconds.
+export const CrystalCollapseSchema = z
+  .object({ start: scalar(0, 1), duration: scalar(0.02, 4) })
+  .strict();
+
+// A narrow specular band sliding along each spike's axis.
+export const CrystalGlintSchema = z
+  .object({ frequency: scalar(0, 12), speed: scalar(0, 8) })
+  .strict();
+
+export const CrystalsSchema = z
+  .object({
+    count: integer(8, 400),
+    seed: integer(0, 2147483647),
+    direction: CrystalDirectionSchema,
+    // Spike length and base width bands, in metres.
+    length: range(0.05, 6),
+    width: range(0.005, 1),
+    // Metres the bases are pushed out from the cluster centre along their own
+    // direction, so the cluster has a core instead of a single point.
+    baseRadius: scalar(0, 4),
+    // Length classes. Group 0 is the long spikes, the last group the short
+    // ones; each group starts later than the one before it.
+    groups: integer(1, 6),
+    // Birth times over [startFrac,endFrac] of the LAYER window.
+    stagger: range(0, 1),
+    growth: CrystalGrowthSchema,
+    collapse: CrystalCollapseSchema.nullable(),
+    // The facet palette: tips run vivid, the body stays pale, the edges
+    // (material.outline drives the dark separator hull) catch the light.
+    tipColor: hex,
+    faceColor: hex,
+    edgeColor: hex,
+    fresnelPower: scalar(0.5, 8),
+    glint: CrystalGlintSchema,
   })
   .strict();
 
@@ -822,6 +1022,7 @@ export const LayerV2Schema = z
     splash: SplashSchema.optional(),
     ribbon: RibbonSchema.optional(),
     wireBurst: WireBurstSchema.optional(),
+    crystals: CrystalsSchema.optional(),
     tracks: z.array(TrackV2Schema).max(16),
     overrides: z.array(OverrideV2Schema).max(64),
   })
@@ -965,6 +1166,12 @@ export type OrbitPath = z.infer<typeof OrbitPathSchema>;
 export type BezierPath = z.infer<typeof BezierPathSchema>;
 export type Ribbon = z.infer<typeof RibbonSchema>;
 export type WireBurst = z.infer<typeof WireBurstSchema>;
+export type Crystals = z.infer<typeof CrystalsSchema>;
+export type Reveal = z.infer<typeof RevealSchema>;
+export type Lattice = z.infer<typeof LatticeSchema>;
+export type PlaneGlow = z.infer<typeof PlaneGlowSchema>;
+export type Ripple = z.infer<typeof RippleSchema>;
+export type Band = z.infer<typeof BandSchema>;
 export type Jitter = z.infer<typeof JitterSchema>;
 export type Twinkle = z.infer<typeof TwinkleSchema>;
 export type RgbSplit = z.infer<typeof RgbSplitSchema>;
@@ -1084,10 +1291,10 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "splash.length[0]": [0.2, 8],
   "splash.length[1]": [0.2, 8],
   "material.rgbSplit.offset": [0, 0.08],
-  "material.proceduralParams[0]": [-8, 8],
-  "material.proceduralParams[1]": [-8, 8],
-  "material.proceduralParams[2]": [-8, 8],
-  "material.proceduralParams[3]": [-8, 8],
+  "material.proceduralParams[0]": [-64, 64],
+  "material.proceduralParams[1]": [-64, 64],
+  "material.proceduralParams[2]": [-64, 64],
+  "material.proceduralParams[3]": [-64, 64],
   "jitter.amplitude": [0, 2],
   "jitter.gate": [0, 1],
   "ribbon.width": [0.002, 1],
@@ -1097,6 +1304,24 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "wireBurst.travel": [0, 8],
   "emitter.render.twinkle.depth": [0, 1],
   "emitter.render.twinkle.frequency": [0.1, 40],
+  "emitter.forces.planarDrag": [0, 6],
+  "crystals.length[0]": [0.05, 6],
+  "crystals.length[1]": [0.05, 6],
+  "crystals.width[0]": [0.005, 1],
+  "crystals.width[1]": [0.005, 1],
+  "crystals.baseRadius": [0, 4],
+  "crystals.growth.overshoot": [0, 3],
+  "crystals.fresnelPower": [0.5, 8],
+  "material.reveal.from": [-8, 8],
+  "material.reveal.to": [-8, 8],
+  "material.reveal.frontWidth": [0, 1],
+  "material.lattice.edgeWidth": [0.01, 0.6],
+  "material.lattice.gapWidth": [0, 0.4],
+  "material.lattice.grazeFade": [0.02, 1],
+  "material.planeGlow.intensity": [0, 8],
+  "material.planeGlow.distance": [0.01, 4],
+  "geometry.band.tilt": [-Math.PI, Math.PI],
+  "geometry.band.spin": [-8, 8],
 };
 
 const COLOR_TARGETS = new Set<string>([
@@ -1114,6 +1339,12 @@ const COLOR_TARGETS = new Set<string>([
   "splash.color",
   "splash.backing",
   "light.color",
+  "crystals.tipColor",
+  "crystals.faceColor",
+  "crystals.edgeColor",
+  "material.lattice.tileColor",
+  "material.lattice.edgeColor",
+  "material.planeGlow.color",
 ]);
 
 export const BUILTIN_TEXTURE_IDS: ReadonlySet<string> = new Set(
@@ -1158,6 +1389,24 @@ function materialCurves(material: Material, label: string) {
     checkRange(material.toon.thresholds, `${label}/toon.thresholds`);
     checkUnit(material.toon.light, `${label}/toon.light`);
   }
+  // A ripple travels out from a direction on the unit sphere; null is the
+  // renderer's own hashed one.
+  for (const ripple of material.ripples ?? [])
+    if (ripple.origin) checkUnit(ripple.origin, `${label}/ripples.origin`);
+  if (material.lattice && material.lattice.gapWidth >= material.lattice.edgeWidth)
+    throw new Error(
+      `Lattice gap is not narrower than its edge, so no wall is drawn: ${label}`,
+    );
+}
+
+function crystalChecks(crystals: Crystals, label: string) {
+  checkRange(crystals.length, `${label}/crystals.length`);
+  checkRange(crystals.width, `${label}/crystals.width`);
+  checkRange(crystals.stagger, `${label}/crystals.stagger`);
+  checkRange(
+    crystals.direction.elevation,
+    `${label}/crystals.direction.elevation`,
+  );
 }
 
 function blobChecks(blob: Blob, label: string) {
@@ -1220,6 +1469,10 @@ function emitterChecks(emitter: Emitter, label: string) {
     throw new Error(`Path-anchored spawn needs spawn.headCurve: ${label}`);
   if (emitter.shape.type === "path" && !emitter.shape.pathId)
     throw new Error(`Path emitter shape needs shape.pathId: ${label}`);
+  if (emitter.shape.type === "layerInstances" && !emitter.shape.sourceLayerId)
+    throw new Error(
+      `Layer-instance emitter shape needs shape.sourceLayerId: ${label}`,
+    );
   for (let i = 1; i < emitter.spawn.bursts.length; i++)
     if (emitter.spawn.bursts[i].t <= emitter.spawn.bursts[i - 1].t)
       throw new Error(`Bursts must ascend in time: ${label}`);
@@ -1269,11 +1522,16 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
 
   const ids = new Set<string>();
   const particleLayers = new Set<string>();
+  // Kinds whose instances are hashed out of their own spec, so another layer
+  // can borrow their sites without depending on draw order.
+  const generatorLayers = new Set<string>();
   let particles = 0;
   for (const layer of doc.layers) {
     if (ids.has(layer.id)) throw new Error(`Duplicate layer: ${layer.id}`);
     ids.add(layer.id);
     if (layer.kind === "particles") particleLayers.add(layer.id);
+    if (layer.kind === "crystals" || layer.kind === "blob")
+      generatorLayers.add(layer.id);
   }
 
   for (const layer of doc.layers) {
@@ -1310,6 +1568,15 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
       emitterChecks(layer.emitter, label);
       if (layer.emitter.shape.pathId)
         pathExists(layer.emitter.shape.pathId, label);
+      const source = layer.emitter.shape.sourceLayerId;
+      if (source && layer.emitter.shape.type === "layerInstances") {
+        if (source === layer.id)
+          throw new Error(`Emitter cannot borrow its own instances: ${label}`);
+        if (!generatorLayers.has(source))
+          throw new Error(
+            `Emitter source must be a crystals or blob layer: ${source}`,
+          );
+      }
       particles += layer.emitter.count;
       const trailTexture = layer.emitter.trail?.textureId;
       if (trailTexture && !textureExists(trailTexture))
@@ -1360,6 +1627,26 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     } else if (layer.wireBurst) {
       throw new Error(`Only wireBurst layers carry wireBurst: ${label}`);
     }
+    if (layer.kind === "crystals") {
+      if (!layer.crystals)
+        throw new Error(`Crystals layer needs crystals: ${label}`);
+      crystalChecks(layer.crystals, label);
+    } else if (layer.crystals) {
+      throw new Error(`Only crystals layers carry crystals: ${label}`);
+    }
+    // The four surface features below read a real normal and a real world
+    // position, which a billboard and the generated kinds do not have.
+    if (layer.material && !(MESH_KINDS_V2 as readonly string[]).includes(layer.kind))
+      for (const [name, value] of [
+        ["lattice", layer.material.lattice],
+        ["reveal", layer.material.reveal],
+        ["planeGlow", layer.material.planeGlow],
+        ["ripples", layer.material.ripples],
+      ] as const)
+        if (value)
+          throw new Error(
+            `material.${name} is for mesh layers (ring/shell/trail/beam/sprite/decal): ${label}`,
+          );
     if (layer.jitter?.axis) checkUnit(layer.jitter.axis, `${label}/jitter.axis`);
     // A billboard has no surface normal of its own, so cel bands and an
     // inverted hull have nothing to shade or to inflate.
@@ -1392,6 +1679,8 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
         );
       if (layer.geometry.lightning)
         checkCurve(layer.geometry.lightning.widthCurve, `${label}/lightning`);
+      if (layer.geometry.type === "band" && !layer.geometry.band)
+        throw new Error(`Band geometry needs geometry.band: ${label}`);
     }
 
     if (layer.motion)
@@ -1578,6 +1867,12 @@ export function effectExtentV2(
       );
     }
     if (layer.splash) size = Math.max(size, layer.splash.length[1] * 2);
+    // A cluster spans the furthest tip on either side of its own centre.
+    if (layer.crystals)
+      size = Math.max(
+        size,
+        (layer.crystals.baseRadius + layer.crystals.length[1]) * 2,
+      );
     if (layer.ribbon) {
       // The path the window slides along, not the window itself: a ribbon that
       // wraps a 0.8 m ring is a 1.6 m element however short its lit segment is.
@@ -1676,6 +1971,10 @@ export function defaultMaterial(): Material {
     outline: null,
     opaqueUntil: null,
     rgbSplit: null,
+    reveal: null,
+    lattice: null,
+    planeGlow: null,
+    ripples: null,
   };
 }
 
@@ -1783,6 +2082,7 @@ export function defaultEmitter(): Emitter {
       surfaceOnly: false,
       bias: [0, 0, 0],
       pathId: null,
+      sourceLayerId: null,
     },
     spawn: {
       mode: "burst",
@@ -1808,6 +2108,7 @@ export function defaultEmitter(): Emitter {
       vortex: null,
       wind: [0, 0, 0],
       floor: null,
+      planarDrag: 0,
     },
     render: {
       mode: "billboard",
@@ -1843,6 +2144,28 @@ export function defaultGeometry(): GeometryV2 {
     taper: 1,
     vertexNoise: null,
     lightning: null,
+    band: null,
+  };
+}
+
+/** The ice spike's cluster, in the units the exemplar uses. */
+export function defaultCrystals(): Crystals {
+  return {
+    count: 320,
+    seed: 9173,
+    direction: { elevation: [-30, 82], upBias: 0.45 },
+    length: [0.12, 1.02],
+    width: [0.03, 0.1],
+    baseRadius: 0.3,
+    groups: 3,
+    stagger: [0, 0.16],
+    growth: { duration: 0.3, overshoot: 1.7 },
+    collapse: null,
+    tipColor: "#13bbff",
+    faceColor: "#9fd8ff",
+    edgeColor: "#f2fcff",
+    fresnelPower: 4,
+    glint: { frequency: 3.4, speed: 1.15 },
   };
 }
 
@@ -1902,6 +2225,7 @@ export function defaultsV2() {
     splash: defaultSplash(),
     ribbon: defaultRibbon(),
     wireBurst: defaultWireBurst(),
+    crystals: defaultCrystals(),
     shell: defaultDocumentShell(),
   };
 }
@@ -1948,6 +2272,19 @@ export const MaterialWireSchema = MaterialSchema.extend({
   outline: OutlineSchema.nullable(),
   opaqueUntil: scalar(0, 1).nullable(),
   rgbSplit: RgbSplitSchema.nullable(),
+  reveal: RevealSchema.nullable(),
+  lattice: LatticeSchema.nullable(),
+  planeGlow: PlaneGlowSchema.nullable(),
+  ripples: z
+    .array(RippleSchema.extend({ origin: num3.nullable() }))
+    .max(RIPPLE_BUDGET_V2)
+    .nullable(),
+});
+export const CrystalsWireSchema = CrystalsSchema.extend({
+  direction: CrystalDirectionSchema.extend({ elevation: num2 }),
+  length: num2,
+  width: num2,
+  stagger: num2,
 });
 export const RibbonWireSchema = RibbonSchema.extend({
   window: RibbonWindowSchema.extend({ head: CurveWireSchema }),
@@ -1979,6 +2316,7 @@ export const EmitterWireSchema = EmitterSchema.extend({
     size: num3,
     bias: num3,
     pathId: PathIdSchema.nullable(),
+    sourceLayerId: z.string().max(48).nullable(),
   }),
   spawn: SpawnSchema.extend({ headCurve: CurveWireSchema.nullable() }),
   velocity: VelocitySchema.extend({
@@ -1988,6 +2326,7 @@ export const EmitterWireSchema = EmitterSchema.extend({
   }),
   life: num2,
   forces: ForcesSchema.extend({
+    planarDrag: scalar(0, 6),
     gravity: num3,
     wind: num3,
     curl: CurlSchema.extend({ envelope: CurveWireSchema }).nullable(),
@@ -2006,6 +2345,7 @@ export const EmitterWireSchema = EmitterSchema.extend({
 });
 export const GeometryV2WireSchema = GeometryV2Schema.extend({
   taper: scalar(0.05, 1),
+  band: BandSchema.nullable(),
   vertexNoise: VertexNoiseSchema.extend({
     bias: num3,
     alongCurve: CurveWireSchema,
@@ -2030,6 +2370,7 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   splash: SplashWireSchema.nullable(),
   ribbon: RibbonWireSchema.nullable(),
   wireBurst: WireBurstWireSchema.nullable(),
+  crystals: CrystalsWireSchema.nullable(),
   tracks: z
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
@@ -2081,6 +2422,7 @@ export function fromWireV2(
       "splash",
       "ribbon",
       "wireBurst",
+      "crystals",
     ])
       if (next[slot] === null) delete next[slot];
     return next;

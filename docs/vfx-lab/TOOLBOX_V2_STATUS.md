@@ -30,6 +30,20 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   wireBurst), `post.glitch` (a time-gated screen break keyed on `hash(floor(t*20))`),
   `emitter.render.twinkle`, `geometry.taper` on an open cylinder, and the `swirlRing` / `ringFill`
   flat-card procedurals driven by the new generic `material.proceduralParams` vec4.
+- **Solid vocabulary** (`crystals-v2.ts`, `lattice-v2.ts`, `schema-v2.ts`, `shaders-v2.ts`,
+  `runtime-v2.ts`): `kind:"crystals"` generates an instanced cluster of flat-shaded faceted
+  spikes from `layer.crystals` (direction band / length + width bands / groups / stagger /
+  easeOutBack growth / collapse / glint), depth-writing so overlapping spikes intersect for
+  real; `material.lattice` turns a mesh into a spherical hex shell whose cells are a relaxed
+  (Lloyd) Fibonacci Voronoi set generated and cached by `(cells, seed)` and looked up per pixel;
+  `material.reveal` is a travelling radial or scan front over the layer's own progress (it keys
+  on the CELL on a lattice layer); `material.planeGlow` is an analytic ground-contact ring and
+  `material.ripples` up to four expanding great circles; `geometry.type:"band"` is a real
+  spherical belt with `geometry.band.{tilt,spin,stripes}`; `emitter.shape.type:"layerInstances"`
+  borrows another generator layer's instance positions and axes as spawn sites; and
+  `emitter.forces.planarDrag` settles a burst into a drifting disc. `material.procedural:"sigil"`
+  draws a whole cast circle from one card. Ported from the S3 ice and shield spikes
+  (`TOOLBOX_V2_MAPPING.md` §7–§8); `ice-blast` and `shield` are rebuilt entirely on them.
 - **Pipeline v2** (`protocol-v2.ts`, `recipes-v2.ts`, `pipeline.ts`, `refine.ts`, `route.ts`): planner/candidate/
   review/refine on schema v2 with structured outputs, scale anchors, lint-driven repair, review v2
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).

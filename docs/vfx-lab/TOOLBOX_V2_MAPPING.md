@@ -163,3 +163,87 @@ Numbers live in `fixtures/v2/glitch-projectile/document.json`.
 bar — it reads as a blob in the middle of the UV space rather than as the whole surface. Every mesh
 that should be fully covered needs `"solid"`. That is now stated in the vocabulary and in the
 `upright-glow-cylinder` technique card; it cost a round of look-dev to find.
+
+## 7. Ice spike → schema (Phase E, 2026-09-14)
+
+The fifth hand-built spike (`frontend/dev-assets/vfx-v2/spike-ice.html`, source
+`docs/vfx-lab/spike-ice-reference.js.txt`) proved the *solid* half of the look: an element made of
+real intersecting geometry rather than of cards or lobes. Its 320 crystals were an instanced draw
+whose per-instance direction, length, width and start time were computed into six attribute
+buffers, which is exactly the table the model must never author — so the port turns the buffers
+into a **generator** and the document describes the cluster.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `crystalGeometry()`'s 4-ring hex prism + apex, non-indexed | built in, `crystals-v2.ts` | one unit mesh shared by every instance; non-indexed so `computeVertexNormals` leaves every face flat, which is the whole faceted read |
+| the `aDir`/`aOrg`/`aLen`/`aWid`/`aT0`/`aSeed` buffers, filled by the `for (i < N_CRY)` loop | `kind:"crystals"` + `layer.crystals` | a generator, never a spike list: `crystalInstances()` hashes all six out of `(crystals.seed, index)` |
+| `g5 = i % 5`, `grp = g5 <= 0 ? 0 : g5 <= 2 ? 1 : 2` | `crystals.groups` | a cycle of `2*groups-1` gives the long class one slot and every other class two — the spike's 1 : 2 : 2 ratio at `groups: 3` |
+| `sMin` per group, `sinEl = sMin + (.99 - sMin) * pow(hb, …)` | `crystals.direction.{elevation,upBias}` | `elevation` is the band in degrees; only the SHORTEST group reaches its bottom, so long spikes stay above the horizon and short ones stab downward. `upBias` is the hash exponent, strongest on the long class |
+| the three per-group `len` expressions (`.60+.42h^.6`, `.30+.32h`, `.12+.24h²`) | `crystals.length [min,max]` | the classes carve overlapping sub-bands out of the one band, longest first, with a per-class hash exponent |
+| `aWid[i] = (.044\|.052\|.062) * (.68 + .64*hd)` | `crystals.width [min,max]` | short classes skew fat; the hash spreads the band either way |
+| `br = (.10 + .30h) * (1.45\|1.1\|.8)` and `aOrg = dir*br` | `crystals.baseRadius` | the bases sit off centre along their own direction, so the cluster has a core rather than a single point. The spike's `+0.22` lift is `transform.position.y` |
+| `aT0 = T_FLASH + grp*.13 + .17h` | `crystals.stagger [startFrac,endFrac]` | fractions of the LAYER window, ordered by class then hashed |
+| `u = age/.30`, `s = u*u*((k+1)*u - k)`, `k = 1.70158` | `crystals.growth.{duration,overshoot}` | easeOutBack, verbatim |
+| `s *= 1 - smoothstep(sh, sh+.16, t)` with `sh = uShatter + aSeed*.18` | `crystals.collapse.{start,duration}` | `start` is a fraction of the layer; the per-instance jitter is `seed * duration * 1.125` |
+| `s *= 1 + uSwell*.035*sin(uTime*2.1 + …)` | renderer constant | a 3.5% breath during the hold; a number that describes the mesh, not the effect |
+| `pale`/`cyan`, the `tip` mix, `col *= mix(1,.55,tip)` | `crystals.{faceColor,tipColor}` | the tip is darkened as it saturates so ACES does not wash it back to white |
+| `mix(col, vec3(.95,.99,1), fres*.30*(1-tip*.55))` and the glint colour | `crystals.edgeColor` + `crystals.fresnelPower` | |
+| `gb = sin((vAlong*3.4 - uTime*1.15 + vSeed*6.28)*PI)`, `pow(max(gb,0),22)` | `crystals.glint.{frequency,speed}` | |
+| the `outlineMat` BackSide copy with the same `CRY_VERT` and a `+0.007+0.005*s` push | `material.outline.{width,color}` | already in the vocabulary from the smoke port; the crystal hull runs the identical vertex program, so it tracks the facets |
+| `cryMat.depthWrite = true` | implicit for `material.blend:"alpha"` | overlapping spikes intersect for real, and the layer is an `occluder` for the soft-particle depth pre-pass |
+| the sigil fragment shader (rings, 64-cell rune band, 16 spokes, filigree, two-layer polar mist, gold rim) | `material.procedural:"sigil"` + `proceduralParams` [ring pairs, rune cells, spokes, gold rim] | one flat-card pattern; the gold rim is a track on `proceduralParams[3]`, not a second layer |
+| `uRev` animated 0 → 1.06 over 0–1.2 s, `rev = smoothstep(0,.10,uRev-r)` plus the `edge` band | `material.reveal.{mode:"radial",from,to,frontWidth}` | the front travels over the LAYER's own 0..1 progress, and `to` may run past 1 — which is how a reveal finishes early inside a layer that keeps holding |
+| `chipGeometry`'s `j = i % N_CRY`, `org = aOrg[j] + dir[j]*aLen[j]*u`, `vel = dir[j]*1.05 + jitter` | `emitter.shape.type:"layerInstances"` + `shape.sourceLayerId` | the sites come from the SOURCE layer's own generator hash, so they are closed form and independent of draw order; `velocity.mode:"radial"` throws each chip along its own spike's axis |
+| `dr = 1 - exp(-age*2.2)`, `p.xz = aOrg.xz + aVel.xz*dr/2.2` | `emitter.forces.planarDrag` | drag in XZ only: horizontal travel settles onto an asymptote while the vertical stays ballistic, so the burst becomes a drifting disc instead of debris leaving the frame |
+| `mistMaterial(seed, speed)` ×2, the swirl rotation and the `fbm` pair | two `decal` layers, `material.procedural:"smoke"` + `material.noise.{uvPan,distortionPan}` + `material.erosion` | the two-layer-noise-mist card, with the pans running opposite ways |
+| the frost ring's orbiting, tangentially stretched chips | an ordinary `particles` layer, `shape "ring"` + `velocity.mode "tangential"` + `render.mode "velocityStretch"` | already in the vocabulary |
+| the `charge` sparkles' `c = dir*r0*(1-a)²` | a `disc` emitter with NEGATIVE radial speed | already in the vocabulary (`converging-charge`) |
+| `ground.uniforms.uTint` / the `glowMat` disc | `environment.ground:"plane"` plus a `softRadial` decal and one point light | |
+| `flashMat`'s expanding ring | `material.procedural:"ringFill"` with a tracked `proceduralParams[0]` | |
+
+One renderer correction the port forced: `spawnBoundsV2` claimed a full CUBE for a `ring` and a
+`disc` emitter, including along its own axis. A flat frost ring of radius 1.55 therefore asked the
+camera for three metres of headroom it never used, and the auto-framing pulled back until the
+cluster filled a third of the frame. Both shapes now claim nothing along `shape.axis`.
+
+Numbers live in `fixtures/v2/ice-blast/document.json`.
+
+## 8. Hex shield → schema (Phase E, 2026-09-14)
+
+The sixth spike (`frontend/dev-assets/vfx-v2/spike-shield.html`, source
+`docs/vfx-lab/spike-shield-reference.js.txt`) proved that a *cell* can be a first-class thing: the
+shield's hexagons are not a texture and not a mesh, they are the Voronoi regions of a relaxed point
+set looked up per pixel. The port keeps that construction exactly and moves the point set into the
+renderer, because it is the one piece a document must never carry.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| the `fib()` set, 14 Lloyd iterations against 4200 probes, the `site.sort(y)` and `ptsTex` | `material.lattice.cells` (+ `document.seed`) | `lattice-v2.ts` generates and relaxes the sites, caches them by `(cells, seed)` and hands the shader one float texture. Sorting by latitude is what lets `cellLookup` scan a band of indices instead of all of them |
+| `CELL_A = sqrt(4.836 / NPTS)` and `edge = (d2-d1)/uA` | built in | `edgeWidth`/`gapWidth` are fractions of a cell's circumradius, so the wall weight does not change with the cell count |
+| `gap`/`line`/`fill` smoothsteps at .08/.20/.34/.22/.40 | `lattice.{gapWidth,edgeWidth}` | the three weights are derived from the two fields |
+| `tileC` mint / `edgeC` pale gold | `lattice.{tileColor,edgeColor}` | the spike's values are LINEAR; the document carries their sRGB hexes |
+| `pulse = .5+.5*sin(uTime*2.1 - (1-c1.y)*2.6 + hc*6.2831)` | `lattice.pulse.{speed,phaseJitter}` | an outward pulse from the crown on a hashed per-cell phase |
+| `off = 1 - smoothstep(hc*.95, hc*.95+.22, uDis)`, `uDis = max(0, t - T_FADE)` | `lattice.dissolve.{start,stagger,softness}` | in the LAYER's own 0..1 progress, so the shell comes apart cell by cell instead of dimming |
+| `graze = smoothstep(.03, .30, ndv)` and the `vis` expression | `lattice.grazeFade` | at grazing angles the cells compress below a pixel; they fade and the fresnel rim carries the edge |
+| `on = smoothstep(uReveal-.03, uReveal+.05, c1.y)` + the `front` band, `uReveal` 1.25 → -1.25 | `material.reveal.{mode:"scan",from,to,frontWidth}` | the front keys on the CELL, so a cell arrives whole; `from`/`to` run outside 0..1 so the scan finishes at 0.92 s of a 5 s layer |
+| `ig = smoothstep(.42, 0, vW.y - uFloor)` and the `vec3(.34,.95,.86)*ig` term | `material.planeGlow.{plane,distance,color,intensity}` | analytic proximity to the ground plane — no depth texture, so it cannot flicker. This closes the `hex-lattice-fresnel-shield` card's "depth-intersection glow" backlog entry |
+| `uRip[2]`, `gc = acos(dot(N, uRip.xyz))`, the `k*2.3*(1-.35k)` radius and the `smoothstep(2.4,.25,…)` amplitude | `material.ripples[{time,origin,speed,width,decay}]` | up to four expanding great circles, each closed form in layer time; a null origin is hashed off the document seed |
+| `fres = pow(1-ndv, 9) * 1.45` against `rimC` | `material.fresnel` + the ramp's last stop | the rim is exempt from the usual `smoothstep(0,.4,vAlong)` gate on a lattice layer, because it is exactly what carries the silhouette where the cells fade |
+| `IcosahedronGeometry(R, 6)` at `y = CY`, `scale = .22 + .78*easeOutBack` | a real unit sphere + three `transform.scale` tracks | a `material.lattice` layer IS its sphere: `geometry.radius` scales it and the analytic teardrop is bypassed |
+| `SphereGeometry(R*1.017, 160, 6, 0, 2π, π/2 - dθ/2, dθ)`, `band.rotation.z = TILT`, `bandPivot.rotation.y = phi` | `geometry.type:"band"` + `geometry.band.{tilt,spin,stripes}` | real geometry with depth write under `material.blend:"alpha"`, so the far arc sorts BEHIND the shell instead of glowing through it; `spin` adds to `transform.rotation[1]` |
+| the band fragment's three stripes across the ribbon and `.90+.10*sin(s*46 - t*2)` along it | `material.ramp.space:"surface"` (across the strip) + `band.stripes` | five ramp stops give the deep/pale/bright/pale/deep section in one material |
+| the wider additive `halo` shell | a second `band` layer, additive, 2× the width | the bloom source |
+| the `sparks` Points cloud: `dst` on the lower shell, `src` outside and above, `e = a*a` | a `particles` layer, sphere `surfaceOnly` + `bias`, NEGATIVE radial speed, a `speedCurve` of `[0,0]→[1,2]` (distance ∝ a²) and a small `vortex` | the converging-charge card; the spike's `th = … + a*0.9` spiral is the vortex |
+| the `ring`/`pool` floor quads and the ground's own gold service lines | a `swirlRing` decal (wobble 0, fat strand = a Gaussian ring) and a `ringFill` decal | |
+| the grey capsule "marker" figure | dropped | a document describes the effect, never the scene it lands on (same rule as the glitch port's target sphere) |
+| `bandMat.uSweep` wiping the belt in over 0.55–1.05 s | a `material.opacity` track | the belt has no along-strip key of its own; a fade reads the same at this scale |
+
+Numbers live in `fixtures/v2/shield/document.json`.
+
+### What did NOT get promoted
+
+The spike's `marker`, its hand-drawn floor grid and service lines, the `bandPivot` spin freeze
+outside `[T_HOLD, T_FADE]`, and the ice spike's atlas-free `STAR_FRAG` (already covered by
+`procedural:"star4"`) all stayed in the spikes. `material.proceduralParams` widened from ±8 to ±64
+so the sigil can carry a rune-cell COUNT rather than a normalized weight; that only loosens the
+contract, so every archived document still validates.

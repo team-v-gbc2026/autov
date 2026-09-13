@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Curve, Ramp } from "./schema-v2";
 import { glslPath } from "./paths-v2";
 import { SPOKE_REACH } from "./wire-burst-v2";
+import { LATTICE_SCAN, LATTICE_TEXTURE_WIDTH } from "./lattice-v2";
 
 // ---------------------------------------------------------------------------
 // GLSL for the autov.lab/2 renderer.
@@ -139,8 +140,8 @@ float hexCells(vec2 uv, vec2 cell){
 }
 // uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 // 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon,
-// 12 star4, 13 softRadial, 14 swirlRing, 15 ringFill.
-// Modes 0-3 and 12-15 are BILLBOARD SILHOUETTES: they describe a sprite's whole
+// 12 star4, 13 softRadial, 14 swirlRing, 15 ringFill, 16 sigil.
+// Modes 0-3 and 12-16 are BILLBOARD SILHOUETTES: they describe a sprite's whole
 // outline, so a closed body (the analytic shell) ignores them. 4-11 are surface
 // patterns and apply everywhere; surfaceFragmentV2 gates on exactly that.
 float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, vec3 dims, int mode){
@@ -219,6 +220,48 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
     fill*=mix(1.,.55+.45*procNoise(vec2(ang*2.4,d*5.-t*.7)),clamp(uProcParams.z,0.,1.));
     return clamp(fill,0.,1.);
   }
+  if(mode==16){
+    // sigil: a cast circle drawn entirely in polar coordinates.
+    // uProcParams = (ring count 1-6, rune cells, radial spokes, gold rim 0..1).
+    float r=length(q), ang=atan(q.y,q.x);
+    float ta=ang/6.2831853+.5;
+    float rings=0.;
+    float nr=max(uProcParams.x,1.);
+    for(int i=0;i<6;i++){
+      if(float(i)>=nr) break;
+      // Rings march inward in pairs: a bright one and a hairline beside it.
+      float rr=.985-float(i)*.215;
+      rings+=(1.-smoothstep(0.,.0075,abs(r-rr)))*1.15;
+      rings+=(1.-smoothstep(0.,.0045,abs(r-rr+.03)))*.55;
+    }
+    // Rune band: each cell draws up to three ticks at hashed radii and lengths.
+    float cells=max(uProcParams.y,1.);
+    float ci=floor(ta*cells), cf=fract(ta*cells);
+    float glyph=0.;
+    for(int k=0;k<3;k++){
+      float hk=procHash21(vec2(ci*3.7+float(k)*11.3,1.));
+      float rr=.805+.135*procHash21(vec2(ci*5.1+float(k)*7.9,2.));
+      float ln=.16+.28*procHash21(vec2(ci*2.3+float(k)*19.1,3.));
+      float th=.0055+.0055*procHash21(vec2(ci*9.7+float(k)*3.1,4.));
+      glyph+=step(.30,hk)*(1.-smoothstep(0.,th,abs(r-rr)))*smoothstep(ln,ln*.55,abs(cf-.5));
+    }
+    float spokes=max(uProcParams.z,1.);
+    float spoke=step(.5,1.-abs(fract(ta*spokes)-.5)*9.)
+              *smoothstep(0.,.02,r-.795)*smoothstep(.955,.94,r);
+    glyph+=max(spoke,0.)*.7;
+    // A second, finer tick row just inside the band keeps the middle busy.
+    float ci2=floor(ta*cells*.62), cf2=fract(ta*cells*.62);
+    float r2=.660+.070*procHash21(vec2(ci2*8.3,5.));
+    glyph+=step(.42,procHash21(vec2(ci2*2.7+5.5,6.)))*(1.-smoothstep(0.,.006,abs(r-r2)))
+          *smoothstep(.30,.16,abs(cf2-.5))*.8;
+    // Two panning noise layers inside the circle: the mist the sigil sits in.
+    float m1=procNoise(vec2(ta*7.+t*.11, r*3.2-t*.18));
+    float m2=procNoise(vec2(ta*4.-t*.07, r*5.4+t*.09));
+    float mist=safePow(clamp(m1*.72+m2*.60-.26,0.,1.),1.5)*smoothstep(.80,.10,r)
+             +.34*smoothstep(.84,.10,r);
+    float gold=(1.-smoothstep(0.,.016,abs(r-1.030)))*clamp(uProcParams.w,0.,1.);
+    return clamp(rings*1.25+glyph*1.0+mist*.72+gold,0.,1.6);
+  }
   if(mode==11){
     // Continuous core with a narrow moving edge; no longitudinal holes.
     float edge=.48+.035*sin(q.y*18.-t*10.);
@@ -271,13 +314,25 @@ float curve${name}Inverse(float y){
 }`;
 }
 
-export function glslParticleCore(P: string, p: string, curlEnv: string) {
+/**
+ * `source` compiles the `layerInstances` branches, which read the aSrcPos /
+ * aSrcDir attributes. They are emitted only when the layer actually borrows
+ * another layer's sites, so an ordinary emitter never has to carry two extra
+ * vec3 buffers per instance.
+ */
+export function glslParticleCore(
+  P: string,
+  p: string,
+  curlEnv: string,
+  source = false,
+) {
   // Path sampling exists only in the layer's OWN copy: a sub-emitter is
   // launched from its parent's trajectory, never from a path of its own.
   const path = P === "";
   return /* glsl */ `
 uniform float u${P}Period,u${P}SpawnWindow,u${P}SpawnDuration,u${P}ShapeLength,u${P}ShapeRadius,u${P}ShapeInner,u${P}ShapeAngle;
 uniform float u${P}Drag,u${P}Curl,u${P}CurlFreq,u${P}CurlSpeed,u${P}FloorY,u${P}FloorSoft,u${P}Angle;
+uniform float u${P}PlanarDrag;
 uniform float u${P}VortexW,u${P}VortexFalloff;
 uniform int u${P}SpawnMode,u${P}ShapeType,u${P}VelMode,u${P}HasFloor,u${P}SurfaceOnly,u${P}SpeedN,u${P}BurstN;
 uniform vec3 u${P}Axis,u${P}Dir,u${P}Gravity,u${P}Wind,u${P}Bias,u${P}ShapeSize,u${P}VortexAxis;
@@ -353,6 +408,16 @@ ${
   }
 `
     : ""
+}${
+  source
+    ? /* glsl */ `  if(u${P}ShapeType==9){
+    // layerInstances: the site was generated from the SOURCE layer's own hash
+    // (crystals-v2 / blob-v2) and rides in as an instance attribute, so it is
+    // closed form and independent of how either layer is drawn.
+    return aSrcPos + sph*u${P}ShapeRadius;
+  }
+`
+    : ""
 }  return axis*(u${P}ShapeLength*e.w)+sph*u${P}ShapeRadius;
 }
 
@@ -360,7 +425,15 @@ vec3 ${p}Dir(vec4 s, vec4 e, vec4 e2, vec3 origin){
   vec3 axis=safeDir(u${P}Axis,vec3(0,1,0));
   vec3 base=safeDir(u${P}Dir,vec3(0,1,0));
   vec3 radial=safeDir(origin,axis);
-  if(u${P}VelMode==0) return safeDir(origin,radial);
+${
+  source
+    ? /* glsl */ `  // A layer-instance spawn is thrown along the instance's OWN axis, which is
+  // what makes a shatter follow the spikes it broke off rather than the
+  // cluster's centre. Every other velocity mode behaves as usual.
+  if(u${P}ShapeType==9 && u${P}VelMode==0) return safeDir(aSrcDir,base);
+`
+    : ""
+}  if(u${P}VelMode==0) return safeDir(origin,radial);
   if(u${P}VelMode==1) return base;
   if(u${P}VelMode==2) return safeDir(cross(axis,radial),base);
   vec3 t1=orthoOf(base), t2=cross(base,t1);
@@ -415,6 +488,16 @@ void ${p}Traj(vec4 s, vec4 e, vec4 e2, float age, float life, float t, out vec3 
   }
   pos=origin+dir*v0*d+.5*u${P}Gravity*a*a+u${P}Wind*a;
   vel=dir*v0*scale+u${P}Gravity*a+u${P}Wind;
+  if(u${P}PlanarDrag>0.){
+    // forces.planarDrag: the HORIZONTAL travel uses its own drag integral while
+    // the vertical stays ballistic, so a burst spreads, stops spreading and
+    // then settles into a drifting disc.
+    float dp=(1.-exp(-u${P}PlanarDrag*a))/u${P}PlanarDrag;
+    float sp=exp(-u${P}PlanarDrag*a);
+    vec3 flat_=origin+dir*v0*dp+u${P}Wind*a;
+    pos.xz=flat_.xz;
+    vel.xz=(dir*v0*sp+u${P}Wind).xz;
+  }
   if(abs(u${P}VortexW)>1e-5){
     // Rotate the radial part of the displacement about the vortex axis by
     // omega*age, with omega falling off with distance from that axis.
@@ -498,11 +581,12 @@ ${
   float u=clamp(age/max(life,1e-4),0.,1.);
 `;
 
-export function particleVertexSource(sub = false) {
+export function particleVertexSource(sub = false, source = false) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
 attribute float aIndex;
 ${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
+${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
 uniform float uTime,uStretch,uAtlasTiles,uMotionBlur,uFlipFps,uSpan;
 uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uRenderMode,uHasAlphaSpawn,uAtlasCols,uAtlasRows,uFlipMode;
@@ -517,7 +601,7 @@ ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
-${glslParticleCore("", "self", "curveE(u)")}
+${glslParticleCore("", "self", "curveE(u)", source)}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
 void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); }
@@ -607,11 +691,12 @@ export const particleVertexV2 = particleVertexSource(false);
  * position at age - k*spacing, so the ribbon is the particle's own past
  * without any history buffer. `position` carries (side, k, 0).
  */
-export function trailVertexSource(sub = false) {
+export function trailVertexSource(sub = false, source = false) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
 attribute float aIndex;
 ${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
+${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
 uniform float uTime,uSegments,uSpacing,uSpan;
 uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uHasAlphaSpawn;
@@ -627,7 +712,7 @@ ${glslCurve("E")}
 ${glslCurve("G")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
-${glslParticleCore("", "self", "curveE(u)")}
+${glslParticleCore("", "self", "curveE(u)", source)}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
 void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vUv=vec2(0.); vWp=vec3(0.); }
@@ -756,6 +841,38 @@ void main(){
 `;
 
 // ---------------------------------------------------------------------------
+// Spherical hex lattice
+//
+// The cell sites are generated and relaxed on the CPU (lattice-v2.ts) and
+// arrive as a 1-row float texture sorted by descending y. A fragment's own
+// latitude gives the index its nearest site is near, so only a band of
+// LATTICE_SCAN indices either side of it is ever scanned: the lookup cost is
+// independent of `lattice.cells`.
+//
+// `edge` is (d2 - d1) / cellRadius — 0 exactly on a cell boundary, about 1 at a
+// cell centre — which is the whole pattern: walls, gaps and fill are three
+// smoothsteps on it, so their weight does not change with the cell count.
+// ---------------------------------------------------------------------------
+
+const glslLattice = /* glsl */ `
+uniform sampler2D uSites; uniform float uCells,uCellA;
+float latHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+void cellLookup(vec3 nrm, out vec3 site, out float id, out float edge){
+  int centre=int(floor((1.-nrm.y)*uCells*.5));
+  float d1=9., d2=9.; id=0.; site=vec3(0.,1.,0.);
+  for(int k=-${LATTICE_SCAN};k<=${LATTICE_SCAN};k++){
+    int idx=centre+k;
+    if(idx<0 || idx>=int(uCells)) continue;
+    vec3 q=texture2D(uSites, vec2((float(idx)+.5)/${LATTICE_TEXTURE_WIDTH}.0, .5)).xyz;
+    float d=distance(q,nrm);
+    if(d<d1){ d2=d1; d1=d; id=float(idx); site=q; }
+    else if(d<d2) d2=d;
+  }
+  edge=(d2-d1)/max(uCellA,1e-4);
+}
+`;
+
+// ---------------------------------------------------------------------------
 // Surface meshes (shell / sprite / ring / beam / trail / decal)
 // ---------------------------------------------------------------------------
 
@@ -765,12 +882,14 @@ uniform float uChannel,uSplitOffset,uSplitGrowth,uLayerU;
 uniform int uShell,uHasVertexNoise,uBillboard,uRibbon,uUseLocalZ;
 uniform vec2 uZRange;
 uniform vec3 uVertexBias;
-varying vec3 vN,vWp; varying float vAlong,vLobe,vRing; varying vec2 vUv;
+varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslCurve("F")}
 vec3 orthoOf(vec3 a){ return safeDir(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0)), vec3(1,0,0)); }
 void main(){
-  vUv=uv; vLobe=0.; vRing=uv.x;
+  // The object-space position: the lattice looks its cells up on it and a
+  // reveal front keys on it, so both are independent of the layer's transform.
+  vUv=uv; vLobe=0.; vRing=uv.x; vObj=position;
   vec3 worldPos, worldNormal;
   if(uRibbon==1){
     // A tapered arc sweep in the local XY plane (the swoosh of a slash):
@@ -879,11 +998,20 @@ uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFre
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol,uCam;
 uniform sampler2D uMask,uNoise;
-varying vec3 vN,vWp; varying float vAlong,vLobe,vRing; varying vec2 vUv;
+// material.lattice / reveal / planeGlow / ripples, and the band's own facing dim.
+uniform int uHasLattice,uHasReveal,uRevealMode,uHasPlaneGlow,uHasDissolve,uRippleN,uBand;
+uniform float uLatEdge,uLatGap,uPulseSpeed,uPhaseJitter,uGrazeFade;
+uniform float uDisStart,uDisStagger,uDisSoft;
+uniform float uRevealFrom,uRevealTo,uRevealWidth;
+uniform float uPlaneDist,uPlaneI,uBandStripes;
+uniform vec3 uTileCol,uLatEdgeCol,uPlaneCol;
+uniform vec4 uRipple[4],uRippleP[4];
+varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslRamp}
 ${glslCurve("C")}
 ${glslProcedural}
+${glslLattice}
 void main(){
   vec3 V=safeDir(uCam-vWp, vec3(0.,0.,1.));
   float fres=1.-abs(dot(vN,V));
@@ -935,7 +1063,12 @@ void main(){
   else if(uRampKeyMode>1.5) key=clamp(vAlong*1.08+(n-.5)*.35*smoothstep(.15,.7,vAlong),0.,1.);
   else if(uRampKeyMode>0.5) key=clamp(uLayerU,0.,1.);
   else key=clamp(vAlong,0.,1.);
-  if(uHasFresnel==1) key+=safePow(fres,uFresnelPower)*uFresnelStrength*smoothstep(0.,.4,vAlong);
+  // The rim term is attenuated near the start of a mesh's axis so a bar does not
+  // flare at its root; a lattice body has no such root, and its rim is exactly
+  // what carries the silhouette where the cells fade out, so it is exempt.
+  if(uHasFresnel==1)
+    key+=safePow(fres,uFresnelPower)*uFresnelStrength
+        *(uHasLattice==1?1.:smoothstep(0.,.4,vAlong));
   key+=uDisplaceShift*vLobe;
   key=clamp(key,0.,1.);
 
@@ -956,7 +1089,81 @@ void main(){
   // there and the procedural pattern applies everywhere else.
   alpha*=shape;
 
+  // --- reveal / lattice / ground proximity / ripples ------------------------
+  // Every one of them is a pure function of (object position, layer time), so a
+  // seek lands on exactly the cells, front and rings playback would have drawn.
+  vec3 objN=safeDir(vObj, vec3(0.,1.,0.));
+  // The front travels from reveal.from to reveal.to over the layer's own 0..1
+  // progress; values outside 0..1 finish a reveal early inside a longer layer.
+  float front=mix(uRevealFrom,uRevealTo,clamp(uLayerU,0.,1.));
+  float ndv=abs(dot(vN,V));
+  // Analytic ground proximity: no depth texture, so it cannot flicker.
+  float nearGround=uHasPlaneGlow==1
+    ? smoothstep(uPlaneDist,0.,vWp.y-uGroundY) : 0.;
+  float latticeVis=0.;
+  vec3 latticeCol=vec3(0.);
+  if(uHasLattice==1){
+    vec3 site; float id,edge;
+    cellLookup(objN,site,id,edge);
+    float hc=latHash(id*1.7+.31);
+    // The reveal keys on the CELL, not the pixel, so a cell lights up whole.
+    float cellKey=(1.-site.y)*.5;
+    float on=uHasReveal==1 ? 1.-smoothstep(front-.04,front+.02,cellKey) : 1.;
+    float band=uHasReveal==1
+      ? (1.-smoothstep(0.,max(uRevealWidth,1e-3),abs(cellKey-front))) : 0.;
+    float off=uHasDissolve==1
+      ? 1.-smoothstep(hc*uDisStagger, hc*uDisStagger+uDisSoft,
+                      max(0.,clamp(uLayerU,0.,1.)-uDisStart))
+      : 1.;
+    float cellOn=on*off;
+    // Outward pulse from the crown, each cell on its own hashed phase.
+    float pulse=.5+.5*sin(uTime*uPulseSpeed-(1.-site.y)*2.6+hc*uPhaseJitter*6.2831853);
+    // Expanding great-circle ripples brighten whatever they cross.
+    float rip=0.;
+    for(int i=0;i<4;i++){
+      if(i>=uRippleN) break;
+      float age=uTime-uRipple[i].w;
+      if(age<0.) continue;
+      float gc=acos(clamp(dot(objN,uRipple[i].xyz),-1.,1.));
+      float r=age*uRippleP[i].x;
+      rip+=(1.-smoothstep(0.,max(uRippleP[i].y,1e-3),abs(gc-r)))*exp(-age*uRippleP[i].z);
+    }
+    float gap=smoothstep(uLatGap,uLatEdge,edge);
+    float line=smoothstep(uLatEdge*1.7,uLatEdge,edge)*gap;
+    float fill=smoothstep(uLatEdge*1.1,uLatEdge*2.,edge);
+    // At grazing angles the cells compress below a pixel; fade them out and let
+    // the fresnel rim carry the silhouette instead of letting them shimmer.
+    float graze=smoothstep(.03,max(uGrazeFade,.04),ndv);
+    float soft=safePow(1.-ndv,2.2);
+    latticeVis=(.26+.74*max(soft*graze,nearGround))*graze;
+    float bright=(.70+.55*pulse+rip*.9)*cellOn;
+    latticeCol=uTileCol*fill*bright*latticeVis*.62
+             + uLatEdgeCol*line*bright*latticeVis*.46
+             + vec3(.90,1.,.98)*band*(fill*.35+line*.8)*.55*graze;
+    // The translucent body under the cells: lit where a cell is on, dim where
+    // the lattice has not arrived or has already dissolved.
+    alpha*=mix(.28,1.,max(cellOn,soft*graze));
+  } else if(uHasReveal==1){
+    float key2=uRevealMode==0 ? length(vObj.xy) : (1.-objN.y)*.5;
+    alpha*=1.-smoothstep(front-.02,front+.03,key2);
+    alpha*=1.+(1.-smoothstep(0.,max(uRevealWidth,1e-3),abs(key2-front)))*.9;
+  }
+  if(uBand==1){
+    // A spherical belt: bright stripes running ALONG it, soft edges ACROSS it,
+    // and the far arc dimmed so the strip reads as one ring around the body
+    // rather than as two unrelated arcs.
+    alpha*=.90+.10*sin(vUv.x*max(uBandStripes,1.)*6.2831853-uTime*2.);
+    alpha*=smoothstep(0.,.07,vUv.y)*smoothstep(1.,.93,vUv.y);
+    alpha*=gl_FrontFacing ? 1. : .85;
+  }
+
   vec3 col=rampColor(key);
+  // The ramp carries the translucent body AND the fresnel rim, so it is only
+  // dimmed by the lattice's visibility, never multiplied away by it: the rim has
+  // to survive exactly where the cells compress below a pixel.
+  if(uHasLattice==1) col=col*mix(.35,1.,latticeVis)+latticeCol;
+  if(uHasPlaneGlow==1) col+=uPlaneCol*nearGround*uPlaneI;
+  if(uBand==1) col*=gl_FrontFacing ? 1. : .42;
   if(uShell==1){
     col*=mix(1.+(n-.5)*.18, 1., smoothstep(.08,.45,vAlong));
     alpha*=(1.-smoothstep(.5,1.,vAlong)*.5);
@@ -1191,6 +1398,109 @@ void main(){
   }
   if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
   else gl_FragColor=vec4(c*uOpacity,uOpacity);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Crystal spikes
+//
+// One instanced draw. The shared mesh (crystals-v2.ts) is a unit hex prism that
+// narrows into a pyramid, built non-indexed so every face is flat; each
+// instance carries its direction, base, length, width, start time and seed, and
+// the vertex program builds the instance frame from the direction, scales the
+// mesh along it with easeOutBack and collapses it at the shatter.
+//
+// The outline pass runs the IDENTICAL program with uInflate > 0 and back faces,
+// so the dark separator hull tracks the facets rather than a smooth cone.
+// ---------------------------------------------------------------------------
+
+const glslCrystalShape = /* glsl */ `
+attribute vec3 aDir,aOrg; attribute float aLen,aWid,aT0,aSeed,aAlong;
+uniform float uTime,uSpan,uGrowDur,uOvershoot,uInflate;
+uniform float uHasCollapse,uCollapseStart,uCollapseDur;
+varying vec3 vN,vW; varying float vAlong,vSeed;
+`;
+
+export const crystalVertexV2 = /* glsl */ `
+${glslNoise}
+${glslCrystalShape}
+void main(){
+  float born=aT0*uSpan;
+  // easeOutBack: the spike overshoots its length and settles.
+  float u=clamp((uTime-born)/max(uGrowDur,1e-4),0.,1.);
+  float s=u>=1. ? 1. : u*u*((uOvershoot+1.)*u-uOvershoot);
+  s=max(s,0.);
+  if(uHasCollapse>.5){
+    float from=uCollapseStart*uSpan+aSeed*uCollapseDur*1.125;
+    s*=1.-smoothstep(from,from+max(uCollapseDur,1e-4),uTime);
+  }
+  // A slow breath during the hold keeps the silhouette alive at rest.
+  s*=1.+.035*sin(uTime*2.1+aSeed*6.2831853);
+
+  vec3 up=safeDir(aDir, vec3(0.,1.,0.));
+  vec3 ref=abs(up.y)>.95 ? vec3(1.,0.,0.) : vec3(0.,1.,0.);
+  vec3 rt=safeDir(cross(ref,up), vec3(1.,0.,0.));
+  vec3 fw=cross(up,rt);
+  // Per-instance twist, so neighbouring spikes never share a facet layout.
+  float tw=aSeed*6.2831853, ct=cos(tw), st=sin(tw);
+  vec2 pxz=vec2(position.x*ct-position.z*st, position.x*st+position.z*ct);
+  vec2 nxz=vec2(normal.x*ct-normal.z*st, normal.x*st+normal.z*ct);
+
+  float L=aLen*s, W=aWid*(.35+.65*s);
+  vec3 lp=vec3(pxz.x*W, position.y*L, pxz.y*W);
+  // The hull is pushed out in the spike's own frame, scaled with its growth so
+  // the line weight stays constant in world metres.
+  lp+=safeDir(vec3(pxz.x, position.y*.25, pxz.y), vec3(0.,1.,0.))*uInflate*(.6+.4*s);
+  vec3 wp=aOrg+rt*lp.x+up*lp.y+fw*lp.z;
+  vec3 ln=safeDir(vec3(nxz.x*L, normal.y*W, nxz.y*L), vec3(0.,1.,0.));
+  vN=safeDir(rt*ln.x+up*ln.y+fw*ln.z, up);
+  vec4 world=modelMatrix*vec4(wp,1.);
+  vW=world.xyz;
+  vAlong=aAlong; vSeed=aSeed;
+  gl_Position=projectionMatrix*viewMatrix*world;
+}
+`;
+
+export const crystalFragmentV2 = /* glsl */ `
+precision highp float;
+${glslNoise}
+varying vec3 vN,vW; varying float vAlong,vSeed;
+uniform vec3 uTip,uFace,uEdge,uCam;
+uniform float uFresPow,uGlintFreq,uGlintSpeed,uOpacity,uFlat,uTime;
+uniform int uBlendMode;
+void main(){
+  // The outline hull draws flat and unlit, dark at the base and cooler at the
+  // tip: a separator between overlapping spikes, never a second rim light.
+  if(uFlat>.5){
+    vec3 c=mix(uEdge*.16,uEdge*.55,smoothstep(.05,.85,vAlong));
+    gl_FragColor=vec4(c*uOpacity,uOpacity);
+    return;
+  }
+  vec3 n=safeDir(vN, vec3(0.,1.,0.));
+  vec3 v=safeDir(uCam-vW, vec3(0.,0.,1.));
+  float ndv=abs(dot(n,v));
+  float fres=safePow(1.-ndv,uFresPow);
+  // A cool ambient wrap: an unlit facet still reads pale, never black.
+  float lam=.42+.58*clamp(dot(n,normalize(vec3(.25,.9,.4)))*.5+.5,0.,1.);
+  vec3 col=uFace*(.30+.50*lam);
+  // Tips run vivid, the mid body stays pale, the base stays near white; the
+  // tip is darkened as it saturates so ACES does not wash it back out.
+  float tip=smoothstep(.18,.92,vAlong);
+  col=mix(col,uTip*1.30,tip*.94);
+  col*=mix(1.,.55,tip);
+  col=mix(col,uEdge,fres*.30*(1.-tip*.55));
+  // A narrow specular band sliding along the axis.
+  float gb=sin((vAlong*uGlintFreq-uTime*uGlintSpeed+vSeed*6.2831853)*3.14159265);
+  col+=uEdge*safePow(max(gb,0.),22.)*(.35+.65*fres)*.9;
+  // Internal fracture grain, plus a per-instance brightness so no two spikes
+  // catch the light identically.
+  float ice=.5+.5*fbm3(vec3(vAlong*9.+vSeed*17., vSeed*31.+vW.y*4., 1.7));
+  col*=(.88+.26*ice)*(.72+.56*fract(vSeed*13.7+2.1));
+  col+=uTip*safePow(1.-ndv,3.)*.60;
+  float a=clamp(.80+fres*.20,0.,1.)*uOpacity;
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
 }
 `;
 

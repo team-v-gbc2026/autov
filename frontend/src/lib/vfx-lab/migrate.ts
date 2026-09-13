@@ -152,6 +152,10 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
     outline: null,
     opaqueUntil: null,
     rgbSplit: null,
+    reveal: null,
+    lattice: null,
+    planeGlow: null,
+    ripples: null,
   };
 }
 
@@ -199,6 +203,7 @@ function buildGeometry(layer: Layer, animated: Set<NumericTarget>): GeometryV2 {
             seedOffset: 0,
           }
         : null,
+    band: null,
   };
 }
 
@@ -225,6 +230,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       surfaceOnly: false,
       bias: [0, 0, 0],
       pathId: null,
+      sourceLayerId: null,
     },
     spawn: {
       mode: "burst",
@@ -272,6 +278,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       vortex: null,
       wind: [0, 0, 0],
       floor: null,
+      planarDrag: 0,
     },
     render: {
       mode: "billboard",

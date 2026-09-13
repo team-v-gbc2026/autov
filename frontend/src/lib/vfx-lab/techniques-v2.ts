@@ -47,6 +47,7 @@ export const TECHNIQUE_IDS = [
   "stepped-hash-glitch",
   "speed-line-cap",
   "two-layer-noise-mist",
+  "cast-sigil-reveal",
 ] as const;
 export type TechniqueId = (typeof TECHNIQUE_IDS)[number];
 
@@ -429,6 +430,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
       "Vary scale or speed slightly per instance from the same seed so no two copies match.",
       "Never drive a repeated group from one shared global curve alone.",
       'For a group strung along a path, emitter.spawn.mode "pathAnchored" derives the whole stagger from one head curve: no birth table, and the order follows the path.',
+      'For a MESH group — spikes, shards, lobes — the generator kinds carry the stagger themselves: crystals.stagger and blob.stagger are [startFrac,endFrac] of the layer window, and crystals.groups makes each length class start later than the one before it.',
     ],
     timing: "Spread the group's births across 5-15% of the group's own build phase.",
     details: [
@@ -444,6 +446,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
         'emitter.spawn.mode:"pathAnchored" + spawn.headCurve: instance i is born as the head passes u = i/(count-1)',
         "emitter.render.twinkle (per-instance hashed alpha phase)",
         "layer.jitter.{frequency,amplitude,gate} (stepped-hash offset on the layer transform)",
+        "crystals.{stagger,groups} and blob.stagger (per-instance birth inside one generated mesh group)",
       ],
       missing: [],
     },
@@ -573,26 +576,29 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Instanced shard burst",
     use: "Ice-shatter, glitch impact or crystal-cluster eruption debris: separate rigid pieces on ballistic paths, not a particle cloud.",
     construction: [
-      "A particles layer, emitter.shape a hemisphere/sphere at the impact point.",
-      "emitter.velocity.mode \"cone\" outward, wide angle, with emitter.forces.gravity pulling pieces down.",
-      "Fade each piece after a per-piece shatter delay (see staggered-instance-timing).",
-      "Use angular geometry (crystal/crystal-cluster) or a jagged mask so silhouettes read as broken material.",
+      'Spawn the pieces ON the thing that broke: emitter.shape.type "layerInstances" with shape.sourceLayerId pointing at the crystals (or blob) layer, so each piece inherits one spike\'s position and axis.',
+      'emitter.velocity.mode "radial" then throws each piece along its OWN instance axis; add shape.radius 0.03-0.06 to scatter them off the axis a little.',
+      "emitter.forces.gravity pulls the pieces down and emitter.forces.floor stops them at the ground.",
+      "emitter.forces.planarDrag 1.5-2.5 settles the horizontal travel onto an asymptote, so the burst spreads, stops spreading and drifts as a flat disc instead of coasting off screen.",
+      "Two populations: many small chips (0.03-0.13, life 0.9-2.1) and a handful of bigger chunks (0.10-0.30) on a heavier gravity and a shorter drag.",
+      "Stagger the births over a 0.15-0.20 s spawn window and fade each piece on its own alphaCurve, so the burst never vanishes on one frame.",
     ],
-    timing: "Fires instantly at the shatter moment; individual pieces live 0.3-0.8s, staggered.",
+    timing: "Fires at the shatter moment; chips live 0.9-2.1 s staggered, chunks a little longer.",
     details: [
       "Closed-form ballistic motion (initial velocity + gravity) needs no simulation.",
+      "Borrowed spawn sites are what make the debris read as THIS object breaking rather than as a generic burst at the same place.",
+      "planarDrag is the difference between a settling disc of chips and debris that leaves the frame.",
       "Angular geometry or a jagged mask, never round sprites, for a broken read.",
       "Per-piece staggered fade avoids the whole burst vanishing on one frame.",
-      "Works identically for ice shatter and a glitch-impact burst; only the material changes.",
     ],
     vocabulary: {
       available: [
-        'kind:"particles" emitter.shape.type:"hemisphere"|"sphere"',
-        'emitter.velocity.{mode:"cone", speed}',
-        "emitter.forces.gravity",
-        'geometry.type:"crystal"|"crystal-cluster" (mesh-shard variant)',
+        'kind:"particles" with emitter.shape.type:"layerInstances" + shape.sourceLayerId',
+        'emitter.velocity.{mode:"radial"} (along the borrowed instance axis)',
+        "emitter.forces.{gravity, planarDrag, floor}",
+        'emitter.shape.type:"hemisphere"|"sphere" when there is no source layer to borrow',
         'kind:"wireBurst" for outline-only debris (polygon shells plus spokes)',
-        "emitter.render.alphaCurve",
+        "emitter.render.alphaCurve, emitter.spawn.window (the stagger)",
       ],
       missing: [],
     },
@@ -604,31 +610,31 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Hex-lattice fresnel shield",
     use: "A standing forcefield/shield dome: a hex-cell lattice pulsing outward with a fresnel rim, plus a note on depth intersection.",
     construction: [
-      "Base dome: a sphere shell, material.procedural \"hexagon\".",
-      "Layer a primary hex pass plus a cross-weave secondary pass at a different scale/rotation.",
-      "Drive material.fresnel with a high power (~8) so edges glow brighter than face-on.",
-      "Pulse the lattice by tracking material.erosion.curve per stop repeatedly, not once.",
-      "Add 1-2 brief 'hit ripple' layers: the same sphere geometry, erosion pulsed for ~0.5s.",
+      'ONE sphere shell with material.lattice: cells 300-450, edgeWidth ~0.2, gapWidth ~0.08, a mint tile colour and a pale-gold edge. The renderer relaxes the cells onto the sphere, so there is no seam, no pole and no second pass to cross-weave.',
+      "lattice.pulse {speed ~2.1, phaseJitter 1} runs an outward pulse from the crown on a hashed per-cell phase, so it is never static.",
+      'material.reveal {mode:"scan"} lights the cells up from the crown down over 0.8-0.9 s; the front keys on the CELL, so a cell arrives whole instead of being wiped through.',
+      "material.fresnel power 8 against a cream last ramp stop carries the silhouette where lattice.grazeFade drops the cells out; material.planeGlow draws the floor contact ring.",
+      "material.ripples: 1-2 great circles at the hit times, speed ~3.7 rad/s, width ~0.17, decay ~4. lattice.dissolve switches the cells off one by one on the way out, so the shell comes apart instead of dimming.",
+      "Scale it in on an overshoot: 0.22 -> 1.06 -> 1 over ~0.55 s, on transform.scale.",
     ],
-    timing: "Snaps up over 100-250ms; holds with continuous erosion pulsing; hit ripples are ~0.5s events inside the hold.",
+    timing: "Snaps up over 100-250 ms, scans on over the next 0.8 s, holds with the pulse and the ripples, dissolves over the closing 25-30%.",
     details: [
-      "Two hex passes at different scale/rotation read as woven, not a flat grid.",
-      "High fresnel power separates a shield from a flat glowing sphere.",
-      "Repeated erosion-curve tracking is what makes the lattice pulse continuously.",
-      "Hit ripples reuse the same geometry with a brief erosion pulse.",
-      "Depth-intersection glow, where another mesh pokes through the dome, is a renderer gap.",
+      "One relaxed lattice beats two hex passes: real cells, no seam, no moire at the pole.",
+      "High fresnel power separates a shield from a flat glowing sphere, and grazeFade is what stops the cells shimmering at the silhouette.",
+      "Hit ripples are great circles on the shell, not a second sphere.",
+      "The dissolve is per cell, so the shield comes apart instead of dimming.",
+      "Pair it with a tilted geometry.type \"band\" belt: real geometry with depth write, so the far arc sorts behind the shell instead of glowing through it.",
     ],
     vocabulary: {
       available: [
-        'kind:"shell" geometry.type:"sphere" (x3 stacked)',
-        'material.procedural:"hexagon"',
+        'kind:"shell" with material.lattice.{cells,edgeWidth,gapWidth,tileColor,edgeColor,pulse,dissolve,grazeFade}',
+        'material.reveal.{mode:"scan",from,to,frontWidth}',
         "material.fresnel.{power,strength}",
-        "material.erosion.curve.keys[i] tracked per stop",
-        'material.blend:"additive"|"screen"',
+        "material.planeGlow.{plane,distance,color,intensity}",
+        "material.ripples[{time,origin,speed,width,decay}]",
+        'geometry.type:"band" + geometry.band.{tilt,spin,stripes} for the belt',
       ],
-      missing: [
-        "depth-intersection glow (world position vs. dome radius -> contact line)",
-      ],
+      missing: [],
     },
     sources: [ICE_SHIELD],
   },
@@ -694,13 +700,46 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     sources: [BEAM_ETC],
   },
 
+  "cast-sigil-reveal": {
+    id: "cast-sigil-reveal",
+    name: "Cast sigil reveal",
+    use: "The magic circle a ground-cast spell draws itself on before anything erupts out of it.",
+    construction: [
+      'One flat kind:"decal" on the ground (rotation [-1.5708,0,0]) about 3 units across, material.procedural "sigil".',
+      "proceduralParams [ring pairs 3, rune cells 64, radial spokes 16, gold rim 0..1]: concentric rings, a band of hashed rune ticks, spokes and a two-layer polar mist, all from one card.",
+      'material.reveal {mode:"radial"} draws it outward from the centre. Set `to` past 1 so the front reaches the rim EARLY and the finished sigil then simply holds — a layer that outlives its own reveal.',
+      "Track proceduralParams[3] so the gold rim only pops on the frame the effect fires, then decays.",
+      "Fade the whole card out once the thing it cast owns the frame; a sigil that stays reads as UI.",
+      "Put a dim softRadial ground pool under it for the cold/warm wash the circle sits in.",
+    ],
+    timing: "Draws over the first 15-25% of the document, holds briefly, gone by 40%.",
+    details: [
+      "The reveal front is what reads as DRAWING; a circle that fades in reads as a texture.",
+      "A bright leading band at the front (reveal.frontWidth) sells the stroke.",
+      "The rune ticks are hashed per cell, so no two sectors repeat and none of them is authored.",
+      "The gold rim is an accent for one beat, never the sigil's base colour.",
+    ],
+    vocabulary: {
+      available: [
+        'kind:"decal" with material.procedural:"sigil"',
+        "material.proceduralParams [rings, rune cells, spokes, gold rim]",
+        'material.reveal.{mode:"radial",from,to,frontWidth}',
+        "a track on material.proceduralParams[3] for the rim pop",
+      ],
+      missing: [],
+    },
+    sources: [ICE_SHIELD],
+  },
+
   "two-layer-noise-mist": {
     id: "two-layer-noise-mist",
     name: "Two-layer noise mist",
     use: "A lingering ground mist, chillfog or portal-interior atmosphere: two independently panning noise layers, not one static fog sprite.",
     construction: [
-      "A disc/billboard mist layer with material.noise panned at two different uvPan speeds/scales.",
-      "Vary distortionPan per sprite/instance so repeated mist cards do not look identical.",
+      'TWO ground decals, not one: each a flat card with material.procedural "smoke" and its own material.noise.uvPan, panning in opposite directions at different rates.',
+      "Give each its own distortionPan (roughly the negative of its uvPan) so the two fields never drift together.",
+      "material.erosion with a shallow curve (0.24 -> 0.34) and a wide softness tears the fog into tongues instead of a soft disc.",
+      "Keep them small — a card radius near the effect's own extent, grown by 1.3-1.6x over the layer — and dim: 0.1-0.2 opacity each, or the pair floods the frame.",
       "Give particle-based mist emitter.forces.floor so it pools rather than passing through the ground.",
       "Fade it in early with the anticipation, but let it linger well past the main burst.",
     ],
@@ -713,8 +752,9 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"decal"|"particles"',
-        "material.noise.{uvPan,distortion,distortionPan}",
+        'kind:"decal"|"particles" with material.procedural:"smoke"',
+        "material.noise.{uvPan,distortion,distortionPan} (one card per pan direction)",
+        "material.erosion.{curve,softness,edgeWidth,edgeColor}",
         "emitter.forces.floor.{y,softness}",
         'role:"residue" with a late end',
       ],
@@ -766,6 +806,7 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "staggered-instance-timing",
   ],
   "ice-blast": [
+    "cast-sigil-reveal",
     "instanced-shard-burst",
     "two-layer-noise-mist",
     "staggered-instance-timing",
@@ -802,6 +843,7 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
     ],
   ],
   [/portal/i, ["edge-biased-sparks", "two-layer-noise-mist", "path-window-ribbon"]],
+  [/sigil|rune|circle|summon|cast/i, ["cast-sigil-reveal", "ground-ring-with-inner-fill"]],
   [/vortex|tornado|swirl/i, ["polar-swirl-disc", "edge-biased-sparks"]],
   [/glitch|digital|hologram/i, ["stepped-hash-glitch", "instanced-shard-burst"]],
   [/column|overload|pillar/i, ["blinking-arc-ribbons", "upright-glow-cylinder"]],
@@ -832,11 +874,14 @@ const APPROXIMATIONS: Partial<Record<TechniqueId, string>> = {};
 /**
  * Total character budget for one `techniqueBrief` call. Raised from 4500 when
  * the heal and glitch ports gave path-window-ribbon, upright-glow-cylinder and
- * stepped-hash-glitch real construction steps: at 4500 a four-card brief for
- * those families dropped its last card, which is the one the prompt's own
- * keywords asked for.
+ * stepped-hash-glitch real construction steps, and again from 5400 when the ice
+ * and shield ports rewrote hex-lattice-fresnel-shield and instanced-shard-burst
+ * around the new vocabulary: those two cards carry real field lists now, and at
+ * 5400 a shield brief dropped the keyword-matched fourth card, which is the one
+ * the prompt itself asked for. Even at 6600 the block is a third of the size of
+ * the example document the same call already sends.
  */
-const BRIEF_CHAR_BUDGET = 5400;
+const BRIEF_CHAR_BUDGET = 6600;
 
 /**
  * A single card in full: every construction step (numbered), the timing
