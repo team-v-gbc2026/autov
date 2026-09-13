@@ -484,6 +484,20 @@ export default function VfxV2DevGalleryPage() {
           </div>
 
           <div style={panelStyle}>
+            <span style={labelStyle}>Camera</span>
+            <button
+              style={{ ...buttonStyle, width: "100%" }}
+              onClick={() => v2RuntimeRef.current?.resetCamera()}
+              disabled={runtimeV2Mod.status !== "ready" || !selectedFixture}
+            >
+              Reset camera
+            </button>
+            <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
+              drag: orbit · right-drag/shift: pan · wheel: zoom
+            </p>
+          </div>
+
+          <div style={panelStyle}>
             <span style={labelStyle}>Capture</span>
             <button
               style={{ ...buttonStyle, width: "100%", opacity: capturing ? 0.6 : 1 }}

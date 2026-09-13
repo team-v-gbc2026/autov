@@ -108,6 +108,9 @@ export async function captureV2(
     "position:fixed;left:-10000px;top:0;width:320px;height:180px;pointer-events:none";
   document.body.appendChild(host);
   const runtime = new VfxRuntimeV2(host);
+  // Deterministic capture: never let orbit/pan/zoom controls perturb the
+  // camera between frames.
+  runtime.setInteractive(false);
   try {
     runtime.setDocument(doc);
     runtime.resize(TILE_WIDTH, TILE_HEIGHT);

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildGeometry } from "./geometry";
 import { createEnvironment, type EnvironmentV2 } from "./environment-v2";
 import { createPostStack, type PostStackV2 } from "./post-v2";
@@ -1018,6 +1019,16 @@ export class VfxRuntimeV2 {
     CAMERA_NEAR,
     CAMERA_FAR,
   );
+  /**
+   * Dev-gallery orbit/pan/zoom. Auto-framing (computeFraming/resetCamera)
+   * sets the camera's position and this.controls.target directly; the
+   * controls only take over from there when interactive. The deterministic
+   * capture path (capture-v2.ts, the headless fixture harness) calls
+   * setInteractive(false) so controls.update() is never invoked there and
+   * captures stay byte-identical to a build without controls at all.
+   */
+  readonly controls: OrbitControls;
+  private interactive = true;
   private readonly environment: EnvironmentV2;
   private post: PostStackV2;
   private readonly textures = new TextureCacheV2();
@@ -1045,6 +1056,11 @@ export class VfxRuntimeV2 {
     );
     this.renderer.domElement.setAttribute("aria-label", "Generated VFX preview");
     host.appendChild(this.renderer.domElement);
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.minDistance = 1;
+    this.controls.maxDistance = 60;
     this.scene.add(this.group);
     this.environment = createEnvironment(this.scene);
     this.depthTarget = new THREE.WebGLRenderTarget(1, 1, {
@@ -1186,6 +1202,17 @@ export class VfxRuntimeV2 {
     };
   }
 
+  /**
+   * Enables or disables the orbit/pan/zoom controls without touching the
+   * camera. Default true (the dev gallery); the deterministic capture path
+   * passes false so render() never calls controls.update(), keeping capture
+   * output identical to a build without controls.
+   */
+  setInteractive(on: boolean) {
+    this.interactive = on;
+    this.controls.enabled = on;
+  }
+
   resetCamera() {
     const doc = this.doc;
     if (!doc) return;
@@ -1196,6 +1223,12 @@ export class VfxRuntimeV2 {
       .addScaledVector(dir, this.frame.distance);
     this.camera.lookAt(this.frame.center);
     this.camera.updateProjectionMatrix();
+    this.controls.target.copy(this.frame.center);
+    // Only sync the controls' internal spherical state when interactive: the
+    // round-trip through OrbitControls' spherical coordinates can perturb the
+    // camera position by float epsilon, which the deterministic capture path
+    // (interactive=false) cannot tolerate.
+    if (this.interactive) this.controls.update();
   }
 
   resize(width = this.host.clientWidth || 1280, height = this.host.clientHeight) {
@@ -1224,6 +1257,10 @@ export class VfxRuntimeV2 {
 
   render(time: number, solo?: string, diagnostic = false) {
     if (this.disposed || !this.doc) return;
+    // Advances damping toward whatever orbit/pan/zoom the user has done since
+    // the last frame. Skipped entirely in the deterministic capture path
+    // (setInteractive(false)) so captures never depend on controls state.
+    if (this.interactive) this.controls.update();
     const doc = this.doc;
     for (const object of this.objects) {
       object.update(time, this.flags, this.camera);
@@ -1266,6 +1303,7 @@ export class VfxRuntimeV2 {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.controls.dispose();
     this.disposeObjects();
     this.environment.dispose();
     this.post.dispose();

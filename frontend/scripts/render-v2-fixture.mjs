@@ -45,6 +45,8 @@ import doc from "../fixtures/v2/${fixtureId}/document.json";
 
 const host = document.getElementById("host");
 const runtime = new VfxRuntimeV2(host);
+// Deterministic capture: never let orbit/pan/zoom controls perturb the camera.
+runtime.setInteractive(false);
 window.__v2 = { runtime, version: RUNTIME_VERSION_V2, doc };
 window.__ready = (async () => {
   runtime.setDocument(doc);

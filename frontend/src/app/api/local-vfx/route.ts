@@ -244,6 +244,7 @@ export async function POST(request: Request) {
         body.references,
         request.signal,
         6000,
+        schema === "v2" ? "high" : "medium",
       );
       if (result.value.impact >= result.value.duration)
         throw new Error("Invalid planned timing; please retry.");
@@ -349,6 +350,7 @@ export async function POST(request: Request) {
         run.references,
         request.signal,
         24000,
+        "high",
       );
       run.usages.push(result.usage);
       let doc;

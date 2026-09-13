@@ -51,6 +51,7 @@ export async function callModel<T extends z.ZodType>(
   images: string[],
   signal: AbortSignal,
   maxOutput = 6000,
+  effort: "low" | "medium" | "high" = "medium",
 ): Promise<{ value: z.infer<T>; usage: Usage }> {
   const apiKey = await getKey();
   if (!apiKey)
@@ -78,7 +79,7 @@ export async function callModel<T extends z.ZodType>(
       store: false,
       service_tier: "default",
       max_output_tokens: maxOutput,
-      reasoning: { effort: "medium" },
+      reasoning: { effort },
       text: { format },
       input: [
         { role: "system", content: system },
