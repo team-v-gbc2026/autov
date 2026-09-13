@@ -1,0 +1,375 @@
+// autoV toolbox v2 — S8 spike: rectangular amber portal (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 5.0;
+const PW = 1.6, PH = 2.4;   // portal opening, outer edge of the rim
+const RIM_W = 0.125;        // rim strip thickness (the reference bar is thick)
+const HX = PW * 0.5 - RIM_W * 0.5, HY = PH * 0.5 - RIM_W * 0.5; // rim centreline rect
+const CORNER = 0.06;        // corner round
+const RIM_Z = 0.085;        // front/back copies: the slab that reads as thickness
+const BASE_Y = 0.05;        // bottom edge above the ground
+const CY = BASE_Y + PH * 0.5;
+const MARGIN = 0.55;        // halo room around the rim quad
+const N_SPARK = 90;
+const T_RIM0 = 0.0, T_RIM1 = 0.55;   // rim draws from bottom-centre to the top
+const T_FILL0 = 0.22, T_FILL1 = 0.70;// surface fills upward
+const T_OUT0 = 4.0, T_OUT1 = 5.0;    // sparks → interior → rim
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.16,
+  threshold: 1.10,
+  exposure: 1.0,
+  layers: { rim: true, surface: true, sparks: true, floor: true, reflection: true, post: true },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const env = (t, pts) => {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i][0]) {
+      const [t0, v0] = pts[i - 1], [t1, v1] = pts[i];
+      return v0 + (v1 - v0) * ss(0, 1, (t - t0) / (t1 - t0));
+    }
+  }
+  return pts[pts.length - 1][1];
+};
+
+// the one shared piece of state: how much of the perimeter is drawn (0..1 from
+// bottom-centre up both sides). Reveal writes it up, the fade un-writes from the top.
+function rimCut(t) {
+  if (t < T_RIM1) return ss(T_RIM0, T_RIM1, t);
+  if (t < 4.35) return 1;
+  return 1 - ss(4.35, 4.95, t);
+}
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x000000, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 12, 34);
+
+// fixed elevated oblique camera, off to +x so the rim slab shows its thickness
+const camera = new THREE.PerspectiveCamera(30, 1280 / 720, 0.1, 120);
+camera.position.set(1.70, 2.62, 6.55);
+camera.lookAt(0, 1.20, 0);
+
+const GLSL = `
+float h11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float h21(vec2 p){ vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
+// signed distance to the rounded rectangle the whole portal is built on
+float sdRR(vec2 p, vec2 h, float r){ vec2 d = abs(p)-h+r; return length(max(d,0.0)) + min(max(d.x,d.y),0.0) - r; }
+// perimeter parameter 0..1: 0 at bottom-centre, 1 at top-centre, mirrored in x
+float rimU(vec2 p, vec2 h){
+  vec2 a = vec2(abs(p.x), p.y);
+  vec2 c = clamp(a, vec2(0.0,-h.y), h);
+  float db = c.y + h.y, dt = h.y - c.y, dr = h.x - c.x;
+  float m = min(dr, min(db, dt));
+  float s = (m == db) ? c.x : (m == dr) ? (h.x + c.y + h.y) : (h.x + 2.0*h.y + h.x - c.x);
+  return s / (2.0*h.x + 2.0*h.y);
+}
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y);
+}
+`;
+
+const portal = new THREE.Group();
+portal.position.set(0, CY, 0);
+scene.add(portal);
+
+// ---------------------------------------------------------------- ground
+// dark floor; the amber pool in front of and behind the portal is analytic (no real light)
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.ShaderMaterial({
+    uniforms: { uPool: { value: 0 }, uT: { value: 0 } },
+    vertexShader: `varying vec3 vP; void main(){ vP = (modelMatrix*vec4(position,1.0)).xyz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `${GLSL}
+      varying vec3 vP; uniform float uPool, uT;
+      void main(){
+        vec2 q = vP.xz;
+        // rectangle-footprint gaussian: wide across the opening, tight through the slab
+        float across = max(abs(q.x) - ${(PW * 0.5).toFixed(3)}, 0.0);
+        float pool = exp(-pow(across/0.44, 2.0)) * exp(-pow(abs(q.y)/0.52, 2.0));
+        float wide = exp(-pow(across/1.35, 2.0)) * exp(-pow(abs(q.y)/1.45, 2.0)) * 0.22;
+        // brighter along the bottom edge itself
+        float lip = exp(-pow(across/0.36, 2.0)) * exp(-pow(abs(q.y)/0.115, 2.0));
+        float g = (pool*0.24 + wide*0.30 + lip*0.42) * uPool;
+        vec3 col = vec3(0.013,0.011,0.010) * exp(-length(q)*0.045);
+        col += vec3(1.00,0.27,0.013) * g;
+        col += vec3(1.00,0.60,0.14) * lip * uPool * 0.10;
+        float grid = max(smoothstep(0.972,0.998,fract(q.x*0.5)), smoothstep(0.972,0.998,fract(q.y*0.5)));
+        col += vec3(0.011,0.010,0.009) * grid * exp(-length(q)*0.075);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// ---------------------------------------------------------------- surface
+// 2 panning noise layers + a fine third, combined into a smoky mask over amber.
+// alpha blend with depthWrite so the opening occludes the floor behind it.
+const SURF_FS = `${GLSL}
+  varying vec2 vUv; varying vec3 vVd;
+  uniform float uT, uFill, uSmoke, uA, uRefl;
+  void main(){
+    vec2 q = vec2(vUv.x*${PW.toFixed(2)}, vUv.y*${PH.toFixed(2)});
+    // a shallow view-dependent offset on the slow layer reads as interior depth
+    vec2 par = vVd.xy * 0.05;
+    float n1 = vnoise((q+par)*1.6 + vec2(0.048, 0.086)*uT);
+    vec2 r = vec2(q.x*0.866 - q.y*0.5, q.x*0.5 + q.y*0.866);
+    float n2 = vnoise(r*3.4 + vec2(-0.115, 0.052)*uT);
+    float n3 = vnoise(q*6.6 + vec2(0.072,-0.131)*uT);
+    float n4 = vnoise(q*13.5 + vec2(-0.05, 0.21)*uT);
+    float m = n1*0.46 + n2*0.30 + n3*0.17 + n4*0.07;
+    // dark smoky patches over amber; uSmoke grows them until they cover everything
+    float smoke = ssm(0.42 - uSmoke*0.44, 0.66 - uSmoke*0.40, m);
+    smoke = mix(smoke, ssm(0.38,0.66,n2), 0.38);                // second, larger patch field
+    float hot = ssm(0.66, 0.84, m) * (1.0 - smoke*0.90);
+    vec3 amber = vec3(0.470, 0.112, 0.004);                     // #e08a1a in linear
+    vec3 dark  = vec3(0.072, 0.014, 0.001);                     // #5a2a08 in linear
+    vec3 col = mix(amber, dark, smoke*0.95);
+    col = mix(col, vec3(1.00,0.470,0.085), hot*0.40);           // #ffc860 warm patch
+    col *= 0.64 + 0.38*vUv.y;                                   // brighter top
+    float ex = min(vUv.x, 1.0-vUv.x)*${PW.toFixed(2)};
+    float ey = min(vUv.y, 1.0-vUv.y)*${PH.toFixed(2)};
+    float edge = exp(-min(ex,ey)/0.11);
+    col += vec3(1.00,0.40,0.022) * edge * 0.26;                  // faint edge brightening
+    float cen = exp(-pow((vUv.x-0.5)/0.34,2.0) - pow((vUv.y-0.54)/0.30,2.0));
+    col += vec3(1.00,0.46,0.040) * cen * 0.16;
+    col *= 0.92 + 0.08*sin(uT*3.77);                            // the gentle overall pulse
+    float fill = ssm(vUv.y - 0.16, vUv.y + 0.02, uFill);        // fills upward on reveal
+    float a = uA * fill;
+    if (uRefl > 0.5) {                                          // flipped smear under the lip
+      col = mix(col, vec3(0.38,0.10,0.006), 0.45);
+      a *= (1.0 - ssm(0.0, 0.85, vUv.y)) * 0.55;
+    }
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(col, a);
+  }`;
+const SURF_VS = `
+  varying vec2 vUv; varying vec3 vVd;
+  void main(){
+    vUv = uv;
+    vec4 mv = modelViewMatrix * vec4(position,1.0);
+    vVd = normalize((viewMatrix * vec4(0.0,0.0,0.0,1.0)).xyz - mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }`;
+function surfaceMat(refl) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uT: { value: 0 }, uFill: { value: 0 }, uSmoke: { value: 0 }, uA: { value: 0.85 }, uRefl: { value: refl } },
+    vertexShader: SURF_VS,
+    fragmentShader: SURF_FS,
+    transparent: true,
+    depthWrite: !refl,
+    side: THREE.DoubleSide,
+  });
+}
+const surfGeo = new THREE.PlaneGeometry(PW - RIM_W * 1.4, PH - RIM_W * 1.4);
+const surface = new THREE.Mesh(surfGeo, surfaceMat(0));
+portal.add(surface);
+
+// the floor catches a flipped, washed-out copy of the interior
+const reflection = new THREE.Mesh(surfGeo, surfaceMat(1));
+reflection.scale.set(1, -0.52, 1);
+reflection.position.set(0, -(PH * 0.52) - BASE_Y - PH * 0.5 * 0.52 + 0.02, 0.01);
+reflection.renderOrder = -1;
+portal.add(reflection);
+
+// ---------------------------------------------------------------- rim
+// one quad per face; the double line, the halo, the perimeter reveal and the
+// travelling beads are all read off the rounded-rect SDF in the fragment shader.
+const rimMat = new THREE.ShaderMaterial({
+  uniforms: { uT: { value: 0 }, uCut: { value: 0 }, uI: { value: 1 }, uBack: { value: 0 } },
+  vertexShader: `varying vec2 vP;
+    void main(){ vP = (uv-0.5) * vec2(${(PW + 2 * MARGIN).toFixed(3)}, ${(PH + 2 * MARGIN).toFixed(3)});
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vP; uniform float uT, uCut, uI, uBack;
+    void main(){
+      vec2 H = vec2(${HX.toFixed(4)}, ${HY.toFixed(4)});
+      float d = sdRR(vP, H, ${CORNER.toFixed(3)});
+      float ad = abs(d);
+      float u = rimU(vP, H);
+      // drawn arc + the bright bead that leads the draw
+      float gate = 1.0 - ssm(uCut, uCut + 0.035, u);
+      float lead = exp(-pow((u-uCut)/0.030, 2.0)) * step(0.004, uCut) * step(uCut, 0.996);
+      // 3 beads running the perimeter, hash-stepped so they are not evenly spaced
+      float bead = 0.0;
+      for (int i = 0; i < 3; i++){
+        float k = float(i);
+        float bp = fract(uT*0.21 + k*0.37 + h11(k*3.1)*0.4);
+        bead += exp(-pow((u-bp)/0.055, 2.0));
+      }
+      float core  = 1.0 - ssm(${(RIM_W * 0.5 - 0.010).toFixed(4)}, ${(RIM_W * 0.5 + 0.006).toFixed(4)}, ad);
+      float spine = exp(-pow(d/0.020, 2.0));                      // hot line down the middle of the bar
+      float inner = exp(-pow((d + 0.098)/0.018, 2.0));            // thinner parallel line inside
+      float halo  = exp(-ad/0.050)*0.62 + exp(-ad/0.155)*0.20 + exp(-ad/0.48)*0.055;
+      float pulse = 0.85 + 0.15*sin(6.28318*uT*0.6);
+      vec3 col = vec3(1.00,0.470,0.028) * core * (0.92 + bead*0.30 + lead*1.1)   // saturated yellow bar
+               + vec3(1.00,0.880,0.400) * spine * (0.85 + bead*0.35 + lead*1.6) // #fff2a0 hot centre line
+               + vec3(1.00,0.920,0.560) * inner * 0.72
+               + vec3(1.00,0.300,0.010) * halo * 0.72;            // #ffb42a linear
+      float a = clamp(core + spine*0.8 + inner*0.9 + halo, 0.0, 1.0);
+      col *= pulse * uI * gate * (uBack > 0.5 ? 0.46 : 1.0);
+      a *= gate * (uBack > 0.5 ? 0.55 : 1.0) * min(uI, 1.0);
+      if (a < 0.004) discard;
+      gl_FragColor = vec4(col, a);
+    }`,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  side: THREE.DoubleSide,
+});
+const rimGeo = new THREE.PlaneGeometry(PW + 2 * MARGIN, PH + 2 * MARGIN);
+const rimFront = new THREE.Mesh(rimGeo, rimMat);
+rimFront.position.z = RIM_Z * 0.5;
+const rimBackMat = rimMat.clone();
+rimBackMat.uniforms = THREE.UniformsUtils.clone(rimMat.uniforms);
+rimBackMat.uniforms.uBack.value = 1;
+const rimBack = new THREE.Mesh(rimGeo, rimBackMat);
+rimBack.position.z = -RIM_Z * 0.5;
+portal.add(rimBack, rimFront);
+
+// ---------------------------------------------------------------- sparks
+// 90 instanced quads; births hashed across the clock so the drift is continuous.
+const sparkGeo = (() => {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0, 1, 1], 2));
+  g.setIndex([0, 2, 1, 1, 2, 3]);
+  const seed = new Float32Array(N_SPARK);
+  for (let i = 0; i < N_SPARK; i++) seed[i] = i * 3.71 + 0.9;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_SPARK;
+  return g;
+})();
+const sparkMat = new THREE.ShaderMaterial({
+  uniforms: { uT: { value: 0 }, uI: { value: 0 } },
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT;
+    varying vec2 vUv; varying float vA, vTw;
+    void main(){
+      vUv = uv;
+      float s = aSeed;
+      float life = 1.2 + 1.2*h11(s*1.31);
+      float ph = fract((uT + h11(s*2.17)*4.0) / life);
+      float age = ph*life;
+      float k = floor((uT + h11(s*2.17)*4.0)/life) + s;   // re-hash every cycle
+      vec2 H = vec2(${HX.toFixed(4)}, ${HY.toFixed(4)});
+      vec3 p; vec2 nrm;
+      if (h11(k*5.13) < 0.70) {                            // 70% born on the rim perimeter
+        float u = h11(k*7.77);
+        float per = 2.0*H.x + 2.0*H.y;
+        float sgn = h11(k*9.31) < 0.5 ? -1.0 : 1.0;
+        float d = u*per; vec2 b;
+        if (d < H.x) { b = vec2(d, -H.y); nrm = vec2(0.0,-1.0); }
+        else if (d < H.x + 2.0*H.y) { b = vec2(H.x, -H.y + (d-H.x)); nrm = vec2(1.0,0.0); }
+        else { b = vec2(H.x - (d-H.x-2.0*H.y), H.y); nrm = vec2(0.0,1.0); }
+        b.x *= sgn; nrm.x *= sgn;
+        p = vec3(b + nrm*(h11(k*11.9)-0.3)*0.14, (h11(k*13.3)-0.5)*0.16);
+      } else {                                             // 30% inside the opening
+        p = vec3((h11(k*7.77)*2.0-1.0)*H.x*0.88, (h11(k*9.31)*2.0-1.0)*H.y*0.90, 0.02);
+        nrm = normalize(p.xy + vec2(0.001));
+      }
+      p.y += 0.15*age;                                     // slow rise
+      p.xy += nrm * 0.055 * age;                           // and outward off the rim
+      p.x += 0.035*sin(uT*1.7 + s*2.3) * age;              // sine wobble
+      float sz = (0.026 + 0.034*h11(k*17.1)) * (0.6 + 0.4*ssm(0.0,0.18,ph));
+      vA = ssm(0.0,0.14,ph) * (1.0 - ssm(0.70,1.0,ph));
+      vTw = 0.42 + 0.58*pow(abs(sin(uT*(6.0+3.0*h11(k*19.7)) + s*4.31)), 1.6);
+      vec4 mv = modelViewMatrix * vec4(p,1.0);
+      mv.xy += position.xy * sz;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vA, vTw; uniform float uI;
+    void main(){
+      vec2 q = (vUv-0.5)*2.0;
+      float r = length(q);
+      float dot_ = exp(-pow(r/0.34, 2.0));                 // soft core
+      float gl = pow(max(1.0-abs(q.x)*3.4,0.0),2.0) + pow(max(1.0-abs(q.y)*3.4,0.0),2.0);
+      float a = clamp(dot_ + gl*0.20*(1.0-ssm(0.5,1.0,r)), 0.0, 1.0) * vA * vTw * uI;
+      if (a < 0.004) discard;
+      gl_FragColor = vec4(vec3(1.00,0.72,0.30)*a*2.20, a);
+    }`,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+});
+const sparks = new THREE.Mesh(sparkGeo, sparkMat);
+sparks.frustumCulled = false;
+portal.add(sparks);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 0.40, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function apply(t) {
+  const L = P.layers;
+  const cut = rimCut(t);
+  const rimI = env(t, [[0, 1], [4.9, 1], [5.0, 0.6]]);
+  for (const m of [rimMat, rimBackMat]) {
+    m.uniforms.uT.value = t;
+    m.uniforms.uCut.value = cut;
+    m.uniforms.uI.value = rimI;
+  }
+  rimFront.visible = rimBack.visible = L.rim && cut > 1e-3;
+
+  const fill = ss(T_FILL0, T_FILL1, t);
+  const smoke = ss(T_OUT0, 4.72, t);
+  const alpha = 0.85 * (1 - ss(4.45, 4.80, t));
+  const su = surface.material.uniforms;
+  su.uT.value = t; su.uFill.value = fill; su.uSmoke.value = smoke; su.uA.value = alpha;
+  surface.visible = L.surface && alpha > 1e-3;
+  const ru = reflection.material.uniforms;
+  ru.uT.value = t; ru.uFill.value = fill; ru.uSmoke.value = smoke; ru.uA.value = alpha;
+  reflection.visible = L.reflection && L.surface && alpha > 1e-3;
+
+  sparkMat.uniforms.uT.value = t;
+  sparkMat.uniforms.uI.value = (L.sparks ? 1 : 0) * env(t, [[0.30, 0], [0.75, 1], [T_OUT0, 1], [4.35, 0]]);
+  sparks.visible = sparkMat.uniforms.uI.value > 1e-3;
+
+  const gu = ground.material.uniforms;
+  gu.uT.value = t;
+  gu.uPool.value = (L.floor ? 1 : 0) * env(t, [[0.05, 0], [0.70, 1], [4.2, 1], [4.9, 0]]) * (0.94 + 0.06 * Math.sin(t * 3.77));
+  bloom.enabled = L.post;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+window.__spikeReady = true;
