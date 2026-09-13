@@ -72,6 +72,11 @@ const cards = [
     body: "Yellow-rimmed amber portal spike served from dev-assets/vfx-v2/spike-portal.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-vortex",
+    title: "Toolbox v2 spike — orange sky vortex",
+    body: "Suspended orange spiral vortex spike served from dev-assets/vfx-v2/spike-vortex.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
