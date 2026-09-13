@@ -92,6 +92,16 @@ const cards = [
     body: "Pale-cyan water head with dark-blue membrane sheets and toon droplets, served from dev-assets/vfx-v2/spike-water.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-playful",
+    title: "Toolbox v2 spike — playful pink impact",
+    body: "Cute cartoon pink burst: white star lines, procedural face symbols and heart sprites, served from dev-assets/vfx-v2/spike-playful.html.",
+  },
+  {
+    href: "/dev/vfx-v2/spike-slash",
+    title: "Toolbox v2 spike — fire slash",
+    body: "Flaming crescent slash with a three-tone stack and a tearing tail, served from dev-assets/vfx-v2/spike-slash.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",

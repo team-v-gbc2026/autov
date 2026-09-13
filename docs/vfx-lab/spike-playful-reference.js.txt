@@ -1,0 +1,623 @@
+// autoV toolbox v2 — S13 spike: cute cartoon pink impact (hand-built, no LLM).
+// state = f(t, seed): every piece reads the clock, nothing accumulates, seek == play.
+// The whole burst lives in ONE camera-facing group, because the reference is a 2D
+// symbol burst pinned to the screen plane — slivers, faces and hearts are flat cards
+// laid out in that group's local XY, never world-space particles.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 3.0;
+const T_ANT = 0.20;         // anticipation ends / flash starts
+const N_LINE = 12;          // thin white star lines
+const N_FAT = 4;            // thick pink sparkle chunks
+const N_FACE = 6;
+const N_HEART = 8;
+const N_SPRAY = 30;
+
+const P = (window.spikeParams = {
+  play: true, time: 0, speed: 1,
+  bloom: 0.35, threshold: 1.0, exposure: 1.0,
+  layers: { flash: true, lines: true, faces: true, commas: true, spray: true, post: true },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const hash = (p) => { const x = Math.sin(p * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const easeOutExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+const easeOutCubic = (x) => 1 - Math.pow(1 - clamp01(x), 3);
+const easeOutBack = (x) => { const c1 = 2.2, c3 = c1 + 1; const u = clamp01(x) - 1; return 1 + c3 * u * u * u + c1 * u * u; };
+const hex = (h) => new THREE.Color(h);
+
+// ---------------------------------------------------------------- layout
+const CENTER = new THREE.Vector3(0, 1.20, 0);   // the burst floats above the ground
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = hex("#04070f");
+const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 60);
+{
+  const az = -0.42, el = 0.30, dist = 5.35;
+  camera.position.set(Math.sin(az) * Math.cos(el) * dist, 1.20 + Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
+  camera.lookAt(0, 1.16, 0);
+}
+
+// backdrop: the reference's blue vignette — a card locked to the camera, behind everything
+const backdrop = new THREE.Mesh(
+  new THREE.PlaneGeometry(2, 2),
+  new THREE.ShaderMaterial({
+    depthTest: false, depthWrite: false,
+    uniforms: { uHot: { value: hex("#3d8ada") }, uCold: { value: hex("#0c2a55") } },
+    vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,1.,1.); }`,
+    fragmentShader: /* glsl */`
+      precision highp float; varying vec2 vUv; uniform vec3 uHot,uCold;
+      void main(){
+        vec2 d=(vUv-vec2(.5,.46))*vec2(1.10,1.);
+        float r=length(d);
+        float v=1.-smoothstep(.02,1.35,r);             // wide, so the blue reaches the frame edges
+        vec3 c=mix(uCold,uHot,pow(v,1.15));
+        c*=1.-0.40*smoothstep(.50,1.0,vUv.y);          // ceiling darker, as in the reference
+        c*=1.-0.22*smoothstep(.30,.0,vUv.y);
+        gl_FragColor=vec4(c,1.);
+      }`,
+  })
+);
+backdrop.frustumCulled = false;
+backdrop.renderOrder = -100;
+scene.add(backdrop);
+
+// minimal ground: a dark plane with one faint grid frequency, far below the burst
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.ShaderMaterial({
+    transparent: true,
+    uniforms: { uBase: { value: hex("#15375f") }, uGrid: { value: hex("#5a83c4") }, uCam: { value: camera.position } },
+    vertexShader: /* glsl */`varying vec3 vWp; void main(){ vec4 wp=modelMatrix*vec4(position,1.); vWp=wp.xyz; gl_Position=projectionMatrix*viewMatrix*wp; }`,
+    fragmentShader: /* glsl */`
+      precision highp float; varying vec3 vWp; uniform vec3 uBase,uGrid,uCam;
+      void main(){
+        vec2 q=vWp.xz*0.85;
+        vec2 g=abs(fract(q-0.5)-0.5)/fwidth(q); float line=1.-min(min(g.x,g.y),1.);
+        vec3 c=mix(uBase,uGrid,line*0.18);
+        float a=1.-smoothstep(3.,9.,length(vWp.xz-uCam.xz));
+        gl_FragColor=vec4(c,a*0.30);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.renderOrder = -50;
+scene.add(ground);
+
+// ---------------------------------------------------------------- the burst frame
+// one group, camera-facing: every symbol below is positioned in its local XY plane.
+const burst = new THREE.Group();
+burst.position.copy(CENTER);
+scene.add(burst);
+
+const QUAD = new THREE.PlaneGeometry(1, 1);
+
+function addCard(frag, uniforms, order, blend) {
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: false,
+    blending: blend === "alpha" ? THREE.NormalBlending : THREE.AdditiveBlending,
+    uniforms: Object.assign({ uA: { value: 1 } }, uniforms),
+    vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv=uv*2.-1.; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader: frag,
+  });
+  const mesh = new THREE.Mesh(QUAD, m);
+  mesh.renderOrder = order;
+  burst.add(mesh);
+  return mesh;
+}
+
+// ---------------------------------------------------------------- flash
+// a 6-point star core (the reference's hard shape) + a soft radial bloom under it.
+const starCard = addCard(/* glsl */`
+  precision highp float; varying vec2 vUv; uniform float uA,uRot,uPoint;
+  uniform vec3 uCore,uEdge;
+  void main(){
+    vec2 p=vUv; float r=length(p); float a=atan(p.y,p.x)+uRot;
+    float k=0.5+0.5*cos(a*6.0);
+    float R=mix(0.13,0.94,pow(k,1.35))*uPoint;        // star radius as a function of angle
+    float arm=smoothstep(R,R*0.70,r);
+    float core=exp(-pow(r/0.13,2.0));
+    vec3 c=mix(uEdge,uCore,clamp(core*1.2+arm*0.28,0.,1.));
+    float al=(arm*0.55+core*0.95)*uA;
+    gl_FragColor=vec4(c*(1.0+core*1.1),al);
+  }`, { uRot: { value: 0.26 }, uPoint: { value: 1 }, uCore: { value: hex("#fff0cf") }, uEdge: { value: hex("#ff49bc") } }, 40);
+
+const haloCard = addCard(/* glsl */`
+  precision highp float; varying vec2 vUv; uniform float uA; uniform vec3 uCol;
+  void main(){
+    float r=length(vUv);
+    float g=exp(-r*r*2.6)*0.78+exp(-r*r*9.0)*0.26;
+    gl_FragColor=vec4(uCol*g,g*uA);
+  }`, { uCol: { value: hex("#ff1a92") } }, 10);
+
+// the residual: a wider, cooler magenta glow that outlives every symbol
+const residualCard = addCard(/* glsl */`
+  precision highp float; varying vec2 vUv; uniform float uA; uniform vec3 uCol;
+  void main(){ float r=length(vUv); float g=exp(-r*r*2.2); gl_FragColor=vec4(uCol*g,g*uA); }`,
+  { uCol: { value: hex("#c145d8") } }, 8);
+
+// anticipation dot: the pin-prick that grows just before the hit
+const dotCard = addCard(/* glsl */`
+  precision highp float; varying vec2 vUv; uniform float uA; uniform vec3 uCol;
+  void main(){ float r=length(vUv); float g=exp(-r*r*16.0); gl_FragColor=vec4(uCol*g*1.6,g*uA); }`,
+  { uCol: { value: hex("#ffd8f2") } }, 42);
+
+// ---------------------------------------------------------------- star lines
+// flat unlit tapered slivers, same construction as the smoke spike's splash shards:
+// pointed at the tip, widest a third of the way up, independently jagged edges.
+function sliverGeo(len, width, curve, taper, h) {
+  const N = 28, pos = [], uv = [], idx = [];
+  const nL = 2 + Math.floor(hash(h) * 3), nR = 2 + Math.floor(hash(h + 7) * 3);
+  const oL = hash(h + 3), oR = hash(h + 11);
+  const dL = 0.16 + 0.22 * hash(h + 5), dR = 0.16 + 0.22 * hash(h + 13);
+  const edge = (t, base, n, off, depth) => base * (1 - depth * ((t * n + off) % 1));
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = (Math.sin(Math.PI * t * 0.5) - 0.25 * Math.sin(Math.PI * t)) * curve;
+    const y = len * t;
+    const base = width * Math.pow(1 - t, taper) * Math.pow(ss(0, 0.22, t), 0.6);
+    pos.push(x - edge(t, base, nL, oL, dL), y, 0, x + edge(t, base, nR, oR, dR), y, 0);
+    uv.push(0, t, 1, t);
+  }
+  for (let i = 0; i < N; i++) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+const sliverFrag = /* glsl */`
+  precision highp float; varying vec2 vUv; uniform vec3 uRoot,uTip; uniform float uA,uCut;
+  void main(){
+    if (vUv.y < uCut) discard;                        // the shrink eats the sliver from its root
+    vec3 c=mix(uRoot,uTip,smoothstep(0.05,0.75,vUv.y));
+    float a=uA*(1.0-smoothstep(0.72,1.0,vUv.y)*0.55);
+    a*=smoothstep(0.0,0.30,vUv.x)*smoothstep(1.0,0.70,vUv.x);   // soft edges along the width
+    gl_FragColor=vec4(c,a);
+  }`;
+
+const lines = [];
+for (let k = 0; k < N_LINE + N_FAT; k++) {
+  const fat = k >= N_LINE;
+  const h = k * 13 + 3;
+  const i = fat ? k - N_LINE : k;
+  const n = fat ? N_FAT : N_LINE;
+  // evenly spread with a hashed wobble so the fan never reads as a clock face
+  const ang = (i / n) * Math.PI * 2 + (fat ? 0.42 : 0) + (hash(h) - 0.5) * (Math.PI * 1.1 / n);
+  const len = fat ? 0.40 + 0.28 * hash(h + 1) : 0.70 + 1.15 * hash(h + 1);
+  const wid = fat ? 0.105 + 0.05 * hash(h + 2) : 0.030 + 0.042 * hash(h + 2);
+  const curve = (hash(h + 4) < 0.45 ? 1 : -1) * (0.02 + 0.16 * hash(h + 5));  // some curved, most straight
+  const g = sliverGeo(len, wid, curve, fat ? 1.15 : 1.55, h);
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uRoot: { value: fat ? hex("#ff7ad2") : hex("#ffe8fb") },
+      uTip: { value: fat ? hex("#ff2fa8") : hex("#b083ff") },
+      uA: { value: 1 }, uCut: { value: 0 },
+    },
+    vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader: sliverFrag,
+  });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.renderOrder = fat ? 30 : 28;
+  burst.add(mesh);
+  lines.push({
+    mesh, m, fat, ang, len, h,
+    t0: 0.245 + 0.045 * hash(h + 6),
+    grow: 0.075 + 0.05 * hash(h + 7),
+    r0: (fat ? 0.20 : 0.16) + 0.16 * hash(h + 8),      // inner gap so the core stays readable
+    push: 0.30 + 0.45 * hash(h + 9),                    // how far the root travels out
+    s0: 0.33 + 0.10 * hash(h + 10),                     // root-shrink start
+    s1: 0.50 + 0.16 * hash(h + 11),
+    spin: (hash(h + 12) - 0.5) * 0.6,
+  });
+}
+
+// ---------------------------------------------------------------- faces
+// 6 instanced camera-facing quads; the whole face is drawn in the fragment shader,
+// so there is no texture and expressions are a hashed branch, not an atlas tile.
+const faceMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+  uniforms: {
+    uFill: { value: hex("#ff3cb4") }, uHi: { value: hex("#ff8ad8") },
+    uLine: { value: hex("#fff0fa") }, uEye: { value: hex("#4a0b33") },
+  },
+  vertexShader: /* glsl */`
+    attribute float aSeed; attribute float aAlpha;
+    varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vSeed=aSeed; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float;
+    varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    uniform vec3 uFill,uHi,uLine,uEye;
+    float sdC(vec2 p,float r){ return length(p)-r; }
+    float sdE(vec2 p,vec2 r){ return (length(p/r)-1.0)*min(r.x,r.y); }
+    void main(){
+      vec2 p=vUv;
+      float aa=fwidth(p.x)*1.4+0.004;
+      // head + two ears
+      float d=sdC(p,0.58);
+      d=min(d,sdC(p-vec2(-0.44,0.46),0.235));
+      d=min(d,sdC(p-vec2( 0.44,0.46),0.235));
+      float body=smoothstep(aa,-aa,d);
+      float ring=smoothstep(aa,-aa,d-0.085)-body;      // white outline hugging the silhouette
+      if(body+ring<0.003) discard;
+
+      float expr=floor(fract(vSeed*7.31)*3.0);          // smile / ^^ / open mouth
+      // eyes
+      vec2 el=p-vec2(-0.235,0.115), er=p-vec2(0.235,0.115);
+      float eye;
+      if(expr<1.5 && expr>0.5){                          // ^^ happy eyes: two arcs
+        eye=min(abs(sdC(el,0.135))-0.042, abs(sdC(er,0.135))-0.042);
+        eye=max(eye,-(p.y-0.085));
+      } else {
+        eye=min(sdE(el,vec2(0.088,0.115)), sdE(er,vec2(0.088,0.115)));
+      }
+      // mouth
+      float mouth;
+      if(expr>1.5){ mouth=sdE(p-vec2(0.0,-0.185),vec2(0.115,0.095)); }
+      else { mouth=max(abs(sdC(p-vec2(0.0,0.12),0.30))-0.038, -(-p.y-0.055)); }
+      float ink=smoothstep(aa,-aa,min(eye,mouth));
+
+      // a soft lit lift on the upper-left so the head reads as a ball, not a disc
+      float lift=smoothstep(0.55,-0.35,length(p-vec2(-0.16,0.20)));
+      vec3 c=mix(uFill,uHi,lift*0.55);
+      c=mix(c,uLine,ring);
+      c=mix(c,uEye,ink*body);
+      float a=(body+ring)*vAlpha;
+      gl_FragColor=vec4(c,clamp(a,0.,1.));
+    }`,
+});
+
+const faceGeo = new THREE.PlaneGeometry(1, 1);
+faceGeo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(new Float32Array(N_FACE), 1));
+faceGeo.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(new Float32Array(N_FACE), 1));
+const faces = new THREE.InstancedMesh(faceGeo, faceMat, N_FACE);
+faces.frustumCulled = false;
+faces.renderOrder = 50;
+burst.add(faces);
+
+const FACE = [];
+for (let i = 0; i < N_FACE; i++) {
+  const h = i * 17 + 5;
+  const ang = (i / N_FACE) * Math.PI * 2 + 0.55 + (hash(h) - 0.5) * 0.75;
+  FACE.push({
+    h, ang,
+    t0: 0.275 + 0.045 * i + 0.05 * hash(h + 1),
+    v0: (i === 1 || i === 4 ? 1.5 : 1.8) + (i === 1 || i === 4 ? 0.8 : 2.4) * Math.pow(hash(h + 2), 0.7),
+    r0: 0.14 + 0.10 * hash(h + 3),
+    size: 0.26 + 0.24 * hash(h + 4),
+    spin0: (hash(h + 5) - 0.5) * 0.9,
+    spin: (hash(h + 6) - 0.5) * 2.2,
+    arc: (hash(h + 7) - 0.5) * 1.6,                     // sideways curve of the throw
+    fade: (i === 1 || i === 4) ? [0.78, 1.15] : [0.44 + 0.14 * hash(h + 8), 0.66 + 0.20 * hash(h + 9)],
+  });
+  faceGeo.attributes.aSeed.array[i] = hash(h + 21);
+}
+faceGeo.attributes.aSeed.needsUpdate = true;
+
+// ---------------------------------------------------------------- hearts / commas
+// the reference's little pink puffs: a heart SDF for most, a comma crescent for the rest.
+const heartMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+  uniforms: { uFill: { value: hex("#ff6fd0") }, uLine: { value: hex("#ffe4f6") } },
+  vertexShader: /* glsl */`
+    attribute float aSeed; attribute float aAlpha;
+    varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vSeed=aSeed; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float; varying vec2 vUv; varying float vSeed; varying float vAlpha;
+    uniform vec3 uFill,uLine;
+    float sdC(vec2 p,float r){ return length(p)-r; }
+    float d2(vec2 v){ return dot(v,v); }
+    // iq's heart SDF: cusp at the origin, lobes at y=1
+    float sdHeart(vec2 p){
+      p.x=abs(p.x);
+      if(p.y+p.x>1.0) return sqrt(d2(p-vec2(0.25,0.75)))-sqrt(2.0)/4.0;
+      return sqrt(min(d2(p-vec2(0.0,1.0)), d2(p-0.5*max(p.x+p.y,0.0))))*sign(p.x-p.y);
+    }
+    void main(){
+      vec2 p=vUv; float aa=fwidth(p.x)*1.5+0.006; float d;
+      if(fract(vSeed*3.7)<0.62){
+        d=sdHeart((p+vec2(0.0,0.78))/1.55)*1.55;
+      } else {
+        // comma: a crescent, a big disc minus an offset one
+        d=max(sdC(p-vec2(-0.06,0.02),0.56), -sdC(p-vec2(0.26,0.24),0.50));
+      }
+      float body=smoothstep(aa,-aa,d);
+      float ring=smoothstep(aa,-aa,d-0.10)-body;
+      if(body+ring<0.004) discard;
+      vec3 c=mix(uFill,uLine,ring*0.9);
+      gl_FragColor=vec4(c,clamp((body+ring)*vAlpha,0.,1.));
+    }`,
+});
+const heartGeo = new THREE.PlaneGeometry(1, 1);
+heartGeo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(new Float32Array(N_HEART), 1));
+heartGeo.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(new Float32Array(N_HEART), 1));
+const hearts = new THREE.InstancedMesh(heartGeo, heartMat, N_HEART);
+hearts.frustumCulled = false;
+hearts.renderOrder = 46;
+burst.add(hearts);
+
+const HEART = [];
+for (let i = 0; i < N_HEART; i++) {
+  const h = i * 23 + 11;
+  HEART.push({
+    h, ang: (i / N_HEART) * Math.PI * 2 + 0.18 + (hash(h) - 0.5) * 0.7,
+    t0: 0.275 + 0.05 * hash(h + 1),
+    v0: 2.0 + 1.6 * hash(h + 2),
+    r0: 0.12 + 0.14 * hash(h + 3),
+    size: 0.115 + 0.075 * hash(h + 4),
+    spin: (hash(h + 5) - 0.5) * 5.0,
+    arc: (hash(h + 6) - 0.5) * 1.9,
+    fade: [0.70 + 0.35 * hash(h + 7), 1.20 + 0.45 * hash(h + 8)],
+  });
+  heartGeo.attributes.aSeed.array[i] = hash(h + 31);
+}
+heartGeo.attributes.aSeed.needsUpdate = true;
+
+// ---------------------------------------------------------------- spray
+// 30 tiny white dots, short lives — the thin spray the reference flicks past the rays.
+const sprayMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending,
+  uniforms: {},
+  vertexShader: /* glsl */`
+    attribute float aAlpha; varying vec2 vUv; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vAlpha=aAlpha;
+      gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float; varying vec2 vUv; varying float vAlpha;
+    void main(){
+      float d=length(vec2(vUv.x, vUv.y*0.34));          // stretched along the throw
+      float g=smoothstep(1.0,0.15,d);
+      if(g*vAlpha<0.004) discard;
+      gl_FragColor=vec4(vec3(1.0,0.94,1.0)*g,g*vAlpha);
+    }`,
+});
+const sprayGeo = new THREE.PlaneGeometry(1, 1);
+sprayGeo.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(new Float32Array(N_SPRAY), 1));
+const spray = new THREE.InstancedMesh(sprayGeo, sprayMat, N_SPRAY);
+spray.frustumCulled = false;
+spray.renderOrder = 34;
+burst.add(spray);
+
+const SPRAY = [];
+for (let i = 0; i < N_SPRAY; i++) {
+  const h = i * 31 + 7;
+  SPRAY.push({
+    h, ang: hash(h) * Math.PI * 2,
+    t0: 0.205 + 0.09 * hash(h + 1),
+    life: 0.22 + 0.26 * hash(h + 2),
+    v0: 2.2 + 2.6 * hash(h + 3),
+    r0: 0.08 + 0.22 * hash(h + 4),
+    len: 0.11 + 0.13 * hash(h + 5),
+    wid: 0.016 + 0.014 * hash(h + 6),
+  });
+}
+
+// ---------------------------------------------------------------- the 8 anticipation sparkles
+const antMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+  uniforms: {},
+  vertexShader: /* glsl */`
+    attribute float aAlpha; varying vec2 vUv; varying float vAlpha;
+    void main(){ vUv=uv*2.-1.; vAlpha=aAlpha; gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float; varying vec2 vUv; varying float vAlpha;
+    void main(){ float g=exp(-dot(vUv,vUv)*6.0); gl_FragColor=vec4(vec3(1.0,0.72,0.95)*g,g*vAlpha); }`,
+});
+const antGeo = new THREE.PlaneGeometry(1, 1);
+antGeo.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(new Float32Array(8), 1));
+const antSparks = new THREE.InstancedMesh(antGeo, antMat, 8);
+antSparks.frustumCulled = false;
+antSparks.renderOrder = 20;
+burst.add(antSparks);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), 0.35, 1.0, 1.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  const w = canvas.clientWidth || 1280, h = Math.round(w * 9 / 16);
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize); resize();
+
+// ---------------------------------------------------------------- apply(t)
+const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+const _e = new THREE.Euler();
+
+function setInst(mesh, i, x, y, rot, sx, sy) {
+  _p.set(x, y, 0);
+  _e.set(0, 0, rot); _q.setFromEuler(_e);
+  _s.set(sx, sy, 1);
+  _m.compose(_p, _q, _s);
+  mesh.setMatrixAt(i, _m);
+}
+
+function apply(t) {
+  const L = P.layers;
+  burst.quaternion.copy(camera.quaternion);
+
+  // ---- flash: easeOutExpo up, then a hard cut; the core is the only thing over 1.0
+  const up = easeOutExpo(clamp01((t - T_ANT) / 0.085));
+  const cut = 1 - ss(0.30, 0.44, t);
+  const fA = up * cut;
+  const fs = (0.40 + 1.25 * up) * (1 + 0.34 * (1 - cut));
+  starCard.scale.set(fs, fs, 1);
+  starCard.material.uniforms.uA.value = L.flash ? fA * 0.92 : 0;
+  starCard.material.uniforms.uPoint.value = 0.72 + 0.28 * up;
+  starCard.visible = L.flash && fA > 0.004;
+
+  const hA = ss(T_ANT, T_ANT + 0.06, t) * (1 - ss(0.48, 1.10, t));
+  const hs = 1.9 + 1.8 * ss(T_ANT, 0.55, t);
+  haloCard.scale.set(hs, hs, 1);
+  haloCard.material.uniforms.uA.value = L.flash ? hA * 0.74 : 0;
+  haloCard.visible = L.flash && hA > 0.004;
+
+  const rA = ss(0.22, 0.34, t) * (1 - ss(0.80, 1.80, t));
+  const rs = 2.6 + 2.2 * ss(0.25, 1.4, t);
+  residualCard.scale.set(rs, rs, 1);
+  residualCard.material.uniforms.uA.value = L.flash ? rA * 0.42 : 0;
+  residualCard.visible = L.flash && rA > 0.004;
+
+  // ---- anticipation dot + inward sparkles
+  const dA = ss(0.0, 0.06, t) * (1 - ss(0.19, 0.27, t));
+  const ds = 0.14 + 0.30 * ss(0, T_ANT, t);
+  dotCard.scale.set(ds, ds, 1);
+  dotCard.material.uniforms.uA.value = L.flash ? dA * 0.9 : 0;
+  dotCard.visible = L.flash && dA > 0.004;
+
+  {
+    const arr = antGeo.attributes.aAlpha.array;
+    const pull = ss(0.02, T_ANT, t);
+    const aA = ss(0.01, 0.07, t) * (1 - ss(0.16, 0.21, t));
+    for (let i = 0; i < 8; i++) {
+      const h = i * 41 + 3;
+      const ang = (i / 8) * Math.PI * 2 + hash(h) * 0.5;
+      const r = (0.62 + 0.28 * hash(h + 1)) * (1 - pull) + 0.06;
+      const sz = 0.075 * (1 - 0.45 * pull);
+      setInst(antSparks, i, Math.cos(ang) * r, Math.sin(ang) * r, 0, sz, sz);
+      arr[i] = L.flash ? aA : 0;
+    }
+    antSparks.instanceMatrix.needsUpdate = true;
+    antGeo.attributes.aAlpha.needsUpdate = true;
+    antSparks.visible = L.flash && aA > 0.004;
+  }
+
+  // ---- star lines: scale out from the centre, then shrink from the root
+  for (const l of lines) {
+    const age = t - l.t0;
+    const g = easeOutCubic(age / l.grow);
+    const eat = ss(l.s0, l.s1, t);                       // 0..1 of the sliver eaten from the root
+    const fade = 1 - ss(l.s1 - 0.10, l.s1 + 0.14, t);
+    const vis = L.lines && age > 0 && fade > 0.01 && eat < 0.995;
+    l.mesh.visible = vis;
+    if (!vis) continue;
+    const rr = l.r0 + l.push * easeOutCubic(clamp01(age / 0.42)) + (l.len * eat) * 0.9;
+    const rot = l.ang - Math.PI / 2 + l.spin * clamp01(age) * 0.35;
+    l.mesh.position.set(Math.cos(l.ang) * rr, Math.sin(l.ang) * rr, 0);
+    l.mesh.rotation.set(0, 0, rot);
+    l.mesh.scale.set(g * (1 - 0.35 * eat), g * (1 - eat), 1);
+    // the rays duck under the flash while the core is hot, then own the frame
+    const duck = 0.40 + 0.60 * ss(0.30, 0.40, t);
+    l.m.uniforms.uA.value = fade * duck * (l.fat ? 0.52 : 0.38);
+    l.m.uniforms.uCut.value = 0;
+  }
+
+  // ---- faces: ballistic arcs, overshoot scale-in, they fade last
+  {
+    const aArr = faceGeo.attributes.aAlpha.array;
+    let any = false;
+    for (let i = 0; i < N_FACE; i++) {
+      const f = FACE[i];
+      const age = t - f.t0;
+      const alive = age > 0;
+      const fade = 1 - ss(f.fade[0], f.fade[1], t);
+      const sIn = easeOutBack(clamp01(age / 0.15));
+      const a = alive ? fade : 0;
+      if (a > 0.01) any = true;
+      // drag-limited radial throw + a small lateral arc and a light gravity sag
+      const dr = alive ? (1 - Math.exp(-age * 3.4)) / 3.4 : 0;
+      const r = f.r0 + f.v0 * dr;
+      const lat = f.arc * dr * 0.9;
+      const cx = Math.cos(f.ang), cy = Math.sin(f.ang);
+      const x = cx * r - cy * lat;
+      const y = cy * r + cx * lat - 0.55 * Math.max(0, age) * Math.max(0, age);
+      const sz = f.size * sIn;
+      setInst(faces, i, x, y, f.spin0 + f.spin * Math.max(0, age) * 0.35, sz, sz);
+      aArr[i] = L.faces ? a : 0;
+    }
+    faces.instanceMatrix.needsUpdate = true;
+    faceGeo.attributes.aAlpha.needsUpdate = true;
+    faces.visible = L.faces && any;
+  }
+
+  // ---- hearts / commas
+  {
+    const aArr = heartGeo.attributes.aAlpha.array;
+    let any = false;
+    for (let i = 0; i < N_HEART; i++) {
+      const c = HEART[i];
+      const age = t - c.t0;
+      const alive = age > 0;
+      const fade = 1 - ss(c.fade[0], c.fade[1], t);
+      const sIn = easeOutBack(clamp01(age / 0.13));
+      const a = alive ? fade : 0;
+      if (a > 0.01) any = true;
+      const dr = alive ? (1 - Math.exp(-age * 2.8)) / 2.8 : 0;
+      const r = c.r0 + c.v0 * dr;
+      const lat = c.arc * dr * 0.8;
+      const cx = Math.cos(c.ang), cy = Math.sin(c.ang);
+      const x = cx * r - cy * lat;
+      const y = cy * r + cx * lat - 0.40 * Math.max(0, age) * Math.max(0, age);
+      const sz = c.size * sIn;
+      setInst(hearts, i, x, y, c.spin * Math.max(0, age) * 0.5, sz, sz);
+      aArr[i] = L.commas ? a : 0;
+    }
+    hearts.instanceMatrix.needsUpdate = true;
+    heartGeo.attributes.aAlpha.needsUpdate = true;
+    hearts.visible = L.commas && any;
+  }
+
+  // ---- spray
+  {
+    const aArr = sprayGeo.attributes.aAlpha.array;
+    let any = false;
+    for (let i = 0; i < N_SPRAY; i++) {
+      const s = SPRAY[i];
+      const age = t - s.t0;
+      const u = age / s.life;
+      const alive = age > 0 && u < 1;
+      const a = alive ? (1 - u) * (1 - Math.exp(-age * 26)) : 0;
+      if (a > 0.01) any = true;
+      const dr = alive ? (1 - Math.exp(-age * 3.6)) / 3.6 : 0;
+      const r = s.r0 + s.v0 * dr;
+      setInst(spray, i, Math.cos(s.ang) * r, Math.sin(s.ang) * r,
+        s.ang, s.len * (0.6 + 0.7 * (1 - u)), s.wid);
+      aArr[i] = L.spray ? a * 1.25 : 0;
+    }
+    spray.instanceMatrix.needsUpdate = true;
+    sprayGeo.attributes.aAlpha.needsUpdate = true;
+    spray.visible = L.spray && any;
+  }
+}
+
+// ---------------------------------------------------------------- frame
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom; bloom.threshold = P.threshold;
+  apply(P.time);
+  if (P.layers.post) composer.render(); else renderer.render(scene, camera);
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+window.spikePieces = { lines, faces: FACE, hearts: HEART, spray: SPRAY, center: CENTER };
+window.__spikeReady = true;
