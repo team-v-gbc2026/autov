@@ -37,3 +37,21 @@ test("looping, stopping at the end, functional setters, and duration changes", (
   clock.getSnapshot().setTime(value => value - 0.5);
   assert.equal(clock.getSnapshot().time, 0.5);
 });
+
+test("display updates are bounded while the canvas clock stays current", () => {
+  const clock = createPlaybackClock(10);
+  let updates = 0;
+  clock.subscribeDisplay(() => updates++);
+  for (let frame = 0; frame < 120; frame++) clock.tick(1 / 120);
+  assert.ok(Math.abs(clock.getSnapshot().time - 1) < 1e-6);
+  assert.equal(updates, 30);
+  clock.tick(1 / 120);
+  assert.notEqual(clock.getDisplaySnapshot().time, clock.getSnapshot().time);
+  clock.getSnapshot().setPlaying(false);
+  assert.equal(clock.getDisplaySnapshot(), clock.getSnapshot());
+  clock.getSnapshot().setTime(2.123);
+  assert.equal(clock.getDisplaySnapshot().time, 2.123);
+  const pausedUpdates = updates;
+  for (let frame = 0; frame < 120; frame++) clock.tick(1 / 120);
+  assert.equal(updates, pausedUpdates);
+});

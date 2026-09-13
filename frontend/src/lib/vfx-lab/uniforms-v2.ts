@@ -22,12 +22,15 @@ export function rampUniforms(ramp: Ramp) {
   };
 }
 
+// Reused only during synchronous uniform writes; no per-stop Color allocation.
+const rampColor = new THREE.Color();
+
 export function writeRamp(uniforms: Record<string, IUniform>, ramp: Ramp) {
   const colors = uniforms.uRamp.value as THREE.Vector4[];
   const stops = uniforms.uRampT.value as number[];
   for (let i = 0; i < RAMP_STOPS; i++) {
     const stop = ramp.stops[Math.min(i, ramp.stops.length - 1)];
-    const color = new THREE.Color(stop.color);
+    const color = rampColor.set(stop.color);
     colors[i].set(color.r, color.g, color.b, stop.intensity);
     stops[i] = stop.t;
   }

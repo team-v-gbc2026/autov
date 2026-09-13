@@ -1,4 +1,5 @@
 /* VFX studio presentation and interaction state. Generation stays outside this file. */
+.studio.lab { min-height: 0; }
 .lab { --timeline-height: 250px; --timeline-bottom: max(12px, env(safe-area-inset-bottom, 0px)); --studio-header-height: 76px; --workspace-panel-top: calc(var(--studio-header-height) + 2px); --environment-height: 36px; }
 .lab .transport { bottom: var(--timeline-bottom); }
 .lab .chat-panel { top: var(--workspace-panel-top); bottom: var(--timeline-bottom); }
@@ -32,7 +33,7 @@
 .lab .lab-add-emitter { display: grid; place-items: center; width: 22px; height: 24px; padding: 0; border-radius: 4px; color: #9aa3a7; }
 .lab .lab-add-emitter:hover { background: #ffffff08; }
 .lab .timeline { --emitter-label-width: 170px; }
-.lab .lab-timeline-scroll { max-height: 148px; overflow: auto; scrollbar-width: none; }
+.lab .lab-timeline-scroll { max-height: 148px; overflow: auto; overscroll-behavior: none; scrollbar-width: none; }
 .lab .lab-timeline-scroll::-webkit-scrollbar { display: none; }
 .lab .lab-timeline-body { position: relative; }
 .lab .lab-emitter-tracks { position: relative; z-index: 0; }

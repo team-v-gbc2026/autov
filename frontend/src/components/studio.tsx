@@ -271,9 +271,7 @@ export default function Studio({
     >
       <div className="viewport-grid" />
       <div className="lab-preview-stage">
-        <PlaybackFrames clock={clock}>{playback =>
-          <WorkspaceScene focusRequest={focusRequest} doc={doc} time={playback.time} solo={soloLayerId} />
-        }</PlaybackFrames>
+        <WorkspaceScene focusRequest={focusRequest} doc={doc} clock={clock} solo={soloLayerId} />
       </div>
       <StudioHeader
         project={project}

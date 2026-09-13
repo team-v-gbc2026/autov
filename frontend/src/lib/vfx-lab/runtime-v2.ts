@@ -5,7 +5,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildGeometry } from "./geometry";
 import { createEnvironment, type EnvironmentV2 } from "./environment-v2";
 import { createPostStack, type PostStackV2 } from "./post-v2";
-import { evaluateLayerV2 } from "./evaluate-v2";
+import { evaluateLayerV2Readonly as evaluateLayerV2 } from "./evaluate-v2";
 import { upgradeDocument } from "./migrate";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
 import { textureUrl } from "./asset-urls";
@@ -228,13 +228,13 @@ class TextureCacheV2 {
 
   resolve(id: string | null, doc: VfxDocumentV2, repeat: boolean) {
     if (!id) return null;
-    const key = `${id}:${repeat ? "r" : "c"}`;
-    const cached = this.cache.get(key);
-    if (cached) return cached;
     const embedded = doc.textures?.find((asset) => asset.id === id);
     const file = TEXTURE_FILES.get(id);
     const url = embedded ? embedded.data : file ? textureUrl(file) : undefined;
     if (!url) return null;
+    const key = `${url}:${repeat ? "r" : "c"}`;
+    const cached = this.cache.get(key);
+    if (cached) return cached;
     this.pending++;
     const texture = this.loader.load(
       url,
@@ -300,11 +300,9 @@ function makeAttributes(count: number, seed: number): ParticleAttributes {
 }
 
 function orthoOf(a: THREE.Vector3, out: THREE.Vector3) {
-  const helper =
-    Math.abs(a.y) < 0.9
-      ? new THREE.Vector3(0, 1, 0)
-      : new THREE.Vector3(1, 0, 0);
-  out.crossVectors(a, helper);
+  // a × Y or a × X, without allocating a helper for every particle.
+  if (Math.abs(a.y) < 0.9) out.set(-a.z, 0, a.x);
+  else out.set(0, a.z, -a.y);
   return out.lengthSq() > 1e-10 ? out.normalize() : out.set(1, 0, 0);
 }
 
@@ -322,6 +320,15 @@ function speedIntegral(curve: Curve, u: number) {
   }
   return acc;
 }
+
+// particlePositionV2 is synchronous and never calls user code; only `out`
+// escapes. Reuse its working vectors across sorting and bounds samples.
+const particleScratch = {
+  unit: new THREE.Vector3(), sphere: new THREE.Vector3(), axis: new THREE.Vector3(),
+  a1: new THREE.Vector3(), a2: new THREE.Vector3(), origin: new THREE.Vector3(),
+  base: new THREE.Vector3(), direction: new THREE.Vector3(),
+  t1: new THREE.Vector3(), t2: new THREE.Vector3(), force: new THREE.Vector3(),
+};
 
 /**
  * Positions for bounds and depth sorting. Deliberately ignores the curl and
@@ -376,9 +383,9 @@ function particlePositionV2(
   const ca = e0 * Math.PI * 2;
   const cz = e1 * 2 - 1;
   const cr = Math.sqrt(Math.max(0, 1 - cz * cz));
-  const unit = new THREE.Vector3(cr * Math.cos(ca), cz, cr * Math.sin(ca));
+  const unit = particleScratch.unit.set(cr * Math.cos(ca), cz, cr * Math.sin(ca));
   const fill = emitter.shape.surfaceOnly ? 1 : Math.sqrt(Math.max(e2, 0));
-  const sph = unit.clone().multiplyScalar(fill);
+  const sph = particleScratch.sphere.copy(unit).multiplyScalar(fill);
   const bias = emitter.shape.bias;
   sph.set(
     sph.x + (Math.abs(sph.x) - sph.x) * clamp01(bias[0]),
@@ -386,13 +393,13 @@ function particlePositionV2(
     sph.z + (Math.abs(sph.z) - sph.z) * clamp01(bias[2]),
   );
 
-  const axis = new THREE.Vector3().fromArray(emitter.shape.axis);
+  const axis = particleScratch.axis.fromArray(emitter.shape.axis);
   if (axis.lengthSq() < 1e-10) axis.set(0, 1, 0);
   axis.normalize();
-  const a1 = orthoOf(axis, new THREE.Vector3());
-  const a2 = new THREE.Vector3().crossVectors(axis, a1);
+  const a1 = orthoOf(axis, particleScratch.a1);
+  const a2 = particleScratch.a2.crossVectors(axis, a1);
   const shape = emitter.shape;
-  const origin = new THREE.Vector3();
+  const origin = particleScratch.origin.set(0, 0, 0);
   switch (shape.type) {
     case "point":
       break;
@@ -440,20 +447,21 @@ function particlePositionV2(
         .addScaledVector(sph, shape.radius);
   }
 
-  const base = new THREE.Vector3().fromArray(emitter.velocity.direction);
+  const base = particleScratch.base.fromArray(emitter.velocity.direction);
   if (base.lengthSq() < 1e-10) base.set(0, 1, 0);
   base.normalize();
-  const dir = new THREE.Vector3();
-  if (emitter.velocity.mode === "radial")
-    dir.copy(origin.lengthSq() > 1e-10 ? origin.clone().normalize() : base);
-  else if (emitter.velocity.mode === "directional") dir.copy(base);
+  const dir = particleScratch.direction.set(0, 0, 0);
+  if (emitter.velocity.mode === "radial") {
+    if (origin.lengthSq() > 1e-10) dir.copy(origin).normalize();
+    else dir.copy(base);
+  } else if (emitter.velocity.mode === "directional") dir.copy(base);
   else if (emitter.velocity.mode === "tangential")
     dir
       .crossVectors(axis, origin.lengthSq() > 1e-10 ? origin : base)
       .normalize();
   else {
-    const t1 = orthoOf(base, new THREE.Vector3());
-    const t2 = new THREE.Vector3().crossVectors(base, t1);
+    const t1 = orthoOf(base, particleScratch.t1);
+    const t2 = particleScratch.t2.crossVectors(base, t1);
     const ph = s2 * Math.PI * 2;
     const cone = s3 * emitter.velocity.angle;
     dir
@@ -477,10 +485,10 @@ function particlePositionV2(
     .copy(origin)
     .addScaledVector(dir, v0 * d)
     .addScaledVector(
-      new THREE.Vector3().fromArray(emitter.forces.gravity),
+      particleScratch.force.fromArray(emitter.forces.gravity),
       0.5 * age * age,
     )
-    .addScaledVector(new THREE.Vector3().fromArray(emitter.forces.wind), age);
+    .addScaledVector(particleScratch.force.fromArray(emitter.forces.wind), age);
   const floor = emitter.forces.floor;
   if (floor) {
     const dy = out.y - floor.y;
@@ -928,7 +936,7 @@ function createParticleLayer(
           const at = evaluateLayerV2(parentLayer, parentLayer.start + local);
           table[i]
             .fromArray(at.layer.transform.position)
-            .sub(new THREE.Vector3().fromArray(live.transform.position));
+            .sub(group.position);
         }
       }
 
@@ -1749,8 +1757,13 @@ function createLightLayer(layer: LayerV2): LayerObject {
     trim: false,
     update(time, flags) {
       const { layer: live, visible, u } = evaluateLayerV2(layer, time);
-      light.visible = visible && flags.light;
-      if (!light.visible) return;
+      // Keep the light layout stable across timeline edges. Removing a light
+      // invalidates Three's render-object shader caches, including unlit VFX.
+      light.visible = true;
+      if (!visible || !flags.light) {
+        light.intensity = 0;
+        return;
+      }
       const l = live.light!;
       light.position.fromArray(live.transform.position);
       light.color.set(l.color);
@@ -1806,6 +1819,7 @@ export class VfxRuntimeV2 {
   private readonly depthTarget: THREE.RenderTarget;
   private readonly group = new THREE.Group();
   private objects: LayerObject[] = [];
+  private objectKeys = new Map<string, string>();
   private doc?: VfxDocumentV2;
   private flags: FeatureFlagsV2 = { ...DEFAULT_FLAGS };
   private frame = { center: new THREE.Vector3(), distance: 6 };
@@ -1814,6 +1828,8 @@ export class VfxRuntimeV2 {
   private disposed = false;
   private initialized = false;
   private initialization: Promise<void>;
+  private preparedPreviewDocument?: VfxDocumentV2;
+  private lastPreviewRequest = { time: 0, solo: undefined as string | undefined };
   private deviceError: Error | null = null;
   private removeDeviceErrorListener?: () => void;
   private previewSample: { time: number; solo?: string; diagnostic: boolean } | null = null;
@@ -1915,28 +1931,49 @@ export class VfxRuntimeV2 {
   }
 
   /** Accepts a v2 document, or a v1 document which is upgraded on the way in. */
-  setDocument(input: VfxDocumentV2 | VfxDocument) {
+  setDocument(input: VfxDocumentV2 | VfxDocument, options: { preserveCamera?: boolean } = {}) {
+    if (this.disposed) return;
     this.previewSample = null;
     const doc = isV2(input)
       ? (this.options.preview ? validateWorkspaceDocumentV2(input) : validateDocumentV2(input))
       : upgradeDocument(input as VfxDocument);
-    this.disposeObjects();
-    this.doc = applyStyle(doc);
-    const depth = this.depthTarget.depthTexture!;
-    this.objects = this.doc.layers
-      .filter((layer) => layer.enabled)
-      .map((layer, index) => {
-        if (layer.kind === "light") return createLightLayer(layer);
-        if (layer.kind === "particles")
-          return createParticleLayer(
-            this.doc!,
-            layer,
-            index,
-            this.textures,
-            depth,
-          );
-        return createMeshLayer(this.doc!, layer, index, this.textures);
+    const nextDoc = applyStyle(doc);
+    const preserveCamera = options.preserveCamera && this.doc !== undefined;
+    const previous = new Map(this.objects.map(object => [object.id, object]));
+    // Validation returns fresh objects. Compare content once per edit, including
+    // every document value captured by layer factories and sub-emitter parents.
+    const sharedKey = JSON.stringify([nextDoc.seed, nextDoc.duration,
+      nextDoc.quality.particleDensity, nextDoc.post.motionBlur, nextDoc.textures]);
+    const keys = new Map<string, string>();
+    const created: LayerObject[] = [];
+    let nextObjects: LayerObject[];
+    try {
+      nextObjects = nextDoc.layers.filter(layer => layer.enabled).map((layer, index) => {
+        const parent = layer.emitter?.sub
+          ? nextDoc.layers.find(item => item.id === layer.emitter!.sub!.parentLayerId) : null;
+        const key = JSON.stringify([sharedKey, index, layer, parent]);
+        keys.set(layer.id, key);
+        const existing = previous.get(layer.id);
+        if (existing && this.objectKeys.get(layer.id) === key) return existing;
+        const object = layer.kind === "light" ? createLightLayer(layer)
+          : layer.kind === "particles"
+            ? createParticleLayer(nextDoc, layer, index, this.textures, this.depthTarget.depthTexture!)
+            : createMeshLayer(nextDoc, layer, index, this.textures);
+        created.push(object);
+        return object;
       });
+    } catch (error) {
+      for (const object of created) object.dispose();
+      throw error;
+    }
+    const retained = new Set(nextObjects);
+    for (const object of this.objects) {
+      object.object.removeFromParent();
+      if (!retained.has(object)) object.dispose();
+    }
+    this.objects = nextObjects;
+    this.objectKeys = keys;
+    this.doc = nextDoc;
     const lights = this.objects
       .filter((o) => o.source.kind === "light")
       .sort(
@@ -1957,19 +1994,58 @@ export class VfxRuntimeV2 {
     this.shakeSeed = hashSeed(this.doc.seed, "camera-shake");
     this.camera.fov = this.doc.camera.fov;
     this.rebuildPost();
-    this.computeFraming();
-    this.resetCamera();
-    this.resize(this.width, this.height);
+    // Existing edits keep the authored view and avoid whole-duration bounds
+    // sampling. Focus/resize recomputes bounds when framing is actually needed.
+    if (!preserveCamera) this.resize(this.width, this.height);
+    else {
+      this.camera.updateProjectionMatrix();
+      this.updateResolutionUniforms();
+    }
   }
 
-  /** Resolves once every texture the current document needs has loaded. */
-  whenReady() {
-    return Promise.all([this.initialization, this.textures.whenReady()]).then(
-      () => {
-        this.previewSample = null;
-        if (this.deviceError) throw this.deviceError;
-      },
-    );
+  /** Previews prepare delayed emitters before playback reaches their bars. */
+  async whenReady() {
+    await Promise.all([this.initialization, this.textures.whenReady()]);
+    if (this.disposed) return;
+    if (this.deviceError) throw this.deviceError;
+    if (this.options.preview && this.doc && this.preparedPreviewDocument !== this.doc) {
+      this.warmPreview();
+      this.preparedPreviewDocument = this.doc;
+    }
+    this.previewSample = null;
+  }
+
+  private warmPreview() {
+    this.advanceFrame();
+    const size = this.renderer.getSize(new THREE.Vector2());
+    const target = this.renderer.getRenderTarget();
+    try {
+      // r186 compileAsync uses a top-level render context; the nested scene
+      // pass has a different cache key. Warm the actual graph at a small size
+      // so every delayed emitter is prepared in playback's render context.
+      this.renderer.setSize(64, 64, false);
+      for (const object of this.objects) {
+        const layer = object.source;
+        object.update(layer.start + (layer.end - layer.start) * 0.5, this.flags, this.camera);
+        object.object.visible = layer.kind === "light";
+      }
+      if (this.flags.softParticles && this.objects.some(object => object.soft)) {
+        this.renderer.setRenderTarget(this.depthTarget);
+        this.renderer.clear();
+        this.renderer.render(this.scene, this.camera);
+      }
+      this.renderer.setRenderTarget(null);
+      for (const object of this.objects) object.object.visible = true;
+      if (this.flags.post) this.post.render();
+      else this.renderer.render(this.scene, this.camera);
+    } finally {
+      this.renderer.setSize(size.x, size.y, false);
+      this.renderer.setRenderTarget(target);
+      this.previewSample = null;
+      // Restore the requested image in the same task, before the browser can
+      // present the temporary all-emitter frame. No timeline time is advanced.
+      this.renderPreview(this.lastPreviewRequest.time, this.lastPreviewRequest.solo);
+    }
   }
 
   private rebuildPost() {
@@ -2181,6 +2257,16 @@ export class VfxRuntimeV2 {
     const pixelWidth = this.renderer.domElement.width;
     const pixelHeight = this.renderer.domElement.height;
     this.depthTarget.setSize(pixelWidth, pixelHeight);
+    this.updateResolutionUniforms();
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.computeFraming();
+    this.resetCamera();
+  }
+
+  private updateResolutionUniforms() {
+    const pixelWidth = this.renderer.domElement.width;
+    const pixelHeight = this.renderer.domElement.height;
     for (const object of this.objects)
       object.object.traverse((node) => {
         const material = (node as THREE.Mesh).material as
@@ -2189,10 +2275,6 @@ export class VfxRuntimeV2 {
           THREE.Vector2 | undefined;
         resolution?.set(pixelWidth, pixelHeight);
       });
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.computeFraming();
-    this.resetCamera();
   }
 
   /**
@@ -2264,7 +2346,19 @@ export class VfxRuntimeV2 {
    * Explicit capture render() always submits a fresh frame for canvas readback.
    */
   renderPreview(time: number, solo?: string) {
+    this.lastPreviewRequest = { time, solo };
     this.renderSample(time, solo, false, true);
+  }
+
+  private advanceFrame() {
+    // Each explicit time sample is a complete frame, including multiple captures
+    // in one browser task. r186 advances NodeFrame only from its own RAF loop;
+    // without this seam FRAME-cached post nodes silently reuse the first sample.
+    // Keep this version-specific access here and cover it with seek/solo tests.
+    const nodes = (
+      this.renderer as unknown as { _nodes: { nodeFrame: { frameId: number } } }
+    )._nodes;
+    nodes.nodeFrame.frameId++;
   }
 
   private renderSample(time: number, solo: string | undefined, diagnostic: boolean, skipUnchanged: boolean) {
@@ -2276,23 +2370,24 @@ export class VfxRuntimeV2 {
     // No emitter/light is alive and the camera has no authored motion: all
     // times in this interval produce the same environment image.
     const sampleTime = skipUnchanged && !this.doc.camera.shake && !this.doc.camera.pushIn &&
-      !this.doc.layers.some(layer => layer.enabled && time >= layer.start && time < layer.end)
+      !this.doc.layers.some(layer => layer.enabled && (!solo || layer.id === solo) && time >= layer.start && time < layer.end)
       ? -Infinity : time;
     if (skipUnchanged && !cameraChanged && this.previewSample?.time === sampleTime &&
         this.previewSample.solo === solo && this.previewSample.diagnostic === diagnostic) return;
-    // Each explicit time sample is a complete frame, including multiple captures
-    // in one browser task. r186 advances NodeFrame only from its own RAF loop;
-    // without this seam FRAME-cached post nodes silently reuse the first sample.
-    // Keep this version-specific access here and cover it with seek/solo tests.
-    const nodes = (
-      this.renderer as unknown as { _nodes: { nodeFrame: { frameId: number } } }
-    )._nodes;
-    nodes.nodeFrame.frameId++;
+    this.advanceFrame();
     const move = this.applyCameraMove(time);
     const doc = this.doc;
     for (const object of this.objects) {
+      if (object.source.kind === "light") {
+        object.update(time, this.flags, this.camera);
+        if (solo && object.id !== solo) (object.object as THREE.PointLight).intensity = 0;
+        continue;
+      }
+      if ((solo && object.id !== solo) || time < object.source.start || time >= object.source.end) {
+        object.object.visible = false;
+        continue;
+      }
       object.update(time, this.flags, this.camera);
-      if (solo && object.id !== solo) object.object.visible = false;
     }
     this.environment.apply(doc, this.scene, this.flags.ground);
     this.renderer.toneMappingExposure = doc.post.exposure;
@@ -2301,11 +2396,11 @@ export class VfxRuntimeV2 {
       aa: this.flags.aa && !this.options.preview,
     });
 
-    if (this.flags.softParticles && this.objects.some((o) => o.soft)) {
+    if (this.flags.softParticles && this.objects.some((o) => o.soft && o.object.visible)) {
       // Depth pre-pass: opaque receivers only (ground + any depth-writing mesh).
       const hidden: THREE.Object3D[] = [];
       for (const object of this.objects)
-        if (object.object.visible) {
+        if (object.object.visible && object.source.kind !== "light") {
           hidden.push(object.object);
           object.object.visible = false;
         }
@@ -2333,6 +2428,7 @@ export class VfxRuntimeV2 {
       object.dispose();
     }
     this.objects = [];
+    this.objectKeys.clear();
   }
 
   dispose() {

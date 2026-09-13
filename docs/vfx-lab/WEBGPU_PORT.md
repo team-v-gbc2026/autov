@@ -142,9 +142,12 @@ invalidate that cache. Explicit `render()` always draws, preserving immediate
 capture semantics. The regression harness counts queue submissions for pause,
 inactive intervals, resize, and seeking back into an emitter.
 
-The playback clock is an external store subscribed to only by preview/timeline
-components; animation ticks no longer rerender Studio's board/chat. Clock tests
-cover pause notifications, seek, looping, end-of-playback, and duration changes.
+The playback clock is an external store. The canvas reads its live snapshot
+inside its render loop without a React subscription; timeline React updates are
+bounded to 30 Hz. Seek, pause, loop transitions, and duration edits publish
+immediately. Animation ticks do not rerender Studio's board/chat or canvas
+component. Clock tests cover display cadence, pause, seek, looping, end-of-playback,
+and duration changes.
 Post resources are reused across document edits with unchanged MSAA sample count.
 Structural curve/ramp counts and shape modes are specialized in node materials;
 plain particle masks skip unused noise evaluation.
@@ -158,7 +161,8 @@ synchronization and are not isolated GPU timestamps or a hardware FPS claim.
 `AUTOV_SAVE_PERF_BUNDLE` / `AUTOV_PERF_BUNDLE` preserve and replay a baseline.
 
 Profiling reference ledger: read `threejs-debug-profiler/references/debug-profile-checklists.md`
-and `references/checklists/performance-profile.md`; used canvas dimensions,
+`references/checklists/performance-profile.md`, and
+`references/checklists/scene-debugging.md`; used canvas dimensions,
 loop ownership, CPU sampling, shader/post costs, draw counts, resource reuse,
 and browser visual regression checks. Native hardware timing is unavailable in
 this environment; browser verification uses Chromium 151/SwiftShader.
@@ -178,6 +182,93 @@ preview savings outside this DPR-1 runtime benchmark. Raw reports are in
 Validation passed: eight fixture comparisons, sub-emitter capture, queue-count
 preview assertions, full Studio Add emitter/pause/seek browser check, clock and
 seek/UI bridge tests, TypeScript, focused lint, and standalone bundle checks.
+
+## Shared studio optimization (September 2026)
+
+Document installs reuse unchanged layer objects and their GPU resources. Cache
+keys include layer content/order, seed, duration, particle density, motion blur,
+texture data, and sub-emitter parent content. Editing a parent invalidates its
+children; equivalent documents retain all layer resources. Texture cache keys
+include the resolved URL/data so replacing an embedded image under the same ID
+cannot reuse the old image. Installs stage replacements before disposing old
+layers. Workspace edits use `preserveCamera: true`, avoiding repeated framing
+samples and camera resets; explicit focus and resize still compute bounds.
+
+Runtime evaluation copies only branches written by tracks, motion, or active
+overrides. Its result is read-only; the public mutable evaluator still returns a
+full deep clone. Particle sorting reuses temporary vectors, and ramp writes reuse
+a Color. Solo/inactive layers skip evaluation; the soft-particle depth pass only
+runs when a visible soft layer needs it. No preview-quality settings changed in
+this optimization.
+
+`node scripts/webgpu/verify-studio-performance.mjs` checks resource retention,
+camera preservation, seed/duration/parent invalidation, and paused-frame reuse.
+Set `AUTOV_STUDIO_BASELINE` to a previous `Probe` runtime IIFE for a pixel-exact
+comparison and before/after measurements. Linux CI uses
+`AUTOV_WEBGPU_SOFTWARE=1 xvfb-run -a node ...`. `AUTOV_FIXTURES` optionally selects
+cases. Results default to `.autov-local/studio-performance/results.json`.
+
+Sequential Chromium 151/SwiftShader comparison, bundled runtime, 320×180/DPR 1,
+post enabled: 3 warmup frames, 12 CPU submission samples, 6 document edit samples.
+The baseline includes the earlier fog-object reuse fix. Edit measurements cover
+installation, not subsequent GPU pipeline compilation.
+
+| Scene | CPU median before → after | Document install before → after | Retained layers |
+| --- | ---: | ---: | ---: |
+| Fire projectile | 5.4 → 5.3 ms | 50.7 → 1.7 ms | 8 / 9 |
+| Beam | 4.9 → 3.7 ms | 41.1 → 1.2 ms | 18 / 19 |
+| Lightning impact | 4.3 → 4.2 ms | 23.5 → 1.4 ms | 9 / 10 |
+| Smoke burst | 3.3 → 2.6 ms | 25.3 → 0.7 ms | 9 / 10 |
+| 24 smoke emitters | 8.6 → 7.7 ms | 217.4 → 1.9 ms | 23 / 24 |
+
+All five sampled images matched baseline pixels exactly. Nine WebGPU scenarios
+passed (all seven fixtures, workspace transitions, and sub-emitters), including
+seek determinism, solo, post, and capture checks. All 31 unit test files passed;
+the two subprocess-based files required execution outside the IPC-restricted
+sandbox. TypeScript and focused ESLint passed. Hardware FPS remains unmeasured;
+these software-GPU CPU timings show the largest gain in editing, with smaller
+steady playback improvements. Adaptive resolution and cheaper bloom remain
+possible future quality tradeoffs, not part of this change.
+
+The actual dev Studio route passed play/pause, keyboard seeking, paused orbit and
+pan, and an emitter slider edit with the original canvas retained and no page or
+scene errors. The inspected screenshot is
+`output/playwright/studio-performance-after.png` at the repository root.
+
+## Emitter boundary stalls
+
+Light layers remain in the render list at zero intensity outside their active
+interval or when excluded by solo/feature flags. The depth pre-pass retains the
+same lights. Previously, adding/removing a light changed the node cache key for
+all VFX materials, repeatedly rebuilding shaders at light start/end times.
+
+Preview `whenReady()` warms every enabled emitter, including delayed emitters,
+through the actual post graph at 64×64, then restores the requested image and
+canvas size synchronously before presentation. Three r186's `compileAsync()`
+uses a top-level render context; it does not populate the nested post scene
+pass's context cache. Warming uses the real passes instead. This moves first-use
+compilation to preparation. Edits also warm replacements, advancing the frame
+cache so an earlier post sample cannot skip the work. Capture runtimes do not
+perform this preview warmup. Initial scene preparation can take longer; quality
+and authored emitter timing are unchanged.
+
+Run `AUTOV_WEBGPU_SOFTWARE=1 xvfb-run -a node scripts/webgpu/verify-boundaries.mjs`
+for beam, ice blast, and lightning. It samples just before, at, and after every
+bar edge over two loops, then edits a delayed emitter. It asserts zero shader
+builds during those playback samples and after the edit's preparation.
+
+Chromium 151/SwiftShader, 320×180 preview: beam's worst sampled CPU frame fell
+from 351.6 ms to 6.8 ms on the first loop, and from 147.1 ms to 4.7 ms on the
+second. Ice and lightning also had zero boundary shader builds, with maximum
+sampled CPU times of 6.2 and 5.6 ms respectively. These are local CPU submission
+timings, not hardware FPS guarantees. Raw results are under
+`frontend/.autov-local/boundaries-before` and `boundaries-after`.
+
+Validation: beam, lightning, and fire projectile matched previous-runtime pixels.
+Workspace, beam, lightning, and sub-emitter seek/capture checks passed. The actual
+Studio crossed the beam start, paused, and orbited without page errors; its
+restored canvas was inspected in `output/playwright/studio-boundary-after.png`.
+Focused unit tests, TypeScript, lint, and the runtime bundle also passed.
 
 ## Persistent workspace ownership
 

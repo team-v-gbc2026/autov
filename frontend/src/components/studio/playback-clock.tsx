@@ -50,16 +50,26 @@ export function createPlaybackClock(initialDuration: number) {
   let duration = initialDuration;
   let state = { playing: true, time: 0, loop: true };
   const listeners = new Set<() => void>();
+  const displayListeners = new Set<() => void>();
+  let displaySnapshot: Playback;
+  let displayElapsed = 0;
   let snapshot: Playback;
-  const publish = () => {
+  const publish = (display = true) => {
     snapshot = { ...state, time: Math.min(state.time, duration), ...actions };
     for (const listener of listeners) listener();
+    if (display) {
+      displayElapsed = 0;
+      displaySnapshot = snapshot;
+      for (const listener of displayListeners) listener();
+    }
   };
   const dispatch = (action: Parameters<typeof reducePlayback>[1]) => {
     const next = reducePlayback(state, action);
     if (next.time === state.time && next.playing === state.playing && next.loop === state.loop) return;
+    const immediate = action.type !== "tick" || next.playing !== state.playing || next.time < state.time;
+    if (action.type === "tick") displayElapsed += action.delta;
     state = next;
-    publish();
+    publish(immediate || displayElapsed >= 1 / 30 - 1e-9);
   };
   const actions: Pick<Playback, "setTime" | "setPlaying" | "setLoop"> = {
     setTime: value => dispatch({ type: "time", value, duration }),
@@ -69,6 +79,11 @@ export function createPlaybackClock(initialDuration: number) {
   publish();
   return {
     getSnapshot: () => snapshot,
+    getDisplaySnapshot: () => displaySnapshot,
+    subscribeDisplay: (listener: () => void) => {
+      displayListeners.add(listener);
+      return () => { displayListeners.delete(listener); };
+    },
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
@@ -83,7 +98,7 @@ export function createPlaybackClock(initialDuration: number) {
   };
 }
 
-type Clock = ReturnType<typeof createPlaybackClock>;
+export type PlaybackClock = ReturnType<typeof createPlaybackClock>;
 export function usePlaybackClock(duration: number) {
   const [clock] = useState(() => createPlaybackClock(duration));
   useEffect(() => { clock.setDuration(duration); }, [clock, duration]);
@@ -102,15 +117,15 @@ export function usePlaybackClock(duration: number) {
 }
 
 export function PlaybackFrames({ clock, children }: {
-  clock: Clock;
+  clock: PlaybackClock;
   children: (playback: Playback) => ReactNode;
 }) {
-  const playback = useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
+  const playback = useSyncExternalStore(clock.subscribeDisplay, clock.getDisplaySnapshot, clock.getDisplaySnapshot);
   return children(playback);
 }
 
-/** Subscribe a whole view when it needs playback state on every frame. */
+/** Subscribe a view to the bounded display clock; actions still publish immediately. */
 export function usePlayback(duration = 8): Playback {
   const clock = usePlaybackClock(duration);
-  return useSyncExternalStore(clock.subscribe, clock.getSnapshot, clock.getSnapshot);
+  return useSyncExternalStore(clock.subscribeDisplay, clock.getDisplaySnapshot, clock.getDisplaySnapshot);
 }

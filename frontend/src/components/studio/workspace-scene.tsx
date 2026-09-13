@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
+import type { PlaybackClock } from "./playback-clock";
 import type { VfxRuntimeV2 } from "@/lib/vfx-lab/runtime-v2";
 
 /** Slider drags fire many times a frame; coalesce document installs. */
@@ -13,20 +14,20 @@ const INSTALL_DEBOUNCE_MS = 50;
  */
 export default function WorkspaceScene({
   doc,
-  time,
+  clock,
   solo,
   focusRequest = 0,
 }: {
   doc: VfxDocumentV2;
-  time: number;
+  clock: PlaybackClock;
   solo?: string;
   focusRequest?: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<VfxRuntimeV2 | null>(null);
   // The rAF loop and the async mount read the latest props through refs, so a
-  // new time, solo or document never tears the renderer down.
-  const latest = useRef({ time, solo });
+  // new clock, solo or document never tears the renderer down.
+  const latest = useRef({ clock, solo });
   const pending = useRef(doc);
   const installed = useRef<VfxDocumentV2 | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -34,7 +35,7 @@ export default function WorkspaceScene({
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    latest.current = { time, solo };
+    latest.current = { clock, solo };
     pending.current = doc;
   });
 
@@ -68,7 +69,7 @@ export default function WorkspaceScene({
         const draw = () => {
           if (cancelled) return;
           try {
-            instance!.renderPreview(latest.current.time, latest.current.solo);
+            instance!.renderPreview(latest.current.clock.getSnapshot().time, latest.current.solo);
           } catch (problem) {
             fail(
               problem instanceof Error ? problem.message : "Preview failed.",
@@ -102,17 +103,8 @@ export default function WorkspaceScene({
       // The mount installs whatever is pending; only later changes come here.
       if (!instance || installed.current === doc) return;
       try {
-        // setDocument reframes and resets the camera; an edit should not throw
-        // away the orbit the author set up, so restore it afterwards.
-        const eye = instance.camera.position.clone();
-        const target = instance.controls.target.clone();
-        instance.setDocument(doc);
+        instance.setDocument(doc, { preserveCamera: true });
         installed.current = doc;
-        instance.camera.position.copy(eye);
-        instance.controls.target.copy(target);
-        instance.camera.lookAt(target);
-        instance.camera.updateProjectionMatrix();
-        instance.controls.update();
         void instance.whenReady().catch(problem => {
           if (runtime.current !== instance || installed.current !== doc) return;
           setError(problem instanceof Error ? problem.message : "Could not prepare the scene.");
