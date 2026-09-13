@@ -82,6 +82,11 @@ const cards = [
     body: "Golden energy-overload column spike served from dev-assets/vfx-v2/spike-column.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-meteor",
+    title: "Toolbox v2 spike — meteor rain",
+    body: "Five violet-tipped meteors with chunky cel-shaded smoke trails, served from dev-assets/vfx-v2/spike-meteor.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
