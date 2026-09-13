@@ -12931,6 +12931,86 @@
       return new _PlaneGeometry(data.width, data.height, data.widthSegments, data.heightSegments);
     }
   };
+  var TorusGeometry = class _TorusGeometry extends BufferGeometry {
+    /**
+     * Constructs a new torus geometry.
+     *
+     * @param {number} [radius=1] - Radius of the torus, from the center of the torus to the center of the tube.
+     * @param {number} [tube=0.4] - Radius of the tube. Must be smaller than `radius`.
+     * @param {number} [radialSegments=12] - The number of radial segments.
+     * @param {number} [tubularSegments=48] - The number of tubular segments.
+     * @param {number} [arc=Math.PI*2] - Central angle in radians.
+     * @param {number} [thetaStart=0] - Start of the tubular sweep in radians.
+     * @param {number} [thetaLength=Math.PI*2] - Length of the tubular sweep in radians.
+     */
+    constructor(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48, arc = Math.PI * 2, thetaStart = 0, thetaLength = Math.PI * 2) {
+      super();
+      this.type = "TorusGeometry";
+      this.parameters = {
+        radius,
+        tube,
+        radialSegments,
+        tubularSegments,
+        arc,
+        thetaStart,
+        thetaLength
+      };
+      radialSegments = Math.floor(radialSegments);
+      tubularSegments = Math.floor(tubularSegments);
+      const indices = [];
+      const vertices = [];
+      const normals = [];
+      const uvs = [];
+      const center = new Vector3();
+      const vertex2 = new Vector3();
+      const normal = new Vector3();
+      for (let j = 0; j <= radialSegments; j++) {
+        const v = thetaStart + j / radialSegments * thetaLength;
+        for (let i = 0; i <= tubularSegments; i++) {
+          const u = i / tubularSegments * arc;
+          vertex2.x = (radius + tube * Math.cos(v)) * Math.cos(u);
+          vertex2.y = (radius + tube * Math.cos(v)) * Math.sin(u);
+          vertex2.z = tube * Math.sin(v);
+          vertices.push(vertex2.x, vertex2.y, vertex2.z);
+          center.x = radius * Math.cos(u);
+          center.y = radius * Math.sin(u);
+          normal.subVectors(vertex2, center).normalize();
+          normals.push(normal.x, normal.y, normal.z);
+          uvs.push(i / tubularSegments);
+          uvs.push(j / radialSegments);
+        }
+      }
+      for (let j = 1; j <= radialSegments; j++) {
+        for (let i = 1; i <= tubularSegments; i++) {
+          const a = (tubularSegments + 1) * j + i - 1;
+          const b = (tubularSegments + 1) * (j - 1) + i - 1;
+          const c = (tubularSegments + 1) * (j - 1) + i;
+          const d = (tubularSegments + 1) * j + i;
+          indices.push(a, b, d);
+          indices.push(b, c, d);
+        }
+      }
+      this.setIndex(indices);
+      this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+      this.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+      this.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+    }
+    copy(source) {
+      super.copy(source);
+      this.parameters = Object.assign({}, source.parameters);
+      return this;
+    }
+    /**
+     * Factory method for creating an instance of this class from the given
+     * JSON object.
+     *
+     * @param {Object} data - A JSON object representing the serialized geometry.
+     * @return {TorusGeometry} A new instance.
+     */
+    static fromJSON(data) {
+      return new _TorusGeometry(data.radius, data.tube, data.radialSegments, data.tubularSegments, data.arc, data.thetaStart, data.thetaLength);
+    }
+  };
   function cloneUniforms(src) {
     const dst = {};
     for (const u in src) {
@@ -28174,6 +28254,7 @@ void main() {
   var N_ARC = 18;
   var N_STREAK = 56;
   var N_SPARK = 200;
+  var N_DEBRIS = 44;
   var T_ERUPT0 = 1.5;
   var T_ERUPT1 = 2.3;
   var T_OUT0 = 3.5;
@@ -28228,6 +28309,10 @@ const vec3 C_CORE = vec3(1.000, 0.871, 0.445);  // #fff0b0 white-gold core
 const vec3 C_GOLD = vec3(1.000, 0.434, 0.014);  // #ffb020 body, low in the column
 const vec3 C_ORN  = vec3(1.000, 0.195, 0.005);  // #ff7a10 body, high in the column
 const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
+// the three streak hues. Hashed per streak, so the burst is a spread, not one colour.
+const vec3 C_ST_A = vec3(1.000, 0.254, 0.022);  // #ff8a2a saturated orange
+const vec3 C_ST_B = vec3(1.000, 0.069, 0.254);  // #ff4a8a hot pink
+const vec3 C_ST_C = vec3(1.000, 0.644, 0.195);  // #ffd27a pale gold
 `;
   function quadXY() {
     const g = new BufferGeometry();
@@ -28262,8 +28347,11 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
   void main(){
     vec2 q = (vUv-0.5)*2.0;
     float v = ssm(-1.0, 0.9, q.y);
-    vec3 col = mix(vec3(0.0400,0.0140,0.0300), vec3(0.0090,0.0042,0.0135), v);
-    col += vec3(0.080,0.024,0.030) * exp(-pow(length(q*vec2(1.0,0.55))/0.58, 2.0));
+    // #3a1420 near the ground darkening to #1a0a12 overhead \u2014 dark enough that the
+    // column, not the backdrop, carries the frame's brightness
+    vec3 col = mix(vec3(0.0423,0.0070,0.0144), vec3(0.0103,0.0030,0.0061), v);
+    // the warm patch is a narrow vertical smear behind the column only
+    col += vec3(0.090,0.026,0.026) * exp(-pow(length(q*vec2(3.4,0.62))/0.50, 2.0));
     col *= 1.0 - 0.22*vnoise(q*4.1);
     gl_FragColor = vec4(col, 1.0);
   }`, { uW: { value: 90 }, uH: { value: 52 } }, -30, NormalBlending);
@@ -28277,7 +28365,7 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
     varying vec2 vP; uniform float uT, uI, uPool;
     void main(){
       float r = length(vP);
-      vec3 col = vec3(0.0130,0.0075,0.0165) * (1.0 - ssm(1.2, 7.5, r));
+      vec3 col = vec3(0.0075,0.0032,0.0068) * (1.0 - ssm(1.2, 7.5, r));
       // the warm analytic pool: two gaussians, pulsing on the column's own beat
       float pulse = 0.86 + 0.14*sin(uT*8.3) + 0.07*vnoise(vec2(r*2.1, uT*1.7));
       float pool = exp(-pow(r/1.05,2.0))*0.85 + exp(-pow(r/2.50,2.0))*0.22;
@@ -28324,13 +28412,17 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
     float outer = 1.0 - ssm(0.70, 0.94, q);
     float halo  = exp(-q*q*0.75)*0.16;
     float streak = 0.62 + 0.85*pow(vnoise(vec2(x*4.5, h*7.0 - uT*0.85)), 1.3);
+    // the slab carries the same segment ladder, so the banding reads across the body
+    float seg = (h - uT*0.055)*7.0;
+    float ring = 1.0 - ssm(0.10, 0.22, abs(fract(seg) - 0.10));
+    streak *= (0.80 + 0.62*ring) * (0.80 + 0.40*h11(floor(seg)*3.17 + 1.7));
     float top = 1.0 - ssm(0.86, 1.02, h);            // soft top, never a flat cap
     float base = ssm(0.0, 0.07, h);
     vec3 c = mix(C_GOLD, C_ORN, ssm(0.05, 0.95, h));
     c = mix(C_ORN, c, body*0.85 + 0.15);             // the outer tier stays orange
     c = mix(c, mix(C_GOLD, C_CORE, 0.40), inner*0.45);
     float a = (outer*0.22 + body*0.34 + inner*0.26 + halo) * streak * top * base;
-    gl_FragColor = vec4(c*a*uI*0.52, 1.0);
+    gl_FragColor = vec4(min(c*a*uI*0.52, vec3(0.90)), 1.0);
   }`, slabU, 2, AdditiveBlending);
   slab.position.y = COL_Y;
   scene.add(slab);
@@ -28358,14 +28450,21 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
       float n1 = vnoise(vec2(vUv.x*8.0, h*4.5 - uT*0.85));
       float n2 = vnoise(vec2(vUv.x*19.0+3.1, h*12.0 - uT*1.75));
       float streak = 0.30 + 1.05*pow(n1*0.62 + n2*0.38, 1.5);   // contrast: filaments, not fog
-      streak *= 0.82 + 0.32*abs(sin((h*9.0 - uT*0.55)*3.14159));  // rings panning up
+      // 7 machine-like segments: a 0.05-tall bright ring, a darker gap behind it,
+      // and a stepped brightness hashed per segment. floor(seg) makes it discrete.
+      float seg = (h - uT*0.055)*7.0;
+      float f = fract(seg);
+      float ring = 1.0 - ssm(0.10, 0.22, abs(f - 0.10));
+      float gap  = ssm(0.26, 0.44, f) * (1.0 - ssm(0.78, 0.94, f));
+      float sstep = 0.78 + 0.42*h11(floor(seg)*3.17 + 1.7);
+      streak *= (0.70 + 1.05*ring - 0.30*gap) * sstep;
       float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.6);
       float top  = 1.0 - ssm(0.84, 1.03, h/max(uHt,0.001));  // retracts from the top
       float base = ssm(0.0, 0.09, h);
       vec3 c = mix(C_GOLD, C_ORN, ssm(0.08, 0.92, h));
       c = mix(c, C_CORE, fres*fres*0.16*streak);
       float a = (0.72 + 0.48*fres) * streak * top * base;
-      gl_FragColor = vec4(c*a*uI*0.46, 1.0);
+      gl_FragColor = vec4(min(c*a*uI*0.46, vec3(0.90)), 1.0);
     }`,
     transparent: true,
     depthWrite: false,
@@ -28392,7 +28491,7 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
       float base = ssm(0.0, 0.05, h);
       vec3 c = mix(C_CORE, vec3(1.0,0.96,0.86), 0.35 + 0.45*n);
       float a = (0.45 + 0.55*fres) * (0.72 + 0.42*n) * top * base;
-      gl_FragColor = vec4(c*a*uI, 1.0);
+      gl_FragColor = vec4(min(c*a*uI, vec3(1.0)), 1.0);
     }`,
     transparent: true,
     depthWrite: false,
@@ -28510,8 +28609,8 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
     vec2 q = (vUv-0.5)*2.0;
     float r = length(q);
     float core = exp(-r*r*60.0);
-    float mid  = exp(-r*r*9.0)*0.52;
-    float wide = exp(-r*r*2.2)*0.26;
+    float mid  = exp(-r*r*10.0)*0.44;
+    float wide = exp(-r*r*3.6)*0.12;
     float hstr = exp(-q.y*q.y*230.0)*exp(-abs(q.x)*2.4)*0.44;
     float vstr = exp(-q.x*q.x*330.0)*exp(-abs(q.y)*1.7)*0.38;
     float ang = atan(q.y, q.x);
@@ -28534,8 +28633,8 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
     varying vec2 vUv; uniform float uA;
     void main(){
       vec2 q = (vUv-0.5)*2.0;
-      float v = 1.0 - 0.32*ssm(0.2, 1.35, length(q*vec2(1.0,0.62)));
-      gl_FragColor = vec4(mix(C_CORE, vec3(1.0), 0.55)*uA*v, 1.0);
+      float v = 1.0 - 0.68*ssm(0.10, 1.10, length(q*vec2(1.0,0.62)));
+      gl_FragColor = vec4(mix(C_CORE, vec3(1.0), 0.30)*uA*v, 1.0);
     }`,
     transparent: true,
     depthWrite: false,
@@ -28565,34 +28664,41 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
     void main(){
       float s = aSeed;
       vUv = vec2(position.x, position.y*0.5+0.5);
-      float th = h11(s*1.13)*TAU;
+      // 6 bundles, each with its own heading and hashed spread: a real burst clumps,
+      // an even fan reads as a lens star
+      float bi = floor(h11(s*0.771)*7.0);
+      float bth = (bi + 0.65*h11(bi*4.73 + 0.9))/7.0*TAU;
+      float bsp = 0.22 + 0.52*h11(bi*9.11 + 2.3);
+      float th = bth + (h11(s*1.13)-0.5)*bsp;
       vec2 d = vec2(cos(th), sin(th));
       d.y = d.y*0.78 + 0.42;                        // upward bias: the burst leans up
       d = normalize(d);
       vec2 pp = vec2(-d.y, d.x);
-      float L = 1.5 + 4.2*pow(h11(s*3.31), 1.5);    // 1.5 .. 5.7
+      float hue = h11(s*17.1);
+      float L = (1.5 + 4.2*pow(h11(s*3.31), 1.5))*(0.70 + 0.60*h11(s*31.7));
       float W = (0.03 + 0.05*h11(s*5.17))*1.15;     // 0.03 .. 0.08 core, plus a thin falloff skirt
-      float cv = (h11(s*7.91)-0.5)*0.42;            // a few bend as they travel
+      if (hue > 0.84) { L *= 1.75; W *= 0.52; }     // the long thin pink ones run to the frame edge
+      float cv = sign(h11(s*7.91)-0.5) * (0.05 + 0.15*h11(s*37.3));
       float stag = h11(s*11.3)*0.22;                // not every streak leaves at once
       float g = clamp((uG - stag)/max(1.0-stag,1e-3), 0.0, 1.0);
       g = 1.0 - pow(1.0-g, 3.0);                    // easeOut spread
       float x = position.x*L*g;
       vec2 root = vec2((h11(s*23.1)-0.5)*0.16, (h11(s*29.7)-0.5)*0.55);
-      vec2 off = root + d*x + pp*(cv*x*x*0.18) + pp*position.y*W;
+      vec2 off = root + d*x + pp*(cv*x*x*0.42) + pp*position.y*W;
       vec4 mv = modelViewMatrix*vec4(0.0,0.0,0.0,1.0);
       mv.xy += off;
       vK = 0.55 + 0.45*h11(s*13.7);
-      vC = h11(s*17.1) > 0.90 ? C_CORE : mix(C_GOLD, C_ORN, pow(h11(s*19.3), 0.55));
+      vC = hue > 0.84 ? C_ST_B : (hue > 0.58 ? C_ST_C : C_ST_A);
       gl_Position = projectionMatrix*mv;
     }`,
     fragmentShader: `${GLSL}
     varying vec2 vUv; varying float vK; varying vec3 vC; uniform float uI;
     void main(){
       float x = vUv.x;
-      float wid = ssm(0.0,0.06,x)*(1.0-ssm(0.20,1.0,x)) + 0.13;  // a needle, not a wedge
+      float wid = (1.0-ssm(0.10,1.0,x)) + 0.12;                 // a needle, not a wedge
       float y = abs(vUv.y-0.5)*2.0 / max(wid, 1e-3);
       float a = exp(-y*y*3.2);
-      a *= ssm(0.0,0.03,x)*(1.0-ssm(0.25,1.0,x));               // hot at the root, dies at the tip
+      a *= ssm(0.0,0.012,x)*(1.0-ssm(0.22,1.0,x));              // hard at the root, soft only at the far end
       gl_FragColor = vec4(vC*a*vK*uI*2.0, 1.0);
     }`,
     transparent: true,
@@ -28657,6 +28763,88 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
   sparks.position.y = FLARE_Y;
   sparks.renderOrder = 13;
   scene.add(sparks);
+  var ringU = { uA: { value: 0 }, uK: { value: 0 } };
+  var shockRing = new Mesh(
+    new TorusGeometry(1, 0.026, 6, 128),
+    new ShaderMaterial({
+      uniforms: ringU,
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `${GLSL}
+      varying vec2 vUv; uniform float uA, uK;
+      void main(){
+        float y = abs(vUv.y-0.5)*2.0;
+        float a = 1.0 - ssm(0.15, 1.0, y);
+        vec3 c = mix(C_ST_C, C_ST_B, uK);      // gold at the snap, pink as it opens
+        gl_FragColor = vec4(c*a*uA, 1.0);
+      }`,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: AdditiveBlending,
+      side: DoubleSide
+    })
+  );
+  shockRing.rotation.set(-Math.PI / 2 + 0.46, 0, 0.1);
+  shockRing.position.y = FLARE_Y;
+  shockRing.renderOrder = 11.5;
+  shockRing.frustumCulled = false;
+  scene.add(shockRing);
+  var debrisGeo = (() => {
+    const g = new InstancedBufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0], 3));
+    g.setAttribute("uv", new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+    g.setIndex([0, 1, 2, 1, 3, 2]);
+    const seed = new Float32Array(N_DEBRIS);
+    for (let i = 0; i < N_DEBRIS; i++) seed[i] = i * 2.917 + 1.13;
+    g.setAttribute("aSeed", new InstancedBufferAttribute(seed, 1));
+    g.instanceCount = N_DEBRIS;
+    return g;
+  })();
+  var debrisU = { uT: { value: 0 }, uI: { value: 0 } };
+  var debris = new Mesh(debrisGeo, new ShaderMaterial({
+    uniforms: debrisU,
+    vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT;
+    varying vec2 vUv; varying float vA;
+    void main(){
+      float s = aSeed;
+      vUv = uv;
+      float birth = ${T_ERUPT0.toFixed(2)} + 0.04 + h11(s*1.77)*0.26;
+      float life  = 1.1 + 1.0*h11(s*3.51);
+      float age   = uT - birth;
+      float a01   = clamp(age/life, 0.0, 1.0);
+      float th = h11(s*5.93)*TAU;
+      float el = (h11(s*7.31)*2.0-1.0);
+      float sp = 1.1 + 2.6*pow(h11(s*9.17), 1.5);
+      vec3 dir = normalize(vec3(cos(th)*sqrt(1.0-el*el*0.6), el*0.70 + 0.42, sin(th)*sqrt(1.0-el*el*0.6)));
+      vec3 p = dir*sp*age - vec3(0.0, 3.4*age*age*0.5, 0.0);
+      vA = step(0.0, age)*(1.0 - ssm(0.72, 1.0, a01))*step(a01, 0.999);
+      // chips tumble: a per-instance spin on the screen-facing card
+      float rot = h11(s*11.3)*TAU + uT*(2.0 + 6.0*h11(s*13.1))*sign(h11(s*15.7)-0.5);
+      float cw = 0.026 + 0.042*h11(s*17.9), ch = cw*(0.30 + 0.52*h11(s*19.1));
+      vec2 q = vec2(position.x*cw, position.y*ch);
+      q = vec2(q.x*cos(rot) - q.y*sin(rot), q.x*sin(rot) + q.y*cos(rot));
+      vec4 mv = modelViewMatrix*vec4(p,1.0);
+      mv.xy += q;
+      gl_Position = projectionMatrix*mv;
+    }`,
+    fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vA; uniform float uI;
+    void main(){
+      vec2 q = (vUv-0.5)*2.0;
+      float a = 1.0 - ssm(0.72, 1.0, max(abs(q.x), abs(q.y)));
+      gl_FragColor = vec4(vec3(0.018, 0.007, 0.014), a*vA*uI*0.96);
+    }`,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: NormalBlending
+  }));
+  debris.frustumCulled = false;
+  debris.position.y = FLARE_Y;
+  debris.renderOrder = 14;
+  scene.add(debris);
   var composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
   var bloom = new UnrealBloomPass(new Vector2(1280, 720), P.bloom, 1, P.threshold);
@@ -28698,17 +28886,26 @@ const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
     flareU.uI.value = fi * 0.56;
     flareU.uW.value = flareU.uH.value = (0.5 + 3.4 * fg) * (1 - 0.45 * ss(3.6, 4.9, t));
     flare.visible = L.flare && fi > 1e-3;
-    flashU.uA.value = 0.42 * ss(1.8, 1.9, t) * (1 - ss(1.93, 2.05, t));
+    flashU.uA.value = 0.45 * ss(1.8, 1.9, t) * (1 - ss(1.93, 2.05, t));
     flash.visible = L.flare && flashU.uA.value > 1e-3;
     streakU.uT.value = t;
     streakU.uG.value = easeOutCubic(clamp01((t - 1.52) / 1.7));
     streakU.uI.value = ss(T_ERUPT0, 1.64, t) * (1 - ss(T_ERUPT1, T_OUT0, t) * 0.88) * (1 - ss(3.45, 4.2, t));
     streaks.visible = L.streaks && streakU.uI.value > 1e-3;
+    const rk = clamp01((t - 1.72) / 0.4);
+    ringU.uK.value = rk;
+    ringU.uA.value = 0.95 * ss(1.72, 1.76, t) * Math.pow(1 - rk, 1.8);
+    const rr = 0.5 + 1.7 * (1 - Math.pow(1 - rk, 2.6));
+    shockRing.scale.set(rr, rr, 1);
+    shockRing.visible = L.flare && ringU.uA.value > 1e-3;
+    debrisU.uT.value = t;
+    debrisU.uI.value = 1 - ss(3.3, 4.1, t);
+    debris.visible = L.sparks && t > T_ERUPT0 && debrisU.uI.value > 1e-3;
     sparkU.uT.value = t;
     sparkU.uI.value = 1 - ss(3.2, 4, t);
     sparks.visible = L.sparks && t > T_ERUPT0 && sparkU.uI.value > 1e-3;
     hazeU.uT.value = t;
-    hazeU.uI.value = (env * 0.26 + 0.5 * ss(T_ERUPT0, 1.95, t) * (1 - ss(2.3, 4.4, t))) * 0.3;
+    hazeU.uI.value = (env * 0.24 + 0.26 * ss(T_ERUPT0, 1.95, t) * (1 - ss(2.3, 4.4, t))) * 0.28;
     haze.visible = L.column && hazeU.uI.value > 1e-3;
     groundMat.uniforms.uT.value = t;
     groundMat.uniforms.uI.value = env * kick * 0.85 + 0.55 * ss(T_ERUPT0, 1.9, t) * (1 - ss(2.1, 3.2, t));
