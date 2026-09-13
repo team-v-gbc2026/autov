@@ -23,6 +23,8 @@ type VfxEditing = {
   document: VfxUiDocument;
   /** Receives the autov.lab/2 document a local generation produced. */
   onDocument?: (doc: VfxDocumentV2) => void;
+  /** Dev pages have no Supabase project: skip the prompt save and only run local generation. */
+  standalone?: boolean;
 };
 
 /** `crypto.randomUUID` needs a secure context; local ids only need to be unique. */
@@ -174,7 +176,14 @@ export default function ChatPanel({
         // `saving` covers the Supabase write only. The pipeline that follows it
         // reports through `generation.busy`, which disables the composer the
         // same way and can be stopped from the footer.
-        setSaving(true); setNotice("");
+        setNotice("");
+        if (vfx?.standalone) {
+          if (!generation.available) { setNotice("Local generation is not configured. Add OPENAI_API_KEY to frontend/.env.local."); return false; }
+          setMessages(items => [...items, { id: localId(), prompt, status: "requested", created_at: new Date().toISOString(), error: null }]);
+          void runGeneration(prompt, referenceIds);
+          return true;
+        }
+        setSaving(true);
         let stored = false;
         try {
           const result = await savePrompt(projectId, prompt, referenceIds);

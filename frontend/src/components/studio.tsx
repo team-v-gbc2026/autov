@@ -53,6 +53,8 @@ type StudioProps = {
   versions: EffectVersion[];
   /** A v2 document to open the timeline on. Absent in the product workspace. */
   initialDocument?: VfxDocumentV2;
+  /** Dev pages: no Supabase project behind the chat, generate locally only. */
+  standalone?: boolean;
 };
 
 /**
@@ -81,6 +83,7 @@ export default function Studio({
   initialGenerations,
   versions,
   initialDocument,
+  standalone = false,
 }: StudioProps) {
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const environmentPanel = useRef<HTMLElement>(null);
@@ -339,6 +342,7 @@ export default function Studio({
           vfx={{
             document: vfxDocument,
             onDocument: openDocument,
+            standalone,
           }}
         />
       </div>

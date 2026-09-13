@@ -29,6 +29,7 @@ export default function VfxUiReviewPage() {
       initialGenerations={[]}
       versions={[]}
       initialDocument={document}
+      standalone
     />
   );
 }

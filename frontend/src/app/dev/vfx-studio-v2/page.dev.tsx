@@ -53,6 +53,7 @@ export default async function VfxStudioV2Page({
       initialGenerations={[]}
       versions={[]}
       initialDocument={document}
+      standalone
     />
   );
 }
