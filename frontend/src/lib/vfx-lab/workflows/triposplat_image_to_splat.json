@@ -1,0 +1,207 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "generated-smoke-lobe.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Load RGBA image (alpha = object mask)"
+    }
+  },
+  "2": {
+    "class_type": "TripoSplatPreprocessImage",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "13",
+        0
+      ],
+      "erode_radius": 1,
+      "size": 1024
+    },
+    "_meta": {
+      "title": "Preprocess"
+    }
+  },
+  "3": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": {
+      "clip_name": "dino_v3_vit_h.safetensors"
+    },
+    "_meta": {
+      "title": "DINOv3 image encoder"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "triposplat_vae_decoder_fp16.safetensors"
+    },
+    "_meta": {
+      "title": "TripoSplat VAE"
+    }
+  },
+  "5": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "triposplat_fp16.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "TripoSplat diffusion model"
+    }
+  },
+  "6": {
+    "class_type": "TripoSplatConditioning",
+    "inputs": {
+      "clip_vision": [
+        "3",
+        0
+      ],
+      "vae": [
+        "14",
+        0
+      ],
+      "image": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Conditioning + empty latent"
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "5",
+        0
+      ],
+      "seed": 0,
+      "steps": 30,
+      "cfg": 4.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "6",
+        1
+      ],
+      "latent_image": [
+        "6",
+        2
+      ],
+      "denoise": 1.0
+    },
+    "_meta": {
+      "title": "Sample"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecodeTripoSplat",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ],
+      "num_gaussians": 262144,
+      "seed": 0
+    },
+    "_meta": {
+      "title": "Decode to gaussians"
+    }
+  },
+  "9": {
+    "class_type": "SplatToFile3D",
+    "inputs": {
+      "splat": [
+        "8",
+        0
+      ],
+      "format": "ply"
+    },
+    "_meta": {
+      "title": "Pack as .ply"
+    }
+  },
+  "10": {
+    "class_type": "SaveGLB",
+    "inputs": {
+      "mesh": [
+        "9",
+        0
+      ],
+      "filename_prefix": "3d/triposplat"
+    },
+    "_meta": {
+      "title": "Save splat file"
+    }
+  },
+  "11": {
+    "class_type": "RenderSplat",
+    "inputs": {
+      "splat": [
+        "8",
+        0
+      ],
+      "width": 1024,
+      "height": 1024,
+      "frames": 48,
+      "splat_scale": 1.0,
+      "sharpen": 2.0,
+      "headlight_shading": 0.0,
+      "opacity_threshold": 0.0,
+      "render_style": "color",
+      "background": "#000000"
+    },
+    "_meta": {
+      "title": "Turntable, 48 frames"
+    }
+  },
+  "12": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "11",
+        0
+      ],
+      "filename_prefix": "triposplat_turntable"
+    },
+    "_meta": {
+      "title": "Save turntable frames"
+    }
+  },
+  "13": {
+    "class_type": "InvertMask",
+    "inputs": {
+      "mask": [
+        "1",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "LoadImage mask = 1-alpha, flip it"
+    }
+  },
+  "14": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {
+      "title": "Image VAE (reference encode)"
+    }
+  }
+}

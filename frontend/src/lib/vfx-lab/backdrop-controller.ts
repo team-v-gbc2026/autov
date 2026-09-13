@@ -26,6 +26,7 @@ import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 export type BackdropState = "empty" | "loading" | "ready" | "error";
 
 export interface BackdropTransform {
+  /** Offset from the ground-anchored asset; Y=0 places its bottom at ground level. */
   position: [number, number, number];
   /** Euler XYZ, radians. */
   rotation: [number, number, number];
@@ -78,6 +79,7 @@ export class BackdropController {
 
   private spark: SparkRenderer | null = null;
   private splat: SplatMesh | null = null;
+  private localBounds: THREE.Box3 | null = null;
 
   /**
    * Monotonic load token. Every `load()` claims the next value; a load whose
@@ -151,6 +153,7 @@ export class BackdropController {
         return "superseded";
       }
 
+      const localBounds = splat.getBoundingBox(false).clone();
       spark = new SparkRenderer({ renderer: this.renderer });
       // Only now tear down the previous asset, so a failed or superseded load
       // never leaves the viewer empty.
@@ -158,6 +161,7 @@ export class BackdropController {
 
       this.spark = spark;
       this.splat = splat;
+      this.localBounds = localBounds;
       this.scene.add(spark);
       this.scene.add(splat);
       this.currentObjectUrl = ownedUrl ?? null;
@@ -303,6 +307,7 @@ export class BackdropController {
   }
 
   private detachCurrent() {
+    this.localBounds = null;
     if (this.currentObjectUrl) URL.revokeObjectURL(this.currentObjectUrl);
     this.currentObjectUrl = null;
     if (this.splat) {
@@ -323,6 +328,13 @@ export class BackdropController {
     this.splat.position.set(position[0], position[1], position[2]);
     this.splat.rotation.set(rotation[0], rotation[1], rotation[2]);
     this.splat.scale.setScalar(scale);
+    this.splat.updateMatrix();
+    // Include Gaussian extents, not just centers. Re-anchor after rotation or
+    // scale changes without accumulating offsets or altering the effect runtime.
+    if (this.localBounds && !this.localBounds.isEmpty()) {
+      const bounds = this.localBounds.clone().applyMatrix4(this.splat.matrix);
+      if (Number.isFinite(bounds.min.y)) this.splat.position.y += position[1] - bounds.min.y;
+    }
     this.splat.updateMatrixWorld(true);
   }
 

@@ -17,6 +17,7 @@ import {
   BackdropPanel,
   type BackdropPreset,
 } from "@/components/vfx-lab/backdrop-panel";
+import { SplatGenerationPanel } from "@/components/vfx-lab/splat-generation-panel";
 import { validateDocument } from "@/lib/vfx-lab/schema";
 
 // --- Contract this page codes against -------------------------------------
@@ -629,6 +630,13 @@ export default function VfxV2DevGalleryPage() {
             controller={backdropCtl}
             snapshot={backdrop}
             presets={BACKDROP_PRESETS}
+            panelStyle={panelStyle}
+            labelStyle={labelStyle}
+            buttonStyle={buttonStyle}
+          />
+
+          <SplatGenerationPanel
+            controller={backdropCtl}
             panelStyle={panelStyle}
             labelStyle={labelStyle}
             buttonStyle={buttonStyle}

@@ -11,11 +11,12 @@ const result = await build({
   plugins: [{ name: 'controlled-spark', setup(build) {
     build.onResolve({ filter: /^@sparkjsdev\/spark$/ }, () => ({ path: 'spark', namespace: 'test' }));
     build.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ contents: `
-      export class SplatMesh {
-        position = { set() {} }; rotation = { set() {} }; scale = { setScalar() {} };
+      import { Object3D, Box3, Vector3 } from "three";
+      export class SplatMesh extends Object3D {
+        getBoundingBox() { return new Box3(new Vector3(-1,-2,-1), new Vector3(1,3,1)); }
         numSplats = 42; disposed = 0; updateMatrixWorld() {}
         constructor({ url }) {
-          this.url = url;
+          super(); this.url = url;
           this.initialized = new Promise((resolve, reject) => {
             this.complete = () => resolve(this); this.fail = reject;
           });
@@ -28,7 +29,7 @@ const result = await build({
         constructor() { globalThis.__backdropLifecycle.renderers.push(this); }
         dispose() { this.disposed++; }
       }
-    ` }));
+    `, resolveDir: process.cwd() }));
   } }],
 });
 const { BackdropController } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
@@ -52,6 +53,14 @@ try {
   assert.equal(ma.disposed, 1);
   assert.deepEqual(revoked, ['blob:test-1']); // B still decoding
   mb.complete(); assert.equal(await b, 'loaded');
+  mb.updateMatrix();
+  assert.ok(Math.abs(mb.getBoundingBox().applyMatrix4(mb.matrix).min.y) < 1e-8);
+  c.setTransform({ rotation: [0.4, 0.2, 0.8], scale: 2, position: [1, 0.5, 3] });
+  mb.updateMatrix();
+  assert.ok(Math.abs(mb.getBoundingBox().applyMatrix4(mb.matrix).min.y - 0.5) < 1e-8);
+  c.setTransform({ scale: 2 });
+  mb.updateMatrix();
+  assert.ok(Math.abs(mb.getBoundingBox().applyMatrix4(mb.matrix).min.y - 0.5) < 1e-8);
   assert.equal(scene.children.length, 2);
   assert.equal(harness.renderers.length, 1); // no renderer for abandoned loads
   const failed = c.load('/broken.ply'); const mf = latest();
