@@ -14,6 +14,12 @@ import {
   type ReviewV2,
 } from "./protocol-v2";
 import type { Evidence } from "./runtime";
+import { RefinePlanV2Schema, type RefinePlanV2 } from "./protocol-v2";
+import {
+  describeMeasurementV2,
+  type MeasurementV2,
+  type ReferenceInputV2,
+} from "./measure-v2";
 
 /** Which document contract this run generates against. */
 export type SchemaVersion = "v1" | "v2";
@@ -28,8 +34,34 @@ export type Candidate<D extends PipelineDocument = VfxDocument> = {
   reviewV2?: ReviewV2;
   /** v2 only: the temporal spike measure this candidate was reviewed with. */
   jitterScore?: number;
+  /** v2 only: what the measure stage found for this candidate. */
+  measurement?: MeasurementV2;
   origin: "generated" | "refined";
   error?: string;
+};
+
+/** What one numeric solve inside the refiner's knob subspace produced. */
+export type SolveOutcome<D extends PipelineDocument = VfxDocument> = {
+  accepted: boolean;
+  document: D;
+  improvement: number;
+  residual: number;
+  baselineResidual: number;
+  knobs: Record<string, number>;
+  /** Renders the solve spent. */
+  evaluations: number;
+  notes: string[];
+  measurement: MeasurementV2;
+};
+
+/**
+ * The measure stage's handle. It owns a live renderer, so the pipeline must
+ * dispose it whether or not the round succeeds.
+ */
+export type MeasureSession<D extends PipelineDocument = VfxDocument> = {
+  measurement: MeasurementV2;
+  solve(plan: RefinePlanV2): Promise<SolveOutcome<D>>;
+  dispose(): void;
 };
 export type PipelineResult<D extends PipelineDocument = VfxDocument> = {
   runId: string;
@@ -59,6 +91,21 @@ export type PipelineOptions<D extends PipelineDocument = VfxDocument> = {
     solo?: string,
     diagnostic?: boolean,
   ): Evidence | Promise<Evidence>;
+  /**
+   * v2 only. When supplied, the scalar refinement round measures the chosen
+   * candidate against its reference first and then asks the model for a knob
+   * subspace instead of for parameter values. Without it the v2 run keeps the
+   * older unmeasured scalar round, and v1 never uses it at all.
+   */
+  measure?(
+    doc: D,
+    reference?: ReferenceInputV2,
+  ): MeasureSession<D> | Promise<MeasureSession<D>>;
+  /**
+   * Reference clip for this case: a local path (resolved by the local API in
+   * AUTOV_LOCAL_MODE) or a data URL. Sent with the plan request.
+   */
+  referenceVideo?: string;
   progress(message: string): void;
   candidate(candidate: Candidate<D>): void | Promise<void>;
 };
@@ -189,6 +236,7 @@ export async function generatePipeline(
     mode: options.mode,
     textures: options.textures ?? false,
     ...(options.schema ? { schema: options.schema } : {}),
+    ...(options.referenceVideo ? { referenceVideo: options.referenceVideo } : {}),
   });
   if (
     options.schema === undefined &&
@@ -201,6 +249,74 @@ export async function generatePipeline(
     );
   const runId = planned.runId as string,
     plan = planned.plan as Plan;
+  // What the measure stage aligns against. A local run sends the case's
+  // reference clip with the plan request and the server answers with the form
+  // the capture browser can actually read.
+  const referenceInput = planned.reference as ReferenceInputV2 | undefined;
+  /** The latest phase-aligned comparison sheet; later rounds are shown it too. */
+  let alignedSheet: string | undefined;
+  /**
+   * Measure the candidate, ask the model which knobs to move and which measured
+   * features to reduce, then solve numerically inside that subspace. No
+   * parameter value ever comes from the model in this path.
+   */
+  const runMeasuredRefinement = async (
+    baseline: Candidate<PipelineDocument>,
+  ): Promise<SolveOutcome<PipelineDocument> | null> => {
+    if (!options.measure) return null;
+    step(
+      "Measuring the best candidate against the reference: phases, deltas and" +
+        " knob influences…",
+    );
+    const session = await options.measure(baseline.document, referenceInput);
+    try {
+      const measurement = session.measurement;
+      baseline.measurement = measurement;
+      alignedSheet = measurement.sheet ?? alignedSheet;
+      step(describeMeasurementV2(measurement));
+      const answer = await call({
+        action: "refine",
+        runId,
+        document: baseline.document,
+        review: baseline.reviewV2,
+        measurement: {
+          phases: measurement.phases.map((phase) => ({
+            name: phase.name,
+            start: phase.start,
+            end: phase.end,
+            confidence: phase.confidence,
+            source: phase.source,
+          })),
+          deltas: measurement.deltas,
+          envelope: measurement.envelope,
+          influences: measurement.influences,
+          confidence: measurement.confidence,
+          notes: measurement.notes.slice(0, 8),
+        },
+        ...(measurement.sheet ? { alignedSheet: measurement.sheet } : {}),
+      });
+      const knobPlan = RefinePlanV2Schema.parse(answer.plan);
+      step(
+        `Solving for ${knobPlan.knobs
+          .map((knob) => `${knob.name} ${knob.direction}`)
+          .join(", ")} against ${knobPlan.targets.join(", ")}…`,
+      );
+      const solved = await session.solve(knobPlan);
+      alignedSheet = solved.measurement.sheet ?? alignedSheet;
+      for (const note of solved.notes) trace.push(`Knob solve: ${note}`);
+      step(
+        solved.accepted
+          ? `Solved in ${solved.evaluations} evaluations: residual` +
+              ` ${solved.baselineResidual} → ${solved.residual}` +
+              ` (${(solved.improvement * 100).toFixed(1)}% better).`
+          : `Knob solve rejected: the measured residual fell only` +
+              ` ${(solved.improvement * 100).toFixed(1)}%. Original retained.`,
+      );
+      return solved;
+    } finally {
+      session.dispose();
+    }
+  };
   for (const texture of options.textures ? plan.textures || [] : []) {
     try {
       step(`Creating reusable texture: ${texture.id}…`);
@@ -282,24 +398,41 @@ export async function generatePipeline(
   ) {
     try {
       const baseline = selected;
-      step("Diagnosing the best candidate with an isolated render, bloom off…");
-      const layerId =
-        schema === "v2"
+      // v2 with a measure stage: measure first, ask the model only for the knob
+      // subspace, and let the renderer solve for the numbers inside it.
+      const measured =
+        schema === "v2" && options.measure
+          ? await runMeasuredRefinement(baseline)
+          : null;
+      if (!measured)
+        step("Diagnosing the best candidate with an isolated render, bloom off…");
+      const layerId = measured
+        ? undefined
+        : schema === "v2"
           ? diagnosticLayerV2(baseline.document, baseline.reviewV2!)
           : baseline.review!.diagnoses.find((d) =>
               baseline.document.layers.some((l) => l.id === d.layerId),
             )?.layerId;
-      if (layerId) {
-        const diagnostic = await capture(baseline.document, layerId, true);
-        step("Applying one bounded refinement…");
-        const result = await call({
-          action: "refine",
-          runId,
-          document: baseline.document,
-          review: schema === "v2" ? baseline.reviewV2 : baseline.review,
-          diagnostic: diagnostic.sheet,
-        });
-        const document = accept(result.document),
+      if (measured?.accepted || layerId) {
+        let refinedDocument: PipelineDocument;
+        let refinedMeasurement: MeasurementV2 | undefined;
+        if (measured) {
+          step("Rendering the solved knob refinement…");
+          refinedDocument = accept(measured.document);
+          refinedMeasurement = measured.measurement;
+        } else {
+          const diagnostic = await capture(baseline.document, layerId, true);
+          step("Applying one bounded refinement…");
+          const result = await call({
+            action: "refine",
+            runId,
+            document: baseline.document,
+            review: schema === "v2" ? baseline.reviewV2 : baseline.review,
+            diagnostic: diagnostic.sheet,
+          });
+          refinedDocument = accept(result.document);
+        }
+        const document = refinedDocument,
           evidence = await capture(document);
         if (
           evidence.renderedPixels !== undefined &&
@@ -314,6 +447,7 @@ export async function generatePipeline(
         };
         if (evidence.jitterScore !== undefined)
           refined.jitterScore = evidence.jitterScore;
+        if (refinedMeasurement) refined.measurement = refinedMeasurement;
         candidates.push(refined);
         await options.candidate({ ...refined });
         step("Re-rendering and checking the refinement…");
@@ -388,6 +522,9 @@ export async function generatePipeline(
         review:
           schema === "v2" ? structuralSource.reviewV2 : structuralSource.review,
         sheet: structuralSource.evidence.sheet,
+        // The structural round is unchanged, but it sees the same phase-aligned
+        // comparison the scalar round reasoned about when one exists.
+        ...(schema === "v2" && alignedSheet ? { alignedSheet } : {}),
       });
       const document = accept(result.document),
         evidence = await capture(document);

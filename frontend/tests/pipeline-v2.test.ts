@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { generatePipeline, type Transport } from "../src/lib/vfx-lab/pipeline";
+import type { MeasurementV2 } from "../src/lib/vfx-lab/measure-v2";
 import { createPreset } from "../src/lib/vfx-lab/recipes";
 import {
   createPresetV2,
@@ -163,6 +164,223 @@ test("a weak v2 review drives the refinement rounds off the defect checklist", a
   assert.ok(
     result.trace.some((line) => line.includes("Review v2: needs rework")),
   );
+});
+
+/** What the measure stage hands the refiner, in miniature. */
+const measurement = (knobs: Record<string, number> = {}): MeasurementV2 => ({
+  phases: [
+    {
+      name: "peak",
+      start: 0.5,
+      end: 0.7,
+      sampleTimes: [0.6],
+      confidence: "high",
+      source: "video",
+      reference: 2,
+      notes: [],
+    },
+  ],
+  deltas: [
+    {
+      feature: "area",
+      phase: "peak",
+      render: 0.08,
+      reference: 0.2,
+      delta: -0.6,
+      weight: 1,
+    },
+  ],
+  envelope: { render: [0, 1, 0.3], reference: [0, 1, 0.6], distance: 0.17 },
+  influences: [
+    { knob: "particleCount", feature: "area", phase: "peak", slope: -1.9 },
+  ],
+  confidence: "high",
+  notes: ["measured from a 42-frame clip"],
+  sheet: "data:image/png;base64,ALIGNED",
+  residualNorm: 4.2,
+  knobs: knobs as MeasurementV2["knobs"],
+});
+
+/**
+ * A measure stage with no browser in it: the same contract the real one
+ * satisfies, so the pipeline's half of the round is tested on its own.
+ */
+const fakeMeasure = (
+  outcome: { accepted: boolean; improvement: number },
+  log: { plans: unknown[]; disposed: number },
+) => {
+  const solved = structuredClone(fixture());
+  solved.name = "solved";
+  return () => ({
+    measurement: measurement(),
+    solve: async (plan: unknown) => {
+      log.plans.push(plan);
+      return {
+        accepted: outcome.accepted,
+        document: solved,
+        improvement: outcome.improvement,
+        residual: 3.1,
+        baselineResidual: 4.2,
+        knobs: { particleCount: 1.6 },
+        evaluations: 7,
+        notes: ["particleCount up, as asked"],
+        measurement: measurement({ particleCount: 1.6 }),
+      };
+    },
+    dispose: () => {
+      log.disposed++;
+    },
+  });
+};
+
+const knobPlan = {
+  knobs: [
+    { name: "particleCount", direction: "up", reason: "peak.area is -0.6" },
+  ],
+  targets: ["area"],
+};
+
+test("the measured v2 scalar round asks for knobs and solves them numerically", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const log = { plans: [] as unknown[], disposed: 0 };
+  const answers = [reviewV2(3, { smallInFrame: true }), reviewV2(4.5)];
+  let reviews = 0;
+  const result = await generatePipeline({
+    prompt: "a fire projectile",
+    references: [],
+    mode: "quality",
+    candidateCount: 1,
+    schema: "v2",
+    referenceVideo: "/tmp/reference.mp4",
+    signal: new AbortController().signal,
+    request: async (body) => {
+      bodies.push(body);
+      if (body.action === "plan")
+        return {
+          runId: "measured-run",
+          plan: { criteria: ["visible fire"] },
+          schema: "v2",
+          reference: { kind: "frames", fps: 10, frames: ["data:image/jpeg;base64,F"] },
+        };
+      if (body.action === "candidate") return { document: fixture() };
+      if (body.action === "review")
+        return { review: answers[Math.min(reviews++, answers.length - 1)] };
+      if (body.action === "refine") return { plan: knobPlan };
+      return { document: fixture() };
+    },
+    capture,
+    measure: fakeMeasure({ accepted: true, improvement: 0.26 }, log),
+    progress: () => {},
+    candidate: () => {},
+  });
+  // The clip travelled with the plan request, and the resolved reference came
+  // back for the measure stage.
+  assert.equal(bodies[0].referenceVideo, "/tmp/reference.mp4");
+  const refine = bodies.find((b) => b.action === "refine")!;
+  // The refiner is shown the aligned sheet and the measurement, and no longer
+  // an isolated diagnostic render.
+  assert.equal(refine.alignedSheet, "data:image/png;base64,ALIGNED");
+  assert.equal(refine.diagnostic, undefined);
+  const sent = refine.measurement as MeasurementV2;
+  assert.equal(sent.deltas[0].feature, "area");
+  assert.equal(sent.influences[0].knob, "particleCount");
+  assert.equal(sent.envelope.distance, 0.17);
+  assert.equal(sent.confidence, "high");
+  // The model's answer went to the solver, and the solved document was the one
+  // rendered, reviewed and adopted.
+  assert.deepEqual(log.plans, [knobPlan]);
+  assert.equal(log.disposed, 1);
+  const refined = result.candidates.find((c) => c.id === "measured-run-refined")!;
+  assert.equal(refined.document.name, "solved");
+  assert.equal(refined.measurement?.knobs?.particleCount, 1.6);
+  assert.equal(result.selected.id, "measured-run-refined");
+  // The measurement is kept on the candidate it describes.
+  assert.equal(
+    result.candidates.find((c) => c.origin === "generated")?.measurement?.residualNorm,
+    4.2,
+  );
+  assert.ok(result.trace.some((line) => line.includes("Solving for particleCount up")));
+  assert.ok(result.trace.some((line) => line.includes("26.0% better")));
+});
+
+test("a knob solve that does not clear the residual gate is never rendered", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const log = { plans: [] as unknown[], disposed: 0 };
+  const result = await generatePipeline({
+    prompt: "a fire projectile",
+    references: [],
+    mode: "quality",
+    candidateCount: 1,
+    schema: "v2",
+    signal: new AbortController().signal,
+    request: async (body) => {
+      bodies.push(body);
+      if (body.action === "plan")
+        return {
+          runId: "rejected-run",
+          plan: { criteria: ["visible fire"] },
+          schema: "v2",
+        };
+      if (body.action === "candidate") return { document: fixture() };
+      if (body.action === "review")
+        return { review: reviewV2(3, { smallInFrame: true }) };
+      if (body.action === "refine") return { plan: knobPlan };
+      return { document: fixture() };
+    },
+    capture,
+    measure: fakeMeasure({ accepted: false, improvement: 0.04 }, log),
+    progress: () => {},
+    candidate: () => {},
+  });
+  assert.equal(log.disposed, 1);
+  assert.equal(
+    result.candidates.some((c) => c.id === "rejected-run-refined"),
+    false,
+  );
+  assert.ok(result.trace.some((line) => line.includes("Knob solve rejected")));
+  // The structural round still runs, and it is shown the aligned sheet.
+  const structural = bodies.find((b) => b.action === "restructure");
+  assert.equal(structural?.alignedSheet, "data:image/png;base64,ALIGNED");
+});
+
+test("a refiner that answers outside the knob vocabulary is rejected", async () => {
+  const log = { plans: [] as unknown[], disposed: 0 };
+  const result = await generatePipeline({
+    prompt: "a fire projectile",
+    references: [],
+    mode: "quality",
+    candidateCount: 1,
+    schema: "v2",
+    signal: new AbortController().signal,
+    request: async (body) => {
+      if (body.action === "plan")
+        return {
+          runId: "bad-plan-run",
+          plan: { criteria: ["visible fire"] },
+          schema: "v2",
+        };
+      if (body.action === "candidate") return { document: fixture() };
+      if (body.action === "review")
+        return { review: reviewV2(3, { smallInFrame: true }) };
+      if (body.action === "refine")
+        return {
+          plan: { knobs: [{ name: "bloom", direction: "up", reason: "x" }], targets: ["area"] },
+        };
+      return { document: fixture() };
+    },
+    capture,
+    measure: fakeMeasure({ accepted: true, improvement: 0.3 }, log),
+    progress: () => {},
+    candidate: () => {},
+  });
+  // The session is closed, nothing is solved, and the run continues.
+  assert.equal(log.plans.length, 0);
+  assert.equal(log.disposed, 1);
+  assert.equal(
+    result.candidates.some((c) => c.id === "bad-plan-run-refined"),
+    false,
+  );
+  assert.ok(result.trace.some((line) => line.includes("Refinement rejected")));
 });
 
 test("a v1 document is never accepted as a v2 candidate", async () => {

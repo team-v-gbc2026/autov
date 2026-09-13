@@ -106,6 +106,103 @@ for (const id of (await readdir(path.join(root, "inputs/cases"))).sort()) {
     },
   });
 }
+// --- reference clips --------------------------------------------------------
+//
+// A v2 run measures each candidate against the case's reference CLIP, not only
+// against the three stills: the clip is what carries timing. The clips live in
+// <dataset>/references/videos/<sourceId>-*.mp4, and the case -> sourceId
+// mapping is read, in order, from
+//   1. <dataset>/sources.json, whatever shape it takes (a list of records, or a
+//      plain caseId -> sourceId / filename map),
+//   2. the source id embedded in the case's own reference_images paths, which
+//      are cut from the same clip,
+//   3. the table below.
+// The table is the last resort and holds only what is knowable without the
+// dataset: the case id itself and its fx number, which is how the verified
+// dataset names both its frames and its clips. A case with no match is not an
+// error — the measure stage falls back to the stills and says so.
+const REFERENCE_CLIP_PREFIXES = Object.fromEntries(
+  [
+    "fx01-lightning-impact",
+    "fx02-fire-projectile",
+    "fx03-water-projectile",
+    "fx04-glitch-magic",
+    "fx05-shield",
+    "fx06-playful-impact",
+    "fx07-fire-slash",
+    "fx08-ice-blast",
+    "fx09-meteor-rain",
+    "fx10-stylized-lightning",
+    "fx11-staggered-lightning",
+    "fx12-smoke-burst",
+    "fx13-sustained-beam",
+    "fx14-rectangular-portal",
+    "fx15-healing-aura",
+    "fx16-energy-overload",
+    "fx17-sky-vortex",
+  ].map((id) => [id, [id, id.split("-")[0]]]),
+);
+let sourceRecords = null;
+try {
+  sourceRecords = JSON.parse(await readFile(path.join(root, "sources.json")));
+} catch {
+  sourceRecords = null;
+}
+let clipFiles = [];
+try {
+  clipFiles = (await readdir(path.join(root, "references/videos"))).filter((f) =>
+    /\.(mp4|webm|mov|m4v)$/i.test(f),
+  );
+} catch {
+  clipFiles = [];
+}
+/** Every token this case could be filed under in references/videos. */
+function clipKeysFor(caseId, data) {
+  const keys = [];
+  const push = (value) => {
+    if (typeof value === "string" && value && !keys.includes(value))
+      keys.push(value);
+  };
+  const fromRecord = (record) => {
+    if (!record || typeof record !== "object") return;
+    if (record.case_id && record.case_id !== caseId) return;
+    for (const key of ["source_id", "sourceId", "clip", "video", "source"])
+      push(
+        typeof record[key] === "string"
+          ? path.basename(record[key]).replace(/\.[^.]+$/, "")
+          : undefined,
+      );
+  };
+  const records = Array.isArray(sourceRecords)
+    ? sourceRecords
+    : Array.isArray(sourceRecords?.sources)
+      ? sourceRecords.sources
+      : null;
+  if (records) for (const record of records) fromRecord(record);
+  else if (sourceRecords && typeof sourceRecords === "object") {
+    const entry = sourceRecords[caseId];
+    if (typeof entry === "string")
+      push(path.basename(entry).replace(/\.[^.]+$/, ""));
+    else fromRecord(entry);
+  }
+  // reference-image paths: references/frames/<sourceId>/<sourceId>-03.jpg and
+  // friends all put the source id in a path segment.
+  for (const filename of data.reference_images || [])
+    for (const segment of filename.split(/[\\/]/))
+      push(segment.replace(/\.[^.]+$/, "").replace(/[-_]\d+$/, ""));
+  for (const key of REFERENCE_CLIP_PREFIXES[caseId] || []) push(key);
+  return keys;
+}
+function referenceClipFor(caseId, data) {
+  for (const key of clipKeysFor(caseId, data)) {
+    const match = clipFiles.find(
+      (file) => file === key || file.startsWith(`${key}-`) || file.startsWith(`${key}.`),
+    );
+    if (match) return path.join(root, "references/videos", match);
+  }
+  return null;
+}
+
 // Explicit case lists also define execution priority.
 if (ids.length)
   cases.sort(
@@ -207,6 +304,15 @@ try {
       ),
     );
     console.log(`Starting ${c.data.case_id}`);
+    // The clip is only useful to the v2 measure stage; a v1 run never asks.
+    const referenceVideo =
+      schema === "v2" ? referenceClipFor(c.data.case_id, c.data) : null;
+    if (schema === "v2")
+      console.log(
+        referenceVideo
+          ? `Reference clip: ${path.relative(root, referenceVideo)}`
+          : `No reference clip for ${c.data.case_id}; measuring against the stills.`,
+      );
     try {
       const result = await page.evaluate(
         async ({ input, options }) => window.AutoVBenchmark.run(input, options),
@@ -221,6 +327,7 @@ try {
             textures: report.textures,
             candidateCount,
             schema,
+            ...(referenceVideo ? { referenceVideo } : {}),
           },
         },
       );

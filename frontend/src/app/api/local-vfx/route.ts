@@ -49,10 +49,16 @@ import {
   REVIEW_V2_DEFECTS,
   REVIEW_V2_SYSTEM,
   ReviewV2Schema,
+  RefinePlanV2Schema,
+  REFINE_PLAN_V2_SYSTEM,
   StructuralRefinementV2Schema,
   TECHNICAL_GUIDE_V2,
   validateReviewV2Criteria,
 } from "@/lib/vfx-lab/protocol-v2";
+import {
+  decodeReferenceVideo,
+  type ReferenceFrames,
+} from "@/lib/vfx-lab/reference-video-node";
 import { budgetStatus } from "@/lib/vfx-lab/budget";
 import {
   callModel,
@@ -88,6 +94,69 @@ const sheetImageSchema = z
   .string()
   .max(4_000_000)
   .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/);
+// The phase-aligned comparison sheet is eight 640x360 tiles in a PNG: bigger
+// than either evidence sheet, and the one image the measured refiner reasons on.
+const alignedSheetSchema = z
+  .string()
+  .max(8_000_000)
+  .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/);
+/**
+ * What the measure stage sends back from the capture browser. It is evidence,
+ * not configuration: every field is bounded and nothing here is ever written
+ * into a document.
+ */
+const MeasurementWireSchema = z
+  .object({
+    phases: z
+      .array(
+        z
+          .object({
+            name: z.string().max(24),
+            start: z.number(),
+            end: z.number(),
+            confidence: z.enum(["high", "medium", "low"]),
+            source: z.string().max(24),
+          })
+          .strict(),
+      )
+      .max(6),
+    deltas: z
+      .array(
+        z
+          .object({
+            feature: z.string().max(24),
+            phase: z.string().max(24),
+            render: z.number(),
+            reference: z.number(),
+            delta: z.number(),
+            weight: z.number(),
+          })
+          .strict(),
+      )
+      .max(40),
+    envelope: z
+      .object({
+        render: z.array(z.number()).max(64),
+        reference: z.array(z.number()).max(64),
+        distance: z.number(),
+      })
+      .strict(),
+    influences: z
+      .array(
+        z
+          .object({
+            knob: z.string().max(32),
+            feature: z.string().max(24),
+            phase: z.string().max(24),
+            slope: z.number(),
+          })
+          .strict(),
+      )
+      .max(30),
+    confidence: z.enum(["high", "medium", "low"]),
+    notes: z.array(z.string().max(400)).max(12),
+  })
+  .strict();
 const RequestSchema = z.discriminatedUnion("action", [
   z
     .object({
@@ -96,6 +165,8 @@ const RequestSchema = z.discriminatedUnion("action", [
       document: AnyDocumentSchema,
       review: AnyReviewSchema,
       sheet: sheetImageSchema,
+      // v2 only: the same phase-aligned comparison the scalar round measured.
+      alignedSheet: alignedSheetSchema.optional(),
     })
     .strict(),
   z
@@ -116,6 +187,10 @@ const RequestSchema = z.discriminatedUnion("action", [
       mode: z.enum(["fast", "quality"]),
       textures: z.boolean().default(false),
       schema: z.enum(["v1", "v2"]).optional(),
+      // The case's reference clip: a data URL, or a local path when
+      // AUTOV_LOCAL_MODE is set. Decoded here into frames the capture browser
+      // can read; a failure never fails the plan.
+      referenceVideo: z.string().min(1).max(24_000_000).optional(),
     })
     .strict(),
   z
@@ -151,7 +226,11 @@ const RequestSchema = z.discriminatedUnion("action", [
       runId: z.string(),
       document: AnyDocumentSchema,
       review: AnyReviewSchema,
-      diagnostic: sheetImageSchema,
+      // The legacy scalar round's isolated render. The measured round sends the
+      // aligned sheet and the measurement instead.
+      diagnostic: sheetImageSchema.optional(),
+      alignedSheet: alignedSheetSchema.optional(),
+      measurement: MeasurementWireSchema.optional(),
     })
     .strict(),
   z
@@ -304,10 +383,26 @@ export async function POST(request: Request) {
         usages: [result.usage],
       };
       await saveRun(run);
+      // The measure stage needs the reference as pixels, not as a path: decode
+      // it here, where ffmpeg is, and never let a bad clip cost the plan.
+      let reference: ReferenceFrames | undefined;
+      let referenceNote: string | undefined;
+      if (body.referenceVideo) {
+        try {
+          reference = await decodeReferenceVideo(body.referenceVideo);
+        } catch (error) {
+          referenceNote =
+            error instanceof Error
+              ? error.message
+              : "The reference clip could not be decoded.";
+        }
+      }
       return json({
         runId: run.id,
         plan: run.plan,
         schema,
+        ...(reference ? { reference } : {}),
+        ...(referenceNote ? { referenceNote } : {}),
         elapsedSeconds: result.elapsedSeconds,
         usage: result.usage,
         budget: await budgetStatus(),
@@ -545,7 +640,7 @@ export async function POST(request: Request) {
         await saveRun(run);
         const result = await callModel(
           StructuralRefinementV2Schema,
-          `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The last image is the actual output contact sheet; earlier images are appearance references.`,
+          `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,
           JSON.stringify({
             prompt: run.prompt,
             admittedDefects,
@@ -559,7 +654,11 @@ export async function POST(request: Request) {
             },
             review: reviewV2,
           }),
-          [...run.references, body.sheet],
+          [
+            ...run.references,
+            body.sheet,
+            ...(body.alignedSheet ? [body.alignedSheet] : []),
+          ],
           request.signal,
           32000,
         );
@@ -602,6 +701,36 @@ export async function POST(request: Request) {
           budget: await budgetStatus(),
         });
       }
+      // Measured scalar round: the model picks a knob subspace and the features
+      // to reduce; the renderer solves for the values. No document is returned
+      // from here, and no number the model writes ever reaches one.
+      if (body.action === "refine" && body.measurement) {
+        const plan = await callModel(
+          RefinePlanV2Schema,
+          REFINE_PLAN_V2_SYSTEM,
+          JSON.stringify({
+            prompt: run.prompt,
+            document: { name: doc.name, duration: doc.duration, layers },
+            admittedDefects,
+            directorNotes: reviewV2!.directorNotes,
+            review: reviewV2,
+            measurement: body.measurement,
+          }),
+          body.alignedSheet ? [body.alignedSheet] : [],
+          request.signal,
+          4000,
+        );
+        run.usages.push(plan.usage);
+        await saveRun(run);
+        return json({
+          plan: plan.value,
+          elapsedSeconds: plan.elapsedSeconds,
+          usage: plan.usage,
+          budget: await budgetStatus(),
+        });
+      }
+      if (!body.diagnostic)
+        throw new Error("Scalar refinement needs an isolated diagnostic render.");
       const result = await callModel(
         RefinementSchema,
         `${TECHNICAL_GUIDE_V2}\nAct as diagnostic refiner. The director notes and the admitted defects below are what you are correcting: pick the layers each one is about and make at most six local parameter corrections. The additional image is an isolated layer with bloom off: use it to distinguish invisibility versus excessive postprocessing. Targets are the DIRECTOR vocabulary (radius, width, length, intensity, opacity, speed, turbulence, erosion, spin, color), stated in their v1 ranges; the application translates each one into the v2 field for that layer kind. A defect a scalar cannot reach — a missing layer, a missing ground contact — is not yours to fix; leave it. No new layers, seed, timing, camera or post changes. For any animated target, value is the NEW PEAK of that track; the application rescales its curve while preserving timing. Prefer no changes to unsupported guesses.`,
@@ -718,6 +847,9 @@ export async function POST(request: Request) {
         budget: await budgetStatus(),
       });
     }
+    // v1's scalar round is untouched, and it always carries its isolated render.
+    if (!body.diagnostic)
+      throw new Error("Scalar refinement needs an isolated diagnostic render.");
     const result = await callModel(
       RefinementSchema,
       `${TECHNICAL_GUIDE}\nAct as diagnostic refiner. Make at most six local parameter corrections on the diagnosed layers only. The additional image is an isolated layer with bloom off: use it to distinguish invisibility versus excessive postprocessing. No new layers, seed, timing, camera or post changes. For any animated numeric target, value is the NEW PEAK of that track; the application rescales its curve above the allowed lower bound while preserving timing. For unanimated parameters it is an absolute value. Never derive a multiplier from the base value at birth. Prefer no changes to unsupported guesses.`,

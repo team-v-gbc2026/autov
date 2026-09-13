@@ -284,3 +284,6 @@ export async function captureV2(
 // v2 capture surface under one global.
 export { VfxRuntimeV2, RUNTIME_VERSION_V2 } from "./runtime-v2";
 export { isV2, validateDocumentV2 } from "./schema-v2";
+// The measure stage is part of the same browser surface: it renders with the
+// same runtime and never calls anything.
+export { measureV2 } from "./measure-browser-v2";

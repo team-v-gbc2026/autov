@@ -1,6 +1,8 @@
 import { VfxRuntime } from "../src/lib/vfx-lab/runtime";
 import { VfxRuntimeV2 } from "../src/lib/vfx-lab/runtime-v2";
 import { captureV2 } from "../src/lib/vfx-lab/capture-v2";
+import { measureV2 } from "../src/lib/vfx-lab/measure-browser-v2";
+import type { ReferenceInputV2 } from "../src/lib/vfx-lab/measure-v2";
 import {
   generatePipeline,
   type PipelineDocument,
@@ -37,6 +39,8 @@ export async function run(
     textures: boolean;
     candidateCount?: 1 | 2 | 3;
     schema?: "v1" | "v2";
+    /** Local path to the case's reference clip; the API decodes it. */
+    referenceVideo?: string;
   },
 ) {
   const { runtime, host } = mount();
@@ -62,6 +66,24 @@ export async function run(
         isV2(doc)
           ? captureV2(doc, { solo, diagnostic })
           : runtime.capture(doc as VfxDocument, { solo, diagnostic }),
+      // The v2 measure stage: renders and pixels only, never a model call. The
+      // clip the server decoded is preferred; the case's own stills are the
+      // low-confidence fallback.
+      measure: (doc: PipelineDocument, reference?: ReferenceInputV2) => {
+        if (!isV2(doc)) throw Error("The measure stage is v2 only.");
+        return measureV2(doc, {
+          reference:
+            reference ??
+            (input.references.length >= 3
+              ? {
+                  kind: "stills",
+                  stills: input.references.slice(0, 3),
+                  prompt: input.prompt,
+                }
+              : undefined),
+          prompt: input.prompt,
+        });
+      },
       progress: (message) => console.log(`BENCHMARK: ${message}`),
       candidate: async (candidate) => {
         const response = await fetch("/api/local-trials", {
