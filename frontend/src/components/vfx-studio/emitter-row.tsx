@@ -1,19 +1,20 @@
 "use client";
 
-import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useRef, useState, type ButtonHTMLAttributes, type PointerEvent, type ReactNode } from "react";
 import { autoUpdate, flip, FloatingFocusManager, FloatingPortal, offset, safePolygon, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from "@floating-ui/react";
 import IconButton from "../studio/icon-button";
 import styles from "./emitter-row.module.css";
 
-export default function EmitterRow({ name, selected, editing, onEdit, onClose, onTag, controls, children }: {
+export default function EmitterRow({ name, selected, editing, onEdit, onClose, onTag, onDelete, controls, children }: {
   name: string;
   selected: boolean;
   editing: boolean;
   onEdit: () => void;
   onClose: () => void;
   onTag: () => void;
+  onDelete: () => void;
   controls: ReactNode;
-  children: ReactNode;
+  children: (barProps: ButtonHTMLAttributes<HTMLButtonElement> & { ref: (node: HTMLButtonElement | null) => void }) => ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -35,12 +36,12 @@ export default function EmitterRow({ name, selected, editing, onEdit, onClose, o
     whileElementsMounted: autoUpdate,
   });
   const hover = useHover(context, { enabled: !editing, delay: { open: 100, close: 120 }, handleClose: safePolygon() });
-  const focus = useFocus(context, { enabled: !editing, visibleOnly: false });
+  const focus = useFocus(context, { enabled: !editing, visibleOnly: true });
   const dismiss = useDismiss(context);
   const role = useRole(context, { role: "dialog" });
   const { getReferenceProps, getFloatingProps } = useInteractions([hover, focus, dismiss, role]);
   const close = () => { setHovered(false); onClose(); };
-  const followPointer = (event: PointerEvent<HTMLDivElement>) => {
+  const followPointer = (event: PointerEvent<HTMLButtonElement>) => {
     if (editing || event.pointerType === "touch" || event.buttons !== 0) return;
     const row = event.currentTarget;
     const bounds = row.getBoundingClientRect();
@@ -55,14 +56,15 @@ export default function EmitterRow({ name, selected, editing, onEdit, onClose, o
     });
   };
   return <>
-    <div ref={node => refs.setReference(node)} className={`lab-emitter-row ${selected ? "selected" : ""}`} {...getReferenceProps({
-      onPointerEnter: followPointer,
-      onPointerMove: followPointer,
-      onFocus: event => {
-        if (!editing && event.target.matches(":focus-visible")) refs.setPositionReference(event.currentTarget);
-      },
-    })}>
-      {children}
+    <div className={`lab-emitter-row ${selected ? "selected" : ""}`}>
+      {children({
+        ...getReferenceProps({
+          onPointerEnter: followPointer,
+          onPointerMove: followPointer,
+          onFocus: () => refs.setPositionReference(refs.domReference.current),
+        }),
+        ref: node => refs.setReference(node),
+      })}
     </div>
     {open && <FloatingPortal>
       <FloatingFocusManager context={context} modal={false} disabled={!editing} initialFocus={0} returnFocus={editing}>
@@ -100,6 +102,7 @@ export default function EmitterRow({ name, selected, editing, onEdit, onClose, o
             <div className={styles.controls}>{controls}</div>
           </> : <div className={styles.actions}>
             <IconButton name="edit" label={`Edit ${name}`} onClick={onEdit} />
+            <IconButton name="trash" label={`Delete ${name}`} onClick={() => { close(); onDelete(); }} />
             <IconButton name="tag" label={`Tag ${name} in chat`} onClick={() => { close(); onTag(); }} />
           </div>}
         </div>

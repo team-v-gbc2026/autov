@@ -1,0 +1,321 @@
+import * as THREE from "three";
+import type { Layer } from "./schema";
+import { random } from "./evaluate";
+
+/**
+ * What `buildGeometry` actually reads off a layer. v2 layers carry a different
+ * shape, so the v2 runtime adapts to this instead of faking a whole v1 layer,
+ * and `geometry` is widened to accept v2-only names ("sphere", ...).
+ */
+export type GeometrySource = Pick<
+  Layer,
+  "id" | "kind" | "surface" | "params"
+> & { geometry?: string | null };
+
+// Bounded, deterministic meshes. No model download, arbitrary code, or frame-dependent simulation.
+export function buildGeometry(
+  layer: GeometrySource,
+  seed: number,
+): THREE.BufferGeometry {
+  switch (layer.geometry) {
+    case "plane":
+      return new THREE.PlaneGeometry(2, 2);
+    case "sphere":
+      return new THREE.SphereGeometry(1, 48, 28);
+    case "disc":
+      return new THREE.CircleGeometry(1, 48);
+    case "cylinder":
+      return new THREE.CylinderGeometry(1, 1, 2, 32, 1, true);
+    case "teardrop": {
+      const curve = new THREE.CatmullRomCurve3(
+        [
+          new THREE.Vector3(0, -1, 0),
+          new THREE.Vector3(0.22, -0.85, 0),
+          new THREE.Vector3(0.68, -0.45, 0),
+          new THREE.Vector3(0.95, 0, 0),
+          new THREE.Vector3(0.85, 0.4, 0),
+          new THREE.Vector3(0.52, 0.8, 0),
+          new THREE.Vector3(0, 1, 0),
+        ],
+        false,
+        "centripetal",
+      );
+      return new THREE.LatheGeometry(
+        curve
+          .getPoints(48)
+          .map((p) => new THREE.Vector2(Math.max(0, p.x), p.y)),
+        40,
+      );
+    }
+    case "cone":
+      return new THREE.ConeGeometry(1, 2, 24, 4, true);
+    case "crystal": {
+      const indexed = new THREE.CylinderGeometry(0, 0.45, 2, 5, 1, false);
+      const geometry = indexed.toNonIndexed();
+      indexed.dispose();
+      geometry.computeVertexNormals();
+      return geometry;
+    }
+    case "crystal-cluster": {
+      const positions: number[] = [],
+        axes: number[] = [],
+        offsets: number[] = [],
+        uvs: number[] = [];
+      const count = Math.min(32, layer.params.count),
+        ratio = layer.params.width / layer.params.radius;
+      const indexed = new THREE.ConeGeometry(1, 2, 5, 1, false);
+      const base = indexed.toNonIndexed();
+      indexed.dispose();
+      const source = base.getAttribute("position"),
+        uv = base.getAttribute("uv");
+      for (let i = 0; i < count; i++) {
+        const angle =
+          i * 2.399963 + random(seed, layer.id, i, "cluster-angle") * 0.25;
+        const distance =
+          i === 0 ? 0 : 0.22 + 0.72 * Math.sqrt(i / Math.max(1, count - 1));
+        const height =
+          i === 0
+            ? 1
+            : 0.45 + random(seed, layer.id, i, "cluster-height") * 0.45;
+        const thickness =
+          0.65 + random(seed, layer.id, i, "cluster-width") * 0.35;
+        const lean = distance * 0.24;
+        for (let j = 0; j < source.count; j++) {
+          const y = (source.getY(j) + 1) * height;
+          const x = Math.cos(angle) * (distance + lean * y);
+          const z = Math.sin(angle) * (distance + lean * y);
+          const ox = source.getX(j) * thickness,
+            oz = source.getZ(j) * thickness;
+          axes.push(x, y, z);
+          offsets.push(ox, oz);
+          positions.push(x + ox * ratio, y, z + oz * ratio);
+          uvs.push(uv.getX(j), uv.getY(j));
+        }
+      }
+      base.dispose();
+      const result = new THREE.BufferGeometry();
+      result.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      result.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      result.setAttribute(
+        "aClusterAxis",
+        new THREE.Float32BufferAttribute(axes, 3),
+      );
+      result.setAttribute(
+        "aClusterOffset",
+        new THREE.Float32BufferAttribute(offsets, 2),
+      );
+      result.computeVertexNormals();
+      return result;
+    }
+    case "streamer": {
+      // An open membrane along local Y; water has rounded ends so head shutdown
+      // does not expose a straight rectangular root.
+      // The vertex shader bends only the free end, with a conservative bounds envelope.
+      const positions: number[] = [],
+        uvs: number[] = [],
+        indices: number[] = [];
+      const rows = 40,
+        columns = 8;
+      for (let i = 0; i <= rows; i++) {
+        const t = i / rows;
+        const cap = Math.max(0, (t - 0.65) / 0.35);
+        const rootCap = Math.max(0, 1 - t / 0.16);
+        const width = Math.max(
+          0.006,
+          ["water", "water-streaks"].includes(layer.surface || "")
+            ? (0.55 + 0.15 * Math.sin(t * Math.PI)) *
+                Math.sqrt(Math.max(0, 1 - cap * cap)) *
+                Math.sqrt(Math.max(0, 1 - rootCap * rootCap))
+            : Math.sqrt(1 - t) * (0.55 + 0.3 * Math.sin(t * Math.PI)),
+        );
+        for (let j = 0; j <= columns; j++) {
+          const across = (j / columns) * 2 - 1;
+          positions.push(
+            across * width,
+            t * 2 - 1,
+            0.14 * (1 - across * across) * Math.sin(t * Math.PI),
+          );
+          uvs.push(j / columns, t);
+          if (i < rows && j < columns) {
+            const k = i * (columns + 1) + j;
+            indices.push(
+              k,
+              k + 1,
+              k + columns + 1,
+              k + 1,
+              k + columns + 2,
+              k + columns + 1,
+            );
+          }
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      return geometry;
+    }
+    case "torus":
+      return new THREE.TorusGeometry(
+        0.78,
+        Math.min(0.35, layer.params.width / layer.params.radius),
+        8,
+        64,
+      );
+    case "ribbon": {
+      const positions: number[] = [],
+        uvs: number[] = [],
+        indices: number[] = [];
+      const segments = 64,
+        arc = layer.params.arc;
+      for (let i = 0; i <= segments; i++) {
+        const u = i / segments,
+          a = u * arc,
+          taper = Math.pow(Math.sin(Math.PI * u), 0.6);
+        const width = Math.max(
+          0.003,
+          (layer.params.width / layer.params.radius) * taper,
+        );
+        for (const side of [-1, 1]) {
+          const radius = 0.72 + side * width;
+          positions.push(
+            Math.cos(a) * radius,
+            Math.sin(a) * radius,
+            0.12 * Math.sin(a * 2),
+          );
+          uvs.push(u, (side + 1) / 2);
+        }
+        if (i < segments) {
+          const j = i * 2;
+          indices.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      g.setIndex(indices);
+      g.computeVertexNormals();
+      return g;
+    }
+    case "lightning": {
+      const paths: THREE.BufferGeometry[] = [];
+      // Co-located colored sheath and white core share the same centerline.
+      const key = `bolt:${layer.params.position.map((v) => v.toFixed(3)).join(":")}`;
+      const count = layer.params.turbulence < 0.3 ? 7 : 13;
+      const points = Array.from(
+        { length: count },
+        (_, i) =>
+          new THREE.Vector3(
+            i === 0 || i === count - 1
+              ? 0
+              : (i % 2 ? 1 : -1) *
+                  (0.45 + random(seed, key, i, "bend") * 0.55) *
+                  Math.max(0.2, layer.params.radius * 0.45),
+            1 - (i * 2) / (count - 1),
+            (random(seed, key, i, "depth") - 0.5) * 0.08,
+          ),
+      );
+      const make = (points: THREE.Vector3[], radius: number) => {
+        const vertices: number[] = [],
+          uvs: number[] = [],
+          indices: number[] = [];
+        const sides = 6;
+        for (let i = 0; i < points.length; i++) {
+          const tangent = points[Math.min(points.length - 1, i + 1)]
+            .clone()
+            .sub(points[Math.max(0, i - 1)])
+            .normalize();
+          const normal = new THREE.Vector3()
+            .crossVectors(tangent, new THREE.Vector3(0, 0, 1))
+            .normalize();
+          const binormal = new THREE.Vector3()
+            .crossVectors(tangent, normal)
+            .normalize();
+          const thickness =
+            radius *
+            (0.6 + random(seed, key, i, "thickness") * 0.65) *
+            (i === points.length - 1 ? 0.5 : 1);
+          for (let j = 0; j <= sides; j++) {
+            const angle = (j / sides) * Math.PI * 2;
+            const v = points[i]
+              .clone()
+              .addScaledVector(normal, Math.cos(angle) * thickness)
+              .addScaledVector(binormal, Math.sin(angle) * thickness);
+            vertices.push(v.x, v.y, v.z);
+            uvs.push(j / sides, i / (points.length - 1));
+            if (i < points.length - 1 && j < sides) {
+              const k = i * (sides + 1) + j;
+              indices.push(
+                k,
+                k + 1,
+                k + sides + 1,
+                k + 1,
+                k + sides + 2,
+                k + sides + 1,
+              );
+            }
+          }
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(vertices, 3),
+        );
+        geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+        geometry.setIndex(indices);
+        geometry.computeVertexNormals();
+        const result = geometry.toNonIndexed();
+        geometry.dispose();
+        return result;
+      };
+      const width = Math.max(0.003, Math.min(0.6, layer.params.width));
+      paths.push(make(points, width));
+      for (const index of layer.params.turbulence < 0.3 ? [] : [3, 7]) {
+        const base = points[index];
+        const side = index === 3 ? -1 : 1;
+        paths.push(
+          make(
+            [
+              base,
+              base.clone().add(new THREE.Vector3(0.3 * side, -0.2, 0)),
+              base.clone().add(new THREE.Vector3(0.55 * side, -0.6, 0.1)),
+            ],
+            width * 0.4,
+          ),
+        );
+      }
+      const result = new THREE.BufferGeometry();
+      for (const name of ["position", "normal", "uv"]) {
+        const arrays = paths.map((g) => g.getAttribute(name));
+        const merged = new Float32Array(
+          arrays.reduce((n, a) => n + a.array.length, 0),
+        );
+        let cursor = 0;
+        for (const a of arrays) {
+          merged.set(a.array, cursor);
+          cursor += a.array.length;
+        }
+        result.setAttribute(
+          name,
+          new THREE.BufferAttribute(merged, arrays[0].itemSize),
+        );
+      }
+      paths.forEach((g) => g.dispose());
+      return result;
+    }
+    default:
+      return layer.kind === "shell"
+        ? new THREE.SphereGeometry(1, 48, 28)
+        : new THREE.PlaneGeometry(2, 2);
+  }
+}

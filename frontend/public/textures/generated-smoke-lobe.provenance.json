@@ -1,0 +1,8 @@
+{
+  "provider": "Codex built-in image generation",
+  "model": "not exposed by tool",
+  "created": "2026-09-13",
+  "prompt": "Create ONE reusable real-time game VFX sprite texture: a single stylized billowing smoke lobe with 5 to 7 large rounded bulges and a gentle inward curl. Flat orthographic front view, square. White and light grayscale, shaded in just three broad sculpted tones, crisp smooth irregular silhouette. Grayscale values stay between 0.45 and 1 inside the lobe so a shader can tint it purple or pink. Solid opaque smoke interior; actual fully transparent background and 12 percent transparent margin on every side. Centered lobe occupies 70 percent of canvas. No glow, no haze around the silhouette, no particles, no ground, no scene, no text, no black background, no checkerboard. Production texture asset, not a rendered finished effect screenshot.",
+  "processing": "Downsample within 448x448 and add 32px transparent padding on all sides; preserve generated alpha",
+  "originalFilename": "exec-b37ea0b6-33de-49f5-b8ae-1cdee5b41d42.png"
+}

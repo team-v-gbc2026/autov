@@ -1,0 +1,15 @@
+{
+  "generated": "2026-09-12T22:15:34.145Z",
+  "tool": "Codex imagegen",
+  "model": "not exposed by tool",
+  "original": "/Users/taiki/.codex/generated_images/01a096b1-27f8-7953-80b7-3c9a22f55df9/exec-f6b1d105-fb60-411b-b9ef-d93eac405675.png",
+  "file": "generated-vortex-cloud.png",
+  "dimensions": [
+    512,
+    512
+  ],
+  "sha256": "2aad2d8ff768034f446393ec84e05fade109cb318b6aa58ea05573f8b4992118",
+  "processing": "Aspect-preserving448px contain and32px transparent padding; originalalphaandgrayscaleretained.",
+  "description": "Grayscale atmospheric spiral cloud disc, bright curling ridges and dark channels, transparent soft outer haze. Created as a reusable tintable rotating VFX material, not copied from an input reference.",
+  "outerEdgeAlphaMax": 0
+}

@@ -8,6 +8,7 @@ import { ReferenceContext, ReferenceMention } from "./reference-mention";
 import { PluginKey } from "@tiptap/pm/state";
 import { EmitterContext, EmitterMention, type EmitterTag } from "./emitter-mention";
 import { encodeEmitterMention, encodeMention } from "./prompt-format";
+import { MAX_PROMPT_CHARACTERS, MAX_PROMPT_REFERENCES } from "@/lib/vfx-lab/reference-input";
 import ReferencePicker from "./reference-picker";
 import Tooltip from "@/components/ui/tooltip";
 import Icon from "../icon";
@@ -150,9 +151,9 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
     });
     if (invalidEmitter) { setError("Remove unavailable emitter tags before sending."); return; }
     if (invalid) { setError("Retry or remove unavailable references before sending."); return; }
-    if (ids.size > 8) { setError("Use up to 8 references per prompt."); return; }
+    if (ids.size > MAX_PROMPT_REFERENCES) { setError("Use up to 8 references per prompt."); return; }
     const text = editor.getText({ textSerializers: { emitterMention: ({ node }) => encodeEmitterMention(node.attrs.id, emitters.find(item => item.id === node.attrs.id)?.name || node.attrs.label), mention: ({ node }) => encodeMention(node.attrs.id, references.find(ref => ref.id === node.attrs.id)?.name || node.attrs.label) } });
-    if (text.length > 10000) { setError("Keep the prompt under 10,000 characters."); return; }
+    if (text.length > MAX_PROMPT_CHARACTERS) { setError("Keep the prompt under 10,000 characters."); return; }
     setError("");
     if (await onSend(text, [...ids])) editor.commands.clearContent();
   }
@@ -170,7 +171,7 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
         <Tooltip content="Upload reference images" side="top"><button type="button" className="icon-button" disabled={saving || busy || uploading} aria-label="Upload reference images" onMouseDown={event => event.preventDefault()} onClick={() => fileInput.current?.click()}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 12 7-7a3 3 0 0 1 4 4L9 19a5 5 0 0 1-7-7L12 2M6 14l9-9" /></svg></button></Tooltip>
         <Tooltip content="Choose from board" side="top"><button type="button" className="icon-button" aria-label="Choose from board" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" @").run()}>@</button></Tooltip>
         {emitters.length > 0 && <Tooltip content="Tag an emitter" side="top"><button type="button" className="icon-button" aria-label="Tag an emitter" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" #").run()}>#</button></Tooltip>}
-        <span role="status">{uploading ? "Uploading..." : saving ? "Saving..." : ""}</span>
+        <span role="status">{uploading ? "Uploading..." : saving ? "Saving..." : busy ? "Working..." : ""}</span>
       </div><button type="submit" className="send-button" disabled={!hasText || saving || busy || uploading} aria-label={sendLabel} title={sendLabel}><Icon name="arrow" /></button></div>
       <input hidden ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { void filesSelected(event.target.files); event.target.value = ""; }} />
       {error && <p className={styles.error} role="alert">{error}</p>}

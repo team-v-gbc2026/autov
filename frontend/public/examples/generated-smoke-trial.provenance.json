@@ -1,0 +1,10 @@
+{
+  "source": "Actual autoV fast pipeline generation from the exact prompt and input references; single candidate, no automated critique or refinement in this run",
+  "generator": "gpt-6-astra",
+  "created": "2026-09-12T22:27:29.701Z",
+  "sourceImplementation": "a1afbd3",
+  "sourceCandidate": "2d57cd35-ab56-4919-9712-6ddad4a3ceb1-0",
+  "textures": "Two actual Codex-generated reusable smoke-column and smoke-curl masks embedded in the document",
+  "documentSha256": "793883ae3b5e8dcdcb7eca5a0e38f59a5aab9bef79907d1c8d3fd428afdf9403",
+  "notice": "Editable generated example selected after visual comparison of archived frames. Source references, source video and private usage records are not included. This is not a claim of benchmark acceptance. The earlier smoke example remains in the private trial history."
+}

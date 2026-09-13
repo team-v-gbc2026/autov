@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local generation secrets, evidence, cumulative spend ledger
+.autov-local/
+# Offline mirror of the vfx-textures bucket (see docs/vfx-lab/LOCAL_SETUP.md)
+.vfx-textures/
+test-results/
+playwright-report/
+public/vfx-runtime.js
+public/vfx-runtime.js.LICENSE.txt
+public/vfx-runtime-v2.js
+public/vfx-runtime-v2.js.LICENSE.txt

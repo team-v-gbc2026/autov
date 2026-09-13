@@ -1,0 +1,14 @@
+{
+  "source": "Codex built-in image generation",
+  "model": "not exposed by built-in tool",
+  "created": "2026-09-13",
+  "sha256": "67398c01f0711dfb5ac460668bebb471e1456d096de11eb96a01a1b71bb29686",
+  "normalization": "Resized to fit 448px, added 32px transparent GPU-safe padding. Original alpha and color retained.",
+  "prompt": "One orthographic grayscale circular arcane sigil mask. Fine engraved concentric circles, geometric petals, abstract runic shapes, transparent background and interior, no readable text, no scene.",
+  "metadata": {
+    "width": 512,
+    "height": 512,
+    "hasAlpha": true,
+    "outerEdgeMaxAlpha": 0
+  }
+}

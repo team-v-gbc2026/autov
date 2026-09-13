@@ -4,6 +4,21 @@
 
 **Status:** building · **Deadline:** Tue Sep 15, 23:59 JST · **Showcase:** Thu Sep 17, 18:00 @ Sakura Deeptech Shibuya
 
+## Local VFX studio
+
+The local studio now generates editable Three.js effects with OpenAI. It retains the current References / Chat / Timeline UI and adds layer controls, three candidate directions, rendered visual review, bounded refinement, scoped edits, undo/redo, JSON import/export and a self-contained HTML player.
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run dev:local
+```
+
+Open [the legacy lab studio](http://127.0.0.1:3000/dev/vfx-lab) — a dev-only route that needs no Supabase login. The product studio lives at `/workspace` and does require Supabase; on localhost it also runs local generation through `/api/local-vfx`. Connect a project API key through `/dev/vfx-lab/settings` or `frontend/.env.local`. A persistent server-side ledger stops calls before the approved cumulative **$30** local limit would be exceeded.
+
+[Local setup and controls](docs/vfx-lab/LOCAL_SETUP.md) · [Research, architecture and limitations](docs/vfx-lab/DESIGN.md)
+
+This branch is a local implementation. AAA quality remains an artistic acceptance target; model scores and renderer tests do not certify it. The existing cloud workspace and Supabase integration are retained.
+
 ## One-liner
 <!-- Fill at kickoff: "(who)'s (which step of game dev) can now (what), because OpenAI's (which capability) lets us (how)." -->
 TBD

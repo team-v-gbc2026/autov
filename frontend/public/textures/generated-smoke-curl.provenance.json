@@ -1,0 +1,12 @@
+{
+  "provider": "Codex built-in image generation",
+  "model": "not exposed by tool",
+  "created": "2026-09-12T19:37:09.058Z",
+  "processing": "Downsample within 448x448, preserve alpha, add 32px transparent padding on each side. No recoloring.",
+  "originalFilename": "exec-34e6a0b6-39c8-4826-a2f0-543302052328.png",
+  "sha256": "ce5315622511d03a36facfea6596b6961a38a0aee35966c97bb4910efe7dc556",
+  "width": 512,
+  "height": 512,
+  "outerEdgeMaxAlpha": 0,
+  "promptSummary": "Single grayscale stylized smoke wisp, thick asymmetric open C-shaped curling ribbon, broad rounded lower-left base tapering clockwise into an upper-right hook; broad rounded outer lobes, smooth inner edge and strong empty negative space; two/three-tone neutral-gray shading; transparent background and margins, no glow, text, detached particles, or atlas."
+}

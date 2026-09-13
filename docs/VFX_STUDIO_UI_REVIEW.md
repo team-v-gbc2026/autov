@@ -1,9 +1,9 @@
 # VFX Studio UI review fixture
 
-This branch includes a temporary, interactive review route at `/vfx-ui-review`.
-It is available locally and on Vercel preview deployments, is marked `noindex`,
-and returns 404 in the production Vercel environment. Remove the fixture route
-after UX sign-off and before merging.
+This branch includes a temporary, interactive review route at `/dev/vfx-ui-review`, available only in `next dev`.
+`page.dev.tsx` routes are excluded from every production build (see `next.config.ts` and
+`scripts/verify-dev-excluded.mjs`), so the fixture exists on a local dev server only. Remove the
+fixture route after UX sign-off and before merging.
 
 ## Why this fixture exists
 
@@ -34,7 +34,7 @@ add Three Nebula or generation/runtime logic.
 
 ## Suggested review flow
 
-1. Open `/vfx-ui-review` on the PR deployment.
+1. Open `/dev/vfx-ui-review` on a local `next dev` server (dev-only routes are excluded from deployments).
 2. Select different emitter rows, then try show/hide and Solo.
 3. Add an emitter and open Effect controls to change its presentation values.
 4. Click **Edit this emitter in chat**, choose the emitter, and set From/To
