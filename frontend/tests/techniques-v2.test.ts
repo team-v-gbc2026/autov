@@ -97,3 +97,25 @@ test("techniqueBrief respects opts.max", () => {
   const cardCount = (brief.match(/^### /gm) || []).length;
   assert.equal(cardCount, 1);
 });
+
+test("the smoke-spike cards now implement inside schema v2", () => {
+  // These four were the renderer backlog the smoke spike was built to close;
+  // TECHNIQUES.md's backlog table is generated from the same `missing` lists.
+  for (const id of [
+    "cauliflower-blob-cluster",
+    "inverted-hull-outline",
+    "flat-splash-accent",
+    "three-tone-layer-stack",
+  ] as const) {
+    const card = TECHNIQUES_V2[id];
+    assert.deepEqual(card.vocabulary.missing, [], id);
+    assert.ok(card.vocabulary.available.length > 0, id);
+  }
+  const brief = techniqueBrief("smoke-burst" as RecipeV2Id, "a cel-shaded smoke puff");
+  assert.match(brief, /kind:"blob"/);
+  assert.match(brief, /material\.toon/);
+  assert.match(brief, /material\.outline/);
+  assert.match(brief, /kind:"splash"/);
+  // No card may advertise vocabulary the renderer does not have.
+  assert.doesNotMatch(brief, /metaball|SDF fusion/);
+});

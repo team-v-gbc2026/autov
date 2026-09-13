@@ -118,6 +118,7 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
       space: layer.kind === "particles" ? "life" : "layerTime",
       stops,
       displacementShift: 0,
+      heightSpan: 2,
     },
     opacity: p.opacity,
     mask: {
@@ -144,6 +145,11 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
     softParticle: 0,
     fresnel: null,
     procedural: SURFACE_MAP[layer.surface ?? "default"] ?? "none",
+    // v1 had no cel shading and no opaque phase; an upgraded layer keeps the
+    // v2 defaults so it renders exactly the way it did before they existed.
+    toon: null,
+    outline: null,
+    opaqueUntil: null,
   };
 }
 

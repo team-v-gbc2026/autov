@@ -3,6 +3,7 @@ import { DocumentV2WireSchema, type VfxDocumentV2 } from "./schema-v2";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
 import { FEATURE_NAMES } from "./features-v2";
 import { KNOB_NAMES } from "./knobs-v2";
+import { describeArrangement } from "./blob-v2";
 
 // ---------------------------------------------------------------------------
 // autov.lab/2 authoring guide.
@@ -24,11 +25,20 @@ export const TEXTURE_MANIFEST_PROMPT = TEXTURE_MANIFEST_V2.map((entry) => ({
 }));
 
 const VOCABULARY = `Document: schemaVersion "autov.lab/2", name, description, seed, duration (.5-12 s), impact (< duration), quality{style modern|ps2|ps1, particleDensity .1-1, aa none|msaa|msaa+smaa, softParticles}, environment{ground none|grid|plane, groundColor, groundReflect, ambient 0-3, groundY -4..0, fog{color,density 0..0.2}, background}, camera{fov 20-70, azimuth -pi..pi, elevation -1.5..1.5, framing .3-1.2, shake|null, pushIn|null}, post{bloom{strength 0-2, radius 0-1, threshold 0-2}, exposure .3-2, grade{contrast,saturation,tint,lift}, vignette, chromatic, motionBlur}, layers (1-24).
-Layer: id (lowercase-dashes), name, role anticipation|primary|impact|secondary|residue, kind ring|shell|trail|beam|sprite|particles|decal|light, start/end in GLOBAL seconds, enabled, transform{position,rotation,scale}, motion{keys:[[localSeconds,dx,dy,dz],...], ease}|null, tracks (dotted-path keyframes, local seconds), overrides (must be [] for new generation).
-Kind slots: every kind except light carries material. ring/shell/trail/beam/sprite/decal carry geometry and never an emitter. particles carry an emitter and never geometry. light carries only light{color,intensity Curve,radius,decay} — no material, emitter or geometry.
-material{blend additive|alpha|premultiplied|screen, ramp{space life|layerTime|surface, stops 2-6 of {t,color,intensity 0-8} ascending in t, displacementShift -1..1}, opacity, mask{textureId|null, uvScale, uvPan, rotation, randomRotation, atlas{cols,rows,tiles}|null, flipbook{cols,rows,mode,fps}|null}, noise{textureId|null, uvScale, uvPan, distortion 0-.5, distortionPan}|null, erosion{curve, softness .01-.5, edgeWidth 0-.3, edgeColor, edgeIntensity 0-8, displacementProtect 0-1, rimBias 0-1}|null, softParticle 0-2, fresnel{power,strength}|null, procedural none|flame|water|hexagon|smoke|star|solid|portal|water-streaks|energy-ribbon|ice|sparkle}.
-Ramp space: "life" keys the ramp to particle age, "layerTime" to the layer's own 0..1 progress, "surface" to distance along a mesh axis. displacementShift lets vertex-noise lobes read hotter or cooler than the body.
+Layer: id (lowercase-dashes), name, role anticipation|primary|impact|secondary|residue, kind ring|shell|trail|beam|sprite|particles|decal|light|blob|splash, start/end in GLOBAL seconds, enabled, transform{position,rotation,scale}, motion{keys:[[localSeconds,dx,dy,dz],...], ease}|null, tracks (dotted-path keyframes, local seconds), overrides (must be [] for new generation).
+Kind slots: every kind except light carries material. ring/shell/trail/beam/sprite/decal carry geometry and never an emitter. particles carry an emitter and never geometry. blob carries blob and splash carries splash — neither carries geometry or an emitter. light carries only light{color,intensity Curve,radius,decay} — no material, emitter or geometry.
+material{blend additive|alpha|premultiplied|screen, ramp{space life|layerTime|surface|height, stops 2-6 of {t,color,intensity 0-8} ascending in t, displacementShift -1..1, heightSpan .1-12}, opacity, mask{textureId|null, uvScale, uvPan, rotation, randomRotation, atlas{cols,rows,tiles}|null, flipbook{cols,rows,mode,fps}|null}, noise{textureId|null, uvScale, uvPan, distortion 0-.5, distortionPan}|null, erosion{curve, softness .01-.5, edgeWidth 0-.3, edgeColor, edgeIntensity 0-8, displacementProtect 0-1, rimBias 0-1}|null, softParticle 0-2, fresnel{power,strength}|null, procedural none|flame|water|hexagon|smoke|star|solid|portal|water-streaks|energy-ribbon|ice|sparkle|star4|softRadial, toon{bands 2|3, thresholds [a,b] on the 0..1 half-lambert, shadow, body, highlight, light (unit vector TOWARD a fixed world light), rim{power .5-8, amount 0-2}}|null, outline{width 0-.3, color}|null, opaqueUntil 0-1|null}.
+Ramp space: "life" keys the ramp to particle age, "layerTime" to the layer's own 0..1 progress, "surface" to distance along a mesh axis, "height" to world metres above environment.groundY over ramp.heightSpan (works on meshes and particles alike: a plume that cools as it climbs). displacementShift lets vertex-noise lobes read hotter or cooler than the body.
+material.toon replaces the ramp as the COLOUR source on a mesh or blob layer (the ramp still keys erosion and alpha): a half-lambert against toon.light posterised into flat bands. Never on particles — a billboard has no normal. material.outline draws the same surface again, back faces only, inflated outline.width metres, flat and unlit; its colour is DARKER than toon.shadow, because the reference line is a dark crease between lobes, not a light rim (toon.rim is the light rim). material.opaqueUntil keeps the surface opaque and depth-writing for that fraction of its life, then fades it to nothing — that is what makes overlapping lobes read as solid volumes with contour seams instead of a pile of transparent balls.
+procedural "star4" (a thin four-point glint) and "softRadial" (a plain soft ball) are BILLBOARD silhouettes like flame and smoke: use them on a sprite or decal, never on a shell.
 emitter{count, shape{type point|sphere|hemisphere|cone|ring|disc|box|line, axis (unit vector), length, radius, innerRadius, angle, size, surfaceOnly, bias (0-1 per axis, mirrors spawns toward +axis)}, spawn{mode burst|continuous|bursts, window, rate, duration, bursts[{t,count}]}, velocity{mode radial|directional|tangential|cone, speed [min,max], direction (unit vector), angle, inherit, speedCurve|null}, life [min,max], forces{gravity, drag 0-6, curl{strength,frequency,speed,envelope}|null, vortex{axis,strength,falloff}|null, wind, floor{y,softness}|null}, render{mode billboard|velocityStretch|horizontal|vertical, stretch, size [min,max], sizeCurve, alphaCurve, alphaAlongSpawn|null, rotation{initial [min,max], speed [min,max]}, sortMode}, trail|null, sub|null}.
+blob{arrangement mound|column|ring|string, count 2-40, seed, radius [min,max] metres, spread (lateral extent), height (vertical extent at birth), rise (metres the top travels over one lobe life), gravity (pull on that arc), drift (outward metres), grow 1-12 (a lobe reaches full size after 1/grow of its life), stagger [startFrac,endFrac] of the LAYER window, life [min,max] seconds, squash (1 round, >1 stretched vertically), bump{amplitude 0-.6, frequency, speed}, comma{curl 0-2.5, taper 0-.9}|null}.
+A blob is a GENERATOR: the renderer hashes every lobe's birth, radius, position, drift and life out of (seed, index). Never try to place lobes by hand, and never author one layer per lobe.
+- mound: a half-egg of lobes spread wide and height tall — a base cluster, the foot a column grows out of.
+- column: paired lobes per level with a smoother filler lobe behind each pair, laddered up over height, each level rising further and starting later. rise is the reach of the TOP level.
+- ring: two tiers of billows on a ring of radius spread, drifting outward, centre left open.
+- string: a thin vertical chain of wisps, alternating left/right and swaying, each smaller and shorter-lived than the last.
+splash{count 1-24, seed, length [min,max], width, curvature 0-3, jaggedness 0-1, spread [minAngle,maxAngle] radians from +Y (mirrored to both sides), color, backing (the darker copy drawn behind each sliver), scaleIn/detach/fade, each [from,to] as fractions of the LAYER window}. Flat, unlit, camera-facing slivers thrown outward: a graphic accent, not material. Colour comes from splash.color/backing, never from material.ramp.
 geometry{type auto|plane|teardrop|cone|crystal|crystal-cluster|torus|ribbon|streamer|lightning|cylinder|disc|sphere, segments, radialSegments, radius, length, thickness, vertexNoise{amplitude 0-.5, frequency, speed, bias (which side lobes grow on), alongCurve (where along the axis they grow)}|null, lightning{points,jitter,branches,branchDepth,widthCurve,seedOffset}|null}.
 What geometry.length/radius/thickness mean, per kind — a layer's local +Z is its forward axis (rotation [0,0,0] points at +Z, [0,-1.5708,0] at -X, [0,1.5708,0] at +X); flat shapes are built in the local XY plane facing +Z, so laying one on the ground needs rotation [-1.5708,0,0]. transform.scale multiplies this; never rely on scale alone for size.
 - beam: auto|plane|cylinder|ribbon|streamer -> a straight bar, length = bar length along +Z from the layer origin, radius = half-width. type lightning -> bolt of length along +Z, radius = lateral spread, thickness = bolt width.
@@ -37,7 +47,7 @@ What geometry.length/radius/thickness mean, per kind — a layer's local +Z is i
 - sprite: always faces the camera; radius = half-size (a sprite of radius .4 is .8 across); rotation[2] rolls it, rotation[0]/[1] are ignored; length unused.
 - decal: flat card, radius = half-width, length = depth; add rotation [-1.5708,0,0] to lie on the ground.
 - shell: sphere|teardrop|auto|cone|crystal|crystal-cluster -> the analytic teardrop body, length = nose-to-tail along +Z, radius = body radius. Any flat type (plane, disc, torus) on a shell draws that flat shape instead.
-- particles have no geometry: use emitter.shape.
+- particles have no geometry: use emitter.shape; blob and splash have none either (use blob.spread/height and splash.length).
 Curve = {keys:[[0..1 normalized domain, value],...] strictly ascending, ease linear|smooth}.
 Tracks animate dotted paths into the layer, e.g. "material.ramp.stops[0].intensity", "geometry.length", "emitter.velocity.speed[1]", "transform.position[1]", "light.radius". Track keys are LOCAL seconds since layer.start, strictly increasing, and must fit end-start. One track per target.
 Units are meters, seconds and radians. Every axis/direction must be a unit vector. Total particles across all layers stay under 60000.`;
@@ -54,6 +64,7 @@ Rules, all mandatory unless stated:
 - Anticipation lasts 100-250 ms before the impact.
 - Smoke and debris outlive the flash; the flash is the shortest layer in the document.
 - A secondary sparks layer is required for impact families (anything that lands, hits or detonates).
+- Cel/stylized smoke, clouds and puffs are blob layers with material.toon + material.outline + material.opaqueUntil, never particle boards. A fuzzy alpha puff cannot read as a shaded lobe, and no number of particles will make it.
 - Add a lit ground contact — a light layer plus a decal — unless the prompt places the effect in the air.
 - Ramp stop colors never use 0% or 100% value or saturation, except for a flash core.
 - Choose one dominant hue and one accent; never split the frame 50/50 between two hues.
@@ -69,6 +80,8 @@ Scale anchors — 1 unit = 1 meter. These are measured from the accepted exempla
 - Lightning: total length 4-8 units, measured from strike height down to the ground contact, with transform.position.y = length/2 so the bolt ends on the ground. Core thickness 0.03-0.06 with a glow sheath 0.12-0.25, jitter 0.3-0.6, branches 2-4 on the sheath only.
 - Beams: length 4-8 units, width 0.3-0.8.
 - Rings and shockwaves expand to 1.5-2.5 units; decals and scorches span 1.5-2.5 units across.
+- Blobs, measured from the accepted exemplar: a base lobe radius is 0.35-0.6 and a wisp 0.19-0.30. A mound is 11 lobes over spread 1.0 / height 2.3; a column is 12-14 levels (36-39 lobes) over spread 0.5 with rise 10-14 so it leaves the top of the frame; a billow ring is 8-10 lobes at spread 1.4-1.6 with radius 0.5-0.85; a wisp string is 5 lobes, squash 1.6-2.0. bump.amplitude 0.10-0.22 (higher on the small fast pieces), grow 3.5-6, opaqueUntil 0.75, outline.width 0.02-0.03.
+- Splash slivers: 6-10 of them, length 0.9-3.0 and width 0.3-0.4, spread 0.65-1.65 rad, curvature 1.2-1.6, jaggedness 0.5-0.7. They start after the main volume and are gone before the residue.
 The family example document supplied with this request is the SCALE REFERENCE, not only a structure guide: match its particle counts, sizes, intensities, light radius and silhouette extent unless the prompt explicitly asks for something small, distant or miniature. When in doubt, copy its magnitudes and change the shapes and colors.
 Textures: reference library assets by ID only. Never inline image data, file paths or URLs, and never invent an ID that is not in the manifest. Mask textures are grayscale silhouettes; the ramp supplies the color.
 Never output placeholder, disabled or zero-energy layers. Keep the layer count purposeful — usually 6-9 layers, never padding.`;
@@ -376,6 +389,39 @@ export const MAX_ADDED_LIGHTS_V2 = 1;
 export function describeLayersV2(doc: VfxDocumentV2) {
   return doc.layers.map((layer) => {
     const material = layer.material;
+    // A generated kind is described by what it generates, not by its ramp: a
+    // blob's colour comes from toon bands and a splash's from its own hexes.
+    if (layer.kind === "blob" && layer.blob)
+      return {
+        id: layer.id,
+        kind: layer.kind,
+        role: layer.role,
+        start: layer.start,
+        end: layer.end,
+        material: [
+          `${layer.blob.arrangement} of ${layer.blob.count} lobes r${layer.blob.radius[0]}-${layer.blob.radius[1]}`,
+          describeArrangement(layer.blob.arrangement),
+          material?.toon
+            ? `${material.toon.bands}-band toon ${material.toon.shadow}/${material.toon.body}/${material.toon.highlight}`
+            : "ramp shaded",
+          material?.outline ? `outline ${material.outline.color}` : "no outline",
+          material?.opaqueUntil !== null && material?.opaqueUntil !== undefined
+            ? `opaque to ${material.opaqueUntil} of life`
+            : "transparent throughout",
+          layer.blob.comma ? "comma tails" : null,
+        ]
+          .filter(Boolean)
+          .join(", "),
+      };
+    if (layer.kind === "splash" && layer.splash)
+      return {
+        id: layer.id,
+        kind: layer.kind,
+        role: layer.role,
+        start: layer.start,
+        end: layer.end,
+        material: `${layer.splash.count} flat slivers ${layer.splash.length[0]}-${layer.splash.length[1]} long, ${layer.splash.color} over ${layer.splash.backing}`,
+      };
     const summary = material
       ? [
           material.blend,

@@ -95,6 +95,10 @@ type MaterialOptions = {
   space?: Material["ramp"]["space"];
   stops: Stop[];
   displacementShift?: number;
+  heightSpan?: number;
+  toon?: Material["toon"];
+  outline?: Material["outline"];
+  opaqueUntil?: number | null;
   opacity?: number;
   mask?: string | null;
   maskOptions?: Partial<Material["mask"]>;
@@ -118,6 +122,7 @@ function mat(options: MaterialOptions): Material {
       space: options.space ?? "layerTime",
       stops: options.stops,
       displacementShift: options.displacementShift ?? 0,
+      heightSpan: options.heightSpan ?? 2,
     },
     opacity: options.opacity ?? 1,
     mask: {
@@ -148,6 +153,9 @@ function mat(options: MaterialOptions): Material {
     softParticle: options.softParticle ?? 0,
     fresnel: options.fresnel ?? null,
     procedural: options.procedural ?? "none",
+    toon: options.toon ?? null,
+    outline: options.outline ?? null,
+    opaqueUntil: options.opaqueUntil ?? null,
   };
 }
 
@@ -747,7 +755,7 @@ export const RECIPES_V2: Record<
     name: "Smoke burst",
     subtitle: "A grounded puff with a rising eroded column.",
     knowledge:
-      "A yellow glint anticipates the pop, then a thin accent ring snaps outward and a pink billow spreads at the base. The plume is three particle layers sharing one emission wave, each with a different puff mask, a different size band and a ramp in one broad tone \u2014 dark plum cores, a mid purple body, small light violet caps \u2014 so the lobes read as shaded shapes rather than a fuzzy cloud. Alpha blend, low erosion softness and a large-scale noise keep the silhouettes crisp. Wisps with the wisp masks and stronger erosion start as the plume tears, and everything is gone before the end. A continuous emitter is only visible for one spawn period, so set spawn.window to the emission span plus the longest life and spawn.duration to the emission span.",
+      'Cel-shaded smoke is BLOB layers, never particle boards. A yellow star4 glint anticipates the pop; a small near-white blob "mound" of 3 lobes is the hot core; a purple "mound" of ~11 lobes (spread 1.0, height 2.3) wraps it and becomes the foot; a purple "column" of 12-13 levels (36-39 lobes, spread ~0.5, rise 10-14) shoots up out of it and leaves the top of the frame; a shorter second "column" pulse keeps a stalk standing while a pink "ring" of 8-10 billows (spread 1.4-1.6, radius 0.5-0.85) spreads around the base with the centre left open. A second pink "ring" with blob.comma set breaks off and hooks outward, and a purple "string" of 5 squashed wisps is the last thing alive. Every blob carries material.toon (3 bands against one fixed upper-left light), material.outline one step darker than its shadow tone, and material.opaqueUntil 0.75 so the lobes read as solid volumes with contour seams. A kind:"splash" fan of 8 flat grey slivers is thrown out as the pink lands. Finish with an additive softRadial base glow, a softRadial ground disc and one violet point light.',
   },
   "lightning-impact": {
     name: "Lightning impact",
@@ -811,6 +819,8 @@ export function exampleScaleSummary(id: RecipeV2Id) {
   const doc = createPresetV2(id);
   const meshes = doc.layers.filter((l) => l.geometry);
   const emitters = doc.layers.filter((l) => l.emitter);
+  const blobs = doc.layers.filter((l) => l.blob);
+  const splashes = doc.layers.filter((l) => l.splash);
   const lights = doc.layers.filter((l) => l.light);
   const round = (v: number) => Number(v.toFixed(2));
   return {
@@ -819,16 +829,40 @@ export function exampleScaleSummary(id: RecipeV2Id) {
     impact: doc.impact,
     layers: doc.layers.length,
     framing: doc.camera.framing,
+    // A blob's silhouette is its cluster, not a primitive: measure the same way
+    // the framing pass does, so a blob-built family reports a real hero extent
+    // instead of 0 and the planner still commits to a scale.
     heroExtentUnits: round(
       Math.max(
         0,
         ...meshes.map((l) =>
           Math.max(l.geometry!.radius * 2, l.geometry!.length),
         ),
+        ...blobs.map((l) =>
+          Math.max(
+            l.blob!.spread * 2 + l.blob!.radius[1] * 2,
+            l.blob!.height + l.blob!.radius[1] * 2,
+          ),
+        ),
       ),
     ),
     particleCounts: emitters.map((l) => l.emitter!.count),
     particleSizes: emitters.map((l) => l.emitter!.render.size),
+    blobs: blobs.map((l) => ({
+      arrangement: l.blob!.arrangement,
+      lobes: l.blob!.count,
+      lobeRadius: l.blob!.radius,
+      spread: l.blob!.spread,
+      height: l.blob!.height,
+      rise: l.blob!.rise,
+      toon: !!l.material?.toon,
+      outline: !!l.material?.outline,
+    })),
+    splashes: splashes.map((l) => ({
+      slivers: l.splash!.count,
+      length: l.splash!.length,
+      width: l.splash!.width,
+    })),
     lightIntensityPeak: lights.map((l) =>
       Math.max(...l.light!.intensity.keys.map((k) => k[1])),
     ),

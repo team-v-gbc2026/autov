@@ -40,7 +40,13 @@ export const KINDS_V2 = [
   "particles",
   "decal",
   "light",
+  // Cel-shaded lobe cluster (layer.blob) and flat splash slivers (layer.splash).
+  // Neither carries `geometry` or `emitter`: each generates its own primitives
+  // from its own spec object.
+  "blob",
+  "splash",
 ] as const;
+export const BLOB_ARRANGEMENTS = ["mound", "column", "ring", "string"] as const;
 // Kinds that draw a mesh and therefore carry `geometry`.
 export const MESH_KINDS_V2 = [
   "ring",
@@ -56,7 +62,7 @@ export const BLEND_MODES_V2 = [
   "premultiplied",
   "screen",
 ] as const;
-export const RAMP_SPACES = ["life", "layerTime", "surface"] as const;
+export const RAMP_SPACES = ["life", "layerTime", "surface", "height"] as const;
 export const PROCEDURALS_V2 = [
   "none",
   "flame",
@@ -70,6 +76,11 @@ export const PROCEDURALS_V2 = [
   "energy-ribbon",
   "ice",
   "sparkle",
+  // Billboard silhouettes with no atlas behind them: a thin four-point glint
+  // and a plain soft radial ball. Same family as flame/smoke (a sprite outline),
+  // not a surface pattern.
+  "star4",
+  "softRadial",
 ] as const;
 export const GEOMETRIES_V2 = [
   "auto",
@@ -125,6 +136,8 @@ export const LIFE_VARIANCE_MIN = 1.35;
 export const PARTICLE_COUNT_MIN = 30;
 /** Darkest ground that still catches light from the effect (max sRGB channel). */
 export const GROUND_CHANNEL_MIN = 0x3a;
+/** Lobes one blob layer may generate; each is its own draw call plus a hull. */
+export const BLOB_LOBE_BUDGET = 40;
 /** A hero silhouette smaller than this disappears inside the framed shot. */
 export const EFFECT_EXTENT_MIN = 1.5;
 
@@ -152,6 +165,10 @@ export const RampSchema = z
     stops: z.array(RampStopSchema).min(2).max(6),
     // Vertex displacement (mesh lobes) shifts the ramp key by this amount.
     displacementShift: scalar(-1, 1),
+    // Metres the "height" space spans above environment.groundY: the key is
+    // clamp((worldY - groundY)/heightSpan). Defaulted, not required, so
+    // documents authored before the space existed still load.
+    heightSpan: scalar(0.1, 12).default(2),
   })
   .strict();
 
@@ -214,6 +231,36 @@ export const FresnelSchema = z
   .object({ power: scalar(0.5, 8), strength: scalar(0, 2) })
   .strict();
 
+// Cel shading: a half-lambert N.L against a FIXED world light direction (never
+// the document's light layers, which are point lights that move) posterised
+// into 2 or 3 flat bands, plus a rim term. Set on a mesh or blob layer it
+// REPLACES the ramp as the colour source; the ramp still keys erosion and the
+// alpha it always keyed.
+export const ToonSchema = z
+  .object({
+    bands: z.union([z.literal(2), z.literal(3)]),
+    // Band edges on the half-lambert 0..1. 3 bands: shadow < a <= body < b <=
+    // highlight. 2 bands: only `a` is read, shadow < a <= highlight.
+    thresholds: range(0, 1),
+    shadow: hex,
+    body: hex,
+    highlight: hex,
+    // Unit vector TOWARD the light, in world space.
+    light: unit3,
+    rim: z
+      .object({ power: scalar(0.5, 8), amount: scalar(0, 2) })
+      .strict(),
+  })
+  .strict();
+
+// Inverted-hull outline: the surface is drawn a second time with back faces
+// only, inflated `width` metres along its recomputed normal, flat and unlit.
+// Convention: `color` is DARKER than toon.shadow — the reference line is a dark
+// crease between lobes, not a light rim (that is what toon.rim is for).
+export const OutlineSchema = z
+  .object({ width: scalar(0, 0.3), color: hex })
+  .strict();
+
 export const MaterialSchema = z
   .object({
     blend: z.enum(BLEND_MODES_V2),
@@ -225,6 +272,14 @@ export const MaterialSchema = z
     softParticle: scalar(0, 2),
     fresnel: FresnelSchema.nullable(),
     procedural: z.enum(PROCEDURALS_V2),
+    // The three cel-shading fields. All defaulted, not required: documents
+    // authored before they existed load unchanged and render exactly as before.
+    toon: ToonSchema.nullable().default(null),
+    outline: OutlineSchema.nullable().default(null),
+    // Fraction of the layer's (or the blob lobe's) life the surface stays
+    // opaque and depth-writing; after it, alpha fades to 0 by the end. null =
+    // the old behaviour (always transparent, never depth-writing).
+    opaqueUntil: scalar(0, 1).nullable().default(null),
   })
   .strict();
 
@@ -393,6 +448,99 @@ export const GeometryV2Schema = z
   })
   .strict();
 
+// --- blob ------------------------------------------------------------------
+//
+// A blob layer is a GENERATOR, never a hand-placed lobe list: the document says
+// how the cluster is shaped and the renderer hashes every lobe's birth time,
+// radius, base position, drift and life out of (blob.seed, lobe index). Each
+// lobe is an icosphere whose radius is modulated by radius-space fbm (the
+// "cauliflower" bumps), grown, lifted on a ballistic arc and shrunk away, all
+// closed form in layer time.
+//
+// arrangement — what the cluster reads as:
+//   "mound"  a base cluster: lobes fill a half-egg `spread` wide and `height`
+//            tall, densest at the rim, the foot a column grows out of.
+//   "column" a rising stack: paired lobes per level, spaced `spread` apart and
+//            laddered up over `height`, each level rising further and starting
+//            later, plus a fatter smoother lobe behind each pair so the fused
+//            contour stays continuous. `rise` is the reach of the TOP level.
+//   "ring"   billows around the base: two tiers of lobes on a ring of radius
+//            `spread` in the XZ plane, drifting outward; the centre stays open.
+//   "string" a thin vertical chain of wisps: alternating left/right, laddered
+//            up over `height`, each shorter-lived and smaller than the last.
+export const BlobBumpSchema = z
+  .object({
+    amplitude: scalar(0, 0.6),
+    frequency: scalar(0.5, 8),
+    speed: scalar(0, 4),
+  })
+  .strict();
+
+// Comma deformation: taper one end of the lobe to a tail, then bend it round.
+// `curl` is the maximum bend in radians per unit of lobe height (the sign and
+// the tail's heading are derived per lobe so tails point away from the centre).
+export const BlobCommaSchema = z
+  .object({ curl: scalar(0, 2.5), taper: scalar(0, 0.9) })
+  .strict();
+
+export const BlobSchema = z
+  .object({
+    arrangement: z.enum(BLOB_ARRANGEMENTS),
+    count: integer(2, 40),
+    seed: integer(0, 2147483647),
+    // Lobe radius band, in metres, before the grow/shrink envelope.
+    radius: range(0.05, 3),
+    // Lateral extent of the cluster (mound half-width, ring radius, column
+    // pair spacing, string sway), in metres.
+    spread: scalar(0, 8),
+    // Vertical extent of the cluster at birth, in metres.
+    height: scalar(0, 12),
+    // Metres the top of the cluster travels up over one lobe life.
+    rise: scalar(-12, 20),
+    // Downward pull on that arc: y = rise*a - gravity*a*a/2.
+    gravity: scalar(-20, 20),
+    // Metres a lobe drifts outward from the cluster axis, on sqrt(a).
+    drift: scalar(-8, 8),
+    // Grow rate: a lobe reaches full radius after 1/grow of its life.
+    grow: scalar(1, 12),
+    // Birth times spread over [start,end] of the LAYER window, as fractions.
+    stagger: range(0, 1),
+    life: range(0.05, 12),
+    // 1 = round, >1 stretched vertically, <1 squat.
+    squash: scalar(0.3, 3),
+    bump: BlobBumpSchema,
+    comma: BlobCommaSchema.nullable(),
+  })
+  .strict();
+
+// --- splash ----------------------------------------------------------------
+//
+// Flat, unlit, camera-facing slivers thrown outward from the layer origin: the
+// grey shards that sell "something popped". Each sliver is drawn twice, a
+// darker backing 14% larger behind the fill, exactly like the spike. Colour
+// comes from splash.color / splash.backing, never from material.ramp.
+export const SplashSchema = z
+  .object({
+    count: integer(1, 24),
+    seed: integer(0, 2147483647),
+    length: range(0.2, 8),
+    width: scalar(0.02, 1.5),
+    // Sideways bow of the sliver, in metres at the tip; sign is mirrored per side.
+    curvature: scalar(0, 3),
+    // 0 = clean edges, 1 = deeply notched.
+    jaggedness: scalar(0, 1),
+    // Angles from +Y the fan covers, in radians; mirrored to both sides.
+    spread: range(0, Math.PI),
+    color: hex,
+    backing: hex,
+    // All three are fractions of the LAYER window: grow, break off and fly
+    // outward, fade out.
+    scaleIn: range(0, 1),
+    detach: range(0, 1),
+    fade: range(0, 1),
+  })
+  .strict();
+
 // --- layer -----------------------------------------------------------------
 
 export const LightSchema = z
@@ -449,6 +597,8 @@ export const LayerV2Schema = z
     emitter: EmitterSchema.optional(),
     geometry: GeometryV2Schema.optional(),
     light: LightSchema.optional(),
+    blob: BlobSchema.optional(),
+    splash: SplashSchema.optional(),
     tracks: z.array(TrackV2Schema).max(16),
     overrides: z.array(OverrideV2Schema).max(64),
   })
@@ -559,6 +709,11 @@ export type Material = z.infer<typeof MaterialSchema>;
 export type Emitter = z.infer<typeof EmitterSchema>;
 export type GeometryV2 = z.infer<typeof GeometryV2Schema>;
 export type LightV2 = z.infer<typeof LightSchema>;
+export type Toon = z.infer<typeof ToonSchema>;
+export type Outline = z.infer<typeof OutlineSchema>;
+export type Blob = z.infer<typeof BlobSchema>;
+export type BlobArrangement = (typeof BLOB_ARRANGEMENTS)[number];
+export type Splash = z.infer<typeof SplashSchema>;
 export type TrackV2 = z.infer<typeof TrackV2Schema>;
 export type OverrideV2 = z.infer<typeof OverrideV2Schema>;
 export type LayerV2 = z.infer<typeof LayerV2Schema>;
@@ -657,6 +812,22 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "emitter.render.rotation.speed[0]": [-10, 10],
   "emitter.render.rotation.speed[1]": [-10, 10],
   "light.radius": [0.5, 30],
+  "material.opaqueUntil": [0, 1],
+  "material.outline.width": [0, 0.3],
+  "material.ramp.heightSpan": [0.1, 12],
+  "material.toon.rim.amount": [0, 2],
+  "blob.radius[0]": [0.05, 3],
+  "blob.radius[1]": [0.05, 3],
+  "blob.spread": [0, 8],
+  "blob.height": [0, 12],
+  "blob.rise": [-12, 20],
+  "blob.gravity": [-20, 20],
+  "blob.drift": [-8, 8],
+  "blob.squash": [0.3, 3],
+  "blob.bump.amplitude": [0, 0.6],
+  "splash.width": [0.02, 1.5],
+  "splash.length[0]": [0.2, 8],
+  "splash.length[1]": [0.2, 8],
 };
 
 const COLOR_TARGETS = new Set<string>([
@@ -667,6 +838,12 @@ const COLOR_TARGETS = new Set<string>([
   "material.ramp.stops[4].color",
   "material.ramp.stops[5].color",
   "material.erosion.edgeColor",
+  "material.outline.color",
+  "material.toon.shadow",
+  "material.toon.body",
+  "material.toon.highlight",
+  "splash.color",
+  "splash.backing",
   "light.color",
 ]);
 
@@ -708,6 +885,21 @@ function materialCurves(material: Material, label: string) {
     if (material.ramp.stops[i].t <= material.ramp.stops[i - 1].t)
       throw new Error(`Ramp stops must ascend: ${label}`);
   if (material.erosion) checkCurve(material.erosion.curve, `${label}/erosion`);
+  if (material.toon) {
+    checkRange(material.toon.thresholds, `${label}/toon.thresholds`);
+    checkUnit(material.toon.light, `${label}/toon.light`);
+  }
+}
+
+function blobChecks(blob: Blob, label: string) {
+  checkRange(blob.radius, `${label}/blob.radius`);
+  checkRange(blob.stagger, `${label}/blob.stagger`);
+  checkRange(blob.life, `${label}/blob.life`);
+}
+
+function splashChecks(splash: Splash, label: string) {
+  for (const key of ["length", "spread", "scaleIn", "detach", "fade"] as const)
+    checkRange(splash[key], `${label}/splash.${key}`);
 }
 
 function emitterChecks(emitter: Emitter, label: string) {
@@ -831,6 +1023,29 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     } else if (layer.emitter) {
       throw new Error(`Only particles layers carry an emitter: ${label}`);
     }
+
+    if (layer.kind === "blob") {
+      if (!layer.blob) throw new Error(`Blob layer needs blob: ${label}`);
+      blobChecks(layer.blob, label);
+      if (layer.blob.count > BLOB_LOBE_BUDGET)
+        throw new Error(
+          `Blob lobe count exceeds ${BLOB_LOBE_BUDGET}: ${label}`,
+        );
+    } else if (layer.blob) {
+      throw new Error(`Only blob layers carry blob: ${label}`);
+    }
+    if (layer.kind === "splash") {
+      if (!layer.splash) throw new Error(`Splash layer needs splash: ${label}`);
+      splashChecks(layer.splash, label);
+    } else if (layer.splash) {
+      throw new Error(`Only splash layers carry splash: ${label}`);
+    }
+    // A billboard has no surface normal of its own, so cel bands and an
+    // inverted hull have nothing to shade or to inflate.
+    if (layer.kind === "particles" && (layer.material?.toon || layer.material?.outline))
+      throw new Error(
+        `Particles are billboards and carry no toon or outline: ${label}`,
+      );
 
     if (
       layer.geometry &&
@@ -1024,6 +1239,18 @@ export function effectExtentV2(
         tracked("geometry.length", layer.geometry.length),
       );
     }
+    if (layer.blob) {
+      const blob = layer.blob;
+      // The generator's own volume, not where a lobe ends up: a column that
+      // shoots out of frame is framed on the stack it grows from, the same way
+      // a particle layer is framed on its spawn shape.
+      size = Math.max(
+        size,
+        blob.spread * 2 + blob.radius[1] * 2,
+        blob.height + blob.radius[1] * 2,
+      );
+    }
+    if (layer.splash) size = Math.max(size, layer.splash.length[1] * 2);
     if (layer.emitter && includeParticles) {
       const shape = layer.emitter.shape;
       const reach =
@@ -1070,6 +1297,7 @@ export function defaultMaterial(): Material {
         { t: 1, color: "#3478e5", intensity: 0.85 },
       ],
       displacementShift: 0,
+      heightSpan: 2,
     },
     opacity: 1,
     mask: {
@@ -1086,6 +1314,59 @@ export function defaultMaterial(): Material {
     softParticle: 0,
     fresnel: null,
     procedural: "none",
+    toon: null,
+    outline: null,
+    opaqueUntil: null,
+  };
+}
+
+export function defaultToon(): Toon {
+  return {
+    bands: 3,
+    thresholds: [0.48, 0.74],
+    shadow: "#2a1470",
+    body: "#5a3ce0",
+    highlight: "#a794f7",
+    // Upper left, slightly toward the camera: the spike's fixed key light.
+    light: [-0.474, 0.848, 0.236],
+    rim: { power: 3, amount: 0.42 },
+  };
+}
+
+export function defaultBlob(): Blob {
+  return {
+    arrangement: "mound",
+    count: 11,
+    seed: 1337,
+    radius: [0.36, 0.54],
+    spread: 1,
+    height: 2.35,
+    rise: 1.5,
+    gravity: 0.6,
+    drift: 0.18,
+    grow: 6,
+    stagger: [0, 0.13],
+    life: [0.78, 0.78],
+    squash: 1,
+    bump: { amplitude: 0.16, frequency: 1.9, speed: 0.5 },
+    comma: null,
+  };
+}
+
+export function defaultSplash(): Splash {
+  return {
+    count: 8,
+    seed: 4211,
+    length: [1, 2.2],
+    width: 0.3,
+    curvature: 1.3,
+    jaggedness: 0.5,
+    spread: [0.66, 1.64],
+    color: "#8a8a97",
+    backing: "#40404c",
+    scaleIn: [0, 0.16],
+    detach: [0.35, 0.6],
+    fade: [0.55, 0.85],
   };
 }
 
@@ -1212,6 +1493,8 @@ export function defaultsV2() {
     material: defaultMaterial(),
     emitter: defaultEmitter(),
     geometry: defaultGeometry(),
+    blob: defaultBlob(),
+    splash: defaultSplash(),
     shell: defaultDocumentShell(),
   };
 }
@@ -1231,7 +1514,11 @@ export const CurveWireSchema = CurveSchema.extend({
 export const MotionWireSchema = MotionSchema.extend({
   keys: z.array(num4).min(2).max(8),
 });
-export const RampWireSchema = RampSchema;
+// Structured Outputs needs every property required, so the wire copies drop the
+// defaults and ask the model for the value.
+export const RampWireSchema = RampSchema.extend({
+  heightSpan: scalar(0.1, 12),
+});
 export const MaskWireSchema = MaskSchema.extend({
   uvScale: num2,
   uvPan: num2,
@@ -1245,9 +1532,25 @@ export const ErosionWireSchema = ErosionSchema.extend({
   curve: CurveWireSchema,
 });
 export const MaterialWireSchema = MaterialSchema.extend({
+  ramp: RampWireSchema,
   mask: MaskWireSchema,
   noise: NoiseWireSchema.nullable(),
   erosion: ErosionWireSchema.nullable(),
+  toon: ToonSchema.extend({ thresholds: num2, light: num3 }).nullable(),
+  outline: OutlineSchema.nullable(),
+  opaqueUntil: scalar(0, 1).nullable(),
+});
+export const BlobWireSchema = BlobSchema.extend({
+  radius: num2,
+  stagger: num2,
+  life: num2,
+});
+export const SplashWireSchema = SplashSchema.extend({
+  length: num2,
+  spread: num2,
+  scaleIn: num2,
+  detach: num2,
+  fade: num2,
 });
 export const EmitterWireSchema = EmitterSchema.extend({
   shape: EmitterShapeSchema.extend({ axis: num3, size: num3, bias: num3 }),
@@ -1293,6 +1596,8 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   emitter: EmitterWireSchema.nullable(),
   geometry: GeometryV2WireSchema.nullable(),
   light: LightSchema.extend({ intensity: CurveWireSchema }).nullable(),
+  blob: BlobWireSchema.nullable(),
+  splash: SplashWireSchema.nullable(),
   tracks: z
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
@@ -1328,7 +1633,14 @@ export function fromWireV2(
   const wire = DocumentV2WireSchema.parse(input);
   const layers = wire.layers.map((layer) => {
     const next: Record<string, unknown> = { ...layer };
-    for (const slot of ["material", "emitter", "geometry", "light"])
+    for (const slot of [
+      "material",
+      "emitter",
+      "geometry",
+      "light",
+      "blob",
+      "splash",
+    ])
       if (next[slot] === null) delete next[slot];
     return next;
   });

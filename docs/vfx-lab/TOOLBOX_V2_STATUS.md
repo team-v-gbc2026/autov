@@ -12,6 +12,12 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   `evaluate-v2.ts`, `capture-v2.ts`): analytic (closed-form in time) particles with textured erosion, curl,
   vortex, trails, sub-emitters; analytic teardrop shell + library meshes; procedural surfaces; MSAA+SMAA,
   HalfFloat, bloom/vignette/chromatic/grade; depth pre-pass soft particles; hero-centric auto-framing; orbit camera.
+- **Cel-shaded blob vocabulary** (`schema-v2.ts`, `blob-v2.ts`, `splash-v2.ts`, `shaders-v2.ts`,
+  `runtime-v2.ts`): `kind:"blob"` generates a cluster of toon-shaded, inverted-hull-outlined lobes
+  from `layer.blob` (arrangement / count / spread / height / rise / bump / comma) and `kind:"splash"`
+  a fan of flat slivers from `layer.splash`; `material.{toon,outline,opaqueUntil}`, the `height` ramp
+  space and the `star4` / `softRadial` billboard procedurals go with them. Ported from the S2 smoke
+  spike (see `TOOLBOX_V2_MAPPING.md` §4); the `smoke-burst` exemplar is built entirely from them.
 - **Pipeline v2** (`protocol-v2.ts`, `recipes-v2.ts`, `pipeline.ts`, `refine.ts`, `route.ts`): planner/candidate/
   review/refine on schema v2 with structured outputs, scale anchors, lint-driven repair, review v2
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).

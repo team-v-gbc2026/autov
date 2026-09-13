@@ -576,7 +576,14 @@ test("structural repair is bounded by the baseline document", () => {
     };
     delete copy.textures;
     for (const layer of copy.layers)
-      for (const slot of ["material", "emitter", "geometry", "light"])
+      for (const slot of [
+        "material",
+        "emitter",
+        "geometry",
+        "light",
+        "blob",
+        "splash",
+      ])
         if (layer[slot] === undefined) layer[slot] = null;
     return { document: copy, explanation: "repair" };
   };

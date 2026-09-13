@@ -99,17 +99,14 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"shell" per lobe',
-        'geometry.type:"sphere"|"teardrop"',
-        "geometry.vertexNoise.{amplitude,frequency,bias}",
-        'material.ramp.space:"surface"',
-        "material.erosion.{softness,rimBias}",
-        "staggered layer.start per lobe",
+        'kind:"blob" with blob.arrangement "mound"|"column"|"ring"|"string"',
+        "blob.{count,radius,spread,height,rise,gravity,drift,grow,stagger,life,squash}",
+        "blob.bump.{amplitude,frequency,speed} (the cauliflower radius field)",
+        "blob.comma.{curl,taper}",
+        "material.toon.{bands,thresholds,shadow,body,highlight,light,rim}",
+        "material.opaqueUntil",
       ],
-      missing: [
-        'kind:"blob" (metaball/SDF fusion of lobes)',
-        "material.toon (hard N·L banding)",
-      ],
+      missing: [],
     },
     sources: [SMOKE],
   },
@@ -119,25 +116,25 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Inverted-hull outline",
     use: "A toon-shaded mesh (smoke lobe, crystal, slash blade) that needs a crisp painted line instead of a soft alpha edge.",
     construction: [
-      "Draw the mesh again, back faces only, vertices pushed out 0.02-0.06 units along their normal.",
-      "Colour that pass flat and unlit, one step lighter than the mesh's own shadow tone.",
-      "Keep it opaque with depth test on so it only shows past the front-face silhouette.",
-      "Fade it together with the mesh in the closing 20-25% of life, never independently.",
+      "Set material.outline.width to 0.02-0.06: the same surface is drawn again, back faces only, pushed that far out along its normal.",
+      "Set material.outline.color one step DARKER than material.toon.shadow — the reference line is a dark crease, not a light rim (toon.rim is the light rim).",
+      "Set material.opaqueUntil so the hull is opaque and depth tested; it only shows past the front-face silhouette.",
+      "It fades together with its own surface in the closing 20-25% of life, never independently.",
     ],
     timing: "Present for the mesh's full visible life; fades with it in the last 20-25%.",
     details: [
-      "The reference outline is a light rim, not a black line.",
-      "Detail-0 icospheres pinch the outline at poles; use 1-2 subdivisions.",
-      "Sort the outline pass only during the transparent dissolve phase.",
-      "Skip on quality.style \"ps1\" — this is missing vocabulary, not an option to toggle off.",
+      "A dark line reads as a crease between lobes; a light one reads as a second rim and fights toon.rim.",
+      "The hull runs the same vertex program as the fill, so it tracks every blob.bump lobe instead of a smooth sphere.",
+      "Width is in world metres, so a small lobe gets the same line weight as a big one.",
+      "Pair it with material.toon: an outline round a smooth gradient reads as a sticker.",
     ],
     vocabulary: {
-      available: [],
-      missing: [
-        "outline (inverted-hull second pass)",
-        "material.toon",
-        "per-mesh unlit flat shading",
+      available: [
+        "material.outline.{width,color} (the inverted hull, flat and unlit)",
+        "material.toon (the bands the line separates)",
+        "material.opaqueUntil (the hull fades with its own surface)",
       ],
+      missing: [],
     },
     sources: [SMOKE],
   },
@@ -147,10 +144,11 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     name: "Flat splash accent",
     use: "The single flat, unshaded burst shape that sells 'something just popped' in the opening 5-20% of an impact.",
     construction: [
-      "One decal or sprite, a jagged/irregular library mask, near-white or the brightest accent colour.",
-      "material.blend \"additive\", flat: no ramp shading, no erosion.",
-      "Scale it up fast (transform.scale track, ease outCubic) over 60-120ms, then cut it.",
-      "Start it 0-100ms after the anticipation glint, well before the main volume.",
+      'One kind:"splash" layer of 6-10 slivers, length 0.9-3.0, width 0.3-0.4, spread 0.65-1.65 rad.',
+      "splash.color near-white or the brightest accent; splash.backing one step darker behind it.",
+      "Scale them out over the first 25-30% of the layer window (splash.scaleIn), flat: no ramp, no erosion.",
+      "Detach and fly them outward over the middle third, then fade before the residue starts.",
+      "Start the layer after the main volume has landed, never with the anticipation glint.",
     ],
     timing: "5-20% of duration; always the shortest layer in the document.",
     details: [
@@ -161,10 +159,10 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     ],
     vocabulary: {
       available: [
-        'kind:"decal"|"sprite"',
-        'material.blend:"additive"',
-        "transform.scale track",
-        "material.mask.textureId (splash/jagged-tagged library mask)",
+        'kind:"splash" (a generated fan of flat, camera-facing slivers)',
+        "splash.{count,length,width,curvature,jaggedness,spread}",
+        "splash.{color,backing} and the scaleIn/detach/fade windows",
+        'kind:"decal"|"sprite" with material.blend:"additive" for a single card instead',
       ],
       missing: [],
     },
@@ -195,8 +193,9 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
         "material.ramp (2-3 stops, ascending t)",
         "material.ramp.displacementShift",
         "per-layer transform.scale + layer.start offset",
+        "material.toon (all three bands in one shader, when the element is one mesh)",
       ],
-      missing: ["material.toon (posterised N·L bands in one shader)"],
+      missing: [],
     },
     sources: [BEAM_ETC],
   },
@@ -804,11 +803,12 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
   ],
 ];
 
-/** Written per card that ships with no `vocabulary.available` entries. */
-const APPROXIMATIONS: Partial<Record<TechniqueId, string>> = {
-  "inverted-hull-outline":
-    "approximate with material.erosion.edgeWidth + edgeColor + edgeIntensity for a bright rim on the existing silhouette.",
-};
+/**
+ * Written per card that ships with no `vocabulary.available` entries. Empty
+ * today: `inverted-hull-outline` was the last such card and material.outline
+ * now implements it directly.
+ */
+const APPROXIMATIONS: Partial<Record<TechniqueId, string>> = {};
 
 /** Total character budget for one `techniqueBrief` call. */
 const BRIEF_CHAR_BUDGET = 4500;

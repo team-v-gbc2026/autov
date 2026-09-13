@@ -18,11 +18,27 @@ import {
   type VfxDocumentV2,
 } from "./schema-v2";
 import {
+  blobLobes,
+  blobBounds,
+  lobeStateAt,
+  type Lobe,
+} from "./blob-v2";
+import {
+  splashSlivers,
+  sliverGeometry,
+  sliverStateAt,
+  splashBounds,
+} from "./splash-v2";
+import {
   CURVE_KEYS,
+  blobFragmentV2,
+  blobVertexV2,
   curveUniforms,
   particleFragmentV2,
   particleVertexSource,
   rampUniforms,
+  splashFragmentV2,
+  splashVertexV2,
   surfaceFragmentV2,
   surfaceVertexV2,
   trailFragmentV2,
@@ -159,6 +175,8 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   sparkle: 9,
   portal: 10,
   "energy-ribbon": 11,
+  star4: 12,
+  softRadial: 13,
 };
 const SUB_MODE_INDEX: Record<string, number> = {
   alongPath: 0,
@@ -504,6 +522,13 @@ interface LayerObject {
    * Mesh layers contribute their whole box.
    */
   trim: boolean;
+  /**
+   * True for a layer that writes depth and must therefore stay VISIBLE during
+   * the soft-particle depth pre-pass: without it a blob's opaque lobes would
+   * not occlude the particles drifting behind them. Everything else is hidden
+   * for that pass so only real receivers end up in the depth texture.
+   */
+  occluder?: boolean;
 }
 
 function spawnPeriod(emitter: Emitter, duration: number) {
@@ -520,6 +545,12 @@ function spawnWindowOf(emitter: Emitter, period: number) {
 
 function proceduralIndex(material: Material) {
   return PROCEDURAL_INDEX[material.procedural] ?? 0;
+}
+
+/** Ramp space -> the shaders' uRampKeyMode. */
+function rampKeyMode(material: Material) {
+  const space = material.ramp.space;
+  return space === "height" ? 3 : space === "surface" ? 2 : space === "layerTime" ? 1 : 0;
 }
 
 const FLAT_CURVE: Curve = {
@@ -794,6 +825,9 @@ function createParticleLayer(
     },
     uEdgeI: { value: material.erosion?.edgeIntensity ?? 0 },
     uOpacity: { value: material.opacity },
+    uRampKeyMode: { value: rampKeyMode(material) },
+    uGroundY: { value: doc.environment.groundY },
+    uHeightSpan: { value: material.ramp.heightSpan },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
     uProcedural: { value: proceduralIndex(material) },
     tDepth: { value: depth },
@@ -948,6 +982,9 @@ function createParticleLayer(
         m.noise?.distortionPan ?? [0, 0],
       );
       uniforms.uProcedural.value = proceduralIndex(m);
+      uniforms.uRampKeyMode.value = rampKeyMode(m);
+      uniforms.uGroundY.value = doc.environment.groundY;
+      uniforms.uHeightSpan.value = m.ramp.heightSpan;
       uniforms.uUseErosion.value = flags.erosion && m.erosion ? 1 : 0;
       uniforms.uErodeSoft.value = m.erosion?.softness ?? 0.1;
       uniforms.uEdgeW.value = m.erosion?.edgeWidth ?? 0;
@@ -1282,13 +1319,14 @@ function createMeshLayer(
   const mask = textures.resolve(material.mask.textureId, doc, false);
   const noise = textures.resolve(material.noise?.textureId ?? null, doc, true);
   const vertexNoise = geometry.vertexNoise;
-  const rampSpace =
-    material.ramp.space === "surface" ? 2 : material.ramp.space === "layerTime" ? 1 : 0;
+  const rampSpace = rampKeyMode(material);
 
   const uniforms: Record<string, THREE.IUniform> = {
     uTime: { value: 0 },
     uLayerU: { value: 0 },
     uRampKeyMode: { value: rampSpace },
+    uGroundY: { value: doc.environment.groundY },
+    uHeightSpan: { value: material.ramp.heightSpan },
     uShell: { value: shell ? 1 : 0 },
     uBolt: {
       value: geometry.type === "lightning" && geometry.lightning ? 1 : 0,
@@ -1488,8 +1526,9 @@ function createMeshLayer(
       uniforms.uEdgeI.value = m.erosion?.edgeIntensity ?? 0;
       uniforms.uProtect.value = m.erosion?.displacementProtect ?? 0;
       uniforms.uRimBias.value = m.erosion?.rimBias ?? 0;
-      uniforms.uRampKeyMode.value =
-        m.ramp.space === "surface" ? 2 : m.ramp.space === "layerTime" ? 1 : 0;
+      uniforms.uRampKeyMode.value = rampKeyMode(m);
+      uniforms.uGroundY.value = doc.environment.groundY;
+      uniforms.uHeightSpan.value = m.ramp.heightSpan;
       (uniforms.uCam.value as THREE.Vector3).copy(camera.position);
       writeRamp(uniforms, m.ramp);
       writeCurve(uniforms, "C", m.erosion?.curve ?? null);
@@ -1635,6 +1674,343 @@ function createMeshLayer(
       shaderMaterial.dispose();
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Blob layers
+// ---------------------------------------------------------------------------
+
+/**
+ * A cluster of cel-shaded lobes, generated from `layer.blob` (see blob-v2.ts
+ * for the generator itself).
+ *
+ * Each lobe is drawn twice: the inverted hull first (back faces, inflated, flat
+ * and unlit) and the fill over it. Both run the SAME vertex program, so the
+ * outline tracks every fbm bump instead of a smooth sphere. The two passes
+ * share one shader program (three.js keys the program cache on the shader
+ * source, and every lobe clones the same material), so the per-lobe uniforms
+ * cost draw calls, not compilations — bounded by BLOB_LOBE_BUDGET.
+ *
+ * Depth: while a lobe is inside `material.opaqueUntil` it renders opaque and
+ * depth-writing, which is what makes the cluster read as solid volumes with
+ * contour seams rather than a pile of transparent balls, and what lets it
+ * occlude soft particles. Past that fraction it flips to transparent and the
+ * outline fades with it. three.js draws the opaque list before the transparent
+ * one, so the ordering of the two phases is handled by that flip alone;
+ * renderOrder only separates hull from fill and filler lobes from the pairs.
+ */
+function createBlobLayer(
+  doc: VfxDocumentV2,
+  layer: LayerV2,
+  index: number,
+): LayerObject {
+  const material = layer.material!;
+  const spec = layer.blob!;
+  const lobes = blobLobes(spec);
+  const geometry = new THREE.IcosahedronGeometry(1, 3);
+  const group = new THREE.Group();
+  group.name = layer.id;
+
+  const makeUniforms = (lobe: Lobe, hull: boolean) => ({
+    uTime: { value: 0 },
+    uSeed: { value: lobe.seed },
+    uAmp: { value: lobe.amplitude },
+    uFreq: { value: lobe.frequency },
+    uNoiseSpeed: { value: spec.bump.speed },
+    uSquash: { value: lobe.squash },
+    uCurl: { value: lobe.curl },
+    uTaper: { value: lobe.taper },
+    uRot: { value: lobe.rot },
+    uInflate: { value: 0 },
+    uShadow: {
+      value: new THREE.Color(
+        hull
+          ? (material.outline?.color ?? "#000000")
+          : (material.toon?.shadow ?? "#000000"),
+      ),
+    },
+    uBody: { value: new THREE.Color(material.toon?.body ?? "#888888") },
+    uHigh: { value: new THREE.Color(material.toon?.highlight ?? "#ffffff") },
+    uRimCol: { value: new THREE.Color(material.toon?.highlight ?? "#ffffff") },
+    uLight: {
+      value: new THREE.Vector3().fromArray(
+        material.toon?.light ?? [-0.474, 0.848, 0.236],
+      ),
+    },
+    uBands: { value: material.toon?.bands ?? 3 },
+    uBandA: { value: material.toon?.thresholds[0] ?? 0.48 },
+    uBandB: { value: material.toon?.thresholds[1] ?? 0.74 },
+    uRimPow: { value: material.toon?.rim.power ?? 3 },
+    uRimAmt: { value: material.toon?.rim.amount ?? 0 },
+    uFlat: { value: hull ? 1 : 0 },
+    uUseToon: { value: material.toon ? 1 : 0 },
+    uOpacity: { value: 1 },
+    uLayerU: { value: 0 },
+    uLobeU: { value: 0 },
+    uRampKeyMode: { value: rampKeyMode(material) },
+    uGroundY: { value: doc.environment.groundY },
+    uHeightSpan: { value: material.ramp.heightSpan },
+    uBlendMode: { value: BLEND_INDEX[material.blend] ?? 1 },
+    ...rampUniforms(material.ramp),
+  });
+
+  const parts = lobes.map((lobe) => {
+    const fillUniforms = makeUniforms(lobe, false);
+    const hullUniforms = makeUniforms(lobe, true);
+    const common = {
+      vertexShader: blobVertexV2,
+      fragmentShader: blobFragmentV2,
+      transparent: false,
+      depthWrite: true,
+      depthTest: true,
+    };
+    const fill = new THREE.ShaderMaterial({
+      ...common,
+      uniforms: fillUniforms,
+      side: THREE.FrontSide,
+    });
+    const hull = new THREE.ShaderMaterial({
+      ...common,
+      uniforms: hullUniforms,
+      side: THREE.BackSide,
+    });
+    const fillMesh = new THREE.Mesh(geometry, fill);
+    const hullMesh = new THREE.Mesh(geometry, hull);
+    fillMesh.frustumCulled = false;
+    hullMesh.frustumCulled = false;
+    // The smooth filler lobes of a column sit behind the pairs; the hull of a
+    // lobe always sits behind its own fill.
+    const order = index * 8 + lobe.depth * 2;
+    hullMesh.renderOrder = order;
+    fillMesh.renderOrder = order + 1;
+    group.add(hullMesh);
+    group.add(fillMesh);
+    return { lobe, fill, hull, fillMesh, hullMesh, fillUniforms, hullUniforms };
+  });
+
+  const span = Math.max(layer.end - layer.start, 1e-6);
+  return {
+    id: layer.id,
+    source: layer,
+    object: group,
+    soft: false,
+    trim: false,
+    occluder: material.opaqueUntil !== null,
+    update(time, flags) {
+      const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
+      group.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const blob = live.blob!;
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+      const outline = m.outline;
+      for (const part of parts) {
+        const state = lobeStateAt(part.lobe, blob, age, span, m.opaqueUntil);
+        part.fillMesh.visible = state.alive;
+        part.hullMesh.visible = state.alive && !!outline && flags.textures;
+        if (!state.alive) continue;
+        part.fillMesh.position.fromArray(state.position);
+        part.fillMesh.scale.setScalar(state.radius);
+        part.hullMesh.position.fromArray(state.position);
+        part.hullMesh.scale.setScalar(state.radius);
+        const alpha = state.alpha * m.opacity;
+        // Opaque and depth-writing until the lobe starts fading; after that it
+        // joins the transparent pass, which three.js draws last and sorts by
+        // depth on its own.
+        for (const [mat, uniforms] of [
+          [part.fill, part.fillUniforms],
+          [part.hull, part.hullUniforms],
+        ] as const) {
+          mat.transparent = state.fading || alpha < 1;
+          mat.depthWrite = !mat.transparent;
+          uniforms.uOpacity.value = alpha;
+          uniforms.uTime.value = age;
+          uniforms.uLayerU.value = u;
+          uniforms.uLobeU.value = state.age;
+          uniforms.uSquash.value = part.lobe.squash * (blob.squash / (spec.squash || 1));
+          uniforms.uAmp.value = flags.textures
+            ? part.lobe.amplitude * (blob.bump.amplitude / (spec.bump.amplitude || 1))
+            : 0;
+          uniforms.uNoiseSpeed.value = blob.bump.speed;
+          uniforms.uRampKeyMode.value = rampKeyMode(m);
+          uniforms.uHeightSpan.value = m.ramp.heightSpan;
+          uniforms.uGroundY.value = doc.environment.groundY;
+          uniforms.uUseToon.value = m.toon ? 1 : 0;
+          writeRamp(uniforms as Record<string, THREE.IUniform>, m.ramp);
+        }
+        if (m.toon) {
+          (part.fillUniforms.uShadow.value as THREE.Color).set(m.toon.shadow);
+          (part.fillUniforms.uBody.value as THREE.Color).set(m.toon.body);
+          (part.fillUniforms.uHigh.value as THREE.Color).set(m.toon.highlight);
+          (part.fillUniforms.uRimCol.value as THREE.Color).set(m.toon.highlight);
+          (part.fillUniforms.uLight.value as THREE.Vector3).fromArray(m.toon.light);
+          part.fillUniforms.uBandA.value = m.toon.thresholds[0];
+          part.fillUniforms.uBandB.value = m.toon.thresholds[1];
+          part.fillUniforms.uBands.value = m.toon.bands;
+          part.fillUniforms.uRimPow.value = m.toon.rim.power;
+          part.fillUniforms.uRimAmt.value = m.toon.rim.amount;
+        }
+        if (outline) {
+          (part.hullUniforms.uShadow.value as THREE.Color).set(outline.color);
+          // A constant world-space line: the hull is inflated in the lobe's own
+          // unit space, so the push has to be divided by the live radius.
+          part.hullUniforms.uInflate.value =
+            outline.width / Math.max(state.radius, 0.12);
+        }
+      }
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      const [lo, hi] = blobBounds(live.blob!);
+      for (const x of [lo.x, hi.x])
+        for (const y of [lo.y, hi.y])
+          for (const z of [lo.z, hi.z])
+            push(new THREE.Vector3(x, y, z).applyMatrix4(matrix));
+    },
+    dispose() {
+      geometry.dispose();
+      for (const part of parts) {
+        part.fill.dispose();
+        part.hull.dispose();
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Splash layers
+// ---------------------------------------------------------------------------
+
+/**
+ * A fan of flat, camera-facing slivers generated from `layer.splash`. Each one
+ * is drawn twice — a darker backing 14% larger behind the fill — and carries no
+ * lighting, no ramp and no erosion: it is a graphic accent, not material.
+ */
+function createSplashLayer(layer: LayerV2, index: number): LayerObject {
+  const material = layer.material!;
+  const spec = layer.splash!;
+  const slivers = splashSlivers(spec);
+  const group = new THREE.Group();
+  group.name = layer.id;
+  const blend = BLEND_INDEX[material.blend] ?? 1;
+
+  const parts = slivers.map((sliver) => {
+    const geometry = sliverGeometry(sliver, spec.jaggedness);
+    const make = (color: string, dark: string, order: number, scale: number) => {
+      const uniforms: Record<string, THREE.IUniform> = {
+        uCol: { value: new THREE.Color(color) },
+        uDark: { value: new THREE.Color(dark) },
+        uOpacity: { value: 1 },
+        uBlendMode: { value: blend },
+        uSliverScale: { value: new THREE.Vector2(scale, scale) },
+        uSliverOffset: { value: new THREE.Vector3() },
+        uSliverRoll: { value: 0 },
+      };
+      const shader = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: splashVertexV2,
+        fragmentShader: splashFragmentV2,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        ...blendingFor(material.blend),
+      });
+      const mesh = new THREE.Mesh(geometry, shader);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = index * 8 + order;
+      group.add(mesh);
+      return { mesh, shader, uniforms, scale };
+    };
+    return {
+      sliver,
+      geometry,
+      // The backing is the same sliver 14% larger, drawn first.
+      backing: make(spec.backing, shade(spec.backing, 0.66), 0, 1.14),
+      fill: make(spec.color, shade(spec.color, 0.47), 1, 1),
+    };
+  });
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: group,
+    soft: false,
+    trim: false,
+    update(time) {
+      // A splash's three windows are fractions of the layer's own 0..1
+      // progress, so `u` is all the state a sliver needs.
+      const { layer: live, visible, u } = evaluateLayerV2(layer, time);
+      group.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const live_ = live.splash!;
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+      for (const part of parts) {
+        const state = sliverStateAt(part.sliver, live_, u);
+        for (const draw of [part.backing, part.fill]) {
+          draw.mesh.visible = state.visible;
+          if (!state.visible) continue;
+          (draw.uniforms.uSliverScale.value as THREE.Vector2).set(
+            state.scale[0] * draw.scale,
+            state.scale[1] * draw.scale,
+          );
+          (draw.uniforms.uSliverOffset.value as THREE.Vector3).fromArray(
+            state.position,
+          );
+          draw.uniforms.uSliverRoll.value = state.roll;
+          draw.uniforms.uOpacity.value =
+            state.alpha * m.opacity * (draw === part.backing ? 0.85 : 1);
+        }
+        (part.backing.uniforms.uCol.value as THREE.Color).set(live_.backing);
+        (part.backing.uniforms.uDark.value as THREE.Color).set(
+          shade(live_.backing, 0.66),
+        );
+        (part.fill.uniforms.uCol.value as THREE.Color).set(live_.color);
+        (part.fill.uniforms.uDark.value as THREE.Color).set(
+          shade(live_.color, 0.47),
+        );
+      }
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of splashBounds(live.splash!))
+        push(corner.applyMatrix4(matrix));
+    },
+    dispose() {
+      for (const part of parts) {
+        part.geometry.dispose();
+        part.backing.shader.dispose();
+        part.fill.shader.dispose();
+      }
+    },
+  };
+}
+
+/** A hex darkened toward black; the root of a sliver is its own colour, dimmed. */
+function shade(hex: string, factor: number) {
+  const color = new THREE.Color(hex);
+  // Linear space (THREE.Color already converted), so a plain scale is a dim.
+  return `#${color.multiplyScalar(factor).getHexString()}`;
 }
 
 /**
@@ -1835,6 +2211,8 @@ export class VfxRuntimeV2 {
         if (layer.kind === "light") return createLightLayer(layer);
         if (layer.kind === "particles")
           return createParticleLayer(this.doc!, layer, index, this.textures, depth);
+        if (layer.kind === "blob") return createBlobLayer(this.doc!, layer, index);
+        if (layer.kind === "splash") return createSplashLayer(layer, index);
         return createMeshLayer(this.doc!, layer, index, this.textures);
       });
     const lights = this.objects
@@ -2128,7 +2506,7 @@ export class VfxRuntimeV2 {
       // Depth pre-pass: opaque receivers only (ground + any depth-writing mesh).
       const hidden: THREE.Object3D[] = [];
       for (const object of this.objects)
-        if (object.object.visible) {
+        if (object.object.visible && !object.occluder) {
           hidden.push(object.object);
           object.object.visible = false;
         }

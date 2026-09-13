@@ -37,9 +37,10 @@ keyword-matched cards not already present, capped at `opts.max` (default 4) so t
 bounded — it never returns more than 4 cards, so a run only pays for what the model can actually
 use inside a candidate call. Each card is condensed to name, the first 3 construction steps, timing,
 the top 3 details and — deliberately — **only `vocabulary.available`**, never `missing`: the point
-is that the model is never invited to ask for a `kind:"blob"` or `material.toon` the renderer
-cannot render. A card whose `available` list is empty (today, only `inverted-hull-outline`) gets a
-one-line hand-written "approximate with: ..." fallback instead.
+is that the model is never invited to ask for vocabulary the renderer cannot render. A card whose
+`available` list is empty gets a one-line hand-written "approximate with: ..." fallback instead;
+no card is in that state today (`inverted-hull-outline` was the last, until `material.outline`
+landed).
 
 It is wired into the v2 candidate call (`route.ts`, `action: "candidate"`, alongside
 `RECIPES_V2[family].knowledge` and the example document) and into the structural-refinement call
@@ -51,9 +52,9 @@ model already reads.
 
 | Card | One line |
 |---|---|
-| `cauliflower-blob-cluster` | 3-6 overlapping toon-shaded lobes for a smoke/cloud silhouette, not one fuzzy blob. |
-| `inverted-hull-outline` | Back-face-pushed second pass for a crisp painted line on a toon mesh. |
-| `flat-splash-accent` | A flat, unshaded, near-white burst shape that sells "something popped" in the opening 5-20%. |
+| `cauliflower-blob-cluster` | A generated cluster of toon-shaded lobes for a smoke/cloud silhouette, not one fuzzy blob. |
+| `inverted-hull-outline` | Back-face-pushed second pass for a crisp dark crease on a toon mesh. |
+| `flat-splash-accent` | A generated fan of flat, unshaded slivers that sells "something popped". |
 | `three-tone-layer-stack` | Three overlapping meshes (highlight/mid/shadow), each its own ramp, offset in scale and time. |
 | `stripe-panner-core-and-sheath` | Plain additive core plus a wider panning-stripe sheath for a beam or column. |
 | `converging-charge` | Anticipation motes on a negative radial speed, converging inward before the payoff. |
@@ -106,10 +107,6 @@ the model, so it is exposed here instead, for whoever picks up renderer work nex
 
 | Missing vocabulary | Needed by | Notes |
 |---|---|---|
-| `material.toon` (posterised N·L cel-shading bands) | cauliflower-blob-cluster, inverted-hull-outline, three-tone-layer-stack | The single highest-leverage gap: three separate cards work around it with stacked meshes and ramps instead of one shader. |
-| `outline` (inverted-hull second pass, unlit, one step lighter than shadow) | inverted-hull-outline | Currently approximated with `material.erosion.edgeWidth/edgeColor/edgeIntensity`. |
-| `kind:"blob"` (metaball/SDF fusion of overlapping lobes) | cauliflower-blob-cluster | Smoke lobes stay as separate opaque meshes; seams read as contour lines, which is acceptable but not the same look. |
-| per-mesh unlit flat shading | inverted-hull-outline | Needed for the outline pass to stay flat regardless of scene lighting. |
 | stripe panner (hard `fract(u*n - t)` scrolling band shader on a mesh material) | stripe-panner-core-and-sheath | Approximated with `material.mask` atlas panning or a tracked `erosion.curve`. |
 | ribbon window (moving head-tail draw range along a path, independent of `layer.start`/`end`) | path-window-ribbon | Approximated with `layer.start/end` plus a tracked opacity/length ramp. |
 | ease `"outBack"` (overshoot-and-settle scale-in, beyond `outCubic`) | ground-ring-with-inner-fill | `CurveSchema.ease` today is `linear \| smooth` only (`easing` on tracks adds `outCubic \| inQuad`, no back-ease). |
@@ -121,5 +118,20 @@ the model, so it is exposed here instead, for whoever picks up renderer work nex
 | true per-channel RGB split (separate R/G/B UV offset) | stepped-hash-glitch | Approximated with magenta/cyan `material.ramp` stops flanking the base colour. |
 | scanline overlay | stepped-hash-glitch | No approximation offered; purely missing. |
 
-10 of the 21 cards implement fully within today's vocabulary (`vocabulary.missing: []`); the
-remaining 11 each contribute one or more entries to the renderer backlog above.
+### Closed 2026-09-14 — the smoke-spike port
+
+The four entries at the top of this table were closed by the Phase C port of the S2 smoke spike
+(`TOOLBOX_V2_MAPPING.md` §4), and their cards now carry real `vocabulary.available` lists:
+
+| Was missing | Now | Card |
+|---|---|---|
+| `material.toon` (posterised N·L bands) | `material.toon{bands,thresholds,shadow,body,highlight,light,rim}` | cauliflower-blob-cluster, inverted-hull-outline, three-tone-layer-stack |
+| `outline` (inverted-hull second pass, unlit) | `material.outline{width,color}` — and the convention flipped: the line is DARKER than the shadow tone, a crease, not a rim | inverted-hull-outline |
+| `kind:"blob"` (fusion of overlapping lobes) | `kind:"blob"` + `layer.blob` — a generator with four arrangements; overlapping opaque lobes with `material.opaqueUntil`, so seams read as contour lines by design | cauliflower-blob-cluster |
+| per-mesh unlit flat shading | the outline pass is unlit by construction; `material.toon` makes the fill independent of the scene's point lights too | inverted-hull-outline |
+
+`flat-splash-accent` also moved from "a decal plus a jagged mask" to `kind:"splash"`, a generated
+fan of flat slivers, though it never contributed a backlog entry.
+
+14 of the 21 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
+remaining 7 each contribute one or more entries to the renderer backlog above.

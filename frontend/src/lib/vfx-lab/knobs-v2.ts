@@ -238,6 +238,37 @@ export function applyKnobs(
       }
     }
 
+    // K5/K9 — the generated kinds: a blob's cluster dimensions and a splash's
+    // slivers scale with meshScale, and verticalStretch reaches only the blob's
+    // vertical shape (height, reach, squash) the same way it reaches a mesh's
+    // y scale. Lobe counts and the arrangement are topology, not scale, so the
+    // knob space never touches them.
+    if (layer.blob) {
+      const b = layer.blob;
+      b.radius = [
+        clamp(b.radius[0] * kMeshScale, 0.05, 3),
+        clamp(b.radius[1] * kMeshScale, 0.05, 3),
+      ];
+      b.spread = clamp(b.spread * kMeshScale, 0, 8);
+      b.height = clamp(b.height * kMeshScale * kVertical, 0, 12);
+      b.rise = clamp(b.rise * kMeshScale * kVertical, -12, 20);
+      b.gravity = clamp(b.gravity * kMeshScale * kVertical, -20, 20);
+      b.drift = clamp(b.drift * kMeshScale, -8, 8);
+      b.squash = clamp(b.squash * kVertical, 0.3, 3);
+      b.life = [
+        clamp(b.life[0] * kLife, 0.05, 12),
+        clamp(b.life[1] * kLife, 0.05, 12),
+      ];
+    }
+    if (layer.splash) {
+      const sp = layer.splash;
+      sp.length = [
+        clamp(sp.length[0] * kMeshScale, 0.2, 8),
+        clamp(sp.length[1] * kMeshScale, 0.2, 8),
+      ];
+      sp.width = clamp(sp.width * kMeshScale, 0.02, 1.5);
+    }
+
     // K6 — ramp intensity, every layer that has a ramp.
     if (layer.material)
       for (const stop of layer.material.ramp.stops)

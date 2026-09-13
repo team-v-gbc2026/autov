@@ -5,6 +5,12 @@ import {
   buildLightningGeometry,
   lightningBounds,
 } from "../src/lib/vfx-lab/lightning-v2";
+import { blobLobes, lobeStateAt } from "../src/lib/vfx-lab/blob-v2";
+import {
+  splashBounds,
+  splashSlivers,
+  sliverStateAt,
+} from "../src/lib/vfx-lab/splash-v2";
 import { createPresetV2 } from "../src/lib/vfx-lab/recipes-v2";
 import { defaultGeometry, type GeometryV2 } from "../src/lib/vfx-lab/schema-v2";
 
@@ -145,4 +151,119 @@ test("every recipe example still validates with the Phase B fields in place", ()
       createPresetV2(id).layers.some((l) => l.emitter?.trail),
       `${id} carries a trail`,
     );
+});
+
+// ---------------------------------------------------------------------------
+// Blob clusters and splash fans are the other Phase C feature whose state the
+// CPU evaluates: `blobLobes` / `lobeStateAt` and `splashSlivers` /
+// `sliverStateAt` are the same functions the renderer drives its meshes with
+// and the framing pass measures, so verifying seek == play here verifies both.
+// ---------------------------------------------------------------------------
+
+const smoke = createPresetV2("smoke-burst");
+const blobLayers = smoke.layers.filter((l) => l.blob);
+
+test("a lobe table is a pure function of the blob spec", () => {
+  for (const layer of blobLayers) {
+    const spec = layer.blob!;
+    assert.deepEqual(blobLobes(spec), blobLobes(structuredClone(spec)));
+    assert.equal(blobLobes(spec).length, spec.count);
+    // A different seed is a different cluster. Which fields it moves depends on
+    // the arrangement: a column and a string are deterministic ladders whose
+    // POSITIONS are fixed by the spec, and the seed varies only their radii,
+    // lives and birth order.
+    const reseeded = blobLobes({ ...structuredClone(spec), seed: spec.seed + 1 });
+    assert.notDeepEqual(
+      reseeded.map((l) => [l.radius, l.life, l.t0]),
+      blobLobes(spec).map((l) => [l.radius, l.life, l.t0]),
+    );
+    if (spec.arrangement === "mound" || spec.arrangement === "ring")
+      assert.notDeepEqual(
+        reseeded.map((l) => l.base),
+        blobLobes(spec).map((l) => l.base),
+      );
+  }
+});
+
+test("seeking to a time draws the same lobes as playing to it", () => {
+  for (const layer of blobLayers) {
+    const spec = layer.blob!;
+    const span = layer.end - layer.start;
+    const lobes = blobLobes(spec);
+    for (const age of [0, 0.13, 0.4, span * 0.5, span * 0.93, span]) {
+      // Ten "played" evaluations, then one cold seek: no accumulation anywhere,
+      // so the last state must equal the first.
+      const first = lobes.map((l) =>
+        lobeStateAt(l, spec, age, span, layer.material!.opaqueUntil),
+      );
+      for (let step = 0; step < 10; step++)
+        for (const l of lobes)
+          lobeStateAt(l, spec, (step / 10) * span, span, layer.material!.opaqueUntil);
+      const seeked = lobes.map((l) =>
+        lobeStateAt(l, spec, age, span, layer.material!.opaqueUntil),
+      );
+      assert.deepEqual(seeked, first, `${layer.id} @${age}`);
+      for (const state of seeked) {
+        assert.ok(Number.isFinite(state.radius));
+        assert.ok(state.position.every(Number.isFinite));
+        assert.ok(state.alpha >= 0 && state.alpha <= 1);
+      }
+    }
+  }
+});
+
+test("a lobe grows in, stays opaque to opaqueUntil, then fades to nothing", () => {
+  const layer = blobLayers.find((l) => l.blob!.arrangement === "mound")!;
+  const spec = layer.blob!;
+  const span = layer.end - layer.start;
+  const lobe = blobLobes(spec)[0];
+  const at = (a: number) =>
+    lobeStateAt(lobe, spec, lobe.t0 * span + a * lobe.life, span, 0.75);
+  assert.equal(at(-0.01).alive, false);
+  assert.equal(at(1.01).alive, false);
+  // Grown by 1/grow of its life, shrinking again over the last 30%.
+  assert.ok(at(1 / spec.grow).radius > at(0.01).radius);
+  assert.ok(at(0.99).radius < at(0.5).radius);
+  // Opaque and depth-writing until 75% of life, then falling to 0 at the end.
+  assert.equal(at(0.5).alpha, 1);
+  assert.equal(at(0.5).fading, false);
+  assert.ok(at(0.9).alpha < 1 && at(0.9).alpha > 0);
+  assert.equal(at(0.9).fading, true);
+  assert.ok(at(0.999).alpha < 0.02);
+  // With no opaque phase the lobe is simply never opaque, the old behaviour.
+  assert.equal(lobeStateAt(lobe, spec, lobe.t0 * span + lobe.life * 0.9, span, null).alpha, 1);
+});
+
+test("a splash fan is mirrored, so it never pulls the framing off centre", () => {
+  const layer = smoke.layers.find((l) => l.splash)!;
+  const spec = layer.splash!;
+  const slivers = splashSlivers(spec);
+  assert.equal(slivers.length, spec.count);
+  assert.deepEqual(slivers, splashSlivers(structuredClone(spec)));
+  for (let i = 0; i + 1 < slivers.length; i += 2) {
+    assert.ok(slivers[i].angle > 0 && slivers[i + 1].angle < 0);
+    assert.equal(slivers[i].length, slivers[i + 1].length);
+    assert.equal(slivers[i].curvature, -slivers[i + 1].curvature);
+  }
+  // Only the angle carries a per-sliver jitter, so the fan is mirrored to
+  // within a few percent of its own width — not the half metre an
+  // independently hashed fan drifts, which the camera would follow off centre.
+  const points = splashBounds(spec);
+  const xs = points.map((p) => p.x);
+  const width = Math.max(...xs) - Math.min(...xs);
+  assert.ok(
+    Math.abs(Math.max(...xs) + Math.min(...xs)) < width * 0.06,
+    `fan is off centre by ${(Math.max(...xs) + Math.min(...xs)).toFixed(3)}`,
+  );
+  // Seek == play for the slivers too.
+  for (const u of [0, 0.2, 0.5, 0.8, 1]) {
+    const first = slivers.map((s) => sliverStateAt(s, spec, u));
+    for (let step = 0; step <= 10; step++)
+      for (const s of slivers) sliverStateAt(s, spec, step / 10);
+    assert.deepEqual(
+      slivers.map((s) => sliverStateAt(s, spec, u)),
+      first,
+      `u=${u}`,
+    );
+  }
 });

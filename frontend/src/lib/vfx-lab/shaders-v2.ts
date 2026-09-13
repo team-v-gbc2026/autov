@@ -126,7 +126,11 @@ float hexCells(vec2 uv, vec2 cell){
   return 1.-smoothstep(.035,.10,edge);
 }
 // uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
-// 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon.
+// 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon,
+// 12 star4, 13 softRadial.
+// Modes 0-3 and 12-13 are BILLBOARD SILHOUETTES: they describe a sprite's whole
+// outline, so a closed body (the analytic shell) ignores them. 4-11 are surface
+// patterns and apply everywhere; surfaceFragmentV2 gates on exactly that.
 float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, vec3 dims, int mode){
   if(mode==3) return 1.;
   float disc=smoothstep(.5,.1,length(p));
@@ -154,6 +158,17 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
     float border=1.-smoothstep(max(dims.z,.001)*.65,max(dims.z,.001)*1.15,edgeDistance);
     return clamp(border*.8+(.08+.22*n)*(1.-border),0.,1.);
   }
+  if(mode==12){
+    // Four thin spikes plus a hot core and a halo, rolled slightly off-axis:
+    // the anticipation glint. Same shape the spike drew by hand.
+    float c=cos(.38), sn=sin(.38); vec2 g=vec2(q.x*c-q.y*sn, q.x*sn+q.y*c);
+    float r=length(g);
+    float core=safePow(max(0.,1.-r),6.);
+    float ax=safePow(max(0.,1.-abs(g.x)),2.)*safePow(max(0.,1.-abs(g.y)*7.),2.5);
+    float ay=safePow(max(0.,1.-abs(g.y)),2.)*safePow(max(0.,1.-abs(g.x)*7.),2.5);
+    return clamp(core*1.2+ax+ay,0.,2.);
+  }
+  if(mode==13) return safePow(max(0.,1.-length(q)),2.6);
   if(mode==11){
     // Continuous core with a narrow moving edge; no longitudinal holes.
     float edge=.48+.035*sin(q.y*18.-t*10.);
@@ -552,6 +567,7 @@ precision highp float;
 uniform sampler2D uMask,uNoise;
 uniform int uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uAtlasCols,uAtlasRows;
 uniform float uTime,uDistort,uErodeSoft,uEdgeW,uEdgeI,uOpacity,uMaskRot;
+uniform float uRampKeyMode,uGroundY,uHeightSpan;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
@@ -598,7 +614,13 @@ void main(){
     er=smoothstep(th,th+uErodeSoft,field);
     edge=smoothstep(th-uEdgeW,th+uErodeSoft*.5,field)-er;
   }
-  vec3 col=rampColor(vU);
+  // Particles key their ramp on life, except in the "height" space, where the
+  // colour is a function of world height instead of age (mode 3). Erosion is
+  // always keyed on life.
+  float key = uRampKeyMode>2.5
+    ? clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.)
+    : vU;
+  vec3 col=rampColor(key);
   col+=uEdgeCol*uEdgeI*edge*shape;
   float a=er*vAlpha*uOpacity*softDepth();
   if(a<.002) discard;
@@ -721,6 +743,7 @@ export const surfaceFragmentV2 = /* glsl */ `
 precision highp float;
 uniform float uTime,uOpacity,uErodeSoft,uEdgeW,uEdgeI,uProtect,uRimBias,uDisplaceShift;
 uniform float uFresnelPower,uFresnelStrength,uDistort,uRampKeyMode,uLayerU,uMaskRot,uRadius,uLength,uThickness;
+uniform float uGroundY,uHeightSpan;
 uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFresnel,uBolt;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol,uCam;
@@ -758,7 +781,7 @@ void main(){
     // its surface coordinate is (angle around the tube, distance along it).
     // Modes below 4 are billboard silhouettes (a soft disc, a flame, a puff)
     // and describe a sprite's outline, which a closed body already has.
-    if(uProcedural>=4)
+    if(uProcedural>=4 && uProcedural<12)
       shape=proceduralShape(vec2(vRing,vAlong)-.5,vec2(vRing,vAlong),n,uTime,fres,uMaskScale,dims,uProcedural);
   } else {
     // noise.distortionPan scrolls the field that drives the distortion.
@@ -776,7 +799,9 @@ void main(){
   }
 
   float key;
-  if(uRampKeyMode>1.5) key=clamp(vAlong*1.08+(n-.5)*.35*smoothstep(.15,.7,vAlong),0.,1.);
+  // 3 = "height": world metres above environment.groundY, over uHeightSpan.
+  if(uRampKeyMode>2.5) key=clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.);
+  else if(uRampKeyMode>1.5) key=clamp(vAlong*1.08+(n-.5)*.35*smoothstep(.15,.7,vAlong),0.,1.);
   else if(uRampKeyMode>0.5) key=clamp(uLayerU,0.,1.);
   else key=clamp(vAlong,0.,1.);
   if(uHasFresnel==1) key+=safePow(fres,uFresnelPower)*uFresnelStrength*smoothstep(0.,.4,vAlong);
@@ -809,6 +834,140 @@ void main(){
   if(alpha<.002) discard;
   if(uBlendMode==1) gl_FragColor=vec4(col,alpha);
   else gl_FragColor=vec4(col*alpha,alpha);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Blob lobes
+//
+// One lobe is an icosphere whose RADIUS is a function of the surface direction:
+// unit sphere x (1 + amplitude * positive-biased fbm). That makes cauliflower
+// bumps instead of the smooth wobble `geometry.vertexNoise` produces, and it
+// needs its own normal, because the analytic derivative of an fbm chain is not
+// worth writing: two finite differences along the tangent plane give it in
+// three extra evaluations.
+//
+// After the radius field the lobe is optionally deformed into a comma (taper
+// one end to a tail, bend the result around z, then turn the tail outward) and
+// squashed vertically. The outline pass runs the identical vertex program with
+// uInflate > 0 and back faces, so the hull tracks every bump.
+// ---------------------------------------------------------------------------
+
+/** Shared by the fill pass and the inverted hull: the lobe's own shape. */
+const glslLobeShape = /* glsl */ `
+uniform float uTime,uSeed,uAmp,uFreq,uNoiseSpeed,uSquash,uCurl,uTaper,uRot,uInflate;
+float lobeR(vec3 n){
+  vec3 q=n*uFreq+vec3(uSeed*7.3,uSeed*3.1-uTime*uNoiseSpeed,uSeed*11.7);
+  float f=.6*snoise(q)+.3*snoise(q*2.1+5.)+.15*snoise(q*4.3+11.);
+  // Positive bias: bumps push OUT of the sphere, they never dent it inward.
+  return 1.+uAmp*(.45*f+.55*abs(f));
+}
+vec3 lobeP(vec3 n){
+  vec3 p=n*lobeR(n);
+  float s=clamp(p.y*.5+.5,0.,1.);
+  p.xz*=mix(1.,1.-uTaper,smoothstep(.2,1.,s));
+  float a=uCurl*p.y;
+  p.xy=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xy;
+  p.xy=mat2(cos(uRot),-sin(uRot),sin(uRot),cos(uRot))*p.xy;
+  p.y*=uSquash;
+  return p;
+}
+`;
+
+export const blobVertexV2 = /* glsl */ `
+varying vec3 vN,vV,vWp;
+${glslNoise}
+${glslLobeShape}
+void main(){
+  vec3 n=safeDir(position, vec3(0.,1.,0.));
+  vec3 p=lobeP(n);
+  // Finite-difference normal in the tangent plane of the unit sphere.
+  vec3 up=abs(n.y)<.9?vec3(0.,1.,0.):vec3(1.,0.,0.);
+  vec3 t1=safeDir(cross(n,up), vec3(1.,0.,0.));
+  vec3 t2=safeDir(cross(n,t1), vec3(0.,0.,1.));
+  float e=.055;
+  vec3 nrm=safeDir(cross(lobeP(safeDir(n+t1*e,n))-p, lobeP(safeDir(n+t2*e,n))-p), n);
+  if(dot(nrm,n)<0.) nrm=-nrm;
+  p+=nrm*uInflate;
+  vec4 wp=modelMatrix*vec4(p,1.);
+  vWp=wp.xyz;
+  vN=safeDir(mat3(modelMatrix)*nrm, vec3(0.,1.,0.));
+  vV=safeDir(cameraPosition-wp.xyz, vec3(0.,0.,1.));
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}
+`;
+
+export const blobFragmentV2 = /* glsl */ `
+precision highp float;
+varying vec3 vN,vV,vWp;
+uniform vec3 uShadow,uBody,uHigh,uRimCol,uLight;
+uniform float uBands,uBandA,uBandB,uOpacity,uRimPow,uRimAmt,uFlat;
+uniform float uRampKeyMode,uLayerU,uLobeU,uGroundY,uHeightSpan,uUseToon;
+uniform int uBlendMode;
+${glslRamp}
+vec3 safeDirLocal(vec3 v){ float l=length(v); return l>1e-5 ? v/l : vec3(0.,1.,0.); }
+void main(){
+  // The outline hull draws flat and unlit whatever else is set.
+  if(uFlat>.5){ gl_FragColor=vec4(uShadow*uOpacity,uOpacity); return; }
+  vec3 c;
+  if(uUseToon>.5){
+    vec3 N=safeDirLocal(vN);
+    // Half lambert against the document's FIXED toon light, posterised.
+    float ndl=dot(N,safeDirLocal(uLight))*.5+.5;
+    c = uBands>2.5
+      ? (ndl<uBandA ? uShadow : (ndl<uBandB ? uBody : uHigh))
+      : (ndl<uBandA ? uShadow : uHigh);
+    c+=uRimCol*pow(max(1.-clamp(dot(N,safeDirLocal(vV)),0.,1.),1e-4),uRimPow)*uRimAmt;
+  } else {
+    // No toon: the ramp is the colour source, keyed the usual way. "life" and
+    // "surface" both fall back to the lobe's own 0..1 age, which is the only
+    // scalar a generated lobe has.
+    float key = uRampKeyMode>2.5
+      ? clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.)
+      : (uRampKeyMode>0.5 && uRampKeyMode<1.5 ? clamp(uLayerU,0.,1.) : clamp(uLobeU,0.,1.));
+    c=rampColor(key);
+  }
+  if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
+  else gl_FragColor=vec4(c*uOpacity,uOpacity);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Splash slivers — flat, unlit, camera facing. The quad is rebuilt on the
+// view's right/up axes around the layer origin (the same trick the sprite kind
+// uses), so the fan reads as a graphic accent from any camera angle.
+// ---------------------------------------------------------------------------
+
+export const splashVertexV2 = /* glsl */ `
+uniform vec2 uSliverScale;
+uniform vec3 uSliverOffset;
+uniform float uSliverRoll;
+varying vec2 vUv;
+void main(){
+  vUv=uv;
+  vec3 centre=(modelMatrix*vec4(0.,0.,0.,1.)).xyz;
+  vec3 right=vec3(viewMatrix[0][0],viewMatrix[1][0],viewMatrix[2][0]);
+  vec3 up=vec3(viewMatrix[0][1],viewMatrix[1][1],viewMatrix[2][1]);
+  vec3 fwd=cross(right,up);
+  vec2 q=vec2(position.x*uSliverScale.x, position.y*uSliverScale.y);
+  float c=cos(uSliverRoll), s=sin(uSliverRoll);
+  q=vec2(q.x*c-q.y*s, q.x*s+q.y*c);
+  vec2 o=vec2(uSliverOffset.x, uSliverOffset.y);
+  vec3 world=centre+right*(q.x+o.x)+up*(q.y+o.y)+fwd*uSliverOffset.z;
+  gl_Position=projectionMatrix*viewMatrix*vec4(world,1.);
+}
+`;
+
+export const splashFragmentV2 = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+uniform vec3 uCol,uDark;
+uniform float uOpacity;
+uniform int uBlendMode;
+void main(){
+  vec3 c=mix(uDark,uCol,smoothstep(.0,.55,vUv.y));
+  if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
+  else gl_FragColor=vec4(c*uOpacity,uOpacity);
 }
 `;
 

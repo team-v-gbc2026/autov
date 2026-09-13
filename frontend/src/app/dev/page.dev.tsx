@@ -52,6 +52,11 @@ const cards = [
     body: "Curved glitch projectile spike served from dev-assets/vfx-v2/spike-glitch.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-ice",
+    title: "Toolbox v2 spike — ice area attack",
+    body: "Blue-white ice area attack spike served from dev-assets/vfx-v2/spike-ice.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",

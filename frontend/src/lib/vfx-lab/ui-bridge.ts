@@ -22,6 +22,8 @@
 //                | (all stops scale by the same ratio)                    | key (0..20), all
 //                |                                                        | keys scale by ratio
 //   Radius       | emitter.shape.radius (0..12)    | geometry.radius      | light.radius
+//                | blob.radius[1] / splash.length[1] on the generated kinds,
+//                | scaled as a band so the population keeps its size hierarchy
 //                |                                 | (0.01..8)            | (0.5..30)
 //   Opacity      | material.opacity (0..1)         | material.opacity     | — (no material)
 //   Speed        | max |emitter.velocity.speed|    | geometry.vertexNoise | —
@@ -131,6 +133,10 @@ function layerRadius(layer: LayerV2) {
     return toUi(layer.light.radius, LIGHT_RADIUS);
   if (layer.kind === "particles" && layer.emitter)
     return toUi(layer.emitter.shape.radius, PARTICLE_RADIUS);
+  // A generated kind has no geometry: its "radius" is the lobe band's top and
+  // the sliver band's top, the numbers that set how big the thing reads.
+  if (layer.blob) return toUi(layer.blob.radius[1], MESH_RADIUS);
+  if (layer.splash) return toUi(layer.splash.length[1], MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
   return 0;
 }
@@ -270,7 +276,23 @@ function writeRadius(layer: LayerV2, ui: number) {
     layer.light.radius = fromUi(ui, LIGHT_RADIUS);
   else if (layer.kind === "particles" && layer.emitter)
     layer.emitter.shape.radius = fromUi(ui, PARTICLE_RADIUS);
-  else if (layer.geometry) layer.geometry.radius = fromUi(ui, MESH_RADIUS);
+  else if (layer.blob) {
+    // Scale the whole band, keeping its shape, so a cluster never collapses
+    // into one uniform lobe size.
+    const target = Math.min(3, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.blob.radius[1], 1e-6);
+    layer.blob.radius = [
+      clamp(layer.blob.radius[0] * factor, 0.05, 3),
+      target,
+    ];
+  } else if (layer.splash) {
+    const target = Math.min(8, Math.max(0.2, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.splash.length[1], 1e-6);
+    layer.splash.length = [
+      clamp(layer.splash.length[0] * factor, 0.2, 8),
+      target,
+    ];
+  } else if (layer.geometry) layer.geometry.radius = fromUi(ui, MESH_RADIUS);
 }
 
 function writeSpeed(layer: LayerV2, ui: number) {

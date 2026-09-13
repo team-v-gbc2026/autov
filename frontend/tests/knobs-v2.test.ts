@@ -234,7 +234,9 @@ test("camera, exposure, seed and layer identity are outside the knob space", () 
 });
 
 test("vertical stretch tilts particle motion and the mesh y axis without changing anything else", () => {
-  const doc = load("smoke-burst");
+  // A family that still carries both particle and mesh layers: smoke-burst is
+  // now built from blob layers, whose vertical shape is checked below instead.
+  const doc = load("fire-projectile");
   const stretched = applyKnobs(doc, knobsAt("verticalStretch", 2));
   let particles = 0;
   let meshes = 0;
@@ -270,6 +272,40 @@ test("vertical stretch tilts particle motion and the mesh y axis without changin
   });
   assert.ok(particles > 0 && meshes > 0);
   validateDocumentV2(stretched);
+});
+
+test("mesh scale and vertical stretch reach blob clusters and splash slivers", () => {
+  const doc = load("smoke-burst");
+  const blobs = doc.layers.filter((l) => l.blob);
+  const splashes = doc.layers.filter((l) => l.splash);
+  assert.ok(blobs.length > 0 && splashes.length > 0);
+
+  const bigger = applyKnobs(doc, knobsAt("meshScale", 1.5));
+  bigger.layers.forEach((layer, i) => {
+    const source = doc.layers[i];
+    if (layer.blob && source.blob) {
+      assert.ok(Math.abs(layer.blob.spread - source.blob.spread * 1.5) < 1e-9);
+      assert.ok(Math.abs(layer.blob.radius[1] - source.blob.radius[1] * 1.5) < 1e-9);
+      // Topology never moves with a scale knob.
+      assert.equal(layer.blob.count, source.blob.count);
+      assert.equal(layer.blob.arrangement, source.blob.arrangement);
+      assert.equal(layer.blob.seed, source.blob.seed);
+    }
+    if (layer.splash && source.splash)
+      assert.ok(Math.abs(layer.splash.width - source.splash.width * 1.5) < 1e-9);
+  });
+  validateDocumentV2(bigger);
+
+  const taller = applyKnobs(doc, knobsAt("verticalStretch", 1.4));
+  taller.layers.forEach((layer, i) => {
+    const source = doc.layers[i];
+    if (!layer.blob || !source.blob) return;
+    // Vertical only: the cluster's lateral spread is untouched.
+    assert.equal(layer.blob.spread, source.blob.spread);
+    assert.ok(layer.blob.height >= source.blob.height - 1e-9);
+    assert.ok(layer.blob.squash >= source.blob.squash - 1e-9);
+  });
+  validateDocumentV2(taller);
 });
 
 test("spread scale opens the emission cone and the spawn region, and stays inside the schema", () => {
