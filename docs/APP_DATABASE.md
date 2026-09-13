@@ -22,7 +22,7 @@ In Supabase Auth URL configuration, allow `http://localhost:3000/auth/callback` 
 | --- | --- |
 | `projects` | User-owned project name and creation time |
 | `assets` | Image metadata and private storage path; `archived` removes a reference from the current workspace without breaking earlier prompts |
-| `generations` | Prompt and processing state; new requests are saved as `draft` until generation is connected |
+| `generations` | Historical prompts and processing state; Eve chat does not create generation rows |
 | `generation_inputs` | Ordered reference snapshot; composite foreign keys enforce the same project |
 | `effect_versions` | Immutable result rows containing `definition` JSON and the producer's `schema_version` |
 
@@ -30,8 +30,8 @@ Reference files live in the private `references` bucket at `<user-id>/<project-i
 
 ## Generation team contract
 
-1. The authenticated app calls `save_generation(p_project_id, p_prompt, p_asset_ids)` to atomically create a draft and its inputs. The returned UUID is the generation ID.
-2. Connect your backend invocation after this save, or process drafts through your own backend. Do not enable automatic draft processing until intended. Claim work atomically to prevent two workers processing one request.
+1. The old prompt-saving action and RPC are retired. New messages go to Eve; see [the agent integration](EVE_STUDIO_INTEGRATION.md). A future generation tool must explicitly create a generation and its inputs in a transaction.
+2. Connect your backend invocation to that explicit generation tool. Do not enable automatic draft processing until intended. Claim work atomically to prevent two workers processing one request.
 3. Read the generation and ordered `generation_inputs`. Join `assets` for image locations. Create signed URLs server-side if your model requires URLs.
 4. Only a trusted backend may change status (`queued`, `running`, `succeeded`, `failed`), settings, errors, or completion time. Use your existing server authentication and a server-only Supabase secret/service-role key. Check ownership when accepting user-supplied generation IDs.
 5. Insert an `effect_versions` row with `project_id`, `generation_id`, `schema_version`, and `definition`. Definition must be a JSON object; its internal VFX schema is deliberately unspecified. Validate it in your generator/runtime. Save the result and successful status in one transaction where possible.

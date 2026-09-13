@@ -9,11 +9,11 @@
 - Supabase tables: `projects`, `assets`, `generations`, `generation_inputs`, and `effect_versions`, with per-user access rules. Migrations are applied to the hosted project.
 - Authenticated JSON downloads from `/api/effects/<version-id>`.
 
-The studio currently saves prompts as **drafts** and displays a **sample particle scene**. It does not call a generation model or render saved effect JSON yet.
+The studio now sends new chat messages to Eve and displays a **sample particle scene**. Existing saved drafts remain historical entries. It does not call a generation model or render saved effect JSON yet.
 
 ## What’s left for Eric
 
-1. **Connect generation.** After `savePrompt()` in `frontend/src/app/workspace/actions.ts` saves a draft, invoke your backend with its generation ID. Read the prompt and ordered `generation_inputs`; resolve the private reference images through `assets` and signed URLs.
+1. **Connect generation.** Add an explicit generation tool; the old prompt-saving action and RPC have been retired. Have that tool create a generation and its inputs transactionally, then invoke your backend with its generation ID. Read the prompt and ordered `generation_inputs`; resolve the private reference images through `assets` and signed URLs.
 2. **Define and validate the effect JSON.** The database accepts a JSON object without prescribing its internal VFX format. Your generator and renderer should agree on the schema and version.
 3. **Save results and status.** From trusted backend code, update the generation’s status and insert an `effect_versions` row containing `project_id`, `generation_id`, `schema_version`, and `definition`. Keep privileged Supabase keys server-side and verify project ownership.
 4. **Connect the preview.** Load the selected effect definition into your Three.js runtime through `frontend/src/components/particle-scene.tsx`. Wire result selection and progress updates into `frontend/src/components/studio.tsx`; results currently appear after a refresh.

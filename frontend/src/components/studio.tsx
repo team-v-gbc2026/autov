@@ -251,7 +251,7 @@ export default function Studio({
       </div>
       <div hidden={!right}>
         <ChatPanel
-          key={`${project.id}-${vfxDocument.name}`}
+          key={project.id}
           projectId={project.id}
           initialGenerations={initialGenerations}
           versions={versions}
@@ -264,6 +264,7 @@ export default function Studio({
           onCollapse={() => setRight(false)}
           vfx={{
             document: vfxDocument,
+            selectedEmitterId: selectedLayerId,
           }}
         />
       </div>
