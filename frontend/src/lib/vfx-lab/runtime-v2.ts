@@ -1324,7 +1324,7 @@ function isShellSurface(layer: LayerV2) {
  * runs ALONG the belt and uv.y ACROSS it, so a "surface" ramp colours the
  * section and the stripes run round it.
  */
-function bandGeometry(geometry: GeometryV2) {
+export function bandGeometry(geometry: GeometryV2) {
   const band = geometry.band!;
   const radius = geometry.radius;
   const dTheta = Math.min(Math.PI * 0.9, geometry.thickness / Math.max(radius, 1e-3));

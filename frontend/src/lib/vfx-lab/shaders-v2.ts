@@ -201,12 +201,15 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
       m+=exp(-g*g)*(1.-fi*.22);
     }
     // Detached arcs: a coarse angular comb just outside the rim, gated so only
-    // a few sectors are lit at a time.
+    // a few sectors are lit at a time. They ride on the WOBBLE: a rim with no
+    // wobble is a plain Gaussian ring (a shield's floor pool), and only a
+    // living, breathing rim throws arcs off itself.
     float sector=floor((ang+3.14159265)/6.2831853*9.+uProcParams.w*t*.5);
     float ga=(d-R*1.16)/(hw*1.4);
     float arc=step(.62,procHash21(vec2(sector,3.7)))
             *exp(-ga*ga)
-            *safePow(abs(sin(ang*9.+uProcParams.w*t*.5)),6.);
+            *safePow(abs(sin(ang*9.+uProcParams.w*t*.5)),6.)
+            *smoothstep(0.,.004,amp);
     return clamp(m+arc*.9,0.,2.);
   }
   if(mode==15){
@@ -1035,13 +1038,18 @@ void main(){
     // graze it at the silhouette, which is exactly the falloff a hot core with
     // a soft edge wants. Without it the tube reads as a flat blown-out slab.
     shape=safePow(abs(dot(vN,V)),.65);
-  } else if(uShell==1){
-    // The analytic body has no mask, but a procedural *pattern* still applies:
-    // its surface coordinate is (angle around the tube, distance along it).
-    // Modes below 4 are billboard silhouettes (a soft disc, a flame, a puff)
-    // and describe a sprite's outline, which a closed body already has.
+  } else if(uShell==1 || uHasLattice==1 || uBand==1){
+    // A closed body, a lattice shell and a belt all have a silhouette of their
+    // own, so a BILLBOARD silhouette (modes 0-3 and 12-16: a soft disc, a
+    // flame, a glint, a sigil) has nothing to describe — applied here it would
+    // cut the surface down to a disc in UV space, which on a sphere is a
+    // crescent and on a strip is a blob halfway along it. Only the surface
+    // patterns (4-11) apply, on (angle, distance along) for the shell and on
+    // the mesh's own UV for the other two.
     if(uProcedural>=4 && uProcedural<12)
-      shape=proceduralShape(vec2(vRing,vAlong)-.5,vec2(vRing,vAlong),n,uTime,fres,uMaskScale,dims,uProcedural);
+      shape=uShell==1
+        ? proceduralShape(vec2(vRing,vAlong)-.5,vec2(vRing,vAlong),n,uTime,fres,uMaskScale,dims,uProcedural)
+        : proceduralShape(vUv-.5,vUv,n,uTime,fres,uMaskScale,dims,uProcedural);
   } else {
     // noise.distortionPan scrolls the field that drives the distortion.
     float nd=n;

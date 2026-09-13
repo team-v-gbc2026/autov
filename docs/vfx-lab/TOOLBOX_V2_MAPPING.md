@@ -240,6 +240,20 @@ renderer, because it is the one piece a document must never carry.
 
 Numbers live in `fixtures/v2/shield/document.json`.
 
+### Two renderer corrections the shield forced
+
+`material.procedural:"none"` is the soft-disc SPRITE silhouette, and the §6 note already said a
+real surface needs `"solid"`. A lattice shell and a band belt made that trap sharper still: cutting
+a disc out of UV space turns a sphere into a CRESCENT and a belt into a bar floating off it, which
+is exactly what the first shield exemplar drew. Both kinds now ignore every billboard pattern
+outright — like the analytic shell, they only take the surface patterns (4-11), because they
+already carry a silhouette of their own. The exemplar still says `"solid"`, because that is what
+the field means.
+
+`swirlRing`'s detached arcs are now gated on its own wobble amplitude (`proceduralParams[2]`). A
+rim with no wobble is a plain Gaussian ring, which is what a shield's floor pool is; the heal
+exemplar's rim wobbles (0.011) and keeps its arcs unchanged.
+
 ### What did NOT get promoted
 
 The spike's `marker`, its hand-drawn floor grid and service lines, the `bandPivot` spin freeze

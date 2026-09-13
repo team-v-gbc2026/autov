@@ -27,7 +27,7 @@
   "fov": 30,
   "azimuth": 0.0,
   "elevation": 0.451,
-  "framing": 0.95,
+  "framing": 0.78,
   "shake": null,
   "pushIn": {
    "from": 1.06,
@@ -95,18 +95,18 @@
       ],
       [
        0.45,
-       0.5
+       0.62
       ],
       [
-       3.0,
-       0.5
+       3.2,
+       0.62
       ],
       [
-       3.8,
-       0.22
+       4.0,
+       0.3
       ],
       [
-       4.4,
+       4.35,
        0
       ]
      ],
@@ -122,17 +122,17 @@
       {
        "t": 0,
        "color": "#ffd577",
-       "intensity": 0.52
+       "intensity": 0.62
       },
       {
        "t": 0.55,
        "color": "#ffb13a",
-       "intensity": 0.4
+       "intensity": 0.46
       },
       {
        "t": 1,
        "color": "#a9812d",
-       "intensity": 0.16
+       "intensity": 0.18
       }
      ],
      "displacementShift": 0.0,
@@ -161,7 +161,131 @@
     "procedural": "swirlRing",
     "proceduralParams": [
      0.5,
-     0.19,
+     0.18,
+     0.0,
+     0.0
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null
+   },
+   "geometry": {
+    "type": "plane",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 2.8,
+    "length": 5.6,
+    "thickness": 0.08,
+    "taper": 1.0,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null
+   }
+  },
+  {
+   "id": "base-ring-core",
+   "name": "Gold ring core",
+   "role": "secondary",
+   "kind": "decal",
+   "start": 0.5,
+   "end": 4.9,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     0.014,
+     0
+    ],
+    "rotation": [
+     -1.5707963267948966,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.45,
+       0.5
+      ],
+      [
+       3.2,
+       0.5
+      ],
+      [
+       4.0,
+       0.24
+      ],
+      [
+       4.35,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": [],
+   "material": {
+    "blend": "additive",
+    "ramp": {
+     "space": "surface",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#ffe6b0",
+       "intensity": 0.75
+      },
+      {
+       "t": 1,
+       "color": "#ffb13a",
+       "intensity": 0.4
+      }
+     ],
+     "displacementShift": 0.0,
+     "heightSpan": 2.0
+    },
+    "opacity": 1.0,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0.0,
+    "fresnel": null,
+    "procedural": "swirlRing",
+    "proceduralParams": [
+     0.5,
+     0.057,
      0.0,
      0.0
     ],
@@ -224,18 +348,18 @@
       ],
       [
        0.35,
-       0.22
+       0.16
       ],
       [
        3.45,
-       0.2
+       0.14
       ],
       [
-       4.3,
-       0.07
+       4.2,
+       0.05
       ],
       [
-       4.9,
+       4.7,
        0
       ]
      ],
@@ -670,11 +794,11 @@
        1.0
       ],
       [
-       3.8,
-       0.45
+       3.7,
+       0.6
       ],
       [
-       4.3,
+       4.2,
        0
       ]
      ],
@@ -690,27 +814,27 @@
       {
        "t": 0,
        "color": "#a9812d",
-       "intensity": 0.45
+       "intensity": 0.3
       },
       {
        "t": 0.16,
        "color": "#ffdc8f",
-       "intensity": 1.35
+       "intensity": 1.0
       },
       {
        "t": 0.5,
        "color": "#ffe8a8",
-       "intensity": 1.5
+       "intensity": 1.22
       },
       {
        "t": 0.84,
        "color": "#ffdc8f",
-       "intensity": 1.35
+       "intensity": 1.0
       },
       {
        "t": 1,
        "color": "#a9812d",
-       "intensity": 0.45
+       "intensity": 0.3
       }
      ],
      "displacementShift": 0.0,
@@ -736,7 +860,7 @@
     "erosion": null,
     "softParticle": 0.0,
     "fresnel": null,
-    "procedural": "none",
+    "procedural": "solid",
     "proceduralParams": [
      0,
      0,
@@ -867,15 +991,15 @@
        1.0
       ],
       [
-       3.5,
+       4.3,
        1.0
       ],
       [
-       4.35,
-       0.55
+       4.6,
+       0.5
       ],
       [
-       4.9,
+       4.85,
        0
       ]
      ],
@@ -930,7 +1054,7 @@
      "power": 8,
      "strength": 1.45
     },
-    "procedural": "none",
+    "procedural": "solid",
     "proceduralParams": [
      0,
      0,
@@ -959,8 +1083,8 @@
      },
      "dissolve": {
       "start": 0.7,
-      "stagger": 0.19,
-      "softness": 0.05
+      "stagger": 0.24,
+      "softness": 0.07
      },
      "grazeFade": 0.3
     },
@@ -968,7 +1092,7 @@
      "plane": "ground",
      "distance": 0.42,
      "color": "#9dfaef",
-     "intensity": 0.55
+     "intensity": 0.3
     },
     "ripples": [
      {
@@ -1091,18 +1215,18 @@
       ],
       [
        0.45,
-       0.22
+       0.16
       ],
       [
        3.0,
-       0.22
+       0.16
       ],
       [
-       3.8,
-       0.1
+       3.9,
+       0.08
       ],
       [
-       4.3,
+       4.35,
        0
       ]
      ],
@@ -1123,7 +1247,7 @@
       {
        "t": 0.5,
        "color": "#ffd577",
-       "intensity": 0.75
+       "intensity": 0.5
       },
       {
        "t": 1,
@@ -1154,7 +1278,7 @@
     "erosion": null,
     "softParticle": 0.0,
     "fresnel": null,
-    "procedural": "none",
+    "procedural": "solid",
     "proceduralParams": [
      0,
      0,
@@ -1176,7 +1300,7 @@
     "radialSegments": 6,
     "radius": 1.236,
     "length": 2.4,
-    "thickness": 0.56,
+    "thickness": 0.44800000000000006,
     "taper": 1.0,
     "vertexNoise": null,
     "lightning": null,

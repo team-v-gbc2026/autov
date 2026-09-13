@@ -333,7 +333,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     use: "The base of an aura, heal or buff effect: a flat ring on the ground with a softly filled interior, popping in early.",
     construction: [
       'Two flat kind:"decal" cards on the ground (rotation [-1.5708,0,0]), one over the other.',
-      'The rim card uses material.procedural "swirlRing": three offset thin strands with a harmonic wobble, rotating, plus short detached arcs outside the rim. proceduralParams = [rim radius as a fraction of the card half-size, strand half-width, wobble amplitude, rotation rate rad/s].',
+      'The rim card uses material.procedural "swirlRing": three offset thin strands with a harmonic wobble, rotating, plus short detached arcs outside the rim (the arcs ride on the wobble, so a wobble of 0 is a plain soft ring). proceduralParams = [rim radius as a fraction of the card half-size, strand half-width, wobble amplitude, rotation rate rad/s].',
       'The fill card under it uses material.procedural "ringFill": proceduralParams = [fill radius, pulse rate rad/s, noise amount, edge softness].',
       "Snap the rim out from ~72% to full over the first half second with a track on material.proceduralParams[0], not on transform.scale.",
       "Keep both flat and thin so they read as ground contact, not a dome.",

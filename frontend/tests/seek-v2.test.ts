@@ -27,6 +27,7 @@ import {
   crystalSpawnSites,
 } from "../src/lib/vfx-lab/crystals-v2";
 import { latticeSites } from "../src/lib/vfx-lab/lattice-v2";
+import { bandGeometry } from "../src/lib/vfx-lab/runtime-v2";
 import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
 import { defaultGeometry, type GeometryV2 } from "../src/lib/vfx-lab/schema-v2";
 
@@ -531,4 +532,39 @@ test("the relaxed lattice is deterministic and cached by (cells, seed)", () => {
   }
   const other = latticeSites(spec.cells, shieldDoc.seed + 1);
   assert.notDeepEqual(Array.from(other.data), Array.from(first.data));
+});
+
+test("a band belt is a strip ON the sphere, not a chord across it", () => {
+  const doc = createPresetV2("shield");
+  const belt = doc.layers.find((l) => l.geometry?.type === "band")!;
+  const geometry = bandGeometry(belt.geometry!);
+  const position = geometry.getAttribute("position");
+  const radius = belt.geometry!.radius;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < position.count; i++) {
+    const r = Math.hypot(position.getX(i), position.getY(i), position.getZ(i));
+    lo = Math.min(lo, r);
+    hi = Math.max(hi, r);
+  }
+  // Every vertex sits on the sphere of geometry.radius, centred on the layer
+  // origin: a belt wraps the body it belongs to and can never cut through it.
+  assert.ok(
+    Math.abs(lo - radius) < 1e-4 && Math.abs(hi - radius) < 1e-4,
+    `band vertices span radius ${lo}..${hi}, expected ${radius}`,
+  );
+  // The strip's angular width is geometry.thickness metres of arc, which is
+  // what the tilt then leans over.
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox!;
+  const height = box.max.y - box.min.y;
+  const tilt = Math.abs(belt.geometry!.band!.tilt);
+  const expected =
+    2 * radius * Math.sin(tilt) +
+    belt.geometry!.thickness * Math.cos(tilt);
+  assert.ok(
+    Math.abs(height - expected) < radius * 0.08,
+    `tilted belt spans ${height} in y, expected about ${expected}`,
+  );
+  geometry.dispose();
 });
