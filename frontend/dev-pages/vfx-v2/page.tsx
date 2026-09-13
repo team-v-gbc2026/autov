@@ -2,7 +2,21 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type * as THREE from "three";
 import { VfxRuntime } from "@/lib/vfx-lab/runtime";
+import {
+  BackdropController,
+  DEFAULT_BACKDROP_SETTINGS,
+  type BackdropSnapshot,
+} from "@/lib/vfx-lab/backdrop-controller";
+import {
+  loadBackdropSettings,
+  saveBackdropSettings,
+} from "@/lib/vfx-lab/backdrop-settings";
+import {
+  BackdropPanel,
+  type BackdropPreset,
+} from "@/components/vfx-lab/backdrop-panel";
 import { validateDocument } from "@/lib/vfx-lab/schema";
 
 // --- Contract this page codes against -------------------------------------
@@ -54,11 +68,20 @@ const FLAG_KEYS: (keyof FeatureFlags)[] = [
   "softParticles",
 ];
 
+const BACKDROP_PRESETS: BackdropPreset[] = [
+  { label: "terrain diorama (.ply)", url: "/backdrops/terrain.ply" },
+  { label: "figure (.ply)", url: "/backdrops/figure.ply" },
+];
+
 const DEFAULT_FLAGS: FeatureFlags = Object.fromEntries(
   FLAG_KEYS.map((key) => [key, true]),
 ) as FeatureFlags;
 
 interface VfxRuntimeV2Instance {
+  // The backdrop controller is handed these; it adds its own objects and
+  // removes exactly those again. Nothing here mutates runtime behaviour.
+  readonly scene: THREE.Scene;
+  readonly renderer: THREE.WebGLRenderer;
   setDocument(doc: unknown): void;
   render(time: number): void;
   resize(): void;
@@ -179,6 +202,17 @@ export default function VfxV2DevGalleryPage() {
   const [capturing, setCapturing] = useState(false);
 
   const v2HostRef = useRef<HTMLDivElement | null>(null);
+  const backdropRef = useRef<BackdropController | null>(null);
+  // Mirrored into state so the panel re-renders when the controller appears;
+  // the ref is what cleanup uses, since it must not depend on a render.
+  const [backdropCtl, setBackdropCtl] = useState<BackdropController | null>(null);
+  const timeRef = useRef(0);
+  const [backdrop, setBackdrop] = useState<BackdropSnapshot>({
+    state: "empty",
+    settings: { ...DEFAULT_BACKDROP_SETTINGS },
+    error: null,
+    numSplats: null,
+  });
   const v1HostRef = useRef<HTMLDivElement | null>(null);
   const v2RuntimeRef = useRef<VfxRuntimeV2Instance | null>(null);
   const v1RuntimeRef = useRef<VfxRuntime | null>(null);
@@ -286,12 +320,46 @@ export default function VfxV2DevGalleryPage() {
     try {
       runtime = new runtimeV2Mod.value(host);
       v2RuntimeRef.current = runtime;
+
+      // Viewer-owned backdrop: created after the runtime exists, handed the
+      // runtime's own scene/renderer, and disposed below before the runtime
+      // tears the renderer down.
+      const created = runtime;
+      const controller = new BackdropController({
+        scene: created.scene,
+        renderer: created.renderer,
+        requestRender: () => created.render(timeRef.current),
+        onChange: (snap) => {
+          setBackdrop(snap);
+          saveBackdropSettings(snap.settings);
+        },
+      });
+      backdropRef.current = controller;
+      setBackdropCtl(controller);
+      // Handle for scripts/verify-backdrop.mjs. This page lives under /dev and
+      // is stripped from production builds (scripts/dev-pages.mjs verify).
+      (window as unknown as Record<string, unknown>).__vfxV2 = {
+        runtime: created,
+        backdrop: controller,
+      };
+      const saved = loadBackdropSettings();
+      setBackdrop(controller.snapshot);
+      void controller.applySettings(saved).catch(() => {
+        /* a stale saved URL just leaves the backdrop empty */
+      });
+
       runtime.setFeatureFlags(flags);
       setV2Error(null);
     } catch (err) {
       setV2Error(`VfxRuntimeV2 failed to construct: ${String(err)}`);
     }
     return () => {
+      // Order matters: the runtime's dispose() ends with renderer.dispose(),
+      // which would strand the backdrop's GPU resources.
+      backdropRef.current?.dispose();
+      backdropRef.current = null;
+      setBackdropCtl(null);
+      delete (window as unknown as Record<string, unknown>).__vfxV2;
       runtime?.dispose();
       v2RuntimeRef.current = null;
     };
@@ -346,12 +414,14 @@ export default function VfxV2DevGalleryPage() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Feature flags -> v2 runtime.
+
   useEffect(() => {
     v2RuntimeRef.current?.setFeatureFlags(flags);
   }, [flags]);
 
   // Drive both viewports off one shared clock.
   useEffect(() => {
+    timeRef.current = time;
     v2RuntimeRef.current?.render(time);
     v1RuntimeRef.current?.render(time);
   }, [time]);
@@ -553,6 +623,16 @@ export default function VfxV2DevGalleryPage() {
               ))}
             </div>
           </div>
+
+
+          <BackdropPanel
+            controller={backdropCtl}
+            snapshot={backdrop}
+            presets={BACKDROP_PRESETS}
+            panelStyle={panelStyle}
+            labelStyle={labelStyle}
+            buttonStyle={buttonStyle}
+          />
 
           <div style={panelStyle}>
             <span style={labelStyle}>Camera</span>

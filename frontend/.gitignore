@@ -52,3 +52,11 @@ public/vfx-runtime-v2.js.LICENSE.txt
 # dev-only routes, linked in from dev-pages/ for local dev only —
 # never present in a production build
 /src/app/(dev)/
+
+# Splat backdrop assets — large binaries (tens of MB each), kept local.
+# The viewer's Backdrop panel also accepts a URL or a local file, so nothing
+# here is required to use the feature.
+/public/backdrops/*.ply
+/public/backdrops/*.spz
+/public/backdrops/*.ksplat
+/public/backdrops/*.splat
