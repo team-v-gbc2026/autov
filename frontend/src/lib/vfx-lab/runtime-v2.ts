@@ -1443,6 +1443,9 @@ export class VfxRuntimeV2 {
     // frame, but a particle layer claims the box around its dense core.
     const box = new THREE.Box3();
     for (const object of this.objects) {
+      // A light's radius is reach, not visual extent: framing on it pushes the
+      // camera back until the lit effect fills a corner of the shot.
+      if (object.source.kind === "light") continue;
       const axes: number[][] = [[], [], []];
       const push = (p: THREE.Vector3) => {
         axes[0].push(p.dot(right));

@@ -121,6 +121,12 @@ export const ROLES_V2 = [
 export const PARTICLE_BUDGET_V2 = 60000;
 /** Minimum life max/min ratio before `lintDocumentV2` warns about uniform lifetimes. */
 export const LIFE_VARIANCE_MIN = 1.35;
+/** Below this a particles layer reads as a handful of dots rather than a volume. */
+export const PARTICLE_COUNT_MIN = 30;
+/** Darkest ground that still catches light from the effect (max sRGB channel). */
+export const GROUND_CHANNEL_MIN = 0x3a;
+/** A hero silhouette smaller than this disappears inside the framed shot. */
+export const EFFECT_EXTENT_MIN = 1.5;
 
 // --- curves and ramps ------------------------------------------------------
 
@@ -917,9 +923,116 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
   for (const asset of doc.textures || [])
     if (!referenced.has(asset.id))
       warnings.push(`Texture ${asset.id} is embedded but never referenced.`);
-  if (!doc.layers.some((l) => l.enabled && l.kind !== "light"))
-    warnings.push("No drawable layer is enabled.");
+  const drawable = doc.layers.filter((l) => l.enabled && l.kind !== "light");
+  if (!drawable.length) warnings.push("No drawable layer is enabled.");
+
+  // --- scale warnings ------------------------------------------------------
+  // Nothing here is fatal: they describe a document that validates but renders
+  // as a small, flat, unlit event inside the framed shot.
+  for (const layer of doc.layers)
+    if (
+      layer.enabled &&
+      layer.emitter &&
+      layer.emitter.count < PARTICLE_COUNT_MIN
+    )
+      warnings.push(
+        `${layer.id}: particle count ${layer.emitter.count} is below ${PARTICLE_COUNT_MIN}; the layer reads as a few dots instead of a volume.`,
+      );
+  // A single-layer document is a building block, not a composition, so only a
+  // composed effect is expected to light its surroundings.
+  if (
+    drawable.length > 1 &&
+    !doc.layers.some((l) => l.enabled && l.kind === "light")
+  )
+    warnings.push(
+      "No light layer: nothing lights the ground, so the contact reads as a decal on black.",
+    );
+  if (doc.environment.ground !== "none") {
+    const channels = [1, 3, 5].map((i) =>
+      parseInt(doc.environment.groundColor.slice(i, i + 2), 16),
+    );
+    if (Math.max(...channels) < GROUND_CHANNEL_MIN)
+      warnings.push(
+        `Ground color ${doc.environment.groundColor} is near-black; it will not read as a lit surface.`,
+      );
+  }
+  const extent = effectExtentV2(doc);
+  if (extent < EFFECT_EXTENT_MIN)
+    warnings.push(
+      `Effect extent is about ${extent.toFixed(2)} units; a hero silhouette spans 2.5-4 units.`,
+    );
+  // The opposite failure: a tiny hero adrift in a large bounding volume. The
+  // camera frames the whole animation, so the subject ends up filling a corner.
+  const hero = Math.max(
+    0,
+    ...doc.layers
+      .filter(
+        (l) =>
+          l.enabled &&
+          (l.role === "primary" || l.role === "impact") &&
+          l.geometry,
+      )
+      .map((l) => Math.max(l.geometry!.radius * 2, l.geometry!.length)),
+  );
+  // Measured without particle reach: a wide spark spray is a deliberate choice,
+  // a hero mesh parked far from everything else is not.
+  const staticExtent = effectExtentV2(doc, false);
+  if (
+    hero > 0 &&
+    staticExtent > EFFECT_EXTENT_MIN &&
+    hero < staticExtent * 0.35
+  )
+    warnings.push(
+      `Largest primary mesh spans about ${hero.toFixed(2)} units inside a ${staticExtent.toFixed(2)}-unit shot; the camera will frame mostly empty space.`,
+    );
   return warnings;
+}
+
+/**
+ * Rough world-space extent of the drawable layers, in meters: the larger of the
+ * biggest single layer and the spread between layer origins. It is a lint
+ * heuristic, not the renderer's framing computation.
+ */
+export function effectExtentV2(
+  doc: VfxDocumentV2,
+  includeParticles = true,
+): number {
+  let size = 0;
+  const origins: number[][] = [];
+  for (const layer of doc.layers) {
+    if (!layer.enabled || layer.kind === "light") continue;
+    origins.push(layer.transform.position);
+    if (layer.geometry) {
+      const tracked = (target: string, fallback: number) => {
+        const track = layer.tracks.find((t) => t.target === target);
+        return track ? Math.max(...track.keys.map((k) => k[1])) : fallback;
+      };
+      size = Math.max(
+        size,
+        tracked("geometry.radius", layer.geometry.radius) * 2,
+        tracked("geometry.length", layer.geometry.length),
+      );
+    }
+    if (layer.emitter && includeParticles) {
+      const shape = layer.emitter.shape;
+      const reach =
+        Math.max(0, layer.emitter.velocity.speed[1]) * layer.emitter.life[1];
+      size = Math.max(
+        size,
+        shape.radius * 2,
+        shape.length,
+        reach + layer.emitter.render.size[1],
+      );
+    }
+  }
+  let spread = 0;
+  for (const a of origins)
+    for (const b of origins)
+      spread = Math.max(
+        spread,
+        Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]),
+      );
+  return Math.max(size, spread);
 }
 
 // ---------------------------------------------------------------------------

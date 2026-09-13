@@ -104,6 +104,10 @@ export async function generatePipeline(
     signal.throwIfAborted();
     const r = await request(body, signal);
     if (r.usage) usages.push(r.usage as Usage);
+    // Model latency is the scarce resource in a v2 benchmark run; surface it
+    // per call so the log shows where a schedule went.
+    if (schema === "v2" && typeof r.elapsedSeconds === "number")
+      step(`${String(body.action)} call took ${r.elapsedSeconds} s.`);
     if (r.repairedUsage) {
       usages.push(r.repairedUsage as Usage);
       trace.push(

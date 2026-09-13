@@ -5,6 +5,7 @@ import { generatePipeline, type Transport } from "../src/lib/vfx-lab/pipeline";
 import { createPreset } from "../src/lib/vfx-lab/recipes";
 import {
   createPresetV2,
+  exampleScaleSummary,
   RECIPE_V2_IDS,
   recipeV2For,
 } from "../src/lib/vfx-lab/recipes-v2";
@@ -13,6 +14,7 @@ import {
   applyStructuralRefinementV2,
 } from "../src/lib/vfx-lab/refine";
 import {
+  effectExtentV2,
   isV2,
   lintDocumentV2,
   validateDocumentV2,
@@ -307,4 +309,47 @@ test("structural repair is bounded by the baseline document", () => {
     () => applyStructuralRefinementV2(doc, wire(brighter)),
     /only lower bloom/,
   );
+});
+
+test("lint reports the scale failures seen in the first live run", () => {
+  const doc = fixture();
+  const sparks = doc.layers.find((l) => l.id === "sparks")!;
+  sparks.emitter!.count = 12;
+  doc.environment.groundColor = "#211d27";
+  doc.layers = doc.layers.filter((l) => l.kind !== "light");
+  const warnings = lintDocumentV2(doc);
+  assert.ok(warnings.some((w) => w.includes("particle count 12 is below 30")));
+  assert.ok(warnings.some((w) => w.includes("near-black")));
+  assert.ok(warnings.some((w) => w.includes("No light layer")));
+  // Still a valid document: scale problems are warnings, never rejections.
+  assert.doesNotThrow(() => validateDocumentV2(doc));
+});
+
+test("lint reports a hero adrift in an oversized shot, and a tiny effect", () => {
+  const doc = fixture();
+  const shell = doc.layers.find((l) => l.id === "flame-shell")!;
+  shell.geometry!.length = 0.5;
+  shell.geometry!.radius = 0.1;
+  shell.transform.position = [0, 5.4, 0];
+  assert.ok(
+    lintDocumentV2(doc).some((w) => w.includes("frame mostly empty space")),
+  );
+
+  const small = fixture();
+  small.layers = small.layers.filter((l) => l.id === "flame-shell");
+  small.layers[0].geometry!.length = 0.4;
+  small.layers[0].geometry!.radius = 0.1;
+  assert.ok(effectExtentV2(small) < 1.5);
+  assert.ok(
+    lintDocumentV2(small).some((w) => w.includes("Effect extent is about")),
+  );
+});
+
+test("the planner scale summary carries the exemplar magnitudes", () => {
+  const summary = exampleScaleSummary("fire-projectile");
+  assert.equal(summary.family, "fire-projectile");
+  assert.ok(summary.heroExtentUnits >= 2.5);
+  assert.ok(Math.min(...summary.particleCounts) >= 30);
+  assert.ok(Math.max(...summary.lightIntensityPeak) >= 8);
+  assert.ok(Math.max(...summary.lightRadius) >= 6);
 });

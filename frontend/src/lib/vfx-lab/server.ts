@@ -52,7 +52,10 @@ export async function callModel<T extends z.ZodType>(
   signal: AbortSignal,
   maxOutput = 6000,
   effort: "low" | "medium" | "high" = "medium",
-): Promise<{ value: z.infer<T>; usage: Usage }> {
+  // A large structured document at high effort can outlast the default client
+  // timeout; callers that ask for one raise this deliberately.
+  timeoutMs = 240000,
+): Promise<{ value: z.infer<T>; usage: Usage; elapsedSeconds: number }> {
   const apiKey = await getKey();
   if (!apiKey)
     throw new Error(
@@ -72,7 +75,8 @@ export async function callModel<T extends z.ZodType>(
     throw new Error("Input is too large for the local budget guard.");
   const reservation = await reserve(inputBound, maxOutput);
   // On timeout, disconnection or failed parsing, retain the reservation: a remote call may still be billable.
-  const client = new OpenAI({ apiKey, timeout: 240000, maxRetries: 0 });
+  const client = new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 0 });
+  const startedAt = Date.now();
   const response = await client.responses.create(
     {
       model,
@@ -117,7 +121,11 @@ export async function callModel<T extends z.ZodType>(
     throw new Error(
       "OpenAI returned no effect data. Previous effect preserved.",
     );
-  return { value: schema.parse(JSON.parse(response.output_text)), usage };
+  return {
+    value: schema.parse(JSON.parse(response.output_text)),
+    usage,
+    elapsedSeconds: Math.round((Date.now() - startedAt) / 100) / 10,
+  };
 }
 export type Run = {
   structuralAttempted?: boolean;

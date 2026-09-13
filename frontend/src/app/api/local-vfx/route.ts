@@ -32,6 +32,7 @@ import {
 import { createPreset, RECIPES, type RecipeId } from "@/lib/vfx-lab/recipes";
 import {
   createPresetV2,
+  exampleScaleSummary,
   RECIPES_V2,
   recipeV2For,
 } from "@/lib/vfx-lab/recipes-v2";
@@ -41,6 +42,7 @@ import {
   fromWireV2,
   lintDocumentV2,
   validateDocumentV2,
+  type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
 import {
   describeLayersV2,
@@ -61,6 +63,8 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 300;
 let busy = false;
+/** Client timeout for the two calls that emit a whole v2 document. */
+const V2_DOCUMENT_TIMEOUT_MS = 600000;
 // A run is generated against exactly one contract. The client may ask for it;
 // otherwise AUTOV_SCHEMA decides, and the plan response reports what was used.
 const envSchema = () => (process.env.AUTOV_SCHEMA === "v2" ? "v2" : "v1");
@@ -233,6 +237,9 @@ export async function POST(request: Request) {
                   prompt: RECIPES[id].prompt,
                   family: recipeV2For(id),
                   knowledge: RECIPES_V2[recipeV2For(id)].knowledge,
+                  // The planner never sees the example document itself, so it
+                  // gets the scale it has to plan for.
+                  scale: exampleScaleSummary(recipeV2For(id)),
                 },
               ]),
             )
@@ -285,6 +292,7 @@ export async function POST(request: Request) {
         runId: run.id,
         plan: run.plan,
         schema,
+        elapsedSeconds: result.elapsedSeconds,
         usage: result.usage,
         budget: await budgetStatus(),
       });
@@ -339,7 +347,7 @@ export async function POST(request: Request) {
       const family = recipeV2For(run.plan.recipe);
       const result = await callModel(
         DocumentV2WireSchema,
-        `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete autov.lab/2 document. The example is a construction guide, not a mandatory output: reuse its structure, never its exact numbers. Give this candidate a distinctive structure: ${directions[body.index]}`,
+        `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete autov.lab/2 document. The example is the scale reference: match its particle counts, sizes, light intensity and silhouette extent, and change the shapes, colors and timing to fit the plan. Give this candidate a distinctive structure: ${directions[body.index]}`,
         JSON.stringify({
           prompt: run.prompt,
           plan: run.plan,
@@ -350,43 +358,62 @@ export async function POST(request: Request) {
         run.references,
         request.signal,
         24000,
-        "high",
+        // A full v2 document is long; medium effort keeps a multi-case run
+        // inside its schedule, and the client waits ten minutes for it.
+        "medium",
+        V2_DOCUMENT_TIMEOUT_MS,
       );
       run.usages.push(result.usage);
-      let doc;
+      let doc: VfxDocumentV2 | undefined;
       let repairedUsage;
+      // One repair round covers both kinds of defect: contract errors the wire
+      // schema cannot express (unit vectors, ascending curves, kind slots) and
+      // the lint's scale warnings, which are what make a valid document render
+      // as a small unlit event. Fixing them before the render saves a capture.
+      let problems: string[] = [];
       try {
         doc = fromWireV2(result.value, run.assets || []);
+        problems = lintDocumentV2(doc);
       } catch (validationError) {
-        // Same one-shot mechanical repair as v1: semantic rules the wire schema
-        // cannot express (unit vectors, ascending curves, kind-dependent slots)
-        // are worth one correction rather than a discarded candidate.
-        if (run.calls >= 9 || run.repaired) {
-          await saveRun(run);
-          throw validationError;
-        }
+        problems = [
+          validationError instanceof Error
+            ? validationError.message
+            : "Invalid document",
+        ];
+      }
+      if (problems.length && run.calls < 9 && !run.repaired) {
         run.calls++;
         run.repaired = true;
         await saveRun(run);
         const repair = await callModel(
           DocumentV2WireSchema,
-          `${TECHNICAL_GUIDE_V2}\nRepair only mechanical contract errors in this candidate. Keep the intended composition, timing and motion. Remove placeholder layers with zero-length intervals.`,
+          `${TECHNICAL_GUIDE_V2}\nRepair the listed problems in this candidate and return the complete document. Keep the intended composition, timing and motion; remove placeholder layers with zero-length intervals. Scale problems are corrected by matching the reference example's particle counts, sizes, light intensity and silhouette extent, not by moving the camera.`,
           JSON.stringify({
-            error:
-              validationError instanceof Error
-                ? validationError.message
-                : "Invalid document",
-            candidate: result.value,
+            problems,
+            candidate: doc ?? result.value,
+            reference: createPresetV2(family),
             prompt: run.prompt,
             plan: run.plan,
           }),
           [],
           request.signal,
           24000,
+          "medium",
+          V2_DOCUMENT_TIMEOUT_MS,
         );
         run.usages.push(repair.usage);
         repairedUsage = repair.usage;
-        doc = fromWireV2(repair.value, run.assets || []);
+        try {
+          const repaired = fromWireV2(repair.value, run.assets || []);
+          // Never trade a valid candidate for one the repair made worse.
+          if (!doc || lintDocumentV2(repaired).length <= problems.length)
+            doc = repaired;
+        } catch (repairError) {
+          if (!doc) throw repairError;
+        }
+      } else if (!doc) {
+        await saveRun(run);
+        throw new Error(problems[0]);
       }
       const warnings = lintDocumentV2(doc);
       run.documents.push(doc);
@@ -395,6 +422,7 @@ export async function POST(request: Request) {
         document: doc,
         warnings,
         repairedUsage,
+        elapsedSeconds: result.elapsedSeconds,
         usage: result.usage,
         budget: await budgetStatus(),
       });
@@ -519,6 +547,7 @@ export async function POST(request: Request) {
           document: next,
           warnings: lintDocumentV2(next),
           explanation: result.value.explanation,
+          elapsedSeconds: result.elapsedSeconds,
           usage: result.usage,
           budget: await budgetStatus(),
         });
@@ -542,6 +571,7 @@ export async function POST(request: Request) {
         await saveRun(run);
         return json({
           review: validateReviewCriteria(result.value, run.plan.criteria),
+          elapsedSeconds: result.elapsedSeconds,
           usage: result.usage,
           budget: await budgetStatus(),
         });
@@ -570,6 +600,7 @@ export async function POST(request: Request) {
         document: next,
         warnings: lintDocumentV2(next),
         changes: result.value.changes,
+        elapsedSeconds: result.elapsedSeconds,
         usage: result.usage,
         budget: await budgetStatus(),
       });

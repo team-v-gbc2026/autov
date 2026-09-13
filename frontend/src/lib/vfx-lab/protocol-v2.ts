@@ -48,6 +48,17 @@ Rules, all mandatory unless stated:
 - Ramp stop colors never use 0% or 100% value or saturation, except for a flash core.
 - Choose one dominant hue and one accent; never split the frame 50/50 between two hues.
 - A hit effect's total duration is 0.6-1.5 s. Sustained effects (beams, shields, portals) may run longer.
+- camera.framing 0.6-0.9 is normal for a full-frame effect; framing never rescues an effect built too small. Fix the geometry, not the camera.
+Scale anchors — 1 unit = 1 meter. These are measured from the accepted exemplar, and an effect built below them renders as a speck in an empty frame:
+- The hero silhouette spans 2.5-4 units and fills 45-70% of the frame. Every layer sits inside that volume: never park a layer several units away from the rest, because the camera frames the whole animation and a distant layer shrinks everything else.
+- Particle counts by role: main volume 120-400, sparks and embers 80-200, smoke 100-300, residue and wisps 40-120, debris 30-80. No visible particles layer ever goes below 30; a count under 30 is a handful of dots, not a volume. Single sprites are the only exception.
+- Particle sizes: fire and smoke 0.15-0.9 (largest pieces up to 1.3 for a hero plume), sparks and embers 0.05-0.16.
+- Light layers: intensity peak 8-30, radius 6-16, so the ground reads warm under the effect. A radius of 2 lights nothing.
+- environment.groundColor is #3a3a44 or brighter (never near-black): a dark ground swallows the light and the contact.
+- Lightning: total length 4-8 units, measured from strike height down to the ground contact, with transform.position.y = length/2 so the bolt ends on the ground. Core thickness 0.03-0.06 with a glow sheath 0.12-0.25, jitter 0.3-0.6, branches 2-4 on the sheath only.
+- Beams: length 4-8 units, width 0.3-0.8.
+- Rings and shockwaves expand to 1.5-2.5 units; decals and scorches span 1.5-2.5 units across.
+The family example document supplied with this request is the SCALE REFERENCE, not only a structure guide: match its particle counts, sizes, intensities, light radius and silhouette extent unless the prompt explicitly asks for something small, distant or miniature. When in doubt, copy its magnitudes and change the shapes and colors.
 Textures: reference library assets by ID only. Never inline image data, file paths or URLs, and never invent an ID that is not in the manifest. Mask textures are grayscale silhouettes; the ramp supplies the color.
 Never output placeholder, disabled or zero-energy layers. Keep the layer count purposeful — usually 6-9 layers, never padding.`;
 

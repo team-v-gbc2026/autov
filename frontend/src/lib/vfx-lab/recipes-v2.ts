@@ -1749,7 +1749,13 @@ function meteorRain(): VfxDocumentV2 {
       impact: 0.9,
       background: "#150f10",
       // The landing punches the camera: trauma decays about 1.5/s from impact.
-      shake: { amplitude: 0.16, frequency: 22, start: 0.9, end: 1.7, fade: 0.5 },
+      shake: {
+        amplitude: 0.16,
+        frequency: 22,
+        start: 0.9,
+        end: 1.7,
+        fade: 0.5,
+      },
       motionBlur: 0.35,
     },
     [
@@ -2469,6 +2475,41 @@ const EXAMPLES: Record<RecipeV2Id, () => VfxDocumentV2> = {
 /** The example document for a family. Always a fresh, validated copy. */
 export function createPresetV2(id: RecipeV2Id): VfxDocumentV2 {
   return EXAMPLES[id]();
+}
+
+/**
+ * A compact scale reference for the planner, which never sees the full example
+ * document: the numbers a director has to commit to before parameters exist.
+ */
+export function exampleScaleSummary(id: RecipeV2Id) {
+  const doc = createPresetV2(id);
+  const meshes = doc.layers.filter((l) => l.geometry);
+  const emitters = doc.layers.filter((l) => l.emitter);
+  const lights = doc.layers.filter((l) => l.light);
+  const round = (v: number) => Number(v.toFixed(2));
+  return {
+    family: id,
+    duration: doc.duration,
+    impact: doc.impact,
+    layers: doc.layers.length,
+    framing: doc.camera.framing,
+    heroExtentUnits: round(
+      Math.max(
+        0,
+        ...meshes.map((l) =>
+          Math.max(l.geometry!.radius * 2, l.geometry!.length),
+        ),
+      ),
+    ),
+    particleCounts: emitters.map((l) => l.emitter!.count),
+    particleSizes: emitters.map((l) => l.emitter!.render.size),
+    lightIntensityPeak: lights.map((l) =>
+      Math.max(...l.light!.intensity.keys.map((k) => k[1])),
+    ),
+    lightRadius: lights.map((l) => l.light!.radius),
+    groundColor: doc.environment.groundColor,
+    bloom: doc.post.bloom,
+  };
 }
 
 /** The v2 family a planned v1 recipe id maps onto. */
