@@ -1784,6 +1784,13 @@ export class VfxRuntimeV2 {
     this.renderer.setPixelRatio(
       Math.min(typeof devicePixelRatio === "number" ? devicePixelRatio : 1, 2),
     );
+    // `resize()` calls setSize(w, h, false), which sizes the drawing buffer but
+    // deliberately leaves the canvas' inline style alone. Without a CSS size the
+    // canvas lays out at its buffer size in CSS pixels — devicePixelRatio times
+    // too large on a retina display, so the effect ends up zoomed and pushed
+    // out of the bottom-right of the host. `webgpu-canvas` (the class the v1
+    // runtime uses) pins it to width/height 100% of the host.
+    this.renderer.domElement.className = "webgpu-canvas";
     this.renderer.domElement.setAttribute("aria-label", "Generated VFX preview");
     host.appendChild(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
