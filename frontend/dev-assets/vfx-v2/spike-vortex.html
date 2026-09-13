@@ -28017,10 +28017,10 @@ void main() {
   // .spike-vortex-entry.js
   var DUR = 6;
   var CY = 3;
-  var R0 = 2;
+  var R0 = 2.6;
   var TILT_X = -0.52;
   var TILT_Y = 0.2;
-  var N_PUFF = 58;
+  var N_PUFF = 48;
   var N_FLECK = 120;
   var T_CORE0 = 0;
   var T_CORE1 = 0.4;
@@ -28057,7 +28057,7 @@ void main() {
   renderer.setClearColor(0, 1);
   var scene = new Scene();
   var camera = new PerspectiveCamera(32, 1280 / 720, 0.1, 200);
-  camera.position.set(0, 1.55, 5.15);
+  camera.position.set(0, 1.5, 8.37);
   camera.lookAt(0, CY, 0);
   var GLSL = `
 #define TAU 6.28318530718
@@ -28078,6 +28078,7 @@ float fbm3(vec2 p){ float s = 0.0, a = 0.5;
   return s/0.875; }
 // the palette, in linear light. Only the core is allowed past 1.0.
 const vec3 C_HI  = vec3(1.000, 0.880, 0.470);  // #fff1b0 bright core
+const vec3 C_PAL = vec3(1.000, 0.617, 0.246);  // #ffd080 pale orange, between core and amber
 const vec3 C_LIT = vec3(1.000, 0.300, 0.040);  // crest of a band, catching the core
 const vec3 C_MID = vec3(0.920, 0.125, 0.020);  // #ffa030 lit band face
 const vec3 C_SHA = vec3(0.380, 0.026, 0.009);  // #c0330c band shadow
@@ -28107,10 +28108,11 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
   varying vec2 vUv;
   void main(){
     vec2 q = (vUv-0.5)*2.0;
-    // horizon-ish vertical ramp plus a wide bloom behind the disc
-    float v = ssm(-0.9, 0.55, q.y);
-    vec3 col = mix(vec3(0.055,0.0040,0.0022), vec3(0.255,0.0175,0.0068), v);
-    col += vec3(0.430,0.0300,0.0105) * exp(-pow(length(q*vec2(1.0,1.25) - vec2(0.0,0.06))/0.34, 2.0));
+    // #7a1e12 at the horizon darkening to #3a0a0a overhead, plus a warm bloom
+    // confined to the patch of sky the vortex hangs in
+    float v = ssm(-0.75, 0.60, q.y);
+    vec3 col = mix(vec3(0.1946,0.0129,0.0056), vec3(0.0423,0.0033,0.0033), v);
+    col += vec3(0.150,0.0135,0.0050) * exp(-pow(length(q*vec2(1.0,1.30) - vec2(0.0,0.05))/0.24, 2.0));
     col *= 1.0 - 0.30*vnoise(q*3.1);
     col *= 1.0 - 0.50*ssm(0.30, 1.30, length(q));
     gl_FragColor = vec4(col, 1.0);
@@ -28123,7 +28125,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
   void main(){
     float r = length((vUv-0.5)*2.0);
     float a = exp(-pow(r/0.34, 2.0))*0.55 + exp(-pow(r/0.72, 2.0))*0.25;
-    gl_FragColor = vec4(mix(C_HAZ, C_MID, 0.34)*a*uA*2.10, 1.0);
+    gl_FragColor = vec4(mix(C_HAZ, C_MID, 0.34)*a*uA*1.35, 1.0);
   }`, glowMat, -20, AdditiveBlending);
   skyGlow.position.set(0, CY, -2.2);
   scene.add(skyGlow);
@@ -28147,7 +28149,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
     depthWrite: false,
     blending: NormalBlending
   });
-  var haze = new Mesh(new PlaneGeometry(9, 9), hazeMat);
+  var haze = new Mesh(new PlaneGeometry(11.5, 11.5), hazeMat);
   haze.renderOrder = -10;
   vortex.add(haze);
   function swirlDisc(radius, spin, twist, thrBase, opacity, seed, additive, lobeAmt) {
@@ -28174,24 +28176,32 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
         // polar swirl: differential rotation shears the noise into spiral bands
         float rot = uSwirl*uTwist/(d+0.08) + uT*uSpin*TAU;
         // radial flow: the sampled radius creeps outward with t, so features drift in
-        vec2 p = rot2(q, rot) * (1.0 + uT*0.05*uSwirl) * 4.4 + uSeed;
-        vec2 w = vec2(fbm3(p*1.15), fbm3(p*1.15 + 31.7)) - 0.5;
-        float n = fbm3(p + w*1.15);
+        vec2 p = rot2(q, rot) * (1.0 + uT*0.05*uSwirl) * 3.0 + uSeed;
+        vec2 w = vec2(fbm2(p*1.15), fbm2(p*1.15 + 31.7)) - 0.5;
+        float n = fbm2(p + w*1.15);
         // explicit log spiral so the arms READ; the fbm only wiggles them
         float ang = atan(q.y, q.x);
-        float arms = 0.5 + 0.5*sin(6.0*(ang + uSwirl*uTwist*1.85*log(d+0.09)) + uT*uSpin*TAU*6.0 + (n-0.5)*5.6);
+        float arms = 0.5 + 0.5*sin(3.0*(ang + uSwirl*uTwist*1.85*log(d+0.09)) + uT*uSpin*TAU*3.0 + (n-0.5)*1.4);
         // cauliflower lobes at the mask edge (lobe scale \u2248 0.3 units)
-        float lobe = fbm3(p*2.6 + 57.0) - 0.5 + 0.50*(fbm2(p*6.4 + 91.0) - 0.5);
-        float m = arms*0.62 + n*0.62 + lobe*uLobe;
-        float outer = 1.0 - ssm(0.68, 1.02, d);
-        float thr = uThr + uErode*0.55 + uErode*0.35*ssm(0.2,1.0,d);
-        float mask = ssm(thr, thr+0.15, m) * outer;
+        float lobe = (fbm3(p*2.00 + 57.0) - 0.5) + 0.30*(fbm2(p*4.00 + 91.0) - 0.5);
+        float m = arms*0.78 + n*0.46 + lobe*uLobe;
+        float outer = 1.0 - ssm(0.78, 1.04, d);
+        float thr = uThr - 0.020 + uErode*0.55 + uErode*0.35*ssm(0.2,1.0,d);
+        float mask = ssm(thr, thr+0.18, m) * outer;
         float lit = 1.0/(1.0 + pow(d*1.95, 2.0));
+        // continuous spiral shading inside the lit cloud: crests pale, troughs deep red.
+        // A TIGHTER, independently wound spiral, so it is not a copy of the mask.
+        float fine = fbm3(p*2.35 + 113.0);
+        float det = 0.5 + 0.5*sin(7.0*(ang + uSwirl*uTwist*2.75*log(d+0.09))
+                                  + uT*uSpin*TAU*7.0 + (fine-0.5)*6.2);
+        float shade = ssm(0.10, 0.92, det*0.62 + fine*0.54);
         vec3 col = mix(C_SHA*0.28, C_MID, ssm(0.02, 0.85, mask));
-        col = mix(col, C_LIT, ssm(0.40, 1.00, lit)*ssm(0.20, 0.75, mask));
-        col = mix(col, C_HI, ssm(0.80, 1.00, lit)*ssm(0.25, 0.80, mask));
+        col = mix(col, C_LIT, ssm(0.30, 0.85, lit)*ssm(0.18, 0.70, mask)*shade);
+        col = mix(col, C_PAL, ssm(0.52, 0.92, lit)*ssm(0.20, 0.72, mask)*shade);   // pale-orange shoulder
+        col = mix(col, C_HI,  ssm(0.80, 1.00, lit)*ssm(0.22, 0.75, mask));
+        col *= 0.40 + 0.92*shade;
         col *= 0.72 + 0.55*lit;
-        col += C_HI * ssm(0.965, 1.00, lit) * 0.50;         // only the inner ~12% goes hot
+        col += C_HI * ssm(0.78, 1.00, lit) * 0.30;          // the hot zone is ~28% of the diameter
         float a = mask * uA;
         if (a < 0.004) discard;
         gl_FragColor = vec4(col*a, a);
@@ -28205,9 +28215,9 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
     return m;
   }
   var discs = [
-    swirlDisc(R0, 0.35, 1.1, 0.5, 0.95, 0, false, 0.3),
-    swirlDisc(R0 * 0.8, 0.5, 0.9, 0.56, 0.8, 11.3, false, 0.26),
-    swirlDisc(R0 * 0.6, 0.7, 0.7, 0.64, 0.55, 23.9, true, 0.2)
+    swirlDisc(R0, 0.35, 1.1, 0.5, 0.95, 0, false, 0.82),
+    swirlDisc(R0 * 0.8, 0.5, 0.9, 0.56, 0.8, 11.3, false, 0.64),
+    swirlDisc(R0 * 0.6, 0.7, 0.7, 0.64, 0.38, 23.9, true, 0.42)
   ];
   var DISC_TILT = [-0.07, 0.07, -0.035];
   discs.forEach((m, i) => {
@@ -28248,7 +28258,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
                      + 0.09*sin(ang*4.0 + vSeed*11.0) + 0.055*sin(ang*7.0 - vSeed*5.0);
     float r = length(q)/max(bump, 0.5);
     // soft, near-gaussian body: overlapping puffs have to blend, not stack as shards
-    float a = pow(1.0 - ssm(0.06, 1.00, r), 1.30) * (0.36 + 0.42*vRad) * vA * uA;
+    float a = pow(1.0 - ssm(0.06, 1.00, r), 1.30) * (0.68 + 0.30*vRad) * vA * uA;
     if (a < 0.004) discard;
     // toon-ish 2-band shading against the core light
     float nz = sqrt(max(0.0, 1.0 - r*r));
@@ -28258,7 +28268,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
     vec3 high   = mix(C_MID*1.90, C_LIT, vRad*0.80);
     vec3 col = mix(shadow, body, ssm(0.10, 0.30, lam));
     col = mix(col, high, ssm(0.58, 0.82, lam)*0.70);
-    col *= 0.62 + 0.85*vLit;                            // fake core light falloff
+    col *= 0.78 + 0.80*vLit;                            // fake core light falloff
     gl_FragColor = vec4(col*a, a);
   }`;
   var puffMat = new ShaderMaterial({
@@ -28285,11 +28295,12 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
   var PUFF = [];
   for (let i = 0; i < N_PUFF; i++) {
     const u = (i + 0.5) / N_PUFF;
-    const r = 0.75 + 1.3 * Math.pow(h11(i * 3.11 + 0.7), 0.7);
+    const r = 0.9 + 1.75 * Math.pow(h11(i * 3.11 + 0.7), 0.7);
+    const arm = i % 3 * (Math.PI * 2 / 3);
     PUFF.push({
       r,
-      ang0: u * Math.PI * 2 + (h11(i * 7.3) - 0.5) * 0.7,
-      size: (0.36 + 0.4 * h11(i * 5.9 + 2.1)) * (1.2 - 0.28 * (r / 2.2)),
+      ang0: arm - 2.035 * Math.log(r / R0 + 0.09) + (h11(i * 7.3) - 0.5) * 0.62,
+      size: (0.5 + 0.4 * h11(i * 5.9 + 2.1)) * (1.06 - 0.16 * (r / 2.65)),
       seed: h11(i * 13.7) * 10,
       lift: (h11(i * 2.7 + 5) - 0.5) * 0.3,
       stag: h11(i * 9.1 + 3.3)
@@ -28329,7 +28340,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
   vortex.add(flecks);
   var FLECK = [];
   for (let i = 0; i < N_FLECK; i++) {
-    const r = 0.6 + 1.4 * h11(i * 1.73 + 0.3);
+    const r = 0.75 + 1.85 * h11(i * 1.73 + 0.3);
     FLECK.push({
       r,
       ecc: 0.86 + 0.2 * h11(i * 4.1),
@@ -28342,16 +28353,16 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
     });
   }
   var coreU = { uT: { value: 0 }, uA: { value: 0 } };
-  var coreHalo = billboard(2, `${GLSL}
+  var coreHalo = billboard(2.6, `${GLSL}
   varying vec2 vUv; uniform float uT, uA;
   void main(){
     float r = length((vUv-0.5)*2.0);
-    float a = exp(-pow(r/0.155, 2.0))*1.0 + exp(-pow(r/0.42, 2.0))*0.26;
-    gl_FragColor = vec4(mix(C_MID, C_HI, 0.74)*a*uA*0.60, 1.0);
+    float a = exp(-pow(r/0.190, 2.0))*1.0 + exp(-pow(r/0.50, 2.0))*0.30;
+    gl_FragColor = vec4(mix(C_MID, C_HI, 0.74)*a*uA*0.40, 1.0);
   }`, coreU, 6, AdditiveBlending);
   coreHalo.material.depthTest = true;
   vortex.add(coreHalo);
-  var coreDisc = billboard(0.58, `${GLSL}
+  var coreDisc = billboard(0.72, `${GLSL}
   varying vec2 vUv; uniform float uT, uA;
   void main(){
     vec2 q = (vUv-0.5)*2.0;
@@ -28359,7 +28370,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
     // hot-spot flicker: a slow noise field over the bright disc
     float fl = 0.80 + 0.30*vnoise(q*3.4 + vec2(uT*0.55, -uT*0.37));
     float a = (1.0 - ssm(0.30, 0.90, r)) * fl;
-    gl_FragColor = vec4(C_HI*a*uA*1.30, 1.0);
+    gl_FragColor = vec4(C_HI*a*uA*0.90, 1.0);
   }`, coreU, 6, AdditiveBlending);
   coreDisc.material.depthTest = true;
   coreDisc.renderOrder = 6.1;
@@ -28389,7 +28400,7 @@ const vec3 C_HAZ = vec3(0.310, 0.021, 0.011);  // #7a1a10 outer haze
     });
     hazeMat.uniforms.uT.value = t;
     hazeMat.uniforms.uSwirl.value = sw;
-    hazeMat.uniforms.uA.value = 0.9 * ss(0.1, 1.1, t) * (1 - ss(T_OUT0, 6, t));
+    hazeMat.uniforms.uA.value = 0.82 * ss(0.1, 1.1, t) * (1 - ss(T_OUT0, 6, t));
     haze.visible = L.haze && hazeMat.uniforms.uA.value > 1e-3;
     glowMat.uA.value = 0.85 * ss(0.05, 0.9, t) * (1 - ss(T_OUT0, 5.95, t));
     skyGlow.visible = L.haze && glowMat.uA.value > 1e-3;
