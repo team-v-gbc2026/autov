@@ -18,6 +18,7 @@ export default function EmitterTimeline({
   onSolo,
   onToggle,
   onAdd,
+  onDelete,
   onTimingChange,
   onTag,
   editorControls,
@@ -32,6 +33,7 @@ export default function EmitterTimeline({
   onSolo: (id: string) => void;
   onToggle: (id: string) => void;
   onAdd: () => void;
+  onDelete: (id: string) => void;
   onTag: (id: string) => void;
   editorControls: ReactNode;
   onTimingChange: (id: string, edge: "start" | "end", value: number) => void;
@@ -100,8 +102,10 @@ export default function EmitterTimeline({
               onEdit={() => { selectLayer(layer.id); setEditingId(layer.id); }}
               onClose={() => setEditingId(current => current === layer.id ? null : current)}
               onTag={() => onTag(layer.id)}
+              onDelete={() => onDelete(layer.id)}
               controls={editorControls}
             >
+              {barProps => <>
               <div className="lab-emitter-label" data-enabled={layer.enabled} style={{ borderLeftColor: selected === layer.id ? layer.color : "transparent" }}>
                 <button
                   type="button"
@@ -138,6 +142,7 @@ export default function EmitterTimeline({
               <div className="lab-emitter-lane">
                 <button
                   type="button"
+                  {...barProps}
                   className="lab-emitter-bar"
                   aria-label={`${layer.name}: ${layer.start.toFixed(2)} to ${layer.end.toFixed(2)} seconds`}
                   title={`Primary ${layer.color} · Secondary ${layer.secondaryColor}`}
@@ -224,6 +229,7 @@ export default function EmitterTimeline({
                   />
                 ))}
               </div>
+              </>}
             </EmitterRow>
             ))}
           </div>

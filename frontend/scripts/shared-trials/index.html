@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><meta name="robots" content="noindex,nofollow" /><title>
+    autoV · 生成トライアル（ドラフト）</title
+  ><link rel="stylesheet" href="style.css" />
+  <main>
+    <span class="badge">DRAFT · 品質検証用</span>
+    <h1>実際に生成したエフェクト</h1>
+    <p class="stats"><!--COUNT--></p>
+    <p>
+      アプリから実生成した試行の共有用スナップショットです。最新案と過去の候補を選び、スタジオの3Dビューで再生・編集できます。動画は含めていません。合格した作例集ではありません。
+    </p>
+    <div class="panel">
+      <b>共有時点のプロジェクト累計API使用量</b>
+      <p><!--USAGE--></p>
+      <p class="muted">
+        ローカル記録の保守的な概算で、請求額ではありません。この一覧にない試行・未確定分の予約額も含みます。画像APIは権限不足のため、実際にCodexで生成したテクスチャのライブラリを使用しました。
+      </p>
+    </div>
+    <p class="muted">
+      3Dは共有時のflow11で実際の生成JSONを再生します。AI点数は生成時の評価で、人による承認や再現度の合格を意味しません。元の画像・動画と入力プロンプトはこの共有版に含めていません。
+    </p>
+    <p>
+      <a href="/workspace">スタジオを開く</a> ·
+      <a href="manifest.json">使用量・生成履歴のJSON</a>
+    </p>
+    <div class="toolbar">
+      <label
+        >表示
+        <select id="view">
+          <option value="latest">各ケースの最新採用案</option>
+          <option value="all">全候補（不採用を含む）</option>
+        </select></label
+      ><label
+        >ケース
+        <select id="case">
+          <option value="">すべて</option>
+          <!--CASES-->
+        </select></label
+      ><span id="count"></span>
+    </div>
+    <div class="grid"><!--CARDS--></div>
+  </main>
+  <script src="gallery.js"></script>
+</html>

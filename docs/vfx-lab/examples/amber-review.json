@@ -1,0 +1,335 @@
+{
+  "runId": "9ec5c6c6-3973-48cc-8ebc-8d8f4b8c404b",
+  "plan": {
+    "name": "琥珀の破裂",
+    "recipe": "shockwave",
+    "intent": "短い圧縮の溜めから一度だけ大きく破裂する、ゲーム用の力強い衝撃波。極小の白熱中心を頂点に、細い琥珀色の衝撃リング、破れたように見える圧力膜、長い放射状火花を展開する。輪の内側は暗く抜き、低い煙と弱い火の粉を残して自然に消える。",
+    "palette": [
+      "#FFF4DA",
+      "#FFC14D",
+      "#FF951F"
+    ],
+    "duration": 3,
+    "impact": 0.6,
+    "motion": {
+      "emissionShape": "全層の基準中心を原点に統一。衝撃リングは地面のXZ平面、圧力膜は同心の球体。火花はほぼ点状の発生源から全周へ放ち、地面に沿う方向を主体に上下方向を少量混ぜる。最大の見える直径は約4m。",
+      "trajectory": "溜めの中心光を小さく収縮させ、impactでリングと圧力膜を急膨張させる。リングは序盤に距離を稼ぎ、外周に達するほど拡大を緩める。火花は放射状の初速と抗力による減速で広がり、弱い重力で落ちる。煙は低い位置でゆっくり拡大する。圧力膜の破れはFresnelとノイズによる濃淡で近似し、実際の膜片の分離や流体運動は行わない。",
+      "timing": "impactを唯一の爆発アンカーとする。それ以前は小さな溜めだけを見せ、impactで中心閃光・主リング・圧力膜・火花を一斉に立ち上げる。閃光が最初に消え、リングと膜、火花、低い煙と残り火の順に減衰する。再発光や二度目の爆発は作らず、全層を3秒までに滑らかに消す。"
+    },
+    "layers": [
+      {
+        "id": "charge_core",
+        "kind": "sprite",
+        "responsibility": "予兆。暗い橙色の小さな中心光を出し、impactへ向けて収縮させる。明るさは高めるが大きな光球にはせず、周囲の暗さを維持して爆発との落差を作る。impactで閃光へ受け渡し、残光を引き延ばさない。"
+      },
+      {
+        "id": "impact_core",
+        "kind": "sprite",
+        "responsibility": "唯一の白熱点。impactで直径約0.12mの暖白色中心を瞬間的に発光させ、短く消す。周辺のグローは琥珀色で薄く、白い面が輪の内部まで広がらないようにする。"
+      },
+      {
+        "id": "ground_shock_ring",
+        "kind": "ring",
+        "responsibility": "支配的な衝撃シルエット。X回転を-1.5708として接地させ、impactから見える半径約0.1mから1.85mへ急速に非線形拡大する。radius指定は見える半径を0.78で割って扱う。外周幅は約0.035mの鋭い琥珀色とし、内部を塗りつぶさない。拡大後は薄くなりながら消える。"
+      },
+      {
+        "id": "broken_pressure_shell",
+        "kind": "shell",
+        "responsibility": "衝撃の体積感。impactから球状に膨張し、主リングより少し内側の半径約1.65mで薄くなる。輪郭寄りに偏った橙色のFresnel発光と強弱のあるノイズで、膜が破れて途切れる印象を作る。球全体を均一に照らさず、中心越しに背景が読める透明感を保つ。"
+      },
+      {
+        "id": "radial_spark_streaks",
+        "kind": "particles",
+        "responsibility": "爆発方向と速度感。impactから短い発生区間に約1600本を集中させ、ほぼゼロの出生半径から放射状に射出する。主な筋は幅0.02〜0.035m、長さ0.16〜0.28m。明るい黄橙から赤橙へ減衰し、長さと輝度に差を付ける。抗力で減速させ、外周付近まで広がった後に消す。白い星粒の塊にはしない。"
+      },
+      {
+        "id": "low_smoke_inner",
+        "kind": "sprite",
+        "responsibility": "接地感。中心付近の低い位置に、通常ブレンドの暗い褐色ノイズ煙を薄く置く。impact後にゆっくり拡大し、中心閃光が消えてから形が読める濃度にする。明るい円盤や黒い遮蔽板にならないよう、輪の内側には大きな抜けを残す。"
+      },
+      {
+        "id": "low_smoke_outer",
+        "kind": "sprite",
+        "responsibility": "煙の余韻。内側の煙より大きく、さらに薄い煙を低い位置に重ねる。異なるノイズの濃淡で均一な丸い塊を避け、周縁が先にほどけるよう不透明度を落とす。立ち上る柱や二次爆発にはしない。"
+      },
+      {
+        "id": "residual_embers",
+        "kind": "particles",
+        "responsibility": "静かな終息。impactから短時間だけ約320個の橙赤色の火の粉を放ち、主火花より遅い放射運動と弱い落下で低く散らす。密集させず、粒径と明るさをばらつかせる。発生区間と寿命を終了範囲内に収め、煙とともに3秒までに不透明度をゼロへ落とす。"
+      }
+    ],
+    "criteria": [
+      "小さな溜めから一度だけ大きく破裂し、爆発後に再び明るくならない。",
+      "白は中心のごく小さい点に限定され、リングと圧力膜の琥珀色が白飛びせず残る。",
+      "大きく広がる細い外周と長い放射状火花が、縮小表示でも明確に読める。",
+      "輪の内側に暗い余白があり、膜や煙で満たされた発光球に見えない。",
+      "圧力膜には明暗の途切れがあり、滑らかで均一な球体には見えない。",
+      "閃光、衝撃面、火花、煙と残り火の順に視線が移り、最後は切断感なく自然に消える。"
+    ]
+  },
+  "trace": [
+    "Designing composition, timing and motion…",
+    "Building candidate 1 of 3…",
+    "Rendering candidate 1 at twelve event-timed moments…",
+    "Reviewing candidate 1: intent, motion, hierarchy, finish…",
+    "Building candidate 2 of 3…",
+    "A mechanically invalid candidate was repaired and revalidated.",
+    "Rendering candidate 2 at twelve event-timed moments…",
+    "Reviewing candidate 2: intent, motion, hierarchy, finish…",
+    "Building candidate 3 of 3…",
+    "Rendering candidate 3 at twelve event-timed moments…",
+    "Reviewing candidate 3: intent, motion, hierarchy, finish…",
+    "OpenAI response incomplete. Previous effect preserved.",
+    "Diagnosing the best candidate with an isolated render, bloom off…",
+    "Applying one bounded refinement…",
+    "Re-rendering and checking the refinement…",
+    "Refinement did not clearly improve the review. Original best state retained.",
+    "Ready. Compare the candidates and choose your preferred direction."
+  ],
+  "usages": [
+    {
+      "input": 1307,
+      "output": 2252,
+      "usd": 0.1289375,
+      "model": "gpt-6-astra",
+      "responseId": "resp_0a8d4a68be6c6a36016aa5340ec79c87d0b8fc3da5d64fdc7d"
+    },
+    {
+      "input": 5126,
+      "output": 4924,
+      "usd": 0.310275,
+      "model": "gpt-6-astra",
+      "responseId": "resp_0c41cf538ccbcbc8016aa53440e26887d092fbe0188200686b"
+    },
+    {
+      "input": 1849,
+      "output": 1590,
+      "usd": 0.1026125,
+      "model": "gpt-6-astra",
+      "responseId": "resp_0248d0c79b6acd75016aa534845dc887d0aaa1cf27f7bb68b5"
+    },
+    {
+      "input": 5128,
+      "output": 3080,
+      "usd": 0.2181,
+      "model": "gpt-6-astra",
+      "responseId": "resp_0cacf4bb5fe96c37016aa534a094a887d08345804161685c7c"
+    },
+    {
+      "input": 2971,
+      "output": 1932,
+      "usd": 0.1337375,
+      "model": "gpt-6-astra",
+      "responseId": "resp_04db6b61e6c8f293016aa534c782dc87d0aa6274b490b1e6ee"
+    },
+    {
+      "input": 1882,
+      "output": 698,
+      "usd": 0.058425,
+      "model": "gpt-6-astra",
+      "responseId": "resp_06c2f01c9bdafdac016aa534dd774887d0861d1b738d45720f"
+    },
+    {
+      "input": 5130,
+      "output": 5014,
+      "usd": 0.314825,
+      "model": "gpt-6-astra",
+      "responseId": "resp_0d3d2c9b77253d63016aa534ea24f487d0b429be82408b472c"
+    },
+    {
+      "input": 6217,
+      "output": 484,
+      "usd": 0.1019125,
+      "model": "gpt-6-astra",
+      "responseId": "resp_048605166a435a92016aa535543de887d0bffe5b448d03c3fe"
+    },
+    {
+      "input": 1849,
+      "output": 1563,
+      "usd": 0.1012625,
+      "model": "gpt-6-astra",
+      "responseId": "resp_0fe3b59577ed0d81016aa53560a32487d090bbd3aa264f2a65"
+    }
+  ],
+  "selectedId": "9ec5c6c6-3973-48cc-8ebc-8d8f4b8c404b-0",
+  "candidates": [
+    {
+      "id": "9ec5c6c6-3973-48cc-8ebc-8d8f4b8c404b-0",
+      "origin": "generated",
+      "review": {
+        "sufficientEvidence": true,
+        "semantic": 2,
+        "motion": 2,
+        "hierarchy": 2,
+        "finish": 2.5,
+        "verdict": "要修正。細い琥珀色リングは読めますが、主爆発は強い発光球に寄り、暗い内側余白、長い放射状火花、低い煙と残り火が不足しています。提示フレームでは、力強い破裂から余韻へ移る構成が十分に伝わりません。",
+        "observations": [
+          {
+            "criterion": "小さな溜めから一度だけ大きく破裂し、爆発後に再び明るくならない。",
+            "result": "uncertain",
+            "evidence": "0.300秒には微小な点があり、0.620秒の小さな発光から0.680〜0.780秒に大きく明るくなっています。その後の0.950、1.250秒では減光し、観測上の再増光はありません。ただし、0.580秒の溜めはほぼ読めず、一撃の鋭い破裂か段階的な膨張かは疎なフレームでは確定できません。"
+          },
+          {
+            "criterion": "白は中心のごく小さい点に限定され、リングと圧力膜の琥珀色が白飛びせず残る。",
+            "result": "fail",
+            "evidence": "0.680〜0.780秒では中心が点ではなく、リング内部のかなりの幅を占める白黄色の塊です。外周の琥珀色は残るものの、中心周囲の強いグローで膜の色と構造が弱まっています。"
+          },
+          {
+            "criterion": "大きく広がる細い外周と長い放射状火花が、縮小表示でも明確に読める。",
+            "result": "fail",
+            "evidence": "0.950〜1.250秒の細い楕円状外周は明確です。一方、0.950秒の火花は内側に密集した短い線・粒の塊として見え、外へ長く飛ぶ放射状軌跡は縮小表示で読めません。広がりも各フレーム内では比較的小さく留まります。"
+          },
+          {
+            "criterion": "輪の内側に暗い余白があり、膜や煙で満たされた発光球に見えない。",
+            "result": "fail",
+            "evidence": "主爆発の0.680〜0.780秒は、輪の内側が明るい球状の光で埋まっています。0.950秒には中心と外周の間に暗い帯が現れますが、ピーク時の余白は不足しています。"
+          },
+          {
+            "criterion": "圧力膜には明暗の途切れがあり、滑らかで均一な球体には見えない。",
+            "result": "fail",
+            "evidence": "0.680〜0.780秒の球状輪郭には粒状の不均一さがありますが、大きな破れや明確な暗い欠落は読めません。全体のシルエットは連続した発光球として見えます。"
+          },
+          {
+            "criterion": "閃光、衝撃面、火花、煙と残り火の順に視線が移り、最後は切断感なく自然に消える。",
+            "result": "uncertain",
+            "evidence": "0.680〜0.780秒の閃光から、0.950秒のリングと粒群、1.250秒の弱いリングへの移行は確認できます。ただし低い煙は判別できず、1.950秒以降はほぼ黒です。1.250〜1.950秒の間に自然に消えたのか、急に途切れたのかは判断できません。"
+          }
+        ],
+        "diagnoses": [
+          {
+            "layerId": "flash",
+            "symptom": "washed-out",
+            "hypothesis": "0.680〜0.780秒の広い白黄色の中心は、閃光の見かけの面積と周囲のグローが強すぎる可能性があります。",
+            "correction": "白い発光部を小点まで絞り、周囲の光量と広がりを抑える。ピークでも中心とリングの間に暗い帯を残してください。"
+          },
+          {
+            "layerId": "pressure",
+            "symptom": "other",
+            "hypothesis": "0.680〜0.780秒で球状面の発光が連続して見え、破れがグローに埋もれている可能性があります。",
+            "correction": "膜に大きさの異なる暗い欠落と孤立した琥珀色の弧を設け、内部を透かす。外縁の細かな粒状変化だけに頼らず、縮小時にも分かる破断を作ってください。"
+          },
+          {
+            "layerId": "sparks",
+            "symptom": "other",
+            "hypothesis": "0.950秒では火花が中心付近の短い線群に見え、長さと外向きの到達距離が不足している可能性があります。",
+            "correction": "長い先行火花をリング外まで伸ばし、軌跡同士の間隔を確保する。中心の密集を減らし、放射方向をシルエットとして読ませてください。"
+          }
+        ]
+      }
+    },
+    {
+      "id": "9ec5c6c6-3973-48cc-8ebc-8d8f4b8c404b-1",
+      "origin": "generated",
+      "review": {
+        "sufficientEvidence": false,
+        "semantic": 0,
+        "motion": 0,
+        "hierarchy": 0,
+        "finish": 0,
+        "verdict": "判定不能。全12枚の描画領域が黒く、時刻表示以外にエフェクトを確認できません。各スコアは評価可能な描画がないため0としています。表示・出力経路を確認し、エフェクトが見えるフレームを再提出してください。",
+        "observations": [
+          {
+            "criterion": "小さな溜めから一度だけ大きく破裂し、再増光しない",
+            "result": "uncertain",
+            "evidence": "0.000、0.300、0.580秒に溜めが見えず、0.620、0.680、0.780秒にも爆発を確認できません。"
+          },
+          {
+            "criterion": "小さい白い中心と、白飛びしない琥珀色のリング・圧力膜",
+            "result": "uncertain",
+            "evidence": "0.620～0.950秒の提示フレームに中心、リング、圧力膜が見えず、色と輝度を評価できません。"
+          },
+          {
+            "criterion": "細い外周と長い放射状火花の読みやすさ",
+            "result": "uncertain",
+            "evidence": "0.680、0.780、0.950、1.250秒に外周や火花を識別できません。"
+          },
+          {
+            "criterion": "リング内側の暗い余白",
+            "result": "uncertain",
+            "evidence": "描画領域全体が黒いため、リングに囲まれた意図的な余白と判断できません。"
+          },
+          {
+            "criterion": "破れた圧力膜の明暗の途切れ",
+            "result": "uncertain",
+            "evidence": "0.620～1.250秒の提示フレームに膜の輪郭や表面が見えません。"
+          },
+          {
+            "criterion": "閃光から煙・残り火への視線誘導と自然な消失",
+            "result": "uncertain",
+            "evidence": "1.950、2.460、2.850、2.985秒は黒いままです。前段にも可視の効果がないため、自然な減衰や切断の有無は判定できません。"
+          }
+        ],
+        "diagnoses": []
+      }
+    },
+    {
+      "id": "9ec5c6c6-3973-48cc-8ebc-8d8f4b8c404b-2",
+      "origin": "generated",
+      "error": "OpenAI response incomplete. Previous effect preserved."
+    },
+    {
+      "id": "9ec5c6c6-3973-48cc-8ebc-8d8f4b8c404b-refined",
+      "origin": "refined",
+      "review": {
+        "sufficientEvidence": true,
+        "semantic": 2,
+        "motion": 2,
+        "hierarchy": 2,
+        "finish": 2.5,
+        "verdict": "要修正。細い琥珀色リングと単発の発光は読めますが、力強い破裂より小さな発光ディスクに見えます。長い放射状火花、暗い内部余白、低い煙と残り火の余韻が不足しています。",
+        "observations": [
+          {
+            "criterion": "小さな溜めから一度だけ大きく破裂し、爆発後に再び明るくならない。",
+            "result": "uncertain",
+            "evidence": "0.300秒の溜めは微小で、0.580秒でも明確な蓄積が読めません。0.620〜0.680秒で発光が増し、その後の観測フレームでは減衰しており、再発光は見られません。ただし、大きな破裂としてのスケール差は弱く、フレーム間の挙動は確認できません。"
+          },
+          {
+            "criterion": "白は中心のごく小さい点に限定され、リングと圧力膜の琥珀色が白飛びせず残る。",
+            "result": "fail",
+            "evidence": "0.680秒では白〜黄白色の中心がリング内径に対して大きく、広い橙色の光暈も出ています。リング外縁には琥珀色が残るものの、中心は小さな点に限定されていません。0.780秒も内部の発光が強く残っています。"
+          },
+          {
+            "criterion": "大きく広がる細い外周と長い放射状火花が、縮小表示でも明確に読める。",
+            "result": "fail",
+            "evidence": "0.620〜1.250秒で細い楕円状の外周は拡大しています。一方、最大でも各コマ幅の約3割に留まり、外へ長く伸びる放射状火花は読めません。0.950秒では主に輪内の細かな粒として見えます。"
+          },
+          {
+            "criterion": "輪の内側に暗い余白があり、膜や煙で満たされた発光球に見えない。",
+            "result": "fail",
+            "evidence": "0.680〜0.780秒では明るい中心と粒状の発光が内部を占め、0.950秒も輪内に粒が密集しています。外周と小さな中心を分離する、まとまった暗い余白が不足しています。"
+          },
+          {
+            "criterion": "圧力膜には明暗の途切れがあり、滑らかで均一な球体には見えない。",
+            "result": "uncertain",
+            "evidence": "0.680〜0.780秒のリング上下に薄い球状の弧と濃淡は見えますが、膜自体が弱く、破れた面や大きな欠けとしては明瞭ではありません。均一な球体ではないと断定できるほどの情報はありません。"
+          },
+          {
+            "criterion": "閃光、衝撃面、火花、煙と残り火の順に視線が移り、最後は切断感なく自然に消える。",
+            "result": "fail",
+            "evidence": "0.680秒の閃光から0.950〜1.250秒のリングへの移行は読めますが、長い火花や低い煙への視線の引き継ぎがありません。1.950、2.460、2.850、2.985秒では効果を視認できず、終盤の残り火も確認できません。1.250〜1.950秒間の消え方が自然かどうかは、この間隔では判断できません。"
+          }
+        ],
+        "diagnoses": [
+          {
+            "layerId": "flash",
+            "symptom": "washed-out",
+            "hypothesis": "0.680秒の広い黄白色中心と光暈は、閃光の面積または加算発光の重なりが強すぎる可能性があります。",
+            "correction": "白色コアの面積と周囲の光暈を縮め、ピーク時にも中心と外周の間に暗い帯を残してください。"
+          },
+          {
+            "layerId": "sparks",
+            "symptom": "other",
+            "hypothesis": "0.780〜1.250秒の粒は輪内に集中しており、軌跡の長さや外向きの移動が縮小表示で読めない可能性があります。",
+            "correction": "少数の目立つ長い軌跡を外周より先まで放射状に伸ばし、内部の細粒密度を下げてください。"
+          },
+          {
+            "layerId": "shock-0",
+            "symptom": "other",
+            "hypothesis": "0.950〜1.250秒の外周は細く読めますが、画面に対する広がりが小さく、衝撃の規模を伝えきれていません。",
+            "correction": "細さと琥珀色を維持したまま展開範囲を広げ、中心発光ではなく外周の拡大で破裂の強さを示してください。"
+          }
+        ]
+      }
+    }
+  ]
+}

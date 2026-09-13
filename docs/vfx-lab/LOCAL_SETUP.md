@@ -1,0 +1,99 @@
+# Local VFX studio
+
+From `frontend/`:
+
+```sh
+npm ci
+npm run dev:local
+```
+
+Open http://127.0.0.1:3000/dev/vfx-lab. Dev-only routes live under `src/app/dev/` as `page.dev.tsx` / `route.dev.ts`; `next.config.ts` adds those extensions to `pageExtensions` only for `next dev`, so they exist locally and are absent from every production build. This uses the existing studio layout and needs no Supabase account. Use the header Presets menu for free playback. The left Board reuses main’s canvas, notes, image preview and @mention workflow. Images stay on this device in IndexedDB; layout and notes use main’s localStorage store. PNG/JPEG/WebP/GIF files up to 20 MB are accepted. Mention up to eight board images per prompt; only mentioned images are sent. Prompts accept up to 10,000 characters. Images are resized to 1024 pixels for model input; animated GIFs use a still frame for generation. Conservative token reservations may reject exceptionally large combined inputs before a charge. Chat generates a new editable effect. Quick builds one direction; Quality builds three, reviews their rendered frames and tries one bounded improvement.
+
+Open `/dev/vfx-lab/settings` to save a dedicated OpenAI key locally, or set `OPENAI_API_KEY` in `frontend/.env.local`. Never use `NEXT_PUBLIC_` for the key. The repository-root `.env.local` is not loaded by the frontend server. The current approved setup uses a restricted key expiring 2026-09-19.
+
+The UI shows conservative cumulative spend against $30. It includes outstanding reservations. Restarting does not reset the ledger. If a call times out after reaching OpenAI, its maximum reservation stays charged until manually reconciled with the provider; the app never silently releases uncertain spend. A stale `.autov-local/budget.lock` fails closed: verify no server process is running before recovering a stale lock. Keep `budget.json`.
+
+## Use
+
+- Pick a preset to test the renderer without an API charge.
+- Write appearance AND motion, then choose Quick or Quality and press the arrow.
+- Compare the timestamped candidate sheets. Click a direction to preview it.
+- Select an emitter row or time bar in the bottom Timeline. Rows show each emitter’s start/end interval; visibility and solo are beside the name. Scroll to reach additional emitters. Loop repeats the entire effect, not a separate per-emitter cycle. The bars display timing; dragging them to retime is not implemented.
+- Choose “Edit selected layer” in Chat; select layer and From/To seconds. Describe a color, size, brightness or opacity change. Review and apply the proposal.
+- Effect controls edits the selected emitter’s color, secondary color, blend and appearance/motion parameters. Manual numeric sliders replace that parameter’s animation track. “Edit this layer in chat” selects its lifetime as the initial edit window.
+- The adjacent Environment settings panel contains Bloom, Exposure, Reset camera, Undo/Redo and Capture evidence.
+- Generation requests, results, scoped edit applications and Undo/Redo are retained as a chronological local chat log (last 100 entries). Undo/Redo stacks are session-only. Candidate contact sheets and visual evaluations remain in Chat.
+- JSON downloads the current editable effect. Import restores a validated JSON document.
+- Three.js downloads a self-contained HTML player. Open it locally or serve it with any static web server; playback does not use OpenAI credits.
+- The last valid document is autosaved in browser localStorage. Generation runs and token accounting are stored privately in `frontend/.autov-local/`. Download generation evidence before closing the tab to retain the complete comparison report.
+
+## VFX v2 assets (textures and fixtures)
+
+The v2 texture library and the v2 exemplar documents are **not** shipped in the
+build. They live in two public Supabase Storage buckets:
+
+| Objects | Bucket path | Public URL |
+| --- | --- | --- |
+| 32 PNGs + `manifest.json` | `vfx-textures/v2/<file>` | `<SUPABASE_URL>/storage/v1/object/public/vfx-textures/v2/<file>` |
+| 7 exemplar documents | `vfx-fixtures/v2/<id>/document.json` | `<SUPABASE_URL>/storage/v1/object/public/vfx-fixtures/v2/<id>/document.json` |
+
+`src/lib/vfx-lab/asset-urls.ts` resolves both. The texture base URL is
+`NEXT_PUBLIC_VFX_ASSET_BASE` when set, otherwise
+`<NEXT_PUBLIC_SUPABASE_URL>/storage/v1/object/public/vfx-textures/v2`, otherwise
+the shared team project. The renderer loads textures with
+`crossOrigin = "anonymous"` so WebGL can sample them.
+
+`frontend/fixtures/v2/**` stays in the repo (tests and harnesses import it
+directly). The dev pages and `/dev/vfx-v2/fixtures` fetch the bucket copy first
+with a short timeout and fall back to the local file, so they work offline.
+
+### Uploading
+
+Put the service role key in `frontend/.env.local` (never commit it, never use a
+`NEXT_PUBLIC_` prefix):
+
+```sh
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Then, with the PNG originals available locally:
+
+```sh
+npm run upload:vfx-assets -- --dry-run                          # list the 40 objects
+npm run upload:vfx-assets -- --textures ../textures-codex/library
+npm run upload:vfx-assets -- --verify                           # GET every public URL
+```
+
+Uploads use `x-upsert: true` and `cache-control: max-age=31536000`, print a
+per-file ok/error table and exit non-zero on any failure.
+
+### Working offline
+
+Headless harnesses (`render-v2-fixture.mjs`, `capture-v2-harness.mjs`,
+`calibrate-v2.mjs`, `dry-run-measure-v2.mjs`) never need the network:
+`scripts/vfx-assets.mjs` serves PNGs from the first directory that exists —
+`$VFX_ASSET_DIR`, `frontend/public/textures/v2`, `frontend/.vfx-textures/v2`
+(gitignored mirror), `../textures-codex/library` — and injects
+`globalThis.__VFX_ASSET_BASE = "/textures/v2"` so the runtime points at it. Set
+`VFX_ASSET_BASE=<url>` to force a remote base instead, and
+`VFX_FIXTURES_LOCAL_ONLY=1` to make the dev pages skip the bucket fetch.
+
+For the browser app offline, keep a copy of the PNGs in
+`frontend/public/textures/v2/` and run with
+`NEXT_PUBLIC_VFX_ASSET_BASE=/textures/v2`.
+
+## Verification
+
+```sh
+npm run test
+npm run typecheck
+npm run lint
+npm run build
+npm run verify:runtime
+```
+
+The test suite covers deterministic seeks, stable particle birth identities, protected edit windows, invalid document rejection, candidate failure and rollback, local API origin checks, and the $30 ledger across process restarts.
+
+See [DESIGN.md](DESIGN.md) for research adaptation, supported capabilities, tradeoffs and limitations. A passing unit test or VLM score is not an AAA-quality claim; judge the actual motion and appearance in your target game context.
+
+See [VERIFICATION.md](VERIFICATION.md) for actual test results, known visual weaknesses, and the standalone-file browser verification limitation.

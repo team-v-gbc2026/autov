@@ -20,3 +20,6 @@ dist/
 .playwright-cli/
 output/playwright/
 supabase/.temp/
+
+# Overnight experiment data stays local
+*.local.md

@@ -8,6 +8,7 @@ import { ReferenceContext, ReferenceMention } from "./reference-mention";
 import { PluginKey } from "@tiptap/pm/state";
 import { EmitterContext, EmitterMention, type EmitterTag } from "./emitter-mention";
 import { encodeEmitterMention, encodeMention } from "./prompt-format";
+import { MAX_PROMPT_CHARACTERS, MAX_PROMPT_REFERENCES } from "@/lib/vfx-lab/reference-input";
 import ReferencePicker from "./reference-picker";
 import Tooltip from "@/components/ui/tooltip";
 import Icon from "../icon";
@@ -153,9 +154,9 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
     });
     if (invalidEmitter) { setError("Remove unavailable emitter tags before sending."); return; }
     if (invalid) { setError("Retry or remove unavailable references before sending."); return; }
-    if (ids.size > 8) { setError("Use up to 8 references per prompt."); return; }
+    if (ids.size > MAX_PROMPT_REFERENCES) { setError("Use up to 8 references per prompt."); return; }
     const text = editor.getText({ textSerializers: { emitterMention: ({ node }) => encodeEmitterMention(node.attrs.id, emitters.find(item => item.id === node.attrs.id)?.name || node.attrs.label), mention: ({ node }) => encodeMention(node.attrs.id, references.find(ref => ref.id === node.attrs.id)?.name || node.attrs.label) } });
-    if (text.length > 10000) { setError("Keep the prompt under 10,000 characters."); return; }
+    if (text.length > MAX_PROMPT_CHARACTERS) { setError("Keep the prompt under 10,000 characters."); return; }
     setError("");
     const draft = editor.getJSON();
     sendLock.current = true;
