@@ -338,3 +338,100 @@ billboard with three smoothsteps on it.
 Both also needed `material.proceduralParams` to stay inside ±64, which caps `lensFlare`'s core
 tightness at 64. That is tight enough for a 3 m flare at 8 m; a tighter core would need the band
 widened again, and the band has already been widened once (§8), so the exemplars use 46 and 64.
+
+## 11. Amber portal → schema (Phase G, 2026-09-14)
+
+The ninth spike (`frontend/dev-assets/vfx-v2/spike-portal.html`, source
+`docs/vfx-lab/spike-portal-reference.js.txt`) is the first element whose whole read is an **edge**.
+Everything the portal does — the draw, the hold, the un-draw, the travelling highlights — happens
+on one number: how far round its own perimeter you are. A rim built out of four bars cannot have
+that number, which is why the port makes the frame a signed distance rather than geometry.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `PW`/`PH`/`RIM_W`/`CORNER` and the `sdRR(vP, H, r)` rounded rect | `geometry.type:"frame"` + `geometry.frame.{corner,perimeterOrigin}` | `length` is the height, `radius` the half-width, `thickness` the bar. The card is grown `4.4 × thickness` on every side so the widest halo skirt is not cut off square — a renderer constant, because a document that had to size its own glow room would get it wrong the first time the bar changed |
+| `rimU(vP, H)` | the frame's own **perimeter coordinate**, 0 at bottom-centre and 1 at top-centre, MIRRORED in x | one varying that `material.reveal`, `material.stripes` and `material.beads` all read. The mirroring is the whole "a doorway is opening" read: the front goes up both sides at once |
+| `core` / `spine` / `inner` / `halo` and their four hard-coded colours | `material.sdfLine.{core,spine,innerOffset,innerWidth,halo[{falloff,weight}]}` + the ramp sampled at FOUR FIXED KEYS (0 spine, 0.22 core bar, 0.45 inner line, 1 halo) | one ramp is the whole rim. The alternative — four layers, or four colour fields on the material — would let the four terms drift apart, and they are one object |
+| `gate`/`lead` off `uCut`, and `rimCut(t)`'s draw-then-un-draw | `material.reveal.{mode:"perimeter",from,to,frontWidth}` with `to` past 1, plus a track on `material.reveal.to` | the front finishes at 0.62 s of a 5 s layer and the rim then holds; dropping `to` at the end un-draws it from the top down. The same "a reveal may finish early inside a longer layer" rule the sigil established |
+| the 3-bead `for` loop with its hashed offsets | `material.beads.{count,speed,width}` | hash-stepped in the renderer, because evenly spaced beads read as a barber pole |
+| the 4 `vnoise` octaves, `par = vVd.xy * 0.05`, `smoke` and the amber/dark mix | `material.flow.{layers[{scale,pan,rotate}],mix,threshold,softness,parallax}` + `material.ramp.space:"surface"` keyed on the resulting MASK | `flow` REPLACES `material.noise` as the surface field. The view-direction offset on the SLOWEST octave is the only depth cue a flat card has; on the fine octaves it reads as the whole card sliding. A track on `flow.threshold` is the spike's `uSmoke` |
+| the `reflection` mesh at `scale(1,-0.52,1)` with `uRefl` washing it toward a dark amber | `kind:"reflection"` + `layer.reflection.{sourceLayerId,axis,scale,blur,opacity,tint}` | it draws the SOURCE layer's own geometry and material, so a track on the interior reaches the reflection on the same frame. Mirrored about `environment.groundY` and squashed TOWARD it (`y' = groundY - (y-groundY)·scale`), so the copy stays anchored at the contact instead of sliding away as it foreshortens. Depth test off and a negative render order: the floor is opaque, so a reflection is a smear PAINTED on it, not a twin hanging underneath |
+| the spark vertex's 70/30 perimeter-vs-interior branch | `emitter.shape.type:"frame"` + `shape.interiorFraction` (+ `shape.innerRadius` as how far off the rim a spark may sit) | |
+| the ground shader's `across`/`pool`/`wide`/`lip` gaussians | `environment.groundPool[{shape:"rect",radius,anisotropy,color,intensity}]` | analytic, in the ground's own shader: no decal to sort and no light to flicker. `anisotropy` is the half-extent across the pool as a multiple of `radius`, which is what turns a disc into the bar a doorway throws |
+| `T_RIM0/1`, `T_FILL0/1`, `T_OUT0/1`, the palette | the exemplar | `fixtures/v2/portal/document.json` |
+
+Deliberately not ported: the spike's front/back rim pair at ±`RIM_Z/2` (one frame plus its halo
+reads the same at this scale and costs half the draws), its `uBack` dimming, and the surface's
+`fill` wipe — a soft vertical wipe over 0.5 s reads as the opacity track the exemplar carries.
+
+### One renderer correction the portal forced
+
+`safePow` clamps a negative base to an epsilon, which is exactly right for `pow(1-x, k)` and
+exactly wrong for a gaussian on a SIGNED distance: `exp(-safePow(d/w, 2))` returns 1 for every
+pixel INSIDE the frame, so the first render was a filled rounded rectangle rather than a rim. The
+SDF gaussians square their argument directly. `swirlRing` carries a comment about the same trap;
+it is now a rule: never `safePow` something that is meant to be signed.
+
+## 12. Sky vortex → schema (Phase G, 2026-09-14)
+
+The tenth spike (`frontend/dev-assets/vfx-v2/spike-vortex.html`, source
+`docs/vfx-lab/spike-vortex-reference.js.txt`) proved that a spiral is a **coordinate transform**,
+not a texture that spins. Its discs never rotate: the angle each pixel is sampled at is sheared by
+`twist/(distance + eps)`, so the inner radii shear past the outer ones and a plain noise field
+becomes arms. That is the one thing a spinning card can never do.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `swirlDisc(radius, spin, twist, thr, opacity, seed, additive, lobe)` ×3 | `material.procedural:"swirlDisc"` + `material.proceduralParams` [twist, spin (turns a second), inflow, arms] on three `kind:"ring"` `disc` layers | two alpha bodies and one additive highlight at r 2.6 / 2.08 / 1.56, each leant ±4° so no two rims coincide |
+| `arms = .5+.5*sin(3*(ang + uSwirl*uTwist*1.85*log(d+.09)) + …)` | `material.swirl.bands.{arms,wind,width,warp}` | an EXPLICIT log spiral, because the fbm alone only wiggles; the arms have to be drawn |
+| `det = .5+.5*sin(7*(ang + uSwirl*uTwist*2.75*log(d+.09)) + …)` and `shade` | `material.swirl.detail.{arms,wind,warp,contrast}` | a second, tighter, INDEPENDENTLY wound spiral that only ever shades. A second mask here reads as a copy of the first, which is what the first two rounds of the spike looked like |
+| `lobe = (fbm3(p*2)-.5) + .3*(fbm2(p*4)-.5)` | `material.swirl.lobe.{scale1,scale2,amount}` | the cauliflower edge on the mask's rim |
+| `swirlEnv(t)`, read by every disc AND by the haze | `material.swirl.strength` (a Curve over the layer's own 0..1 progress) | ONE envelope: the reveal winds it from straight noise into a tight spiral and the dissipate unwinds it. That is what makes the vortex spin UP rather than simply appear spinning |
+| `erodeEnv(t)` and `thr = uThr - .02 + uErode*(.55 + .35*ssm(.2,1,d))` | `material.erosion.curve` sampled on the LAYER's own progress as the mask threshold, plus `material.erosion.rimBias` | a disc has no along coordinate, so the curve keys on time and the bias on radius. Erosion leads alpha: the bands tear apart from the rim in |
+| `C_HI`/`C_PAL`/`C_LIT`/`C_MID`/`C_SHA`/`C_HAZ` against `lit = 1/(1+(d*1.95)²)` | `material.ramp.space:"radial"` | distance from the layer centre over `geometry.radius`, 0 at the core and 1 at the haze |
+| the 48 `PUFF` billboards, their `ang0` on the same 3 log-spiral arms, `w ∝ r^-0.65`, the far/near split and the `lit` bias | `kind:"blob"` with `blob.arrangement:"orbit"` — `height` the inner radius, `spread` the outer, `rise` the angular speed at the outer edge, `drift` the out-of-plane bob | the far half of the ring draws FIRST, smaller and dimmer, which is the entire oblique read. One layer is capped at `BLOB_LOBE_BUDGET`, so the exemplar uses two bands (40 + 34) — one ring of 40 at the same radius reads as a necklace |
+| `vLight = normalize(cv.xy - mv.xy)` and the `0.78 + 0.80*vLit` falloff | `blob.lightFrom.{layerId,position,falloff}` | a fake POINT light: a direction per lobe, not per document. Anything that circles something bright wants it; a parallel toon light lights the far side of the ring the same as the near |
+| the 120 `FLECK` orbits, `w = .42·r^-0.5`, the bob and the tumble | a `particles` layer with `emitter.shape.type:"orbit"` and `emitter.velocity.mode:"orbit"` | `velocity.speed[1]` is the angular rate at the outer edge and `speed[0]` the bob |
+| `coreHalo` / `coreDisc` / `skyGlow` / the sky gradient | two `softRadial` sprites, a `decal` and `environment.background` | |
+| `CY`, `R0`, `TILT_X/Y`, the schedule and the palette | the exemplar | `fixtures/v2/sky-vortex/document.json` |
+
+Deliberately not ported: the spike's separate `haze` shader (the same `swirlDisc` at two arms, a
+wide width and a low opacity is the same card), its per-layer debug toggles, and the puffs'
+gaussian alpha — a lobe has a hard silhouette by construction, and two toon bands rather than
+three is what keeps it reading as a billow instead of as fruit.
+
+## 13. Meteor rain → schema (Phase G, 2026-09-14)
+
+The eleventh spike (`frontend/dev-assets/vfx-v2/spike-meteor.html`, source
+`docs/vfx-lab/spike-meteor-reference.js.txt`) is the one that finally made the **path a clock**.
+Its five descents each have a `t0`, a `flight` and a `tImp`, and every one of the twenty-odd things
+that happen at a landing reads `tImp`. Writing those times into a document by hand means redoing
+all of them the moment a descent is retimed, and one missed edit puts a flash under nothing. So the
+port reads the moment back OFF the path.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `METEORS[i].{start,imp,t0,flight,dir,len}` and `tipAt(m,s)` | `paths[{id,type:"line",from,to}]` ×5 | the flight is the geometry, and it is the only place a descent is written down |
+| `uOf(s) = .76s + .24s²` | `blob.head` (and the tips' `velocity.speedCurve`) | one curve, inverted in closed form, gives every anchor its birth AND every event its moment |
+| the 22-anchor × 3-lobe `trail[]` table, `L.tr.{anchor,birth,life,R0,back,rise,grow}` | `kind:"blob"` with `blob.arrangement:"path"` + `blob.{pathId,head,perAnchor}` | a GENERATOR: anchor k owns u = (k+0.55)/anchors and is born the instant the head passes it, its lobes offset in the PATH's own frame (back along the tangent, up, across). Slot 0 is the smoother CORE lobe. `rise` lifts a lobe off the path and `drift` pulls it back along it, both on √age — the spike's equations unchanged |
+| `tailCut = 1 - ss(T_OUT0-.3+s*1.1, T_OUT0+.9+s*1.1, t)` | `blob.retract.{from,to,alongBias}` | the window SLIDES with the anchor's own u, so the column clears in the order it was made. `alongBias` 1 eats it from the sky end down |
+| `TIP_FRAG`'s teardrop core, hemisphere halo and `fract(u*20 - t*8)` dashes | `material.procedural:"teardropStreak"` + `proceduralParams` [dash frequency, dash scroll, core tightness, halo reach] | a billboard silhouette on a velocity-stretched sprite. The quad's LONG axis is uv.y, because that is the axis `render.stretch` elongates |
+| the tip's `uPos = tipAt(m,s)` with the card centred on it | `emitter.render.anchor:"head"` | the LEADING point of the stretched card sits on the instance, so the streak trails behind the tip. Without it the meteor sits in the middle of its own speed lines |
+| the 6 `wakes` per meteor at fixed `s` | folded into the tip layer: 30 instances on one shared `velocity.mode:"alongPath"` head envelope, each lagging by its own hashed offset out of `velocity.speed` | a lag band of 0.05 of the path fuses them into ONE streak with a bright leading point; 0.22 breaks it into beads, which is what the first round drew |
+| `flashes[i]`, `rings[i]`, `burst[]`'s `birth = m.tImp + …` | `layer.window.{at:{pathId,u:1}}` | the layer's start becomes the moment that path's head reaches u, and `layer.start` is read as an OFFSET from it. Resolved once when the document loads (`events-v2.ts`), so the renderer, the framing pass and the capture path all agree |
+| `debrisMat.uniforms.uTimp[]` / `uImp[]` and the `aMet` per-instance meteor index | `emitter.spawn.mode:"event"` + `spawn.originsFromPath` with NO `shape.pathId` | instance i takes document path i % paths.length, so a SINGLE debris layer covers all five impacts. The (origin, moment) pair is one instance attribute, computed on the CPU from the paths — not five path uniform packs in the shader |
+| `N_BURST` pale lobes on an expanding ring with the comma deformation | a `kind:"blob"` `ring` per impact, `comma` set, `window`ed onto its own path | |
+| the ground shader's `uTip`/`uTipI` violet pool and `uFlash`/`uScorch` | `environment.groundPool[{shape:"disc",radius,color,intensity}]` ×5 | a pool may also name `followsLayerId` and read that layer's LIVE transform, which is the travelling half of the spike's `uTip` |
+| the fan positions, the palette, the 0.45 s stagger | the exemplar | `fixtures/v2/meteor-rain/document.json` — and with it, the LAST code-built recipe left `recipes-v2.ts`. Every family is now a fixture |
+
+Deliberately not ported: the spike's separate `WAKE_FRAG` quads (the lag band covers them), its
+`spikeImpactScreen` debug hook, the flat additive shock-ring disc (the event-spawned flash
+population reads the same at this scale) and the per-meteor scorch — `groundPool`'s own intensity
+curve carries the lingering stain.
+
+### What the three ports agreed on
+
+All three replaced a per-frame CPU table with a closed-form field: the portal's rim is one SDF
+instead of four bars, the vortex's arms are a coordinate shear instead of a rotation, and the
+meteor's impacts are a curve inversion instead of a time table. In each case the version that
+stores nothing is also the shorter one, and it is the only version a seek can land inside.

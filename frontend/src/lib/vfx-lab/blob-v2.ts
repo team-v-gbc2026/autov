@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import type { Blob, BlobArrangement } from "./schema-v2";
+import { invertCurve, pathPoint, pathTangent } from "./paths-v2";
+import type { Blob, BlobArrangement, PathV2 } from "./schema-v2";
 
 // ---------------------------------------------------------------------------
 // The blob generator: `layer.blob` -> a table of lobes, and every lobe's state
@@ -48,6 +49,19 @@ export interface Lobe {
   frequency: number;
   /** Draw order inside the layer: filler lobes sit behind the pairs. */
   depth: number;
+  /**
+   * arrangement "orbit": the ring lane this lobe rides. `radius` is its own
+   * lane, `omega` its angular speed in radians a second (r^-0.65, so the inner
+   * lane laps the outer one), `phase` where it starts and `bob` how far it
+   * wanders out of the ring plane.
+   */
+  orbit: { radius: number; omega: number; phase: number; bob: number } | null;
+  /**
+   * arrangement "path": the path parameter this lobe is anchored at, and its
+   * offset in the path's own frame (back along the tangent, up, across).
+   */
+  along: number;
+  pathOffset: [number, number, number] | null;
 }
 
 /** The spike's hash: one deterministic uniform per (seed, index, channel). */
@@ -80,6 +94,10 @@ export function describeArrangement(arrangement: BlobArrangement): string {
       return "billows around the base: two tiers of lobes on a ring of radius `spread`, drifting outward, centre left open";
     case "string":
       return "thin vertical chain of wisps, alternating left/right and swaying, each smaller and shorter-lived than the last";
+    case "orbit":
+      return "lobes on a ring band between `height` (inner) and `spread` (outer) in the layer's own XY plane, orbiting at r^-0.65 so the inner lane laps the outer one; the far half of the ring draws first, smaller and dimmer";
+    case "path":
+      return "lobes anchored at fixed parameters of blob.pathId, born as blob.head passes them and drifting back along the path, up and across it; slot 0 of each anchor is the smoother core lobe";
   }
 }
 
@@ -91,18 +109,20 @@ export function describeArrangement(arrangement: BlobArrangement): string {
  * lobes higher AND later, so the cluster grows on screen instead of appearing
  * whole; `ring` and `mound` spread their lobes around instead.
  */
-function place(blob: Blob, i: number) {
+function place(blob: Blob, i: number, path: PathV2 | null) {
   const { count, spread, height } = blob;
   const h0 = hash(blob.seed, i, 0);
   const h1 = hash(blob.seed, i, 1);
   const h2 = hash(blob.seed, i, 2);
-  let base: [number, number, number];
+  let base: [number, number, number] = [0, 0, 0];
   // 0..1 along whatever the arrangement's principal axis is; drives the radius
   // taper, the rise scale and the birth order.
-  let along: number;
+  let along = 0;
   let riseScale = 1;
   let radiusScale = 1;
   let depth = 1;
+  let orbit: Lobe["orbit"] = null;
+  let pathOffset: [number, number, number] | null = null;
 
   switch (blob.arrangement) {
     case "mound": {
@@ -177,30 +197,84 @@ function place(blob: Blob, i: number) {
       depth = 1;
       break;
     }
+    case "orbit": {
+      // A ring BAND, not a ring: the lane is hashed inside [height, spread] on
+      // a sqrt so the population is even in area rather than in radius, and the
+      // angular speed falls off as r^-0.65 so the lanes shear past each other.
+      const inner = Math.min(height, spread * 0.98);
+      const r = inner + (spread - inner) * Math.sqrt(h0);
+      const phase = h1 * Math.PI * 2;
+      base = [Math.cos(phase) * r, Math.sin(phase) * r, 0];
+      orbit = {
+        radius: r,
+        omega: Math.pow(Math.max(r, 1e-3) / Math.max(spread, 1e-3), -0.65),
+        phase,
+        bob: (h2 - 0.5) * blob.drift,
+      };
+      // 1 at the inner edge, 0 at the outer one: the inner lobes are the lit,
+      // slightly larger ones, exactly as the lanes read against a hot core.
+      along = 1 - clamp01((r - inner) / Math.max(spread - inner, 1e-3));
+      radiusScale = 0.82 + 0.36 * h1;
+      depth = 1;
+      break;
+    }
+    case "path": {
+      // Anchor k owns u = (k + 0.55)/anchors; its `perAnchor` lobes are offset
+      // in the path's OWN frame so the trail is a thick chunky column rather
+      // than a string of beads on a line.
+      const per = Math.max(1, blob.perAnchor);
+      const anchors = Math.max(1, Math.ceil(count / per));
+      const k = Math.min(anchors - 1, Math.floor(i / per));
+      const slot = i % per;
+      const u = (k + 0.55) / anchors;
+      const core = slot === 0;
+      const point = path ? pathPoint(path, u) : [0, 0, 0];
+      base = [point[0], point[1], point[2]];
+      // (back along the tangent, up, across), in metres.
+      pathOffset = [
+        (h2 - 0.5) * (core ? 0.1 : 0.3) * spread,
+        (h1 - 0.5) * (core ? 0.18 : 0.62) * spread,
+        (h0 - 0.5) * (core ? 0.2 : 0.78) * spread,
+      ];
+      along = u;
+      // The trail thins toward the tail it came from.
+      radiusScale = (core ? 1.26 : 1) * (0.62 + 0.5 * (1 - u));
+      depth = core ? 0 : 1;
+      break;
+    }
   }
-  return { base, along, riseScale, radiusScale, depth, h0, h1, h2 };
+  return { base, along, riseScale, radiusScale, depth, orbit, pathOffset, h0, h1, h2 };
 }
 
 /**
  * The whole lobe table for one blob spec. Pure in (blob); the caller is
  * expected to build it once per document, not per frame.
  */
-export function blobLobes(blob: Blob): Lobe[] {
+export function blobLobes(blob: Blob, path: PathV2 | null = null): Lobe[] {
   const lobes: Lobe[] = [];
   // `mound` and `ring` spread out sideways, so their lobes are born in index
   // order; `column` and `string` build upward, so theirs are born by height.
   for (let i = 0; i < blob.count; i++) {
-    const p = place(blob, i);
+    const p = place(blob, i, path);
     const order = blob.count > 1 ? i / (blob.count - 1) : 0;
+    // A path blob is born by the HEAD, not by the stagger: anchor k appears the
+    // instant blob.head passes its own u, which is the whole point of anchoring
+    // a trail instead of trailing it.
+    const headBirth =
+      blob.arrangement === "path" && blob.head
+        ? clamp01(invertCurve(blob.head, p.along))
+        : null;
     const birth =
       blob.arrangement === "column" || blob.arrangement === "string"
         ? p.along
         : order;
     // A little hashed slack on the stagger so a row never pops in lockstep.
     const t0 =
-      blob.stagger[0] +
-      (blob.stagger[1] - blob.stagger[0]) *
-        clamp01(birth + (p.h2 - 0.5) * 0.12);
+      headBirth !== null
+        ? headBirth
+        : blob.stagger[0] +
+          (blob.stagger[1] - blob.stagger[0]) *
+            clamp01(birth + (p.h2 - 0.5) * 0.12);
     // Stacks taper toward the top; clusters just vary.
     const taperRadius =
       blob.arrangement === "column" || blob.arrangement === "string"
@@ -244,6 +318,9 @@ export function blobLobes(blob: Blob): Lobe[] {
       amplitude: blob.bump.amplitude * (p.depth === 0 ? 0.55 : 1),
       frequency: blob.bump.frequency * (p.depth === 0 ? 0.8 : 1),
       depth: p.depth,
+      orbit: p.orbit,
+      along: p.along,
+      pathOffset: p.pathOffset,
     });
   }
   return lobes;
@@ -274,6 +351,7 @@ export function lobeStateAt(
   age: number,
   span: number,
   opaqueUntil: number | null,
+  path: PathV2 | null = null,
 ): LobeState {
   const a = (age - lobe.t0 * span) / Math.max(lobe.life, 1e-4);
   if (!(a > 0 && a < 1))
@@ -285,26 +363,78 @@ export function lobeStateAt(
       alpha: 0,
       fading: false,
     };
-  const radius =
+  let radius =
     lobe.radius *
     easeOutCubic(Math.min(a * blob.grow, 1)) *
     (1 - smoothstep(0.7, 1, a));
   const sa = Math.sqrt(a);
   const cut = opaqueUntil ?? 1;
-  return {
-    alive: true,
-    age: a,
-    position: [
+  let alpha = opaqueUntil === null ? 1 : 1 - smoothstep(cut, 1, a);
+  let position: [number, number, number];
+  if (lobe.orbit) {
+    // A closed-form orbit: the lane's own angle plus omega * layer seconds, and
+    // an out-of-plane bob on its own hashed rate. Nothing accumulates.
+    // blob.rise is the angular speed at the OUTER edge, in radians a second.
+    const theta = lobe.orbit.phase + age * lobe.orbit.omega * blob.rise;
+    position = [
+      Math.cos(theta) * lobe.orbit.radius,
+      Math.sin(theta) * lobe.orbit.radius,
+      lobe.orbit.bob * Math.sin(age * 0.9 + lobe.orbit.phase),
+    ];
+  } else if (lobe.pathOffset && path) {
+    // The lobe holds the anchor it was born at and drifts back along the path,
+    // up and across it — all on sqrt(a), which is what reads as billowing.
+    const tangent = pathTangent(path, lobe.along);
+    const side = orthoTangent(tangent);
+    const up: [number, number, number] = [
+      side[1] * tangent[2] - side[2] * tangent[1],
+      side[2] * tangent[0] - side[0] * tangent[2],
+      side[0] * tangent[1] - side[1] * tangent[0],
+    ];
+    const back = -blob.drift * sa + lobe.pathOffset[0];
+    const lift = blob.rise * sa + lobe.pathOffset[1];
+    const across = lobe.pathOffset[2];
+    position = [
+      lobe.base[0] + tangent[0] * back + up[0] * lift + side[0] * across,
+      lobe.base[1] + tangent[1] * back + up[1] * lift + side[1] * across,
+      lobe.base[2] + tangent[2] * back + up[2] * lift + side[2] * across,
+    ];
+  } else {
+    position = [
       lobe.base[0] +
         lobe.drift[0] * sa +
         lobe.sway[0] * Math.sin(lobe.sway[1] * a + lobe.sway[2]),
       lobe.base[1] + lobe.rise * a - 0.5 * lobe.gravity * a * a,
       lobe.base[2] + lobe.drift[1] * sa,
-    ],
+    ];
+  }
+  // The trail retracts from one end over the LAYER's own progress, so the whole
+  // column thins away in order instead of every lobe dying at once.
+  if (blob.retract && span > 1e-6) {
+    const u = clamp01(age / span);
+    const shift =
+      blob.retract.alongBias * lobe.along * (blob.retract.to - blob.retract.from);
+    const keep =
+      1 - smoothstep(blob.retract.from + shift, blob.retract.to + shift, u);
+    radius *= 0.35 + 0.65 * keep;
+    alpha *= keep;
+  }
+  return {
+    alive: true,
+    age: a,
+    position,
     radius: Math.max(radius, 1e-4),
-    alpha: opaqueUntil === null ? 1 : 1 - smoothstep(cut, 1, a),
-    fading: a > cut,
+    alpha,
+    fading: a > cut || (blob.retract !== null && alpha < 0.995),
   };
+}
+
+/** A unit vector across `tangent`, horizontal wherever the tangent is not. */
+function orthoTangent(t: readonly number[]): [number, number, number] {
+  const x = t[2];
+  const z = -t[0];
+  const length = Math.hypot(x, z);
+  return length > 1e-5 ? [x / length, 0, z / length] : [1, 0, 0];
 }
 
 /**
@@ -313,8 +443,34 @@ export function lobeStateAt(
  * trajectory would pull the camera back until the burst filled a corner, the
  * same failure `spawnBoundsV2` avoids for particles.
  */
-export function blobBounds(blob: Blob): THREE.Vector3[] {
+export function blobBounds(blob: Blob, path: PathV2 | null = null): THREE.Vector3[] {
   const reach = blob.radius[1] * 1.4;
+  // A ring claims its own band in the layer's XY plane and nothing along +Z;
+  // an orbit that also claimed its bob would ask the camera for depth it never
+  // uses, the same way spawnBoundsV2 refuses to claim a flat ring's axis.
+  if (blob.arrangement === "orbit") {
+    const outer = blob.spread + reach;
+    const bob = Math.abs(blob.drift) + reach;
+    return [
+      new THREE.Vector3(-outer, -outer, -bob),
+      new THREE.Vector3(outer, outer, bob),
+    ];
+  }
+  // A path blob claims the path it is anchored to, plus one lobe either side.
+  if (blob.arrangement === "path" && path) {
+    const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
+    const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    for (let i = 0; i <= 16; i++) {
+      const point = new THREE.Vector3().fromArray(pathPoint(path, i / 16));
+      lo.min(point);
+      hi.max(point);
+    }
+    const pad = reach + blob.spread * 0.5;
+    return [
+      lo.subScalar(pad),
+      hi.addScalar(pad + Math.max(0, blob.rise)),
+    ];
+  }
   const lateral = blob.spread + reach + Math.abs(blob.drift) * 0.5;
   // A rising cluster claims a FIFTH of its reach: nothing, and the camera
   // frames a column at the knees; all of it, and a stack that deliberately

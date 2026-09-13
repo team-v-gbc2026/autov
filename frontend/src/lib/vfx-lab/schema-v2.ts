@@ -59,8 +59,22 @@ export const KINDS_V2 = [
   // object, never `geometry` or `emitter`.
   "arcs",
   "streakBurst",
+  // A flipped, washed copy of another mesh layer under the ground plane
+  // (layer.reflection). It draws the SOURCE layer's own geometry and material,
+  // so it can never drift out of step with what it reflects.
+  "reflection",
 ] as const;
-export const BLOB_ARRANGEMENTS = ["mound", "column", "ring", "string"] as const;
+export const BLOB_ARRANGEMENTS = [
+  "mound",
+  "column",
+  "ring",
+  "string",
+  // Lobes on a plane ring band orbiting the layer's own centre, and lobes
+  // anchored at fixed parameters of a document path. Both need a field the
+  // other arrangements do not: see BlobSchema.
+  "orbit",
+  "path",
+] as const;
 // Kinds that draw a mesh and therefore carry `geometry`.
 export const MESH_KINDS_V2 = [
   "ring",
@@ -76,7 +90,15 @@ export const BLEND_MODES_V2 = [
   "premultiplied",
   "screen",
 ] as const;
-export const RAMP_SPACES = ["life", "layerTime", "surface", "height"] as const;
+export const RAMP_SPACES = [
+  "life",
+  "layerTime",
+  "surface",
+  "height",
+  // Distance from the layer centre over geometry.radius (0 centre, 1 rim):
+  // the centre-to-haze palette of a swirl disc.
+  "radial",
+] as const;
 export const PROCEDURALS_V2 = [
   "none",
   "flame",
@@ -109,6 +131,11 @@ export const PROCEDURALS_V2 = [
   // the outer halo.
   "lensFlare",
   "radialRays",
+  // A polar-swirl disc (material.swirl refines it) and the tapered speed-line
+  // cap of a velocity-stretched sprite. The first is a surface pattern on a
+  // disc, the second a billboard silhouette anchored at its leading point.
+  "swirlDisc",
+  "teardropStreak",
 ] as const;
 export const GEOMETRIES_V2 = [
   "auto",
@@ -132,6 +159,11 @@ export const GEOMETRIES_V2 = [
   // and geometry.slab tiers it into hard-edged bands. The readable body of a
   // beam and of an energy column.
   "slab",
+  // A rounded-rectangle frame strip: `length` is its height, `radius` its
+  // half-width and `thickness` the bar width, with geometry.frame exposing a
+  // normalised perimeter coordinate the reveal, the stripes and the beads all
+  // run along. The doorway of a portal.
+  "frame",
 ] as const;
 export const EMITTER_SHAPES = [
   "point",
@@ -153,6 +185,13 @@ export const EMITTER_SHAPES = [
   // spread across the path frame by shape.radius: the residue left lying along
   // a line after a beam has shut off, rather than an ordered row.
   "pathLine",
+  // The perimeter of a rectangle of half-extent (shape.radius, shape.length/2)
+  // in the emitter's own XY plane, with shape.interiorFraction of the
+  // population scattered INSIDE it instead: a portal's edge-biased sparks.
+  "frame",
+  // A ring band between shape.innerRadius and shape.radius in the plane
+  // perpendicular to shape.axis: the orbit lane dark flecks ride.
+  "orbit",
 ] as const;
 export const SPAWN_MODES = [
   "burst",
@@ -160,6 +199,9 @@ export const SPAWN_MODES = [
   "bursts",
   // Instance i is born the moment emitter.spawn.headCurve passes its own u.
   "pathAnchored",
+  // Instance i is born at the moment its own path's head reaches the end (the
+  // impact), staggered inside spawn.window. See spawn.originsFromPath.
+  "event",
 ] as const;
 export const VELOCITY_MODES = [
   "radial",
@@ -171,6 +213,10 @@ export const VELOCITY_MODES = [
   // progress, and velocity.speed is re-read as the per-particle lag band in
   // path units, so u = clamp(head - lag). shape.radius still scatters it.
   "alongPath",
+  // The particle CIRCLES the emitter axis at its own spawn radius: angular
+  // speed is velocity.speed[1] * r^-0.5 (so the inner lane laps the outer one),
+  // plus a small out-of-plane bob hashed per instance.
+  "orbit",
 ] as const;
 export const RENDER_MODES = [
   "billboard",
@@ -403,12 +449,15 @@ export const RgbSplitSchema = z
 //             half-size (0 centre, 1 rim) — the sigil drawing itself outward.
 //   "scan"    (1 - objectY)/2 on a unit body (0 top, 1 bottom) — the shield
 //             lattice lighting up cell by cell from the crown down.
+//   "perimeter" the frame's own perimeter coordinate (0 at bottom-centre, 1 at
+//             top-centre, mirrored in x) — a doorway drawing itself up both
+//             sides at once. geometry.type "frame" only.
 // Values outside 0..1 are allowed and are how a reveal finishes early inside a
 // longer layer: a front that has passed 1 leaves the whole surface revealed.
 // `frontWidth` is the width of the bright leading band, in the same key.
 export const RevealSchema = z
   .object({
-    mode: z.enum(["radial", "scan"]),
+    mode: z.enum(["radial", "scan", "perimeter"]),
     from: scalar(-8, 8),
     to: scalar(-8, 8),
     frontWidth: scalar(0, 1),
@@ -516,6 +565,135 @@ export const FlickerSchema = z
   .object({ rate: scalar(0.5, 60), amount: scalar(0, 1) })
   .strict();
 
+
+// --- frame rim -------------------------------------------------------------
+//
+// The double-line rim look, read off the signed distance to the frame's own
+// rounded rectangle (or to a ring's circle): a solid bar, a hot spine down the
+// middle of it, a thinner parallel line inside it, and up to three exponential
+// halo skirts around the lot.
+//
+// Colour comes from material.ramp, sampled at four fixed keys so one ramp
+// carries the whole rim: 0 is the SPINE, 0.22 the CORE bar, 0.45 the INNER
+// line and 1 the HALO. Every distance is in metres.
+export const SdfHaloSchema = z
+  .object({ falloff: scalar(0.002, 2), weight: scalar(0, 2) })
+  .strict();
+
+/** Halo skirts one rim may carry; each is one exponential in the fragment. */
+export const SDF_HALO_BUDGET_V2 = 3;
+
+export const SdfLineSchema = z
+  .object({
+    // Weight of the solid bar itself (geometry.thickness wide).
+    core: scalar(0, 2),
+    // Gaussian half-width of the hot centre line, in metres. 0 is no spine.
+    spine: scalar(0, 0.5),
+    // Metres inside the centreline the thinner parallel line sits, and its own
+    // gaussian half-width. A width of 0 is no inner line.
+    innerOffset: scalar(0, 1),
+    innerWidth: scalar(0, 0.5),
+    halo: z.array(SdfHaloSchema).max(SDF_HALO_BUDGET_V2),
+  })
+  .strict();
+
+// Travelling brightness beads running the perimeter (or the ring): `count`
+// gaussian bumps at hashed offsets, sliding at `speed` perimeters a second,
+// `width` of the perimeter wide. They brighten the rim; they never draw alone.
+export const BeadsSchema = z
+  .object({
+    count: integer(0, 8),
+    speed: scalar(-4, 4),
+    width: scalar(0.005, 0.4),
+  })
+  .strict();
+
+// --- flow ------------------------------------------------------------------
+//
+// A multi-layer panning noise SURFACE: up to four value-noise fields at their
+// own scale, pan and rotation, mixed by `mix` (weights, normalised), then cut
+// into patches by `threshold`/`softness`. Set on a material it REPLACES
+// material.noise as the surface field, and a ramp of space "surface" is keyed
+// by the resulting mask instead of by the along coordinate — so stop t=0 is
+// the open surface and t=1 the patch that covers it.
+//
+// `parallax` offsets the SLOWEST layer by the view direction, which is the
+// whole reason a flat card reads as having an interior behind it.
+export const FlowLayerSchema = z
+  .object({
+    scale: scalar(0.05, 32),
+    pan: uv,
+    rotate: scalar(-Math.PI, Math.PI),
+  })
+  .strict();
+
+/** Noise layers one flow may stack; each is one value-noise fetch per pixel. */
+export const FLOW_LAYER_BUDGET_V2 = 4;
+
+export const FlowSchema = z
+  .object({
+    layers: z.array(FlowLayerSchema).min(1).max(FLOW_LAYER_BUDGET_V2),
+    mix: z.array(scalar(0, 1)).min(1).max(FLOW_LAYER_BUDGET_V2),
+    threshold: scalar(0, 1),
+    softness: scalar(0.001, 1),
+    parallax: scalar(0, 0.5),
+  })
+  .strict();
+
+// --- swirl -----------------------------------------------------------------
+//
+// The polar-swirl disc (material.procedural "swirlDisc"): angle is sheared by
+// twist/(distance + eps) so a noise field becomes spiral bands, an explicitly
+// wound log spiral makes the ARMS read, and a second, tighter, independently
+// wound spiral shades the bands from inside.
+//
+// material.proceduralParams is the disc's base shape, [twist, spin (turns a
+// second), inflow (how fast the sampled radius creeps outward), arms]; the
+// fields below refine it. `strength` is the swirl envelope over the layer's own
+// 0..1 progress: 0 is straight noise, 1 a tight spiral, so a reveal winds it up
+// and a dissipate unwinds it.
+export const SwirlBandsSchema = z
+  .object({
+    // Arms the band mask draws. Overrides proceduralParams[3] when set above 0.
+    arms: scalar(0, 12),
+    // How hard the arms wind with log(distance).
+    wind: scalar(0, 6),
+    // Width of the lit part of one arm, as a fraction of its period.
+    width: scalar(0.02, 1),
+    // How much the noise wiggles the arms off a perfect spiral.
+    warp: scalar(0, 4),
+  })
+  .strict();
+
+export const SwirlDetailSchema = z
+  .object({
+    arms: scalar(0, 24),
+    wind: scalar(0, 8),
+    warp: scalar(0, 12),
+    // How hard the detail spiral darkens the troughs it cuts.
+    contrast: scalar(0, 2),
+  })
+  .strict();
+
+// The cauliflower edge: two noise octaves at these scales, mixed in at
+// `amount`, which is what breaks the mask's rim into lobes instead of a circle.
+export const SwirlLobeSchema = z
+  .object({
+    scale1: scalar(0.1, 12),
+    scale2: scalar(0.1, 24),
+    amount: scalar(0, 2),
+  })
+  .strict();
+
+export const SwirlSchema = z
+  .object({
+    bands: SwirlBandsSchema,
+    detail: SwirlDetailSchema,
+    lobe: SwirlLobeSchema,
+    strength: CurveSchema,
+  })
+  .strict();
+
 export const MaterialSchema = z
   .object({
     blend: z.enum(BLEND_MODES_V2),
@@ -571,6 +749,13 @@ export const MaterialSchema = z
       .nullable()
       .default(null),
     flicker: FlickerSchema.nullable().default(null),
+    // The portal/vortex vocabulary. All defaulted, so archived documents load
+    // unchanged: the double-line rim and its beads on a frame or a ring, the
+    // multi-layer panning flow surface, and the polar swirl of a disc.
+    sdfLine: SdfLineSchema.nullable().default(null),
+    beads: BeadsSchema.nullable().default(null),
+    flow: FlowSchema.nullable().default(null),
+    swirl: SwirlSchema.nullable().default(null),
   })
   .strict();
 
@@ -596,6 +781,9 @@ export const EmitterShapeSchema = z
     // spec (crystals, blob), so the sites are closed form and independent of
     // draw order. Ignored by every other shape.
     sourceLayerId: z.string().max(48).nullable().default(null),
+    // Shape "frame" only: the fraction of the population scattered INSIDE the
+    // rectangle instead of on its perimeter. 0 is a pure rim spray.
+    interiorFraction: scalar(0, 1).default(0),
   })
   .strict();
 
@@ -615,6 +803,14 @@ export const SpawnSchema = z
     // and is born the moment this curve passes it — the curve is inverted in
     // closed form, so the birth table is never stored. Must be non-decreasing.
     headCurve: CurveSchema.nullable().default(null),
+    // Spawn mode "event": every instance is born at the moment a path's head
+    // reaches the END of that path, and takes the path's end point as its
+    // ORIGIN. With emitter.shape.pathId set, every instance uses that one path;
+    // with it null, instance i takes document path i % paths.length, so one
+    // layer covers every impact in the document. The stagger inside the event
+    // is spawn.window, hashed per instance. Defaulted, so archived documents
+    // load unchanged.
+    originsFromPath: z.boolean().default(false),
   })
   .strict();
 
@@ -716,6 +912,12 @@ export const ParticleRenderSchema = z
     // render.mode "flatStrip" only. Defaulted, so archived documents load
     // unchanged.
     strip: StripSchema.nullable().default(null),
+    // Where the quad sits relative to the instance position. "center" is the
+    // ordinary billboard; "head" puts the LEADING point of a
+    // velocity-stretched sprite at the instance, so the card trails behind it —
+    // which is what a speed-line cap needs (the tip is the meteor, the streak
+    // is where it has been). Defaulted, so archived documents load unchanged.
+    anchor: z.enum(["center", "head"]).default("center"),
   })
   .strict();
 
@@ -812,6 +1014,20 @@ export const SlabSchema = z
   })
   .strict();
 
+// geometry.type "frame": a rounded-rectangle strip standing in the layer's own
+// XY plane. geometry.length is its HEIGHT, geometry.radius its HALF-WIDTH and
+// geometry.thickness the width of the bar itself; `corner` is the corner round
+// in metres. The strip exposes a normalised PERIMETER coordinate — 0 at
+// bottom-centre, 1 at top-centre, mirrored in x — which material.reveal
+// (mode "perimeter"), material.stripes and material.beads all run along, so a
+// doorway draws itself up both sides at once from one field.
+export const FrameSchema = z
+  .object({
+    corner: scalar(0, 1),
+    perimeterOrigin: z.literal("bottom"),
+  })
+  .strict();
+
 export const GeometryV2Schema = z
   .object({
     type: z.enum(GEOMETRIES_V2),
@@ -836,6 +1052,9 @@ export const GeometryV2Schema = z
     // type "slab" only: how the billboard bar is anchored and tiered.
     // Defaulted, so archived documents load unchanged.
     slab: SlabSchema.nullable().default(null),
+    // type "frame" only: the corner round and where the perimeter coordinate
+    // starts. Defaulted, so archived documents load unchanged.
+    frame: FrameSchema.nullable().default(null),
   })
   .strict();
 
@@ -1035,6 +1254,21 @@ export const CollapseSchema = z
 //            `spread` in the XZ plane, drifting outward; the centre stays open.
 //   "string" a thin vertical chain of wisps: alternating left/right, laddered
 //            up over `height`, each shorter-lived and smaller than the last.
+//   "orbit"  lobes on a ring BAND in the layer's own XY plane, between radius
+//            `height` (the inner edge) and `spread` (the outer one), each
+//            orbiting at an angular speed proportional to r^-0.65 so the inner
+//            lane laps the outer one. `rise` is re-read as the angular speed at
+//            the outer edge in radians a second, and `drift` as the
+//            out-of-plane bob.
+//            Sizes are hashed inside blob.radius, and the half of the ring
+//            currently FURTHER from the camera is drawn first, smaller and
+//            dimmer, which is what gives a tilted ring its oblique read.
+//   "path"   lobes anchored at fixed parameters of blob.pathId: anchor k owns
+//            u = (k + 0.55)/anchors and its `perAnchor` lobes are born the
+//            moment blob.head passes it, then drift back along the path, up,
+//            and across it. Slot 0 of each anchor is the CORE lobe — smaller
+//            bumps, a wider radius — and the rest are the ragged shell around
+//            it. blob.retract then pulls the trail in from one end.
 export const BlobBumpSchema = z
   .object({
     amplitude: scalar(0, 0.6),
@@ -1062,11 +1296,15 @@ export const BlobSchema = z
     spread: scalar(0, 8),
     // Vertical extent of the cluster at birth, in metres.
     height: scalar(0, 12),
-    // Metres the top of the cluster travels up over one lobe life.
+    // Metres the top of the cluster travels up over one lobe life. On an
+    // "orbit" it is the angular speed at the outer edge (radians a second); on
+    // a "path" it is how far a lobe lifts off the path over its own life.
     rise: scalar(-12, 20),
     // Downward pull on that arc: y = rise*a - gravity*a*a/2.
     gravity: scalar(-20, 20),
-    // Metres a lobe drifts outward from the cluster axis, on sqrt(a).
+    // Metres a lobe drifts outward from the cluster axis, on sqrt(a). On an
+    // "orbit" it is the out-of-plane bob; on a "path" it is how far a lobe
+    // drifts BACK along the path from the anchor it was born at.
     drift: scalar(-8, 8),
     // Grow rate: a lobe reaches full radius after 1/grow of its life.
     grow: scalar(1, 12),
@@ -1077,6 +1315,40 @@ export const BlobSchema = z
     squash: scalar(0.3, 3),
     bump: BlobBumpSchema,
     comma: BlobCommaSchema.nullable(),
+    // arrangement "path" only: the curve the anchors sit on, how many lobes
+    // each anchor carries and where the head is along the path over the
+    // layer's own 0..1 progress (an anchor is born the moment the head passes
+    // it). All defaulted, so archived documents load unchanged.
+    pathId: PathIdSchema.nullable().default(null),
+    head: CurveSchema.nullable().default(null),
+    perAnchor: integer(1, 4).default(1),
+    // arrangement "path" only: the tail retracts from `from` to `to` of the
+    // LAYER's own 0..1 progress, and `alongBias` decides from which end —
+    // 0 shrinks the whole trail together, 1 eats it from the start of the path
+    // (the sky) toward the end (the ground).
+    retract: z
+      .object({
+        from: scalar(0, 1),
+        to: scalar(0, 1),
+        alongBias: scalar(0, 2),
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    // A fake point light the lobes are shaded toward, instead of the parallel
+    // world light material.toon carries: `layerId` follows another layer's
+    // live transform, `position` is a fixed point, and brightness falls off as
+    // 1/(1 + (distance * falloff)^2). Defaulted, so archived documents load
+    // unchanged.
+    lightFrom: z
+      .object({
+        layerId: z.string().max(48).nullable(),
+        position: vec3,
+        falloff: scalar(0, 4),
+      })
+      .strict()
+      .nullable()
+      .default(null),
   })
   .strict();
 
@@ -1198,6 +1470,46 @@ export const WireBurstSchema = z
   })
   .strict();
 
+// --- reflection ------------------------------------------------------------
+//
+// A flipped, washed copy of another MESH layer under the ground plane: what a
+// polished floor catches. The reflection draws the source layer's own geometry
+// and material, mirrored about environment.groundY, so it can never drift out
+// of step with what it reflects — a reflection layer carries no geometry and no
+// material of its own.
+//
+// `scale` squashes the copy vertically (a wet floor foreshortens what it
+// reflects), `blur` fades it with depth below the plane, `opacity` is the
+// overall wash and `tint` the colour it is mixed toward.
+export const ReflectionSchema = z
+  .object({
+    sourceLayerId: z.string().max(48),
+    axis: z.literal("y"),
+    scale: scalar(0.05, 1),
+    blur: scalar(0, 1),
+    opacity: scalar(0, 1),
+    tint: hex,
+  })
+  .strict();
+
+// --- event windows ---------------------------------------------------------
+//
+// A layer whose start is an EVENT rather than a clock time: `at` names a path
+// and a position along it, and the layer starts the moment that path's head
+// reaches it. The head is whichever layer drives that path (a blob's
+// blob.head, a path-anchored emitter's spawn.headCurve or a ribbon's
+// window.head), so a flash, a ring and a debris burst follow the thing that
+// caused them without any of them carrying a hard-coded time.
+//
+// layer.start is then read as an OFFSET from that moment and layer.end keeps
+// the layer's authored duration. A window that cannot be resolved (no path, no
+// head) leaves the layer's authored start and end alone.
+export const LayerWindowSchema = z
+  .object({
+    at: z.object({ pathId: PathIdSchema, u: scalar(0, 1) }).strict(),
+  })
+  .strict();
+
 // --- layer -----------------------------------------------------------------
 
 // Stepped-hash positional jitter on ANY layer: the transform jumps by up to
@@ -1271,6 +1583,9 @@ export const LayerV2Schema = z
     // One uniform retraction of the whole layer, whatever the kind. Defaulted,
     // so archived documents load unchanged.
     collapse: CollapseSchema.nullable().default(null),
+    // The layer's start is an event on a path rather than a clock time.
+    // Defaulted, so archived documents load unchanged.
+    window: LayerWindowSchema.nullable().default(null),
     material: MaterialSchema.optional(),
     emitter: EmitterSchema.optional(),
     geometry: GeometryV2Schema.optional(),
@@ -1282,6 +1597,7 @@ export const LayerV2Schema = z
     crystals: CrystalsSchema.optional(),
     arcs: ArcsSchema.optional(),
     streakBurst: StreakBurstSchema.optional(),
+    reflection: ReflectionSchema.optional(),
     tracks: z.array(TrackV2Schema).max(16),
     overrides: z.array(OverrideV2Schema).max(64),
   })
@@ -1298,6 +1614,28 @@ export const QualitySchema = z
   })
   .strict();
 
+// Analytic pools of light in the ground shader: the footprint a portal, a
+// column or a falling meteor throws on the floor, without a real light and
+// without a decal. Each pool sits at `position`, or follows the live transform
+// of `followsLayerId`; `shape` is a disc or a rectangle of half-extent
+// (radius * anisotropy, radius); `intensity` is a curve over the DOCUMENT's own
+// 0..1 progress.
+export const GroundPoolSchema = z
+  .object({
+    followsLayerId: z.string().max(48).nullable(),
+    position: vec3,
+    shape: z.enum(["disc", "rect"]),
+    radius: scalar(0.05, 12),
+    // Half-extent across the pool as a multiple of `radius`; 1 is round.
+    anisotropy: scalar(0.05, 8),
+    color: hex,
+    intensity: CurveSchema,
+  })
+  .strict();
+
+/** Ground pools one document may declare; each is one gaussian per pixel. */
+export const GROUND_POOL_BUDGET_V2 = 6;
+
 export const EnvironmentSchema = z
   .object({
     ground: z.enum(["none", "grid", "plane"]),
@@ -1311,6 +1649,13 @@ export const EnvironmentSchema = z
     groundY: scalar(-4, 0),
     fog: z.object({ color: hex, density: scalar(0, 0.2) }).strict(),
     background: hex,
+    // Analytic pools in the ground shader. Defaulted, so archived documents
+    // load unchanged.
+    groundPool: z
+      .array(GroundPoolSchema)
+      .max(GROUND_POOL_BUDGET_V2)
+      .nullable()
+      .default(null),
   })
   .strict();
 
@@ -1451,6 +1796,14 @@ export type PlaneGlow = z.infer<typeof PlaneGlowSchema>;
 export type Ripple = z.infer<typeof RippleSchema>;
 export type Band = z.infer<typeof BandSchema>;
 export type Jitter = z.infer<typeof JitterSchema>;
+export type Frame = z.infer<typeof FrameSchema>;
+export type SdfLine = z.infer<typeof SdfLineSchema>;
+export type Beads = z.infer<typeof BeadsSchema>;
+export type Flow = z.infer<typeof FlowSchema>;
+export type Swirl = z.infer<typeof SwirlSchema>;
+export type Reflection = z.infer<typeof ReflectionSchema>;
+export type LayerWindow = z.infer<typeof LayerWindowSchema>;
+export type GroundPool = z.infer<typeof GroundPoolSchema>;
 export type Twinkle = z.infer<typeof TwinkleSchema>;
 export type RgbSplit = z.infer<typeof RgbSplitSchema>;
 export type Glitch = z.infer<typeof GlitchSchema>;
@@ -1633,6 +1986,25 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "streakBurst.curvature": [0, 1],
   "streakBurst.upBias": [-1, 1],
   "streakBurst.bundleSpread": [0, 2],
+  "material.sdfLine.core": [0, 2],
+  "material.sdfLine.spine": [0, 0.5],
+  "material.sdfLine.innerWidth": [0, 0.5],
+  "material.sdfLine.halo[0].weight": [0, 2],
+  "material.sdfLine.halo[1].weight": [0, 2],
+  "material.sdfLine.halo[2].weight": [0, 2],
+  "material.beads.speed": [-4, 4],
+  "material.beads.width": [0.005, 0.4],
+  "material.flow.threshold": [0, 1],
+  "material.flow.softness": [0.001, 1],
+  "material.flow.parallax": [0, 0.5],
+  "material.swirl.bands.width": [0.02, 1],
+  "material.swirl.bands.wind": [0, 6],
+  "material.swirl.detail.contrast": [0, 2],
+  "material.swirl.lobe.amount": [0, 2],
+  "geometry.frame.corner": [0, 1],
+  "blob.perAnchor": [1, 4],
+  "reflection.opacity": [0, 1],
+  "reflection.scale": [0.05, 1],
 };
 
 const COLOR_TARGETS = new Set<string>([
@@ -1662,6 +2034,7 @@ const COLOR_TARGETS = new Set<string>([
   "geometry.slab.tiers[1].color",
   "geometry.slab.tiers[2].color",
   "geometry.slab.tiers[3].color",
+  "reflection.tint",
 ]);
 
 export const BUILTIN_TEXTURE_IDS: ReadonlySet<string> = new Set(
@@ -1720,6 +2093,25 @@ function materialCurves(material: Material, label: string) {
     throw new Error(
       `Lattice gap is not narrower than its edge, so no wall is drawn: ${label}`,
     );
+  // One weight per noise layer: a mix the flow cannot apply is a silent typo.
+  if (material.flow) {
+    if (material.flow.mix.length !== material.flow.layers.length)
+      throw new Error(
+        `material.flow needs one mix weight per layer: ${label}`,
+      );
+    if (material.flow.mix.every((w) => w <= 0))
+      throw new Error(`material.flow mixes to nothing: ${label}`);
+  }
+  if (material.swirl) checkCurve(material.swirl.strength, `${label}/swirl.strength`);
+  // A rim with no bar, no spine, no inner line and no halo draws nothing.
+  if (
+    material.sdfLine &&
+    material.sdfLine.core <= 0 &&
+    material.sdfLine.spine <= 0 &&
+    material.sdfLine.innerWidth <= 0 &&
+    !material.sdfLine.halo.some((h) => h.weight > 0)
+  )
+    throw new Error(`material.sdfLine has no lit term: ${label}`);
 }
 
 function crystalChecks(crystals: Crystals, label: string) {
@@ -1755,6 +2147,28 @@ function blobChecks(blob: Blob, label: string) {
   checkRange(blob.radius, `${label}/blob.radius`);
   checkRange(blob.stagger, `${label}/blob.stagger`);
   checkRange(blob.life, `${label}/blob.life`);
+  if (blob.arrangement === "path") {
+    if (!blob.pathId)
+      throw new Error(`A "path" blob needs blob.pathId: ${label}`);
+    if (!blob.head)
+      throw new Error(
+        `A "path" blob needs blob.head, the head's position along the path: ${label}`,
+      );
+    checkCurve(blob.head, `${label}/blob.head`);
+    for (let i = 1; i < blob.head.keys.length; i++)
+      if (blob.head.keys[i][1] < blob.head.keys[i - 1][1])
+        throw new Error(`Blob head curve must not run backwards: ${label}`);
+  } else if (blob.pathId || blob.head) {
+    throw new Error(
+      `blob.pathId and blob.head are for arrangement "path" only: ${label}`,
+    );
+  }
+  if (blob.arrangement === "orbit" && blob.height >= blob.spread)
+    throw new Error(
+      `An "orbit" blob needs blob.height (the inner radius) under blob.spread (the outer one): ${label}`,
+    );
+  if (blob.retract && blob.retract.from > blob.retract.to)
+    throw new Error(`blob.retract runs backwards: ${label}`);
 }
 
 function splashChecks(splash: Splash, label: string) {
@@ -1834,6 +2248,22 @@ function emitterChecks(emitter: Emitter, label: string) {
       `render.strip is for render.mode "flatStrip" only: ${label}`,
     );
   }
+  // A ring band with no width is a circle, which shape "ring" already is.
+  if (
+    emitter.shape.type === "orbit" &&
+    emitter.shape.innerRadius >= emitter.shape.radius
+  )
+    throw new Error(
+      `An "orbit" emitter needs shape.innerRadius under shape.radius: ${label}`,
+    );
+  if (emitter.velocity.mode === "orbit" && emitter.shape.type !== "orbit")
+    throw new Error(
+      `velocity.mode "orbit" needs emitter.shape.type "orbit": ${label}`,
+    );
+  if (emitter.spawn.mode === "event" && !emitter.spawn.originsFromPath)
+    throw new Error(
+      `spawn.mode "event" needs spawn.originsFromPath: the event IS the path's end: ${label}`,
+    );
   if (emitter.shape.type === "layerInstances" && !emitter.shape.sourceLayerId)
     throw new Error(
       `Layer-instance emitter shape needs shape.sourceLayerId: ${label}`,
@@ -1887,6 +2317,7 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
 
   const ids = new Set<string>();
   const particleLayers = new Set<string>();
+  const meshLayers = new Set<string>();
   // Kinds whose instances are hashed out of their own spec, so another layer
   // can borrow their sites without depending on draw order.
   const generatorLayers = new Set<string>();
@@ -1897,12 +2328,40 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     if (layer.kind === "particles") particleLayers.add(layer.id);
     if (layer.kind === "crystals" || layer.kind === "blob")
       generatorLayers.add(layer.id);
+    if ((MESH_KINDS_V2 as readonly string[]).includes(layer.kind))
+      meshLayers.add(layer.id);
+  }
+  // A ground pool may follow any layer's live transform.
+  for (const pool of doc.environment.groundPool ?? []) {
+    checkCurve(pool.intensity, `environment.groundPool/${pool.followsLayerId ?? "fixed"}`);
+    if (pool.followsLayerId && !ids.has(pool.followsLayerId))
+      throw new Error(`Missing ground pool layer: ${pool.followsLayerId}`);
   }
 
   for (const layer of doc.layers) {
     const label = layer.id;
     if (layer.start >= layer.end || layer.end > doc.duration)
       throw new Error(`Invalid interval: ${label}`);
+
+    // An event window only means anything when the path it names exists.
+    if (layer.window) pathExists(layer.window.at.pathId, label);
+
+    if (layer.kind === "reflection") {
+      if (!layer.reflection)
+        throw new Error(`Reflection layer needs reflection: ${label}`);
+      if (layer.material || layer.emitter || layer.geometry)
+        throw new Error(
+          `A reflection draws its SOURCE layer's geometry and material: ${label}`,
+        );
+      if (layer.reflection.sourceLayerId === layer.id)
+        throw new Error(`A reflection cannot reflect itself: ${label}`);
+      if (!meshLayers.has(layer.reflection.sourceLayerId))
+        throw new Error(
+          `Reflection source must be a mesh layer (ring/shell/trail/beam/sprite/decal): ${layer.reflection.sourceLayerId}`,
+        );
+    } else if (layer.reflection) {
+      throw new Error(`Only reflection layers carry reflection: ${label}`);
+    }
 
     if (layer.kind === "light") {
       if (!layer.light) throw new Error(`Light layer needs light: ${label}`);
@@ -1911,7 +2370,7 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
           `Light layers carry no material, emitter or geometry: ${label}`,
         );
       checkCurve(layer.light.intensity, `${label}/light.intensity`);
-    } else {
+    } else if (layer.kind !== "reflection") {
       if (layer.light)
         throw new Error(`Only light layers carry light: ${label}`);
       if (!layer.material) throw new Error(`Layer needs a material: ${label}`);
@@ -1942,6 +2401,16 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
             `Emitter source must be a crystals or blob layer: ${source}`,
           );
       }
+      // An event spawn with no path of its own spreads across every document
+      // path, so there has to be at least one.
+      if (
+        layer.emitter.spawn.originsFromPath &&
+        !layer.emitter.shape.pathId &&
+        doc.paths.length === 0
+      )
+        throw new Error(
+          `spawn.originsFromPath with no shape.pathId needs document paths: ${label}`,
+        );
       particles += layer.emitter.count;
       const trailTexture = layer.emitter.trail?.textureId;
       if (trailTexture && !textureExists(trailTexture))
@@ -1964,6 +2433,7 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     if (layer.kind === "blob") {
       if (!layer.blob) throw new Error(`Blob layer needs blob: ${label}`);
       blobChecks(layer.blob, label);
+      if (layer.blob.pathId) pathExists(layer.blob.pathId, label);
       if (layer.blob.count > BLOB_LOBE_BUDGET)
         throw new Error(
           `Blob lobe count exceeds ${BLOB_LOBE_BUDGET}: ${label}`,
@@ -2033,6 +2503,14 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
           throw new Error(
             `material.${name} is for mesh layers (ring/shell/trail/beam/sprite/decal): ${label}`,
           );
+    // The perimeter key exists only on a frame strip.
+    if (
+      layer.material?.reveal?.mode === "perimeter" &&
+      layer.geometry?.type !== "frame"
+    )
+      throw new Error(
+        `material.reveal mode "perimeter" needs geometry.type "frame": ${label}`,
+      );
     if (layer.jitter?.axis) checkUnit(layer.jitter.axis, `${label}/jitter.axis`);
     // A billboard has no surface normal of its own, so cel bands and an
     // inverted hull have nothing to shade or to inflate.
@@ -2069,6 +2547,17 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
         throw new Error(`Band geometry needs geometry.band: ${label}`);
       if (layer.geometry.type === "slab" && !layer.geometry.slab)
         throw new Error(`Slab geometry needs geometry.slab: ${label}`);
+      if (layer.geometry.type === "frame" && !layer.geometry.frame)
+        throw new Error(`Frame geometry needs geometry.frame: ${label}`);
+      // A corner round wider than the bar's own half-extent inverts the strip.
+      if (
+        layer.geometry.frame &&
+        layer.geometry.frame.corner >
+          Math.min(layer.geometry.radius, layer.geometry.length * 0.5)
+      )
+        throw new Error(
+          `Frame corner is wider than the frame itself: ${label}`,
+        );
       // Outermost first: a tier wider than the one before it would be painted
       // over by it and never show.
       for (let i = 1; i < (layer.geometry.slab?.tiers.length ?? 0); i++)
@@ -2394,6 +2883,51 @@ export function defaultMaterial(): Material {
     ripples: null,
     stripes: null,
     flicker: null,
+    sdfLine: null,
+    beads: null,
+    flow: null,
+    swirl: null,
+  };
+}
+
+/** The portal spike's rim: a bar, a hot spine, an inner line and three skirts. */
+export function defaultSdfLine(): SdfLine {
+  return {
+    core: 0.78,
+    spine: 0.02,
+    innerOffset: 0.098,
+    innerWidth: 0.018,
+    halo: [
+      { falloff: 0.05, weight: 0.62 },
+      { falloff: 0.155, weight: 0.2 },
+      { falloff: 0.48, weight: 0.055 },
+    ],
+  };
+}
+
+/** The portal spike's interior: three panning octaves plus a fine fourth. */
+export function defaultFlow(): Flow {
+  return {
+    layers: [
+      { scale: 1.6, pan: [0.048, 0.086], rotate: 0 },
+      { scale: 3.4, pan: [-0.115, 0.052], rotate: 0.5236 },
+      { scale: 6.6, pan: [0.072, -0.131], rotate: 0 },
+      { scale: 13.5, pan: [-0.05, 0.21], rotate: 0 },
+    ],
+    mix: [0.48, 0.3, 0.16, 0.06],
+    threshold: 0.36,
+    softness: 0.27,
+    parallax: 0.05,
+  };
+}
+
+/** The vortex spike's disc, in the units the exemplar uses. */
+export function defaultSwirl(): Swirl {
+  return {
+    bands: { arms: 3, wind: 1.85, width: 0.5, warp: 1.4 },
+    detail: { arms: 7, wind: 2.75, warp: 6.2, contrast: 0.62 },
+    lobe: { scale1: 2, scale2: 4, amount: 0.82 },
+    strength: defaultCurve(0, 1),
   };
 }
 
@@ -2427,6 +2961,11 @@ export function defaultBlob(): Blob {
     squash: 1,
     bump: { amplitude: 0.16, frequency: 1.9, speed: 0.5 },
     comma: null,
+    pathId: null,
+    head: null,
+    perAnchor: 1,
+    retract: null,
+    lightFrom: null,
   };
 }
 
@@ -2502,6 +3041,7 @@ export function defaultEmitter(): Emitter {
       bias: [0, 0, 0],
       pathId: null,
       sourceLayerId: null,
+      interiorFraction: 0,
     },
     spawn: {
       mode: "burst",
@@ -2510,6 +3050,7 @@ export function defaultEmitter(): Emitter {
       duration: 0,
       bursts: [],
       headCurve: null,
+      originsFromPath: false,
     },
     velocity: {
       mode: "radial",
@@ -2547,6 +3088,7 @@ export function defaultEmitter(): Emitter {
       sortMode: "byDistance",
       twinkle: null,
       strip: null,
+      anchor: "center",
     },
     trail: null,
     sub: null,
@@ -2566,7 +3108,13 @@ export function defaultGeometry(): GeometryV2 {
     lightning: null,
     band: null,
     slab: null,
+    frame: null,
   };
+}
+
+/** The portal spike's doorway: 1.6 x 2.4 with a 0.06 corner. */
+export function defaultFrame(): Frame {
+  return { corner: 0.06, perimeterOrigin: "bottom" };
 }
 
 /** The beam spike's body: a violet outer tier, a magenta body, a pink core. */
@@ -2664,6 +3212,7 @@ export function defaultDocumentShell(
       groundY: 0,
       fog: { color: "#1b1a1f", density: 0.03 },
       background: "#1b1a1f",
+      groundPool: null,
     },
     camera: {
       fov: 32,
@@ -2701,6 +3250,10 @@ export function defaultsV2() {
     arcs: defaultArcs(),
     streakBurst: defaultStreakBurst(),
     slab: defaultSlab(),
+    frame: defaultFrame(),
+    sdfLine: defaultSdfLine(),
+    flow: defaultFlow(),
+    swirl: defaultSwirl(),
     shell: defaultDocumentShell(),
   };
 }
@@ -2756,6 +3309,12 @@ export const MaterialWireSchema = MaterialSchema.extend({
     .nullable(),
   stripes: z.array(StripeSchema).max(STRIPE_BUDGET_V2).nullable(),
   flicker: FlickerSchema.nullable(),
+  sdfLine: SdfLineSchema.nullable(),
+  beads: BeadsSchema.nullable(),
+  flow: FlowSchema.extend({
+    layers: z.array(FlowLayerSchema.extend({ pan: num2 })).min(1).max(FLOW_LAYER_BUDGET_V2),
+  }).nullable(),
+  swirl: SwirlSchema.extend({ strength: CurveWireSchema }).nullable(),
 });
 export const ArcsWireSchema = ArcsSchema.extend({
   radius: num2,
@@ -2795,6 +3354,25 @@ export const BlobWireSchema = BlobSchema.extend({
   radius: num2,
   stagger: num2,
   life: num2,
+  pathId: PathIdSchema.nullable(),
+  head: CurveWireSchema.nullable(),
+  perAnchor: integer(1, 4),
+  retract: z
+    .object({
+      from: scalar(0, 1),
+      to: scalar(0, 1),
+      alongBias: scalar(0, 2),
+    })
+    .strict()
+    .nullable(),
+  lightFrom: z
+    .object({
+      layerId: z.string().max(48).nullable(),
+      position: num3,
+      falloff: scalar(0, 4),
+    })
+    .strict()
+    .nullable(),
 });
 export const SplashWireSchema = SplashSchema.extend({
   length: num2,
@@ -2810,8 +3388,12 @@ export const EmitterWireSchema = EmitterSchema.extend({
     bias: num3,
     pathId: PathIdSchema.nullable(),
     sourceLayerId: z.string().max(48).nullable(),
+    interiorFraction: scalar(0, 1),
   }),
-  spawn: SpawnSchema.extend({ headCurve: CurveWireSchema.nullable() }),
+  spawn: SpawnSchema.extend({
+    headCurve: CurveWireSchema.nullable(),
+    originsFromPath: z.boolean(),
+  }),
   velocity: VelocitySchema.extend({
     speed: num2,
     direction: num3,
@@ -2833,6 +3415,7 @@ export const EmitterWireSchema = EmitterSchema.extend({
     rotation: ParticleRotationSchema.extend({ initial: num2, speed: num2 }),
     twinkle: TwinkleSchema.nullable(),
     strip: StripSchema.extend({ length: num2, width: num2 }).nullable(),
+    anchor: z.enum(["center", "head"]),
   }),
   trail: TrailSchema.extend({ widthCurve: CurveWireSchema }).nullable(),
   sub: SubEmitterSchema.extend({ offset: num2 }).nullable(),
@@ -2841,6 +3424,7 @@ export const GeometryV2WireSchema = GeometryV2Schema.extend({
   taper: scalar(0.05, 1),
   band: BandSchema.nullable(),
   slab: SlabSchema.nullable(),
+  frame: FrameSchema.nullable(),
   vertexNoise: VertexNoiseSchema.extend({
     bias: num3,
     alongCurve: CurveWireSchema,
@@ -2858,6 +3442,7 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   motion: MotionWireSchema.nullable(),
   jitter: JitterSchema.extend({ axis: num3.nullable() }).nullable(),
   collapse: CollapseWireSchema.nullable(),
+  window: LayerWindowSchema.nullable(),
   material: MaterialWireSchema.nullable(),
   emitter: EmitterWireSchema.nullable(),
   geometry: GeometryV2WireSchema.nullable(),
@@ -2869,6 +3454,7 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   crystals: CrystalsWireSchema.nullable(),
   arcs: ArcsWireSchema.nullable(),
   streakBurst: StreakBurstWireSchema.nullable(),
+  reflection: ReflectionSchema.nullable(),
   tracks: z
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
@@ -2887,7 +3473,13 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
 }).extend({
   // Structured Outputs needs every property required, so the wire copy drops
   // the default and asks the model for the value.
-  environment: EnvironmentSchema.extend({ ambient: scalar(0, 3) }),
+  environment: EnvironmentSchema.extend({
+    ambient: scalar(0, 3),
+    groundPool: z
+      .array(GroundPoolSchema.extend({ position: num3, intensity: CurveWireSchema }))
+      .max(GROUND_POOL_BUDGET_V2)
+      .nullable(),
+  }),
   post: PostSchema.extend({
     glitch: GlitchSchema.extend({
       curve: CurveWireSchema,
@@ -2924,6 +3516,7 @@ export function fromWireV2(
       "crystals",
       "arcs",
       "streakBurst",
+      "reflection",
     ])
       if (next[slot] === null) delete next[slot];
     return next;

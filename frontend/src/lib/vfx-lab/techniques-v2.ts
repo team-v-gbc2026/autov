@@ -48,6 +48,13 @@ export const TECHNIQUE_IDS = [
   "speed-line-cap",
   "two-layer-noise-mist",
   "cast-sigil-reveal",
+  // The portal/vortex/meteor port: a rim read off a signed distance, a
+  // multi-layer panning interior, a ring of orbiting lobes and a trail anchored
+  // to the path that made it.
+  "sdf-frame-rim",
+  "panning-flow-interior",
+  "orbiting-lobe-ring",
+  "path-anchored-trail",
 ] as const;
 export type TechniqueId = (typeof TECHNIQUE_IDS)[number];
 
@@ -489,30 +496,35 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
   "polar-swirl-disc": {
     id: "polar-swirl-disc",
     name: "Polar swirl disc",
-    use: "A sky vortex or tornado: a disc built from a polar-coordinate swirl, not a spinning texture.",
+    use: "A sky vortex, maelstrom or tornado eye: a disc built from a polar-coordinate swirl, not a spinning texture.",
     construction: [
-      "Stack 3 discs at different scale, spin speed and opacity: fast inner, medium, slow outer haze.",
-      "Pan each disc's material.noise with a swirl bias so bands curve inward over radius.",
-      "Ramp colour bright yellow-white at the centre to an orange/accent haze outward.",
+      'THREE stacked kind:"ring" geometry.type "disc" layers at about r, 0.8r and 0.6r, each with material.procedural "swirlDisc": two alpha bodies and one additive highlight, each leant a few degrees so no two rims coincide.',
+      "material.proceduralParams is [twist, spin (turns a second), inflow, arms]: the angle is sheared by twist/(distance+eps), so a noise field becomes spiral bands and the inner radii shear past the outer ones.",
+      "material.swirl.bands {arms 3, wind ~1.85, width ~0.5, warp ~1.4} winds an EXPLICIT log spiral so the arms read; the fbm only wiggles them.",
+      "material.swirl.detail is a second, TIGHTER, independently wound spiral (arms ~7, wind ~2.75) that only SHADES the arms from inside. A second mask here reads as a copy of the first.",
+      "material.swirl.strength is ONE envelope every disc shares: the reveal winds it 0 to 1, the dissipate unwinds it. That is what makes the vortex spin UP rather than simply appear spinning.",
+      'material.ramp.space "radial" runs the palette from a near-white core out to the deep haze, and material.erosion.curve IS the mask threshold over the layer\'s own progress, with erosion.rimBias tearing the rim first.',
       "Add a separate instanced sprite layer of dark flecks on slower orbits for parallax.",
     ],
-    timing: "Continuous for the full sustained duration; flecks staggered independently of the disc spin.",
+    timing:
+      "Winds up over the first 15-20%, holds for the sustain, unwinds and tears from the rim in over the closing 20%.",
     details: [
-      "At least 3 independently spinning/opacity layers, not one textured disc.",
-      "Colour goes bright centre to dark/accent haze outward.",
-      "Dark bands come from the same noise that drives the swirl.",
+      "Three independently spinning discs, never one textured disc.",
+      "The detail spiral must be wound differently from the mask, or the disc reads as one flat pattern.",
+      "Colour goes bright centre to dark haze outward; only the core is allowed past 1.0 linear.",
+      "Erosion leads alpha: the bands TEAR apart from the outside in rather than dimming.",
       "Flecks on their own slower orbit sell parallax and scale.",
     ],
     vocabulary: {
       available: [
-        'kind:"ring" geometry.type:"disc" (x3 stacked)',
-        "material.noise.{uvPan,distortion}",
-        "material.ramp (space life or layerTime)",
-        'separate particles layer, emitter.velocity.mode:"tangential"',
+        'kind:"ring" geometry.type:"disc" with material.procedural:"swirlDisc" (x3 stacked)',
+        "material.proceduralParams [twist, spin, inflow, arms]",
+        "material.swirl.{bands,detail,lobe,strength}",
+        'material.ramp.space:"radial"',
+        "material.erosion.{curve,rimBias} (the mask threshold over layer time)",
+        'a particles layer with emitter.shape.type:"orbit" + velocity.mode:"orbit"',
       ],
-      missing: [
-        "polar swirl UV remap (angle += strength/dist baked into material.noise panning)",
-      ],
+      missing: [],
     },
     sources: [BEAM_ETC],
   },
@@ -682,26 +694,28 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
   "speed-line-cap": {
     id: "speed-line-cap",
     name: "Speed-line cap",
-    use: "The head of a fast-traveling projectile (meteor, arrow, fast slash) that needs directional streak lines, not a plain sphere.",
+    use: "The head of a fast-travelling projectile (meteor, comet, arrow) that needs a directional streak, not a plain sphere with a trail behind it.",
     construction: [
-      "Stretch the core mesh along its velocity direction so motion reads in silhouette.",
-      "Add a hemisphere cap mesh in front with a scrolling stripe mask (uvPan) for speed-lines.",
-      "Jitter the core slightly frame to frame for a burning/unstable read.",
-      "Emit a velocity-aligned smoke/dust trail behind, with gravity on individual dust puffs.",
+      'material.procedural "teardropStreak" on a velocity-stretched particles layer: an elongated teardrop core, a hemisphere halo at the leading end and dashes riding the leading half. proceduralParams is [dash frequency, dash scroll, core tightness, halo reach].',
+      'render.anchor "head" puts the LEADING point of the stretched card on the instance, so the streak trails behind the tip instead of straddling it. Without it the projectile appears to sit in the middle of its own speed lines.',
+      "render.stretch 2-4 with size 0.10-0.25: the card is what carries the streak, so the stretch does the work and the size only sets its width.",
+      'Run the population along a document path with velocity.mode "alongPath": one shared head envelope, each instance lagging behind it by its own hashed offset out of velocity.speed. A lag band of 0.03-0.06 of the path fuses 30 instances into ONE streak with a bright leading point; a wider band breaks it into beads.',
+      "The impact is its own event, never the trail stopping.",
     ],
-    timing: "Present for the full travel phase; the impact burst is a SEPARATE event, not a trail continuation.",
+    timing:
+      "Present for the full travel phase only; the layer ends a frame or two after the head lands.",
     details: [
-      "A stretched core beats a static sphere with a trail behind it.",
-      "A scrolling stripe-mask cap sells 'fast', independent of the trail.",
-      "The impact is its own radial burst + rising particles, never just the trail stopping.",
-      "Slight per-frame jitter on the core reads as unstable, not a smooth CG ball.",
+      "A stretched card beats a static sphere with a trail behind it.",
+      "The dash scroll is what sells 'fast' independently of the trail.",
+      "A narrow lag band is the difference between one streak and a row of dots.",
+      "The impact burst is a separate event: a radial flash, chips and sparks.",
     ],
     vocabulary: {
       available: [
-        "kind:\"shell\" (stretched via transform.scale on the velocity axis)",
-        "kind:\"sprite\"|\"decal\" hemisphere cap, material.mask.uvPan (scrolling stripe)",
-        'trailing kind:"particles", emitter.render.mode:"velocityStretch"',
-        "emitter.forces.gravity on trailing dust",
+        'material.procedural:"teardropStreak" + proceduralParams [dash frequency, scroll, core, halo]',
+        'emitter.render.{mode:"velocityStretch", anchor:"head", stretch}',
+        'emitter.shape.type:"path" + velocity.mode:"alongPath" + velocity.speedCurve',
+        "emitter.velocity.speed re-read as the per-instance lag band",
       ],
       missing: [],
     },
@@ -770,6 +784,138 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     },
     sources: [ICE_SHIELD],
   },
+
+  "sdf-frame-rim": {
+    id: "sdf-frame-rim",
+    name: "SDF frame rim",
+    use: "A portal, gate or doorway: a rectangular rim that draws itself, holds and un-draws, read off one signed distance rather than built out of four bars.",
+    construction: [
+      'ONE geometry.type "frame" strip carries the whole rim: geometry.length is its height, geometry.radius its half-width, geometry.thickness the bar width and geometry.frame.corner the corner round.',
+      "material.sdfLine is the double-line look: {core ~0.78 (the solid bar), spine ~0.02 (a hot gaussian line down the middle of it), innerOffset ~0.1 / innerWidth ~0.018 (a thinner parallel line inside), halo three exponential skirts at 0.05 / 0.155 / 0.48}.",
+      "The ramp is sampled at FOUR fixed keys, so one ramp is the whole rim: t=0 the spine, 0.22 the core bar, 0.45 the inner line, 1 the halo. Give the halo the lowest intensity and the spine the highest.",
+      'material.reveal mode "perimeter" runs the front along the frame\'s own perimeter coordinate — 0 at bottom-centre, 1 at top-centre, MIRRORED in x — so the doorway draws itself up both sides at once. Set `to` past 1 so the draw finishes early and the rim then holds; a track that drops `to` at the end un-draws it from the top down.',
+      "material.beads {count 3, speed ~0.2, width ~0.055} runs travelling brightness along the same coordinate, which is what keeps a held rim from reading as a static texture.",
+      'environment.groundPool with shape "rect" and anisotropy ~1.45 puts the bar of light the doorway throws on the floor, analytically: no decal to sort and no light to flicker.',
+    ],
+    timing:
+      "The perimeter draws over the first 10-15%, holds for the sustain, and un-draws over the closing 10-12% after the interior has already clouded over.",
+    details: [
+      "One SDF, not four bars: the corners are where a built rim always shows its joins.",
+      "The perimeter front drawing up BOTH sides is the whole 'a doorway is opening' read.",
+      "A hot spine inside a broader bar is what separates a portal rim from a neon outline.",
+      "The beads must not be evenly spaced; the renderer hash-steps them.",
+      "The interior clouds over BEFORE the rim goes, or the frame looks like it closed on nothing.",
+    ],
+    vocabulary: {
+      available: [
+        'geometry.type:"frame" + geometry.frame.{corner,perimeterOrigin}',
+        "material.sdfLine.{core,spine,innerOffset,innerWidth,halo}",
+        "material.beads.{count,speed,width}",
+        'material.reveal.{mode:"perimeter",from,to,frontWidth} + a track on reveal.to',
+        'environment.groundPool[{shape:"rect",radius,anisotropy,color,intensity}]',
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC],
+  },
+
+  "panning-flow-interior": {
+    id: "panning-flow-interior",
+    name: "Panning flow interior",
+    use: "The surface inside a portal, a rift or a scrying pool: something that reads as having depth behind a flat card.",
+    construction: [
+      'One flat kind:"decal" filling the opening, material.procedural "solid", alpha blended so it occludes what is behind it.',
+      "material.flow stacks up to four panning value-noise octaves at their own scale, pan direction and rotation — about 1.6 / 3.4 / 6.6 / 13.5 with weights 0.48 / 0.30 / 0.16 / 0.06, so the big soft blobs dominate and the fine octave only breaks the edges.",
+      "material.flow.parallax offsets the SLOWEST octave by the view direction. That one term is what makes a flat card read as an interior rather than as wallpaper; on the fine octaves it reads as the whole card sliding.",
+      'material.ramp.space "surface" is keyed by the flow MASK on a flow layer: stop t=0 is the open surface, t=1 the dark patch that covers it. Two or three stops is the whole palette.',
+      "A track on material.flow.threshold grows the patches until they cover everything, which is how the interior clouds over on the way out.",
+      'A kind:"reflection" of the same layer smears it across the floor: {sourceLayerId, axis "y", scale ~0.5, blur ~0.45, opacity ~0.5, tint}. It draws the SOURCE\'s geometry and material, so it can never drift out of step with it.',
+    ],
+    timing:
+      "Fills over the first 10-15% behind the rim, holds, and the threshold track clouds it over in the closing 15% before the rim un-draws.",
+    details: [
+      "Four octaves with descending weights, never one noise texture.",
+      "The view parallax on the slowest layer is the depth cue; without it the card is wallpaper.",
+      "The ramp is keyed by the MASK, so the two stops are 'open' and 'covered', not 'near' and 'far'.",
+      "A reflection is dressing: it paints on the floor and claims none of the frame.",
+    ],
+    vocabulary: {
+      available: [
+        "material.flow.{layers[{scale,pan,rotate}],mix,threshold,softness,parallax}",
+        'material.ramp.space:"surface" (keyed by the flow mask on a flow layer)',
+        "a track on material.flow.threshold",
+        'kind:"reflection" + reflection.{sourceLayerId,axis,scale,blur,opacity,tint}',
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC],
+  },
+
+  "orbiting-lobe-ring": {
+    id: "orbiting-lobe-ring",
+    name: "Orbiting lobe ring",
+    use: "The billowing rim of a vortex, a maelstrom or a gas ring: cel lobes riding a ring band rather than a textured annulus.",
+    construction: [
+      'kind:"blob" with arrangement "orbit": blob.height is the INNER radius of the band, blob.spread the OUTER one, blob.rise the angular speed at the outer edge (radians a second) and blob.drift the out-of-plane bob.',
+      "The angular speed falls off as r^-0.65, so the inner lane laps the outer one and the ring shears instead of turning as a plate.",
+      "The half of the ring currently FURTHER from the camera draws first, smaller and dimmer; that split is what gives a tilted ring its oblique read and the renderer does it per frame.",
+      "blob.lightFrom {layerId or position, falloff ~0.4} shades every lobe toward the core it circles instead of toward a parallel sun, which is what reads as 'lit from inside'.",
+      "One layer is capped at 40 lobes, so use TWO bands — an outer one of 40 and an inner one of ~34 at smaller radii and lower opacity — or the ring reads as beads rather than as billows.",
+      "Lobe radius 0.15-0.45 against a band 0.8-2.5 wide, bump.amplitude 0.3-0.35, and no inverted hull: an outline turns soft billows into fruit.",
+    ],
+    timing:
+      "Scales in over the first 15%, holds through the sustain, fades a beat BEFORE the discs it rides so the silhouette softens on the way out.",
+    details: [
+      "Two bands, because one ring of lobes at the same radius reads as a necklace.",
+      "Differential speed (r^-0.65) is what makes a ring shear rather than spin.",
+      "The far/near split in size and brightness is the entire oblique read.",
+      "A point light toward the core beats a parallel toon light for anything that circles something bright.",
+    ],
+    vocabulary: {
+      available: [
+        'kind:"blob" with blob.arrangement:"orbit"',
+        "blob.{height (inner radius), spread (outer radius), rise (angular speed), drift (bob)}",
+        "blob.lightFrom.{layerId,position,falloff}",
+        "material.toon (2 bands reads softer than 3 on a billow), material.opacity tracks",
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC, SMOKE],
+  },
+
+  "path-anchored-trail": {
+    id: "path-anchored-trail",
+    name: "Path-anchored trail",
+    use: "The smoke column a meteor, comet or rocket leaves: lobes that HOLD where the head passed them instead of streaming off the back of it.",
+    construction: [
+      'One paths[] "line" or "bezier" per descent, from the sky to the impact point. Nothing else in the document carries a descent time.',
+      'kind:"blob" with arrangement "path": blob.pathId names the curve, blob.head is the head\'s position along it over the layer\'s own 0..1 progress, and anchor k owns u = (k+0.55)/anchors and is born the instant the head passes it.',
+      "blob.perAnchor 2-3 lobes per anchor, offset in the PATH'S OWN frame (back along the tangent, up, across): slot 0 is the smoother CORE lobe and the rest are the ragged shell around it, which is what makes the column chunky instead of a string of beads.",
+      "Lobe radius must exceed the anchor spacing or the column reads as beads: 12-18 anchors over a 10 m path wants radius 0.35-0.6.",
+      "blob.rise lifts a lobe off the path and blob.drift pulls it BACK along it, both on sqrt(age) — the billow, not a launch.",
+      "blob.retract {from, to, alongBias} eats the column from one end: alongBias 1 eats it from the start of the path (the sky) toward the end (the ground), so the trail clears in the order it was made.",
+      "Every layer that reacts to the landing uses layer.window {at:{pathId, u:1}} instead of a hard-coded time, so retiming the descent retimes the whole impact with it.",
+    ],
+    timing:
+      "The head runs the path over the flight; the anchors are born behind it, live 2-3 s, and the retraction clears them over the closing 25-30%.",
+    details: [
+      "Anchored, not trailed: a lobe holds the point the head passed, which is why the column stays put as the head keeps going.",
+      "A core lobe plus ragged shell lobes per anchor is what reads as a thick column.",
+      "Radius must overlap the anchor spacing or the trail is a row of beads.",
+      "Retracting from ONE end reads as the trail clearing; fading it all at once reads as a light going out.",
+    ],
+    vocabulary: {
+      available: [
+        'kind:"blob" with blob.arrangement:"path" + blob.{pathId,head,perAnchor}',
+        "blob.retract.{from,to,alongBias}",
+        "layer.window.{at:{pathId,u}} (the layer starts when the head reaches u)",
+        'emitter.spawn.mode:"event" + spawn.originsFromPath (one debris layer for every impact)',
+        'environment.groundPool for the pool each landing throws',
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC, SMOKE],
+  },
 };
 
 /** Every family the planner knows, mapped to its most relevant technique cards. */
@@ -815,9 +961,10 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "staggered-instance-timing",
   ],
   "meteor-rain": [
+    "path-anchored-trail",
     "speed-line-cap",
     "instanced-shard-burst",
-    "staggered-instance-timing",
+    "cauliflower-blob-cluster",
   ],
   "ice-blast": [
     "cast-sigil-reveal",
@@ -836,6 +983,18 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "staggered-instance-timing",
     "instanced-shard-burst",
     "path-window-ribbon",
+  ],
+  portal: [
+    "sdf-frame-rim",
+    "panning-flow-interior",
+    "edge-biased-sparks",
+    "ground-ring-with-inner-fill",
+  ],
+  "sky-vortex": [
+    "polar-swirl-disc",
+    "orbiting-lobe-ring",
+    "cauliflower-blob-cluster",
+    "staggered-instance-timing",
   ],
 };
 
@@ -856,16 +1015,22 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
       "four-point-sparkles",
     ],
   ],
-  [/portal/i, ["edge-biased-sparks", "two-layer-noise-mist", "path-window-ribbon"]],
+  [
+    /portal|gate|doorway|rift/i,
+    ["sdf-frame-rim", "panning-flow-interior", "edge-biased-sparks"],
+  ],
   [/sigil|rune|circle|summon|cast/i, ["cast-sigil-reveal", "ground-ring-with-inner-fill"]],
-  [/vortex|tornado|swirl/i, ["polar-swirl-disc", "edge-biased-sparks"]],
+  [
+    /vortex|tornado|swirl|maelstrom/i,
+    ["polar-swirl-disc", "orbiting-lobe-ring", "edge-biased-sparks"],
+  ],
   [/glitch|digital|hologram/i, ["stepped-hash-glitch", "instanced-shard-burst"]],
   [
     /column|overload|pillar|surge/i,
     ["blinking-arc-ribbons", "stripe-panner-core-and-sheath", "upright-glow-cylinder"],
   ],
   [/water|liquid/i, ["two-layer-noise-mist", "polar-swirl-disc"]],
-  [/meteor/i, ["speed-line-cap", "instanced-shard-burst"]],
+  [/meteor|comet|falling/i, ["path-anchored-trail", "speed-line-cap", "instanced-shard-burst"]],
   [
     /crystal|ice|frost/i,
     ["instanced-shard-burst", "two-layer-noise-mist", "hex-lattice-fresnel-shield"],
@@ -895,10 +1060,14 @@ const APPROXIMATIONS: Partial<Record<TechniqueId, string>> = {};
  * and shield ports rewrote hex-lattice-fresnel-shield and instanced-shard-burst
  * around the new vocabulary: those two cards carry real field lists now, and at
  * 5400 a shield brief dropped the keyword-matched fourth card, which is the one
- * the prompt itself asked for. Even at 6600 the block is a third of the size of
- * the example document the same call already sends.
+ * the prompt itself asked for. Raised again from 6600 when the portal, vortex
+ * and meteor ports rewrote polar-swirl-disc and speed-line-cap and added four
+ * cards of the same weight: at 6600 a vortex prompt against another family
+ * dropped polar-swirl-disc, which is exactly the card it asked for. Even at
+ * 8200 the block is a third of the size of the example document the same call
+ * already sends.
  */
-const BRIEF_CHAR_BUDGET = 6600;
+const BRIEF_CHAR_BUDGET = 8200;
 
 /**
  * A single card in full: every construction step (numbered), the timing

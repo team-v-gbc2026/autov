@@ -149,6 +149,9 @@ function layerRadius(layer: LayerV2) {
   if (layer.arcs) return toUi(layer.arcs.radius[1], MESH_RADIUS);
   if (layer.streakBurst) return toUi(layer.streakBurst.length[1], MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
+  // A reflection has no size of its own: it draws its source's geometry, and
+  // reflection.scale is how far the floor foreshortens it.
+  if (layer.reflection) return toUi(layer.reflection.scale * 2, MESH_RADIUS);
   return 0;
 }
 
@@ -173,7 +176,10 @@ function projectParameters(layer: LayerV2): Record<ParameterName, number> {
   return {
     Intensity: layerIntensity(layer),
     Radius: layerRadius(layer),
-    Opacity: toUi(layer.material?.opacity ?? 0, OPACITY),
+    Opacity: toUi(
+      layer.material?.opacity ?? layer.reflection?.opacity ?? 0,
+      OPACITY,
+    ),
     Speed: layerSpeed(layer),
     Turbulence: layerTurbulence(layer),
     Erosion: toUi(erosionLevel(layer), EROSION),
@@ -182,7 +188,8 @@ function projectParameters(layer: LayerV2): Record<ParameterName, number> {
 
 function projectLayer(layer: LayerV2): VfxLayer {
   const stops = rampStops(layer);
-  const color = stops[0]?.color ?? layer.light?.color ?? FALLBACK_COLOR;
+  const color =
+    stops[0]?.color ?? layer.light?.color ?? layer.reflection?.tint ?? FALLBACK_COLOR;
   return {
     id: layer.id,
     name: layer.name,
@@ -604,6 +611,7 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
     motion: null,
     jitter: null,
     collapse: null,
+    window: null,
     material: defaultMaterial(),
     emitter: defaultEmitter(),
     tracks: [],

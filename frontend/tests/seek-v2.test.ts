@@ -18,6 +18,11 @@ import {
   pathTangent,
 } from "../src/lib/vfx-lab/paths-v2";
 import {
+  pathEventTime,
+  pathEvents,
+  resolveEventWindows,
+} from "../src/lib/vfx-lab/events-v2";
+import {
   buildWireBurstGeometry,
   wireBurstBounds,
 } from "../src/lib/vfx-lab/wire-burst-v2";
@@ -141,19 +146,31 @@ test("the lightning example is authored as a white core plus a wider sheath", ()
 });
 
 test("every recipe example still validates with the Phase B fields in place", () => {
+  // meteor-rain is path-driven end to end: a line per descent, a trail
+  // anchored to it, and every impact layer hanging off the path's own event
+  // rather than off a hard-coded time.
   const meteor = createPresetV2("meteor-rain");
-  const child = meteor.layers.find((l) => l.emitter?.sub);
-  assert.ok(child, "meteor-rain carries a sub-emitter");
-  const parent = meteor.layers.find(
-    (l) => l.id === child!.emitter!.sub!.parentLayerId,
-  );
-  assert.equal(parent?.kind, "particles");
-  assert.ok(meteor.camera.shake);
-  assert.ok(meteor.post.motionBlur > 0);
+  assert.equal(meteor.paths.length, 5);
+  assert.ok(meteor.paths.every((p) => p.type === "line"));
+  const trail = meteor.layers.find((l) => l.blob?.arrangement === "path");
+  assert.ok(trail, "meteor-rain carries a path-anchored trail");
+  assert.ok(trail!.blob!.head, "the trail's anchors are born by a head curve");
+  assert.ok(trail!.blob!.retract, "the trail retracts from one end");
   assert.ok(
-    meteor.layers.some((l) => l.material?.mask.flipbook),
-    "meteor-rain carries a flipbook mask",
+    meteor.layers.some((l) => l.window),
+    "an impact layer starts on a path event",
   );
+  assert.ok(
+    meteor.layers.some(
+      (l) => l.emitter?.spawn.mode === "event" && l.emitter.spawn.originsFromPath,
+    ),
+    "one debris layer covers every impact",
+  );
+  assert.ok(
+    meteor.layers.some((l) => l.material?.procedural === "teardropStreak"),
+    "meteor-rain carries a speed-line cap",
+  );
+  assert.ok(meteor.environment.groundPool?.length);
 
   const shield = createPresetV2("shield");
   assert.ok(shield.camera.pushIn);
@@ -712,4 +729,110 @@ test("the beam's line path is exactly the segment it names", () => {
   }
   // The tangent is constant: a line has one heading end to end.
   assert.deepEqual(pathTangent(path, 0.1), pathTangent(path, 0.9));
+});
+
+// ---------------------------------------------------------------------------
+// The portal / vortex / meteor port. Everything the three exemplars add that
+// runs on the CPU — the orbit and path blob arrangements, the retraction, and
+// the path events layer.window and spawn.mode "event" hang off — is a pure
+// function of (document, time), so sampling the same time twice has to give
+// the same answer and sampling it out of order has to give the same answer as
+// walking up to it.
+// ---------------------------------------------------------------------------
+
+test("an orbit blob's lobes are closed form in layer time", () => {
+  const doc = createPresetV2("sky-vortex");
+  const layer = doc.layers.find((l) => l.blob?.arrangement === "orbit")!;
+  const blob = layer.blob!;
+  const lobes = blobLobes(blob);
+  assert.equal(lobes.length, blob.count);
+  // Every lobe rides a lane inside the band, and the inner lane laps the outer.
+  for (const lobe of lobes) {
+    assert.ok(lobe.orbit, "an orbit lobe carries its lane");
+    assert.ok(lobe.orbit!.radius >= blob.height - 1e-6);
+    assert.ok(lobe.orbit!.radius <= blob.spread + 1e-6);
+  }
+  const sorted = [...lobes].sort((a, b) => a.orbit!.radius - b.orbit!.radius);
+  assert.ok(sorted[0].orbit!.omega > sorted[sorted.length - 1].orbit!.omega);
+  const span = layer.end - layer.start;
+  for (const age of [0.4, 1.7, 3.3, 5.1]) {
+    const a = lobes.map((l) => lobeStateAt(l, blob, age, span, null));
+    const b = lobes.map((l) => lobeStateAt(l, blob, age, span, null));
+    assert.deepEqual(a, b);
+  }
+  // The ring really turns: a lobe is somewhere else a second later.
+  const before = lobeStateAt(lobes[0], blob, 1, span, null);
+  const after = lobeStateAt(lobes[0], blob, 2, span, null);
+  assert.notDeepEqual(before.position, after.position);
+});
+
+test("a path blob's anchors are born by the head and retract from one end", () => {
+  const doc = createPresetV2("meteor-rain");
+  const layer = doc.layers.find((l) => l.blob?.arrangement === "path")!;
+  const blob = layer.blob!;
+  const path = doc.paths.find((p) => p.id === blob.pathId)!;
+  const lobes = blobLobes(blob, path);
+  assert.equal(lobes.length, blob.count);
+  // Anchors ascend along the path, and so do their births: an anchor cannot
+  // appear before the head has reached it.
+  const anchors = lobes.filter((_, i) => i % blob.perAnchor === 0);
+  for (let i = 1; i < anchors.length; i++) {
+    assert.ok(anchors[i].along > anchors[i - 1].along);
+    assert.ok(anchors[i].t0 >= anchors[i - 1].t0 - 1e-6);
+  }
+  const span = layer.end - layer.start;
+  for (const age of [0.2, 0.9, 2.4, 4.6]) {
+    assert.deepEqual(
+      lobes.map((l) => lobeStateAt(l, blob, age, span, 0.8, path)),
+      lobes.map((l) => lobeStateAt(l, blob, age, span, 0.8, path)),
+    );
+  }
+  // The retraction eats the trail: the same lobe is dimmer later.
+  const early = lobeStateAt(lobes[0], blob, span * 0.6, span, null, path);
+  const late = lobeStateAt(lobes[0], blob, span * 0.9, span, null, path);
+  assert.ok(!late.alive || late.alpha < early.alpha);
+});
+
+test("a path event is the moment the head reaches the end, and windows follow it", () => {
+  const doc = createPresetV2("meteor-rain");
+  for (const path of doc.paths) {
+    const event = pathEventTime(doc, path.id, 1);
+    assert.ok(event !== null, `${path.id} has a head`);
+    assert.ok(event! > 0 && event! < doc.duration);
+    // The head is monotone, so a point earlier on the path happens earlier.
+    assert.ok(pathEventTime(doc, path.id, 0.5)! < event!);
+  }
+  const resolved = resolveEventWindows(doc);
+  // Nothing else moves.
+  assert.deepEqual(
+    resolved.layers.filter((l) => !l.window).map((l) => [l.id, l.start, l.end]),
+    doc.layers.filter((l) => !l.window).map((l) => [l.id, l.start, l.end]),
+  );
+  for (const layer of resolved.layers) {
+    if (!layer.window) continue;
+    const source = doc.layers.find((l) => l.id === layer.id)!;
+    const event = pathEventTime(doc, layer.window.at.pathId, layer.window.at.u)!;
+    assert.ok(Math.abs(layer.start - (event + source.start)) < 1e-6);
+    // The authored duration is kept, up to the document's own end.
+    const span = Math.min(source.end - source.start, doc.duration - layer.start);
+    assert.ok(Math.abs(layer.end - layer.start - span) < 1e-6);
+  }
+  // A document with no windows is returned by identity: the pass costs nothing
+  // on the ten exemplars that do not use one.
+  const noWindows = createPresetV2("shield");
+  assert.equal(resolveEventWindows(noWindows), noWindows);
+  // One debris layer covers every impact, and the events it is given are the
+  // five path ends.
+  const events = pathEvents(doc, null);
+  assert.equal(events.length, doc.paths.length);
+  for (let i = 0; i < events.length; i++)
+    assert.deepEqual(events[i].position, pathPoint(doc.paths[i], 1));
+});
+
+test("the three new exemplars validate and carry their own vocabulary", () => {
+  for (const id of ["portal", "sky-vortex", "meteor-rain"] as const) {
+    const doc = createPresetV2(id);
+    assert.equal(doc.schemaVersion, "autov.lab/2");
+    assert.ok(doc.layers.length > 3);
+  }
 });

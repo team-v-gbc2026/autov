@@ -4,6 +4,7 @@ import { buildGeometry } from "./geometry";
 import { createEnvironment, type EnvironmentV2 } from "./environment-v2";
 import { createPostStack, type PostStackV2 } from "./post-v2";
 import { evaluateLayerV2 } from "./evaluate-v2";
+import { pathEvents, resolveEventWindows } from "./events-v2";
 import { upgradeDocument } from "./migrate";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
 import { textureUrl } from "./asset-urls";
@@ -185,6 +186,8 @@ const SHAPE_INDEX: Record<string, number> = {
   path: 8,
   layerInstances: 9,
   pathLine: 10,
+  frame: 11,
+  orbit: 12,
 };
 const VELOCITY_INDEX: Record<string, number> = {
   radial: 0,
@@ -192,6 +195,7 @@ const VELOCITY_INDEX: Record<string, number> = {
   tangential: 2,
   cone: 3,
   alongPath: 4,
+  orbit: 5,
 };
 const RENDER_INDEX: Record<string, number> = {
   billboard: 0,
@@ -229,6 +233,8 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   sigil: 16,
   lensFlare: 17,
   radialRays: 18,
+  swirlDisc: 19,
+  teardropStreak: 20,
 };
 /**
  * Spawn modes the vertex shader knows about. It has to stay in step with the
@@ -241,6 +247,7 @@ const SPAWN_MODE_INDEX: Record<string, number> = {
   continuous: 1,
   bursts: 2,
   pathAnchored: 3,
+  event: 4,
 };
 const SUB_MODE_INDEX: Record<string, number> = {
   alongPath: 0,
@@ -429,6 +436,8 @@ function particlePositionV2(
   path: PathV2 | null = null,
   /** Borrowed spawn sites, for shape "layerInstances". */
   sites: { positions: Float32Array; axes: Float32Array } | null = null,
+  /** Path events, for spawn.mode "event"; layer-local seconds. */
+  events: Array<{ position: [number, number, number]; time: number }> = [],
 ): boolean {
   const i4 = index * 4;
   const s0 = attrs.seed[i4],
@@ -461,6 +470,9 @@ function particlePositionV2(
       }
     }
     age = time - (start + ((s0 * 7.13 + 0.37) % 1) * spawnWindow);
+  } else if (emitter.spawn.mode === "event" && events.length) {
+    const event = events[index % events.length];
+    age = time - (event.time + ((s0 * 7.13 + 0.37) % 1) * spawnWindow);
   } else if (emitter.spawn.mode === "pathAnchored" && emitter.spawn.headCurve) {
     age = time - invertCurve(emitter.spawn.headCurve, attrs.index[index]) * span;
   } else {
@@ -560,6 +572,58 @@ function particlePositionV2(
         .addScaledVector(tangent, (e2 - 0.5) * shape.radius);
       break;
     }
+    case "frame": {
+      // The perimeter of a rectangle across shape.axis, with
+      // shape.interiorFraction of the population scattered inside it instead.
+      const hx = shape.radius;
+      const hy = shape.length * 0.5;
+      let px: number;
+      let py: number;
+      let nx = 0;
+      let ny = 0;
+      if (e3 < shape.interiorFraction) {
+        px = (e0 * 2 - 1) * hx * 0.88;
+        py = (e1 * 2 - 1) * hy * 0.9;
+        const length = Math.hypot(px, py) || 1;
+        nx = px / length;
+        ny = py / length;
+      } else {
+        const per = 2 * hx + 2 * hy;
+        const sign = e2 < 0.5 ? -1 : 1;
+        const dd = e0 * per;
+        if (dd < hx) {
+          px = dd;
+          py = -hy;
+          ny = -1;
+        } else if (dd < hx + 2 * hy) {
+          px = hx;
+          py = -hy + (dd - hx);
+          nx = 1;
+        } else {
+          px = hx - (dd - hx - 2 * hy);
+          py = hy;
+          ny = 1;
+        }
+        px *= sign;
+        nx *= sign;
+        px += nx * (e1 - 0.3) * shape.innerRadius;
+        py += ny * (e1 - 0.3) * shape.innerRadius;
+      }
+      origin
+        .addScaledVector(a1, px)
+        .addScaledVector(a2, py)
+        .addScaledVector(axis, (e2 - 0.5) * shape.innerRadius);
+      break;
+    }
+    case "orbit": {
+      const rr =
+        shape.innerRadius +
+        (shape.radius - shape.innerRadius) * Math.sqrt(Math.max(e2, 0));
+      origin
+        .addScaledVector(a1, Math.cos(ca) * rr)
+        .addScaledVector(a2, Math.sin(ca) * rr);
+      break;
+    }
     case "layerInstances": {
       if (!sites) break;
       origin
@@ -572,6 +636,41 @@ function particlePositionV2(
         .copy(axis)
         .multiplyScalar(shape.length * e3)
         .addScaledVector(sph, shape.radius);
+  }
+
+  // spawn.mode "event": the origin IS the path end the event happened at, with
+  // the shape's own sample scattering the instance around it.
+  if (emitter.spawn.mode === "event" && events.length) {
+    const event = events[index % events.length];
+    origin.set(
+      event.position[0] + sph.x * shape.radius,
+      event.position[1] + sph.y * shape.radius,
+      event.position[2] + sph.z * shape.radius,
+    );
+  }
+
+  // velocity.mode "orbit": the instance CIRCLES the emitter axis at its own
+  // spawn radius, so there is no ballistic trajectory to integrate either.
+  if (emitter.velocity.mode === "orbit") {
+    const h = origin.dot(axis);
+    const rad = origin.clone().addScaledVector(axis, -h);
+    const r = Math.max(rad.length(), 1e-4);
+    const w =
+      emitter.velocity.speed[1] * Math.pow(r / Math.max(shape.radius, 1e-3), -0.5);
+    const angle = w * age;
+    const turned = rad
+      .clone()
+      .multiplyScalar(Math.cos(angle))
+      .addScaledVector(
+        new THREE.Vector3().crossVectors(axis, rad),
+        Math.sin(angle),
+      );
+    const bob =
+      (x3 - 0.5) *
+      emitter.velocity.speed[0] *
+      Math.sin(age * (0.6 + 1.2 * attrs.extra2[i4]) + e0 * Math.PI * 2);
+    out.copy(turned).addScaledVector(axis, h + bob);
+    return true;
   }
 
   // velocity.mode "alongPath": the instance RUNS along the path on the shared
@@ -797,7 +896,184 @@ function writeSlab(
 /** Ramp space -> the shaders' uRampKeyMode. */
 function rampKeyMode(material: Material) {
   const space = material.ramp.space;
-  return space === "height" ? 3 : space === "surface" ? 2 : space === "layerTime" ? 1 : 0;
+  return space === "radial"
+    ? 4
+    : space === "height"
+      ? 3
+      : space === "surface"
+        ? 2
+        : space === "layerTime"
+          ? 1
+          : 0;
+}
+
+/**
+ * material.swirl.strength at layer-local progress `u`: how hard the polar
+ * swirl bites, 0 straight noise and 1 a tight spiral. Sampled on the CPU so
+ * every draw a swirl layer owns winds by the same amount on the same frame.
+ */
+export function swirlStrengthAt(material: Material, u: number) {
+  const curve = material.swirl?.strength;
+  if (!curve) return 1;
+  return curveAt(curve, u);
+}
+
+/**
+ * Metres of halo room a frame card carries outside its own bar. The rim's
+ * widest skirt is an exponential, so the card has to be a few bar widths
+ * bigger than the frame or the glow is cut off square.
+ */
+const FRAME_MARGIN = 4.4;
+
+function frameMargin(geometry: GeometryV2) {
+  return Math.max(0.25, geometry.thickness * FRAME_MARGIN);
+}
+
+/** material.sdfLine / material.beads / material.flow / material.swirl. */
+function rimUniforms(material: Material, geometry: GeometryV2 | undefined) {
+  const line = material.sdfLine;
+  const beads = material.beads;
+  const flow = material.flow;
+  const swirl = material.swirl;
+  const flowLayers = flow?.layers ?? [];
+  return {
+    uFrame: { value: geometry?.type === "frame" ? 1 : 0 },
+    uFrameV: { value: geometry?.type === "frame" ? 1 : 0 },
+    uFrameMargin: { value: geometry ? frameMargin(geometry) : 0 },
+    uCorner: { value: geometry?.frame?.corner ?? 0 },
+    uSdfN: { value: line?.halo.length ?? 0 },
+    uSdfCore: { value: line?.core ?? 0 },
+    uSdfSpine: { value: line?.spine ?? 0 },
+    uSdfInnerOff: { value: line?.innerOffset ?? 0 },
+    uSdfInnerW: { value: line?.innerWidth ?? 0 },
+    uSdfHalo: {
+      value: Array.from(
+        { length: 3 },
+        (_, i) =>
+          new THREE.Vector2(line?.halo[i]?.falloff ?? 1, line?.halo[i]?.weight ?? 0),
+      ),
+    },
+    uBeadOn: { value: beads ? 1 : 0 },
+    uBeads: {
+      value: new THREE.Vector3(
+        beads?.count ?? 0,
+        beads?.speed ?? 0,
+        beads?.width ?? 0.05,
+      ),
+    },
+    uFlowOn: { value: flow ? 1 : 0 },
+    uFlowN: { value: flowLayers.length },
+    uFlowLayer: {
+      value: Array.from({ length: 4 }, (_, i) => {
+        const l = flowLayers[i];
+        return new THREE.Vector4(
+          l?.scale ?? 1,
+          l?.pan[0] ?? 0,
+          l?.pan[1] ?? 0,
+          l?.rotate ?? 0,
+        );
+      }),
+    },
+    uFlowMix: {
+      value: Array.from({ length: 4 }, (_, i) => flow?.mix[i] ?? 0),
+    },
+    uFlowCut: {
+      value: new THREE.Vector3(
+        flow?.threshold ?? 0,
+        flow?.softness ?? 0.1,
+        flow?.parallax ?? 0,
+      ),
+    },
+    uSwirlOn: { value: swirl ? 1 : 0 },
+    uSwirlBands: {
+      value: new THREE.Vector4(
+        swirl?.bands.arms ?? 0,
+        swirl?.bands.wind ?? 0,
+        swirl?.bands.width ?? 0.5,
+        swirl?.bands.warp ?? 0,
+      ),
+    },
+    uSwirlDetail: {
+      value: new THREE.Vector4(
+        swirl?.detail.arms ?? 0,
+        swirl?.detail.wind ?? 0,
+        swirl?.detail.warp ?? 0,
+        swirl?.detail.contrast ?? 0,
+      ),
+    },
+    uSwirlLobe: {
+      value: new THREE.Vector3(
+        swirl?.lobe.scale1 ?? 1,
+        swirl?.lobe.scale2 ?? 1,
+        swirl?.lobe.amount ?? 0,
+      ),
+    },
+    uSwirlS: { value: 1 },
+  };
+}
+
+/** Re-reads every rim/flow/swirl field off the LIVE material each frame. */
+function writeRim(
+  uniforms: Record<string, THREE.IUniform>,
+  material: Material,
+  geometry: GeometryV2 | undefined,
+  u: number,
+) {
+  const line = material.sdfLine;
+  if (line) {
+    uniforms.uSdfCore.value = line.core;
+    uniforms.uSdfSpine.value = line.spine;
+    uniforms.uSdfInnerOff.value = line.innerOffset;
+    uniforms.uSdfInnerW.value = line.innerWidth;
+    uniforms.uSdfN.value = line.halo.length;
+    const halo = uniforms.uSdfHalo.value as THREE.Vector2[];
+    for (let i = 0; i < 3; i++)
+      halo[i].set(line.halo[i]?.falloff ?? 1, line.halo[i]?.weight ?? 0);
+  }
+  if (material.beads)
+    (uniforms.uBeads.value as THREE.Vector3).set(
+      material.beads.count,
+      material.beads.speed,
+      material.beads.width,
+    );
+  if (material.flow) {
+    const packed = uniforms.uFlowLayer.value as THREE.Vector4[];
+    const mix = uniforms.uFlowMix.value as number[];
+    material.flow.layers.forEach((l, i) => {
+      packed[i].set(l.scale, l.pan[0], l.pan[1], l.rotate);
+      mix[i] = material.flow!.mix[i] ?? 0;
+    });
+    uniforms.uFlowN.value = material.flow.layers.length;
+    (uniforms.uFlowCut.value as THREE.Vector3).set(
+      material.flow.threshold,
+      material.flow.softness,
+      material.flow.parallax,
+    );
+  }
+  if (material.swirl) {
+    (uniforms.uSwirlBands.value as THREE.Vector4).set(
+      material.swirl.bands.arms,
+      material.swirl.bands.wind,
+      material.swirl.bands.width,
+      material.swirl.bands.warp,
+    );
+    (uniforms.uSwirlDetail.value as THREE.Vector4).set(
+      material.swirl.detail.arms,
+      material.swirl.detail.wind,
+      material.swirl.detail.warp,
+      material.swirl.detail.contrast,
+    );
+    (uniforms.uSwirlLobe.value as THREE.Vector3).set(
+      material.swirl.lobe.scale1,
+      material.swirl.lobe.scale2,
+      material.swirl.lobe.amount,
+    );
+  }
+  uniforms.uSwirlS.value = swirlStrengthAt(material, u);
+  if (geometry) {
+    uniforms.uCorner.value = geometry.frame?.corner ?? 0;
+    uniforms.uFrameMargin.value = frameMargin(geometry);
+  }
 }
 
 const FLAT_CURVE: Curve = {
@@ -875,6 +1151,7 @@ function emitterCoreUniforms(
     [`u${P}FloorSoft`]: { value: emitter.forces.floor?.softness ?? 1 },
     [`u${P}HasFloor`]: { value: emitter.forces.floor ? 1 : 0 },
     [`u${P}PlanarDrag`]: { value: emitter.forces.planarDrag },
+    [`u${P}Interior`]: { value: emitter.shape.interiorFraction },
   };
   if (emitter.spawn.bursts.length) {
     const total = emitter.spawn.bursts.reduce((n, b) => n + b.count, 0) || 1;
@@ -1057,6 +1334,31 @@ function createParticleLayer(
       new THREE.InstancedBufferAttribute(sites.axes, 3),
     );
   }
+  // emitter.spawn.mode "event": the moment and the origin of the impact this
+  // instance belongs to, resolved once from the paths (see events-v2.ts) and
+  // uploaded as one attribute. Instance i takes event i % events.length, so a
+  // SINGLE layer carries the debris of every impact in the document.
+  const events =
+    emitter.spawn.originsFromPath && emitter.spawn.mode === "event"
+      ? pathEvents(doc, emitter.shape.pathId)
+      : [];
+  if (events.length) {
+    const packed = new Float32Array(count * 4);
+    for (let i = 0; i < count; i++) {
+      const event = events[i % events.length];
+      packed[i * 4] = event.position[0];
+      packed[i * 4 + 1] = event.position[1];
+      packed[i * 4 + 2] = event.position[2];
+      // Layer-LOCAL seconds, the domain every birth in the shader is in.
+      packed[i * 4 + 3] = event.time - layer.start;
+    }
+    geometry.setAttribute("aEvent", new THREE.InstancedBufferAttribute(packed, 4));
+  }
+  // The CPU mirror runs in the same LAYER-LOCAL seconds the shader does.
+  const localEvents = events.map((event) => ({
+    position: event.position,
+    time: event.time - layer.start,
+  }));
   const parentAttributes: THREE.InstancedBufferAttribute[] = [];
   if (parentAttrs) {
     const pick = (source: Float32Array) => {
@@ -1097,6 +1399,7 @@ function createParticleLayer(
     uSpan: { value: span },
     uTwinkleFreq: { value: emitter.render.twinkle?.frequency ?? 1 },
     uTwinkleDepth: { value: emitter.render.twinkle?.depth ?? 0 },
+    uAnchorHead: { value: emitter.render.anchor === "head" ? 1 : 0 },
     ...pathUniforms("E", path),
     ...emitterCoreUniforms("", emitter, doc.duration),
     ...(parentEmitter
@@ -1216,8 +1519,8 @@ function createParticleLayer(
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: cel
-      ? stripVertexSource(!!sites)
-      : particleVertexSource(!!parentEmitter, !!sites),
+      ? stripVertexSource(!!sites, events.length > 0)
+      : particleVertexSource(!!parentEmitter, !!sites, events.length > 0),
     fragmentShader: cel ? stripFragmentV2 : particleFragmentV2,
     transparent: true,
     depthWrite: false,
@@ -1264,7 +1567,7 @@ function createParticleLayer(
     trailGeometry.instanceCount = count;
     trailMaterial = new THREE.ShaderMaterial({
       uniforms,
-      vertexShader: trailVertexSource(!!parentEmitter, !!sites),
+      vertexShader: trailVertexSource(!!parentEmitter, !!sites, events.length > 0),
       fragmentShader: trailFragmentV2,
       transparent: true,
       depthWrite: false,
@@ -1420,6 +1723,7 @@ function createParticleLayer(
           span,
           path,
           sites,
+          localEvents,
         )
           ? point.dot(view)
           : -Infinity;
@@ -1474,6 +1778,7 @@ function createParticleLayer(
             span,
             path,
             sites,
+            localEvents,
           )
         )
           continue;
@@ -1692,6 +1997,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
   // frame from uLength/uThickness and the projected layer axis. It has to be
   // tested BEFORE the bar kinds, because a slab is usually a `beam`.
   if (geometry.type === "slab") return new THREE.PlaneGeometry(2, 2);
+  // A frame is a flat card whose bar is a per-pixel SDF, so the buffer is the
+  // same unit quad the slab uses and the live size is applied in the vertex
+  // shader: a track on geometry.length really resizes the doorway.
+  if (geometry.type === "frame") return new THREE.PlaneGeometry(2, 2);
   if (BAR_KINDS.has(layer.kind)) {
     // A beam is a straight bar of `length` along +Z, half-width `radius`; a
     // trail is the same bar narrowing toward its far end. Both are unit-sized
@@ -1926,8 +2235,15 @@ function createMeshLayer(
     uBandStripes: { value: geometry.band?.stripes ?? 1 },
     // material.stripes / material.flicker / geometry.slab.
     uFlicker: { value: 1 },
+    // kind "reflection" overwrites these on the mirrored copy; an ordinary
+    // draw leaves them at "not a reflection".
+    uReflect: { value: 0 },
+    uReflectTint: { value: new THREE.Color("#ffffff") },
+    uReflectOpacity: { value: 1 },
+    uReflectBlur: { value: 0 },
     ...stripeUniforms(material),
     ...slabUniforms(geometry),
+    ...rimUniforms(material, geometry),
     ...rampUniforms(material.ramp),
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
@@ -1937,6 +2253,7 @@ function createMeshLayer(
   // it the far arc of the belt glows through the dome it is meant to go behind.
   const isBand = geometry.type === "band" && !!geometry.band;
   const isSlab = geometry.type === "slab" && !!geometry.slab;
+  const isFrame = geometry.type === "frame";
   const shaderMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: surfaceVertexV2,
@@ -1961,7 +2278,10 @@ function createMeshLayer(
     // at their own radius, so only transform.scale applies on top of them.
     // A slab builds itself in view space from uLength/uThickness, so only
     // transform.scale applies on top of it — the same as the four above.
-    if (ribbon || shell || bolt || isBand || isSlab) return out.set(1, 1, 1);
+    // A frame sizes itself in the vertex shader from the live geometry, the
+    // same way the four above do, so only transform.scale applies on top of it.
+    if (ribbon || shell || bolt || isBand || isSlab || isFrame)
+      return out.set(1, 1, 1);
     // A lattice wraps a unit sphere scaled to geometry.radius.
     if (material.lattice) return out.set(g.radius, g.radius, g.radius);
     if (BAR_KINDS.has(layer.kind)) return out.set(g.radius, g.radius, g.length);
@@ -1980,7 +2300,16 @@ function createMeshLayer(
   const mesh = new THREE.Mesh(meshGeometryFor(layer, boltSeed), shaderMaterial);
   // A mesh whose extent really runs along local +Z keys its surface ramp and
   // erosion on that axis instead of on uv.y; a flat card or an arc cannot.
-  if (!shell && !ribbon && !bolt && !flatCard && !isBand && !isSlab && !material.lattice) {
+  if (
+    !shell &&
+    !ribbon &&
+    !bolt &&
+    !flatCard &&
+    !isBand &&
+    !isSlab &&
+    !isFrame &&
+    !material.lattice
+  ) {
     mesh.geometry.computeBoundingBox();
     const box = mesh.geometry.boundingBox!;
     const span = box.getSize(new THREE.Vector3());
@@ -2130,6 +2459,7 @@ function createMeshLayer(
       uniforms.uHeightSpan.value = m.ramp.heightSpan;
       uniforms.uFlicker.value = flickerAt(m, age);
       writeStripes(uniforms, m);
+      writeRim(uniforms, m, g, u);
       if (isSlab) writeSlab(uniforms, g);
       // Everything the ice/shield vocabulary adds is re-read from the LIVE
       // material, so a track on a reveal front, a lattice edge or a ground glow
@@ -2193,6 +2523,17 @@ function createMeshLayer(
       if (bolt) {
         // Strike-independent: the envelope every strike of this bolt fits in.
         for (const p of lightningBounds(g, boltSeed)) push(p.applyMatrix4(matrix));
+        return;
+      }
+      if (isFrame) {
+        // The card, not the bar: the halo skirt really does reach the margin,
+        // and a frame framed on its bar alone would have its glow cropped.
+        const margin = frameMargin(g);
+        const hx = g.radius + margin;
+        const hy = g.length * 0.5 + margin;
+        for (const x of [-hx, hx])
+          for (const y of [-hy, hy])
+            push(point.set(x, y, 0).applyMatrix4(matrix).clone());
         return;
       }
       if (isSlab) {
@@ -2376,7 +2717,14 @@ function createBlobLayer(
 ): LayerObject {
   const material = layer.material!;
   const spec = layer.blob!;
-  const lobes = blobLobes(spec);
+  // arrangement "path": the anchors sit on a DOCUMENT path, so the layer itself
+  // is at the origin the same way a ribbon's is.
+  const blobPath = findPath(doc, spec.pathId);
+  const lobes = blobLobes(spec, blobPath);
+  // An "orbit" ring is split by view depth every frame: the half currently
+  // behind the centre draws first, smaller and dimmer, which is what gives a
+  // tilted ring its oblique read.
+  const orbiting = spec.arrangement === "orbit";
   const geometry = new THREE.IcosahedronGeometry(1, 3);
   const group = new THREE.Group();
   group.name = layer.id;
@@ -2421,6 +2769,12 @@ function createBlobLayer(
     uGroundY: { value: doc.environment.groundY },
     uHeightSpan: { value: material.ramp.heightSpan },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 1 },
+    uLightOn: { value: spec.lightFrom ? 1 : 0 },
+    uLightPos: {
+      value: new THREE.Vector3().fromArray(spec.lightFrom?.position ?? [0, 0, 0]),
+    },
+    uLightFall: { value: spec.lightFrom?.falloff ?? 0 },
+    uShade: { value: 1 },
     ...rampUniforms(material.ramp),
   });
 
@@ -2459,6 +2813,8 @@ function createBlobLayer(
   });
 
   const span = Math.max(layer.end - layer.start, 1e-6);
+  const lightPoint = new THREE.Vector3();
+  const scratchLobe = new THREE.Vector3();
   return {
     id: layer.id,
     source: layer,
@@ -2466,7 +2822,7 @@ function createBlobLayer(
     soft: false,
     trim: false,
     occluder: material.opaqueUntil !== null,
-    update(time, flags) {
+    update(time, flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
       group.visible = visible;
       if (!visible) return;
@@ -2475,16 +2831,63 @@ function createBlobLayer(
       group.position.fromArray(live.transform.position);
       group.rotation.set(...live.transform.rotation);
       group.scale.fromArray(live.transform.scale);
+      group.updateMatrixWorld();
+      // blob.lightFrom: a point the lobes are shaded toward. Following a layer
+      // reads that layer's LIVE transform, so a ring lit by its own core keeps
+      // its highlight where the core actually is.
+      const lightFrom = blob.lightFrom;
+      if (lightFrom) {
+        lightPoint.fromArray(lightFrom.position);
+        if (lightFrom.layerId) {
+          const owner = doc.layers.find((l) => l.id === lightFrom.layerId);
+          if (owner)
+            lightPoint.fromArray(
+              evaluateLayerV2(owner, time).layer.transform.position,
+            );
+        }
+      }
+      // The layer origin in view space: everything nearer the camera than this
+      // is the near half of an orbit ring.
+      const centreDepth = orbiting
+        ? scratchLobe
+            .set(0, 0, 0)
+            .applyMatrix4(group.matrixWorld)
+            .applyMatrix4(camera.matrixWorldInverse).z
+        : 0;
       const outline = m.outline;
       for (const part of parts) {
-        const state = lobeStateAt(part.lobe, blob, age, span, m.opaqueUntil);
+        const state = lobeStateAt(
+          part.lobe,
+          blob,
+          age,
+          span,
+          m.opaqueUntil,
+          blobPath,
+        );
         part.fillMesh.visible = state.alive;
         part.hullMesh.visible = state.alive && !!outline && flags.textures;
         if (!state.alive) continue;
+        // The far half of an orbit ring is drawn first, smaller and dimmer: a
+        // ring whose two halves draw the same size reads as a flat annulus.
+        let bias = 1;
+        let shade = 1;
+        if (orbiting) {
+          const depth = scratchLobe
+            .fromArray(state.position)
+            .applyMatrix4(group.matrixWorld)
+            .applyMatrix4(camera.matrixWorldInverse).z;
+          const far = depth < centreDepth;
+          bias = far ? 0.88 : 1.06;
+          shade = far ? 0.58 : 1.02;
+          const order = index * 8 + (far ? 0 : 4);
+          part.hullMesh.renderOrder = order;
+          part.fillMesh.renderOrder = order + 1;
+        }
+        const radius = state.radius * bias;
         part.fillMesh.position.fromArray(state.position);
-        part.fillMesh.scale.setScalar(state.radius);
+        part.fillMesh.scale.setScalar(radius);
         part.hullMesh.position.fromArray(state.position);
-        part.hullMesh.scale.setScalar(state.radius);
+        part.hullMesh.scale.setScalar(radius);
         const alpha = state.alpha * m.opacity;
         // Opaque and depth-writing until the lobe starts fading; after that it
         // joins the transparent pass, which three.js draws last and sorts by
@@ -2508,6 +2911,10 @@ function createBlobLayer(
           uniforms.uHeightSpan.value = m.ramp.heightSpan;
           uniforms.uGroundY.value = doc.environment.groundY;
           uniforms.uUseToon.value = m.toon ? 1 : 0;
+          uniforms.uShade.value = shade;
+          uniforms.uLightOn.value = lightFrom ? 1 : 0;
+          uniforms.uLightFall.value = lightFrom?.falloff ?? 0;
+          (uniforms.uLightPos.value as THREE.Vector3).copy(lightPoint);
           writeRamp(uniforms as Record<string, THREE.IUniform>, m.ramp);
         }
         if (m.toon) {
@@ -2527,7 +2934,7 @@ function createBlobLayer(
           // A constant world-space line: the hull is inflated in the lobe's own
           // unit space, so the push has to be divided by the live radius.
           part.hullUniforms.uInflate.value =
-            outline.width / Math.max(state.radius, 0.12);
+            outline.width / Math.max(radius, 0.12);
         }
       }
     },
@@ -2541,7 +2948,7 @@ function createBlobLayer(
         ),
         new THREE.Vector3().fromArray(live.transform.scale),
       );
-      const [lo, hi] = blobBounds(live.blob!);
+      const [lo, hi] = blobBounds(live.blob!, blobPath);
       for (const x of [lo.x, hi.x])
         for (const y of [lo.y, hi.y])
           for (const z of [lo.z, hi.z])
@@ -3283,6 +3690,8 @@ function spawnBoundsV2(
   time: number,
   push: (p: THREE.Vector3) => void,
   path: PathV2 | null = null,
+  /** Path events, for spawn.mode "event": the impacts this layer belongs to. */
+  events: Array<{ position: [number, number, number]; time: number }> = [],
 ) {
   const { layer: live, visible } = evaluateLayerV2(layer, time);
   if (!visible) return;
@@ -3310,6 +3719,17 @@ function spawnBoundsV2(
     }
     return;
   }
+  if (emitter.spawn.mode === "event" && events.length) {
+    // An event spawn happens AT the impacts, not at the layer origin: framing
+    // on the origin would leave every burst outside the shot.
+    const margin = shape.radius + emitter.render.size[1] * 0.5;
+    for (const event of events) {
+      const point = new THREE.Vector3().fromArray(event.position);
+      push(point.clone().addScalar(margin));
+      push(point.clone().addScalar(-margin));
+    }
+    return;
+  }
   const extent = new THREE.Vector3();
   // A "line" spawns from the origin *along* +axis for `length`, never behind
   // it, so its box is one-sided; `lean` carries that asymmetry.
@@ -3327,7 +3747,13 @@ function spawnBoundsV2(
     // A ring and a disc lie in the plane PERPENDICULAR to their axis, so they
     // claim nothing along it. Without this an upright ring of radius 1.5 asks
     // the camera for three metres of headroom it never uses.
-    if ((shape.type === "ring" || shape.type === "disc") && axis.lengthSq() > 1e-10) {
+    if (
+      (shape.type === "ring" ||
+        shape.type === "disc" ||
+        shape.type === "orbit" ||
+        shape.type === "frame") &&
+      axis.lengthSq() > 1e-10
+    ) {
       const unit = axis.clone().normalize();
       extent.multiply(
         new THREE.Vector3(
@@ -3342,7 +3768,24 @@ function spawnBoundsV2(
         .clone()
         .normalize()
         .multiplyScalar(shape.length);
-      if (shape.type === "line") lean.copy(reach);
+      // A frame's own length is its HEIGHT across the axis, not a reach along
+      // it: the strip stands in the plane the ring and the disc lie in.
+      if (shape.type === "frame") {
+        extent.add(
+          new THREE.Vector3(
+            Math.abs(reach.x),
+            Math.abs(reach.y),
+            Math.abs(reach.z),
+          ).multiplyScalar(0.5),
+        );
+        extent.multiply(
+          new THREE.Vector3(
+            1 - Math.abs(axis.clone().normalize().x),
+            1 - Math.abs(axis.clone().normalize().y),
+            1 - Math.abs(axis.clone().normalize().z),
+          ),
+        );
+      } else if (shape.type === "line") lean.copy(reach);
       else
         extent.add(
           new THREE.Vector3(
@@ -3359,6 +3802,94 @@ function spawnBoundsV2(
   const hi = center.clone().max(center.clone().add(lean));
   push(hi.add(extent).addScalar(margin));
   push(lo.sub(extent).addScalar(-margin));
+}
+
+// ---------------------------------------------------------------------------
+// Reflection layers
+// ---------------------------------------------------------------------------
+
+/**
+ * What a polished floor catches: the SOURCE layer's own mesh, built a second
+ * time from the source layer's own spec, mirrored about environment.groundY
+ * and squashed by `reflection.scale`.
+ *
+ * It draws the source's geometry and material rather than a copy of the
+ * numbers, so a track on the source — its length, its reveal front, its flow
+ * threshold — reaches the reflection on the same frame and the two can never
+ * drift apart. The wash (the tint mix, the opacity and the depth fade) lives in
+ * the fragment behind uReflect, so it costs one draw call and four uniforms.
+ */
+function createReflectionLayer(
+  doc: VfxDocumentV2,
+  layer: LayerV2,
+  index: number,
+  textures: TextureCacheV2,
+): LayerObject {
+  const spec = layer.reflection!;
+  const source = doc.layers.find((l) => l.id === spec.sourceLayerId)!;
+  // The copy answers to the REFLECTION layer's own window and tracks, and to
+  // the source's geometry and material.
+  const mirrored: LayerV2 = {
+    ...source,
+    id: layer.id,
+    start: layer.start,
+    end: layer.end,
+    role: layer.role,
+    tracks: layer.tracks,
+    overrides: layer.overrides,
+    motion: layer.motion,
+    jitter: layer.jitter,
+    collapse: layer.collapse,
+    window: null,
+    reflection: undefined,
+    material: {
+      ...source.material!,
+      // Never depth-writing and never an occluder: a reflection is a smear on
+      // the floor, not a body other layers should sort against.
+      blend: "alpha",
+    },
+  };
+  const object = createMeshLayer(doc, mirrored, index, textures);
+  const mesh = object.object as THREE.Object3D;
+  const groundY = doc.environment.groundY;
+  const write = (node: THREE.Object3D) => {
+    const material = (node as THREE.Mesh).material as THREE.ShaderMaterial;
+    if (!material?.uniforms?.uReflect) return;
+    material.uniforms.uReflect.value = 1;
+    (material.uniforms.uReflectTint.value as THREE.Color).set(spec.tint);
+    material.uniforms.uReflectOpacity.value = spec.opacity;
+    material.uniforms.uReflectBlur.value = spec.blur;
+    material.depthWrite = false;
+    // The floor is an opaque plane, so a copy mirrored under it would be depth
+    // rejected outright. A reflection is a smear PAINTED on the floor: it skips
+    // the depth test and draws just after the ground.
+    material.depthTest = false;
+    node.renderOrder = -5;
+  };
+  return {
+    ...object,
+    id: layer.id,
+    source: layer,
+    occluder: false,
+    update(time, flags, camera) {
+      object.update(time, flags, camera);
+      mesh.traverse(write);
+      // Mirror about the ground plane and squash TOWARD it: a point `h` above
+      // the plane lands `h * scale` below it, so the copy stays anchored at the
+      // contact instead of sliding away from it as it foreshortens.
+      mesh.traverse((node) => {
+        if (!(node as THREE.Mesh).isMesh) return;
+        node.position.y = groundY - (node.position.y - groundY) * spec.scale;
+        node.scale.y *= -spec.scale;
+      });
+    },
+    bounds() {
+      // A reflection is always under something that already claims the frame,
+      // and it hangs BELOW the ground plane: claiming it would pull the camera
+      // down and back off the thing being reflected. It contributes nothing,
+      // the same way a light's radius does not.
+    },
+  };
 }
 
 function createLightLayer(layer: LayerV2): LayerObject {
@@ -3498,7 +4029,10 @@ export class VfxRuntimeV2 {
       ? validateDocumentV2(input)
       : upgradeDocument(input as VfxDocument);
     this.disposeObjects();
-    this.doc = applyStyle(doc);
+    // layer.window: a layer whose start is an event on a path is moved onto
+    // that moment ONCE, here, so the renderer, the framing pass and the capture
+    // path all read the same times.
+    this.doc = resolveEventWindows(applyStyle(doc));
     const depth = this.depthTarget.depthTexture!;
     this.objects = this.doc.layers
       .filter((layer) => layer.enabled)
@@ -3516,6 +4050,8 @@ export class VfxRuntimeV2 {
         if (layer.kind === "arcs") return createArcsLayer(layer, index);
         if (layer.kind === "streakBurst")
           return createStreakBurstLayer(layer, index);
+        if (layer.kind === "reflection")
+          return createReflectionLayer(this.doc!, layer, index, this.textures);
         return createMeshLayer(this.doc!, layer, index, this.textures);
       });
     const lights = this.objects
@@ -3613,9 +4149,14 @@ export class VfxRuntimeV2 {
       if (kind === "light") continue;
       if (kind === "particles") {
         const emitterPath = findPath(doc, object.source.emitter!.shape.pathId);
+        const emitterEvents =
+          object.source.emitter!.spawn.originsFromPath &&
+          object.source.emitter!.spawn.mode === "event"
+            ? pathEvents(doc, object.source.emitter!.shape.pathId)
+            : [];
         const spawn = boxOf(
           (time, push) =>
-            spawnBoundsV2(object.source, time, push, emitterPath),
+            spawnBoundsV2(object.source, time, push, emitterPath, emitterEvents),
           0,
         );
         if (spawn) {
@@ -3801,6 +4342,29 @@ export class VfxRuntimeV2 {
       if (solo && object.id !== solo) object.object.visible = false;
     }
     this.environment.apply(doc, this.scene, this.flags.ground);
+    // environment.groundPool: a pool that follows a layer reads that layer's
+    // LIVE transform, so the floor light travels with a falling meteor without
+    // a track of its own.
+    const pools = doc.environment.groundPool ?? [];
+    if (pools.length) {
+      const u = clamp01(time / Math.max(doc.duration, 1e-4));
+      this.environment.writePools(
+        pools.map((pool) => {
+          const centre = new THREE.Vector3().fromArray(pool.position);
+          if (pool.followsLayerId) {
+            const owner = this.objects.find((o) => o.id === pool.followsLayerId);
+            if (owner)
+              centre.fromArray(
+                evaluateLayerV2(owner.source, time).layer.transform.position,
+              );
+          }
+          return {
+            centre,
+            intensity: curveAt(pool.intensity, u),
+          };
+        }),
+      );
+    }
     this.renderer.toneMappingExposure = doc.post.exposure;
     this.post.apply(
       doc,

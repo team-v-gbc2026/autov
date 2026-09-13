@@ -149,8 +149,9 @@ float hexCells(vec2 uv, vec2 cell){
 // uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 // 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon,
 // 12 star4, 13 softRadial, 14 swirlRing, 15 ringFill, 16 sigil, 17 lensFlare,
-// 18 radialRays.
-// Modes 0-3 and 12-18 are BILLBOARD SILHOUETTES: they describe a sprite's whole
+// 18 radialRays, 19 swirlDisc (a SURFACE pattern with its own branch in
+// surfaceFragmentV2, see glslSwirl), 20 teardropStreak.
+// Modes 0-3, 12-18 and 20 are BILLBOARD SILHOUETTES: they describe a sprite's whole
 // outline, so a closed body (the analytic shell) ignores them. 4-11 are surface
 // patterns and apply everywhere; surfaceFragmentV2 gates on exactly that.
 //
@@ -316,6 +317,22 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
     float fade=1.-smoothstep(0.,max(len,.02),r);
     return clamp(ray*fade*fade*(1.-smoothstep(${(RADIAL_CUTOFF * 1.45).toFixed(3)},1.,r)),0.,2.);
   }
+  if(mode==20){
+    // teardropStreak: the speed-line cap of a velocity-stretched sprite. The
+    // quad's LONG axis is uv.y (that is the axis render.stretch elongates), so
+    // u runs 0 at the tail to 1 at the leading point; with render.anchor "head"
+    // the bright tip sits exactly on the instance and the streak trails behind.
+    // uProcParams = (dash frequency, dash scroll, core tightness, halo reach).
+    float u=uv.y, v=(uv.x-.5)*2.;
+    float w=mix(.30,1.,smoothstep(0.,.62,u))*(1.-smoothstep(.86,1.,u));
+    float dd=abs(v)/max(w,1e-3);
+    float body=safePow(max(0.,1.-dd),2.2);
+    float core=safePow(max(0.,1.-dd*max(uProcParams.z,1.)),5.)*smoothstep(.20,.80,u);
+    float halo=safePow(max(0.,1.-length(vec2((u-.80)*2.1, v*1.05))),max(uProcParams.w,.5));
+    float dash=step(.62,fract(u*max(uProcParams.x,0.)-t*uProcParams.y))
+             *safePow(max(0.,1.-dd*1.4),3.)*smoothstep(0.,.35,u)*(1.-smoothstep(.55,.85,u));
+    return clamp(body*.8+core+halo*1.1+dash*.7,0.,2.);
+  }
   if(mode==11){
     // Continuous core with a narrow moving edge; no longitudinal holes.
     float edge=.48+.035*sin(q.y*18.-t*10.);
@@ -374,6 +391,138 @@ float stripeTerm(float along, float ring, float t){
 `;
 
 // ---------------------------------------------------------------------------
+// Frame rims, flow surfaces and swirl discs
+// ---------------------------------------------------------------------------
+
+/**
+ * The rounded-rectangle frame: a signed distance and a normalised PERIMETER
+ * coordinate (0 at bottom-centre, 1 at top-centre, mirrored in x). Everything
+ * a frame does — the reveal front, the travelling beads, the stripes — runs on
+ * that one coordinate, which is why a doorway draws itself up both sides at
+ * once from a single field.
+ */
+export const glslFrame = /* glsl */ `
+uniform int uFrame,uSdfN,uBeadOn;
+uniform float uCorner,uSdfCore,uSdfSpine,uSdfInnerOff,uSdfInnerW;
+uniform vec2 uSdfHalo[3];
+uniform vec3 uBeads;   // (count, speed, width)
+float sdRoundRect(vec2 p, vec2 h, float r){
+  vec2 d=abs(p)-h+r;
+  return length(max(d,0.))+min(max(d.x,d.y),0.)-r;
+}
+/* Perimeter parameter: 0 at bottom-centre, 1 at top-centre, mirrored in x. */
+float framePerimeter(vec2 p, vec2 h){
+  vec2 a=vec2(abs(p.x),p.y);
+  vec2 c=clamp(a, vec2(0.,-h.y), h);
+  float db=c.y+h.y, dt=h.y-c.y, dr=h.x-c.x;
+  float m=min(dr,min(db,dt));
+  float sArc = (m==db) ? c.x : ((m==dr) ? (h.x+c.y+h.y) : (h.x+2.*h.y+h.x-c.x));
+  return sArc/max(2.*h.x+2.*h.y,1e-4);
+}
+/* Travelling brightness beads along the perimeter, hash-stepped so they are
+   never evenly spaced. Returns 0 when material.beads is null. */
+float beadTerm(float u, float t){
+  if(uBeadOn==0) return 0.;
+  float acc=0.;
+  for(int i=0;i<8;i++){
+    if(float(i)>=uBeads.x) break;
+    float k=float(i);
+    float bp=fract(t*uBeads.y + k*0.37 + fract(sin(k*3.1)*43758.5453)*0.4);
+    float g=(u-bp)/max(uBeads.z,1e-3);
+    acc+=exp(-g*g);
+  }
+  return acc;
+}
+`;
+
+/**
+ * material.flow: up to four panning value-noise fields mixed into one mask.
+ * The slowest layer takes a view-direction offset (`parallax`), which is the
+ * whole reason a flat card reads as having an interior behind it.
+ */
+export const glslFlow = /* glsl */ `
+uniform int uFlowOn,uFlowN;
+uniform vec4 uFlowLayer[4];   // (scale, pan.x, pan.y, rotate)
+uniform float uFlowMix[4];
+uniform vec3 uFlowCut;        // (threshold, softness, parallax)
+float flowNoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  float a=procHash21(i), b=procHash21(i+vec2(1.,0.));
+  float c=procHash21(i+vec2(0.,1.)), d=procHash21(i+vec2(1.,1.));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+/* The mixed field in 0..1. q is the surface coordinate in METRES, so a card
+   that is resized does not squash its own patches. */
+float flowField(vec2 q, float t, vec2 parallax){
+  float acc=0., weight=0.;
+  for(int i=0;i<4;i++){
+    if(i>=uFlowN) break;
+    vec4 L=uFlowLayer[i];
+    float c=cos(L.w), sn=sin(L.w);
+    vec2 r=vec2(q.x*c-q.y*sn, q.x*sn+q.y*c);
+    // Only the FIRST (slowest) layer takes the view offset: parallax on the
+    // fine octaves reads as the whole card sliding, not as depth.
+    vec2 off = i==0 ? parallax*uFlowCut.z : vec2(0.);
+    acc+=flowNoise((r+off)*L.x + L.yz*t)*uFlowMix[i];
+    weight+=uFlowMix[i];
+  }
+  return acc/max(weight,1e-4);
+}
+`;
+
+/**
+ * material.swirl: the polar swirl of a disc. The angle is sheared by
+ * twist/(d + eps) so a noise field becomes spiral bands, an explicitly wound
+ * log spiral makes the ARMS read, and a second, tighter, independently wound
+ * spiral shades them from inside. `uSwirlS` is the swirl envelope, sampled from
+ * material.swirl.strength on the CPU so every draw a layer owns agrees on it.
+ */
+export const glslSwirl = /* glsl */ `
+uniform int uSwirlOn;
+uniform vec4 uSwirlBands;    // (arms, wind, width, warp)
+uniform vec4 uSwirlDetail;   // (arms, wind, warp, contrast)
+uniform vec3 uSwirlLobe;     // (scale1, scale2, amount)
+uniform float uSwirlS;
+float swirlFbm2(vec2 p){ return (flowNoise(p)+.5*flowNoise(p*2.07+19.3))/1.5; }
+float swirlFbm3(vec2 p){
+  float acc=0., a=.5;
+  for(int i=0;i<3;i++){ acc+=a*flowNoise(p); p=mat2(.8,.6,-.6,.8)*p*2.03+vec2(11.3,7.1); a*=.5; }
+  return acc/.875;
+}
+/* (mask, shade) for the disc at centred coordinate q (|q| <= 1 is the card). */
+vec2 swirlDisc(vec2 q, float t){
+  float d=length(q);
+  float twist=uProcParams.x, spin=uProcParams.y, inflow=uProcParams.z;
+  float arms=uSwirlOn==1 && uSwirlBands.x>0. ? uSwirlBands.x : max(uProcParams.w,1.);
+  float rot=uSwirlS*twist/(d+.08)+t*spin*6.28318530718;
+  float c=cos(rot), sn=sin(rot);
+  vec2 p=vec2(q.x*c-q.y*sn, q.x*sn+q.y*c)*(1.+t*inflow*uSwirlS)*3.;
+  vec2 w=vec2(swirlFbm2(p*1.15), swirlFbm2(p*1.15+31.7))-.5;
+  float n=swirlFbm2(p+w*1.15);
+  float ang=atan(q.y,q.x);
+  float wind=uSwirlOn==1?uSwirlBands.y:1.85;
+  float warp=uSwirlOn==1?uSwirlBands.w:1.4;
+  float band=.5+.5*sin(arms*(ang+uSwirlS*twist*wind*log(d+.09))+t*spin*6.28318530718*arms+(n-.5)*warp);
+  float lobe=0.;
+  if(uSwirlOn==1)
+    lobe=((swirlFbm3(p*uSwirlLobe.x+57.)-.5)+.3*(swirlFbm2(p*uSwirlLobe.y+91.)-.5))*uSwirlLobe.z;
+  float width=uSwirlOn==1?uSwirlBands.z:.5;
+  float m=band*(.4+.76*width)+n*.46+lobe;
+  // The independent detail spiral: tighter, its own winding, and it only ever
+  // shades — a second mask here would read as a copy of the first.
+  float dArms=uSwirlOn==1?uSwirlDetail.x:7.;
+  float dWind=uSwirlOn==1?uSwirlDetail.y:2.75;
+  float dWarp=uSwirlOn==1?uSwirlDetail.z:6.2;
+  float dCon=uSwirlOn==1?uSwirlDetail.w:.62;
+  float fine=swirlFbm3(p*2.35+113.);
+  float det=.5+.5*sin(dArms*(ang+uSwirlS*twist*dWind*log(d+.09))+t*spin*6.28318530718*dArms+(fine-.5)*dWarp);
+  float shade=smoothstep(.10,.92,det*dCon+fine*.54);
+  return vec2(clamp(m,0.,2.), shade);
+}
+`;
+
+
+// ---------------------------------------------------------------------------
 // Particles
 //
 // The whole trajectory — spawn position, initial direction, speed curve,
@@ -425,6 +574,7 @@ export function glslParticleCore(
   p: string,
   curlEnv: string,
   source = false,
+  events = false,
 ) {
   // Path sampling exists only in the layer's OWN copy: a sub-emitter is
   // launched from its parent's trajectory, never from a path of its own.
@@ -439,6 +589,7 @@ uniform vec3 u${P}Axis,u${P}Dir,u${P}Gravity,u${P}Wind,u${P}Bias,u${P}ShapeSize,
 uniform vec2 u${P}Life,u${P}Speed;
 uniform vec2 u${P}SpeedKey[${CURVE_KEYS}];
 uniform float u${P}BurstT[${CURVE_KEYS}]; uniform float u${P}BurstC[${CURVE_KEYS}];
+uniform float u${P}Interior;
 
 float ${p}Life(vec4 s){ return mix(u${P}Life.x,u${P}Life.y,s.y); }
 
@@ -460,6 +611,17 @@ float ${p}Birth(vec4 s, float t){
     return t0+fract(instance*7.13+0.37)*u${P}SpawnWindow;
   }
 ${
+  events
+    ? /* glsl */ `  if(u${P}SpawnMode==4){
+    // event: the instance is born when its own path's head reaches the END of
+    // that path. The moment and the origin are one instance attribute, computed
+    // on the CPU from whichever layer drives the path (see events-v2.ts), so a
+    // single layer can carry the debris of every impact in the document.
+    return aEvent.w+fract(instance*7.13+.37)*u${P}SpawnWindow;
+  }
+`
+    : ""
+}${
   path
     ? /* glsl */ `  if(u${P}SpawnMode==3){
     // pathAnchored: instance i owns u = i/(count-1) and is born the moment the
@@ -495,6 +657,34 @@ vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
     return (a1*cos(ca)+a2*sin(ca))*rr;
   }
   if(u${P}ShapeType==6) return vec3(e.x*2.-1.,e.y*2.-1.,e.z*2.-1.)*u${P}ShapeSize*.5;
+  if(u${P}ShapeType==11){
+    // frame: the PERIMETER of a rectangle of half-extent (radius, length/2) in
+    // the plane across shape.axis, with shape.interiorFraction of the
+    // population scattered inside it instead. A rim spray, not a surface one.
+    vec2 H=vec2(u${P}ShapeRadius, u${P}ShapeLength*.5);
+    vec2 pt; vec2 nrm;
+    if(e.w<u${P}Interior){
+      pt=vec2((e.x*2.-1.)*H.x*.88,(e.y*2.-1.)*H.y*.90);
+      nrm=normalize(pt+vec2(1e-4));
+    } else {
+      float per=2.*H.x+2.*H.y;
+      float sgn=e.z<.5?-1.:1.;
+      float dd=e.x*per;
+      if(dd<H.x){ pt=vec2(dd,-H.y); nrm=vec2(0.,-1.); }
+      else if(dd<H.x+2.*H.y){ pt=vec2(H.x,-H.y+(dd-H.x)); nrm=vec2(1.,0.); }
+      else { pt=vec2(H.x-(dd-H.x-2.*H.y),H.y); nrm=vec2(0.,1.); }
+      pt.x*=sgn; nrm.x*=sgn;
+      pt+=nrm*(e.y-.3)*u${P}ShapeInner;
+    }
+    return a1*pt.x+a2*pt.y+axis*(e.z-.5)*u${P}ShapeInner;
+  }
+  if(u${P}ShapeType==12){
+    // orbit: a ring BAND between shape.innerRadius and shape.radius in the
+    // plane across shape.axis, hashed on a sqrt so the lane population is even
+    // in area rather than in radius.
+    float rr=mix(u${P}ShapeInner,u${P}ShapeRadius,sqrt(e.z));
+    return (a1*cos(ca)+a2*sin(ca))*rr;
+  }
 ${
   path
     ? /* glsl */ `  if(u${P}ShapeType==8){
@@ -521,6 +711,11 @@ ${
       + upn*(e.y-.5)*2.*u${P}ShapeRadius
       + tg*(e.z-.5)*u${P}ShapeRadius;
   }
+`
+    : ""
+}${
+  events
+    ? /* glsl */ `  if(u${P}SpawnMode==4) return aEvent.xyz+sph*u${P}ShapeRadius;
 `
     : ""
 }${
@@ -612,6 +807,24 @@ ${
 `
     : ""
 }
+  if(u${P}VelMode==5){
+    // orbit: the instance CIRCLES the emitter axis at its own spawn radius.
+    // Angular speed is velocity.speed[1] * (r/radius)^-0.5, so the inner lane
+    // laps the outer one, plus a small hashed out-of-plane bob. Closed form in
+    // age, so a seek lands on exactly the phase playback would have drawn.
+    vec3 ax=safeDir(u${P}Axis,vec3(0.,1.,0.));
+    float h=dot(origin,ax);
+    vec3 rad=origin-ax*h;
+    float r=max(length(rad),1e-4);
+    float w=u${P}Speed.y*safePow(r/max(u${P}ShapeRadius,1e-3),-.5);
+    float ang=w*a, c=cos(ang), sn=sin(ang);
+    vec3 turned=rad*c+cross(ax,rad)*sn;
+    float bob=(e2.w-.5)*u${P}Speed.x*sin(a*(.6+1.2*e2.x)+e.x*6.2831853);
+    pos=turned+ax*(h+bob);
+    vel=(cross(ax,turned))*w;
+    if(u${P}HasFloor==1){ float dy=pos.y-u${P}FloorY; pos.y=u${P}FloorY+max(dy,dy*u${P}FloorSoft); }
+    return;
+  }
   float v0=mix(u${P}Speed.x,u${P}Speed.y,e2.w);
   float d,scale;
   if(u${P}SpeedN>1){
@@ -715,15 +928,20 @@ ${
   float u=clamp(age/max(life,1e-4),0.,1.);
 `;
 
-export function particleVertexSource(sub = false, source = false) {
+export function particleVertexSource(
+  sub = false,
+  source = false,
+  events = false,
+) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
 attribute float aIndex;
 ${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
 ${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
+${events ? "attribute vec4 aEvent;" : ""}
 uniform float uTime,uStretch,uAtlasTiles,uMotionBlur,uFlipFps,uSpan;
 uniform float uTwinkleFreq,uTwinkleDepth;
-uniform int uRenderMode,uHasAlphaSpawn,uAtlasCols,uAtlasRows,uFlipMode;
+uniform int uRenderMode,uHasAlphaSpawn,uAtlasCols,uAtlasRows,uFlipMode,uAnchorHead;
 uniform vec2 uSize,uRot,uRotInit;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
 ${glslNoise}
@@ -735,7 +953,7 @@ ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
-${glslParticleCore("", "self", "curveE(u)", source)}
+${glslParticleCore("", "self", "curveE(u)", source, events)}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
 void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); }
@@ -787,7 +1005,11 @@ ${glslResolveBirth(sub)}
         ? 1.+uStretch
         : 1.+uStretch*(1.+2.*uMotionBlur)*svl;
     }
-    vec2 off=across*position.x*size+along*position.y*size*stretch;
+    // render.anchor "head": the LEADING point of the stretched card sits on the
+    // instance and the streak trails behind it, which is what a speed-line cap
+    // needs — the tip is the projectile, the streak is where it has been.
+    float anchorShift = uAnchorHead==1 ? -.5*size*stretch : 0.;
+    vec2 off=across*position.x*size+along*(position.y*size*stretch+anchorShift);
     if(uMotionBlur>0. && svl>1e-4){
       // Non-stretched modes still elongate along screen velocity, never rotate.
       vec2 vdir=sv/svl;
@@ -835,11 +1057,12 @@ export const particleVertexV2 = particleVertexSource(false);
  * instances in index order the light set always lands over the dark one — so a
  * flatStrip layer wants render.sortMode "none".
  */
-export function stripVertexSource(source = false) {
+export function stripVertexSource(source = false, events = false) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
 attribute float aIndex;
 ${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
+${events ? "attribute vec4 aEvent;" : ""}
 uniform float uTime,uSpan,uStripStep,uStripWave,uPalettes,uStripCount;
 uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uHasAlphaSpawn;
@@ -855,7 +1078,7 @@ ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
-${glslParticleCore("", "self", "curveE(u)", source)}
+${glslParticleCore("", "self", "curveE(u)", source, events)}
 float stripHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
 void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); vPalette=0.; }
 
@@ -932,12 +1155,13 @@ void main(){
  * position at age - k*spacing, so the ribbon is the particle's own past
  * without any history buffer. `position` carries (side, k, 0).
  */
-export function trailVertexSource(sub = false, source = false) {
+export function trailVertexSource(sub = false, source = false, events = false) {
   return /* glsl */ `
 attribute vec4 aSeed, aExtra, aExtra2;
 attribute float aIndex;
 ${sub ? "attribute vec4 aPSeed, aPExtra, aPExtra2;" : ""}
 ${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
+${events ? "attribute vec4 aEvent;" : ""}
 uniform float uTime,uSegments,uSpacing,uSpan;
 uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uHasAlphaSpawn;
@@ -953,7 +1177,7 @@ ${glslCurve("E")}
 ${glslCurve("G")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
-${glslParticleCore("", "self", "curveE(u)", source)}
+${glslParticleCore("", "self", "curveE(u)", source, events)}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
 void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vUv=vec2(0.); vWp=vec3(0.); }
@@ -1124,6 +1348,11 @@ uniform float uTime,uLength,uRadius,uThickness,uArc,uVertexAmp,uVertexFreq,uVert
 uniform float uChannel,uSplitOffset,uSplitGrowth,uLayerU;
 uniform int uShell,uHasVertexNoise,uBillboard,uRibbon,uUseLocalZ,uSlab,uSlabBase;
 uniform float uSlabTaper;
+// geometry.type "frame": the card is grown by uFrameMargin metres on every side
+// so the halo around the bar has room, and vObj carries the LOCAL position in
+// metres, which is what the fragment reads the rounded-rect SDF off.
+uniform int uFrameV;
+uniform float uFrameMargin;
 uniform vec2 uZRange;
 uniform vec3 uVertexBias;
 varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
@@ -1135,6 +1364,22 @@ void main(){
   // reveal front keys on it, so both are independent of the layer's transform.
   vUv=uv; vLobe=0.; vRing=uv.x; vObj=position;
   vec3 worldPos, worldNormal;
+  if(uFrameV==1){
+    // A flat card standing in the layer's own XY plane, sized from the LIVE
+    // geometry every frame so a track on length or radius really resizes the
+    // doorway. Everything else about a frame happens per pixel.
+    vec2 half2=vec2(uRadius+uFrameMargin, uLength*.5+uFrameMargin);
+    vec3 local=vec3(position.xy*half2, 0.);
+    vObj=local;
+    vAlong=clamp(uv.y,0.,1.);
+    worldPos=(modelMatrix*vec4(local,1.)).xyz;
+    worldNormal=safeDir((modelMatrix*vec4(0.,0.,1.,0.)).xyz, vec3(0.,0.,1.));
+    vWp=worldPos; vN=worldNormal;
+    gl_Position=projectionMatrix*viewMatrix*vec4(worldPos,1.);
+    if(uChannel>=0.)
+      gl_Position.x+=(uChannel-1.)*uSplitOffset*(1.+uSplitGrowth*clamp(uLayerU,0.,1.))*gl_Position.w;
+    return;
+  }
   if(uSlab==1){
     // geometry.type "slab": a VIEW-SPACE bar. The quad is rebuilt every frame
     // on the screen projection of the layer's own local +Z, so the bar runs
@@ -1288,11 +1533,19 @@ uniform int uSlab,uSlabN;
 uniform vec4 uSlabTier[4];
 uniform vec3 uSlabCol[4];
 uniform float uFlicker;
+// kind "reflection": the same draw, mirrored under the ground plane, washed
+// toward uReflectTint and faded with depth below it.
+uniform int uReflect;
+uniform vec3 uReflectTint;
+uniform float uReflectOpacity,uReflectBlur;
 varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslRamp}
 ${glslCurve("C")}
 ${glslProcedural}
+${glslFrame}
+${glslFlow}
+${glslSwirl}
 ${glslLattice}
 void main(){
   vec3 V=safeDir(uCam-vWp, vec3(0.,0.,1.));
@@ -1323,8 +1576,100 @@ void main(){
     else gl_FragColor=vec4(c*a,a);
     return;
   }
+  if(uFrame==1){
+    // The whole rim, read off one signed distance: the drawn arc (the reveal
+    // front runs the PERIMETER, so the doorway draws itself up both sides at
+    // once), the solid bar, the hot spine down the middle of it, the thinner
+    // parallel line inside it and the halo skirts around the lot. The ramp is
+    // sampled at four fixed keys, which is what lets ONE ramp carry a rim.
+    vec2 H=vec2(max(uRadius-uThickness*.5,1e-3), max(uLength*.5-uThickness*.5,1e-3));
+    float d=sdRoundRect(vObj.xy, H, min(uCorner, min(H.x,H.y)*.98));
+    float ad=abs(d);
+    float u=framePerimeter(vObj.xy, H);
+    float front=mix(uRevealFrom,uRevealTo,clamp(uLayerU,0.,1.));
+    float gate = uHasReveal==1 ? 1.-smoothstep(front, front+max(uRevealWidth,1e-3), u) : 1.;
+    // Squared, never safePow: safePow clamps a negative base to an epsilon,
+    // which would make every pixel INSIDE the frame read as the spine.
+    float lk=(u-front)/max(uRevealWidth,1e-3);
+    float lead = uHasReveal==1
+      ? exp(-lk*lk*4.)*step(.004,front)*step(front,.996) : 0.;
+    float bead=beadTerm(u,uTime);
+    float hw=uThickness*.5;
+    float core = 1.-smoothstep(hw-uThickness*.08, hw+uThickness*.05, ad);
+    float sk=d/max(uSdfSpine,1e-4);
+    float ik=(d+uSdfInnerOff)/max(uSdfInnerW,1e-4);
+    float spine = uSdfSpine>0. ? exp(-sk*sk) : 0.;
+    float inner = uSdfInnerW>0. ? exp(-ik*ik) : 0.;
+    float halo=0.;
+    for(int i=0;i<3;i++){
+      if(i>=uSdfN) break;
+      halo+=exp(-ad/max(uSdfHalo[i].x,1e-4))*uSdfHalo[i].y;
+    }
+    float lit=bead*.11+lead*.16;
+    vec3 col = rampColor(.22)*core*(uSdfCore+lit)
+             + rampColor(0.)*spine*(1.+bead*.38+lead*1.5)
+             + rampColor(.45)*inner
+             + rampColor(1.)*halo;
+    float a=clamp(core*uSdfCore + spine*.8 + inner*.9 + halo, 0., 1.);
+    a*=gate*uOpacity*uFlicker*stripeTerm(u*max(2.*(uRadius+uLength*.5),1e-3), ad/max(hw,1e-4), uTime);
+    col*=gate;
+    if(uReflect==1){
+      col=mix(col,uReflectTint,.45);
+      a*=uReflectOpacity*(1.-smoothstep(0.,max(1.-uReflectBlur,.05),clamp(vUv.y,0.,1.)));
+    }
+    if(uChannel>=0.)
+      col*=uChannel<.5?vec3(1.,0.,0.):(uChannel<1.5?vec3(0.,1.,0.):vec3(0.,0.,1.));
+    if(a<.003) discard;
+    if(uBlendMode==1) gl_FragColor=vec4(col,a);
+    else gl_FragColor=vec4(col*a,a);
+    return;
+  }
+  if(uProcedural==19){
+    // The polar swirl disc. The band mask IS the silhouette, the detail spiral
+    // shades it from inside, and the ramp (space "radial") runs from the hot
+    // centre out to the haze. The erosion curve raises the mask threshold, so
+    // the disc TEARS from the outside in on the dissipate rather than dimming.
+    vec2 q=(vUv-.5)*2.;
+    float dd=length(q);
+    if(dd>1.) discard;
+    vec2 sw=swirlDisc(q,uTime);
+    float outer=1.-smoothstep(.78,1.04,dd);
+    // The erosion curve is the mask THRESHOLD over the layer's own progress
+    // (not over an along coordinate, which a disc does not have), and
+    // erosion.rimBias biases it outward: the disc tears from the rim inward on
+    // the dissipate instead of dimming as a whole.
+    float thr=curveC(clamp(uLayerU,0.,1.))+uRimBias*.55*smoothstep(.2,1.,dd);
+    float mask=smoothstep(thr,thr+max(uErodeSoft,.01),sw.x)*outer;
+    // The lit term is what the ramp reads: 0 at the hot centre, 1 at the haze.
+    float litR=1./(1.+safePow(dd*1.95,2.));
+    vec3 col=rampColor(clamp(1.-litR,0.,1.));
+    // The detail spiral only ever SHADES: a second mask here would read as a
+    // copy of the first rather than as structure inside the arms.
+    col=mix(col*.30, col, sw.y);
+    col*=.62+.5*litR;
+    col+=rampColor(0.)*smoothstep(.86,1.,litR)*.18;
+    float a=mask*uOpacity*uFlicker;
+    if(uReflect==1){ col=mix(col,uReflectTint,.45); a*=uReflectOpacity; }
+    if(uChannel>=0.)
+      col*=uChannel<.5?vec3(1.,0.,0.):(uChannel<1.5?vec3(0.,1.,0.):vec3(0.,0.,1.));
+    if(a<.003) discard;
+    if(uBlendMode==1) gl_FragColor=vec4(col,a);
+    else gl_FragColor=vec4(col*a,a);
+    return;
+  }
+  // material.flow: the multi-layer panning surface REPLACES material.noise as
+  // the field, and (with ramp.space "surface") as the ramp key: stop t=0 is the
+  // open surface and t=1 the patch that covers it.
+  float flowMask=-1.;
+  if(uFlowOn==1){
+    vec2 vd=(viewMatrix*vec4(safeDir(uCam-vWp,vec3(0.,0.,1.)),0.)).xy;
+    float field=flowField(vUv*vec2(uRadius*2., uLength), uTime, vd);
+    flowMask=smoothstep(uFlowCut.x, uFlowCut.x+max(uFlowCut.y,1e-3), field);
+  }
   float n=.5;
-  if(uShell==1){
+  if(uFlowOn==1){
+    n=flowMask;
+  } else if(uShell==1){
     n=.5+.5*(.7*snoise(vec3(vUv.x*3.0, vAlong*3.2-uTime*2.0, .7))+.3*snoise(vec3(vUv.x*6.0, vAlong*6.0-uTime*3.1, 2.3)));
     if(uHasNoise==1){
       float ntex=texture2D(uNoise, vec2(vUv.x*uNoiseScale.x, vAlong*uNoiseScale.y+uNoisePan.y*uTime)).r;
@@ -1371,8 +1716,14 @@ void main(){
   }
 
   float key;
+  // 4 = "radial": distance from the layer centre over geometry.radius, read off
+  // the card's own UV so it is independent of the transform.
+  if(uRampKeyMode>3.5) key=clamp(length((vUv-.5)*2.),0.,1.);
+  // A flow surface keys the "surface" space on its own MASK, not on the along
+  // coordinate: the patches are what the two stops describe.
+  else if(uRampKeyMode>1.5 && uRampKeyMode<2.5 && flowMask>=0.) key=flowMask;
   // 3 = "height": world metres above environment.groundY, over uHeightSpan.
-  if(uRampKeyMode>2.5) key=clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.);
+  else if(uRampKeyMode>2.5) key=clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.);
   else if(uRampKeyMode>1.5) key=clamp(vAlong*1.08+(n-.5)*.35*smoothstep(.15,.7,vAlong),0.,1.);
   else if(uRampKeyMode>0.5) key=clamp(uLayerU,0.,1.);
   else key=clamp(vAlong,0.,1.);
@@ -1490,6 +1841,15 @@ void main(){
     alpha*=(1.-smoothstep(.5,1.,vAlong)*.5);
   }
   col+=uEdgeCol*uEdgeI*rim*(1.-smoothstep(.5,.95,vAlong));
+  // kind "reflection": the mirrored copy is washed toward its tint and fades
+  // with depth below the plane, so the floor catches a smear and not a twin.
+  if(uReflect==1){
+    col=mix(col,uReflectTint,.45);
+    // vUv.y 0 is the end of the card that meets the plane, so the smear is
+    // strongest at the contact and gone by the far end.
+    alpha*=uReflectOpacity
+          *(1.-smoothstep(0.,max(1.-uReflectBlur,.05),clamp(vUv.y,0.,1.)));
+  }
   // One channel per copy: the three masked copies sum back to the original
   // colour at offset 0, so this is a split rather than a tint.
   if(uChannel>=0.)
@@ -1854,21 +2214,38 @@ varying vec3 vN,vV,vWp;
 uniform vec3 uShadow,uBody,uHigh,uRimCol,uLight;
 uniform float uBands,uBandA,uBandB,uOpacity,uRimPow,uRimAmt,uFlat;
 uniform float uRampKeyMode,uLayerU,uLobeU,uGroundY,uHeightSpan,uUseToon;
+// blob.lightFrom: a fake POINT light the lobes are shaded toward instead of the
+// parallel world light material.toon carries, plus the far/near brightness bias
+// an "orbit" ring applies to whichever half is currently behind the centre.
+uniform float uLightOn,uLightFall,uShade;
+uniform vec3 uLightPos;
 uniform int uBlendMode;
 ${glslRamp}
 vec3 safeDirLocal(vec3 v){ float l=length(v); return l>1e-5 ? v/l : vec3(0.,1.,0.); }
 void main(){
   // The outline hull draws flat and unlit whatever else is set.
-  if(uFlat>.5){ gl_FragColor=vec4(uShadow*uOpacity,uOpacity); return; }
+  if(uFlat>.5){ gl_FragColor=vec4(uShadow*uShade*uOpacity,uOpacity); return; }
   vec3 c;
   if(uUseToon>.5){
     vec3 N=safeDirLocal(vN);
     // Half lambert against the document's FIXED toon light, posterised.
-    float ndl=dot(N,safeDirLocal(uLight))*.5+.5;
+    // A point light is a direction per lobe, not per document, and it falls
+    // off: that is what makes a ring of lobes read as lit by the core it
+    // circles rather than by the sun.
+    vec3 L=safeDirLocal(uLight);
+    float fall=1.;
+    if(uLightOn>.5){
+      vec3 toLight=uLightPos-vWp;
+      float dist=length(toLight);
+      L=safeDirLocal(toLight);
+      fall=1./(1.+uLightFall*dist*uLightFall*dist);
+    }
+    float ndl=dot(N,L)*.5+.5;
     c = uBands>2.5
       ? (ndl<uBandA ? uShadow : (ndl<uBandB ? uBody : uHigh))
       : (ndl<uBandA ? uShadow : uHigh);
     c+=uRimCol*pow(max(1.-clamp(dot(N,safeDirLocal(vV)),0.,1.),1e-4),uRimPow)*uRimAmt;
+    c*=mix(1.,fall,step(.5,uLightOn));
   } else {
     // No toon: the ramp is the colour source, keyed the usual way. "life" and
     // "surface" both fall back to the lobe's own 0..1 age, which is the only
@@ -1878,6 +2255,7 @@ void main(){
       : (uRampKeyMode>0.5 && uRampKeyMode<1.5 ? clamp(uLayerU,0.,1.) : clamp(uLobeU,0.,1.));
     c=rampColor(key);
   }
+  c*=uShade;
   if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
   else gl_FragColor=vec4(c*uOpacity,uOpacity);
 }
@@ -2020,6 +2398,7 @@ uniform float uOpacity;
 uniform int uBlendMode;
 void main(){
   vec3 c=mix(uDark,uCol,smoothstep(.0,.55,vUv.y));
+  c*=uShade;
   if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
   else gl_FragColor=vec4(c*uOpacity,uOpacity);
 }

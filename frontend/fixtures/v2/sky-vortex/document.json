@@ -1,0 +1,1921 @@
+{
+ "schemaVersion": "autov.lab/2",
+ "name": "Sky vortex",
+ "description": "A suspended orange maelstrom: a hot core lights first, three stacked polar-swirl discs wind up around it and turn clockwise while cloud puffs orbit the ring band and dark flecks lap them on the inside, then the swirl unwinds and the bands tear apart from the rim in.",
+ "seed": 71204,
+ "duration": 6,
+ "impact": 0.9,
+ "quality": {
+  "style": "modern",
+  "particleDensity": 1,
+  "aa": "msaa+smaa",
+  "softParticles": true
+ },
+ "environment": {
+  "ground": "none",
+  "groundColor": "#4a4952",
+  "groundReflect": 0,
+  "ambient": 0.4,
+  "groundY": 0,
+  "fog": {
+   "color": "#5a1410",
+   "density": 0
+  },
+  "background": "#5a1410",
+  "groundPool": null
+ },
+ "camera": {
+  "fov": 32,
+  "azimuth": 0,
+  "elevation": -0.175,
+  "framing": 1,
+  "shake": null,
+  "pushIn": null
+ },
+ "post": {
+  "bloom": {
+   "strength": 0.32,
+   "radius": 0.45,
+   "threshold": 1
+  },
+  "exposure": 1,
+  "grade": {
+   "contrast": 1.04,
+   "saturation": 1.06,
+   "tint": "#ffffff",
+   "lift": 0
+  },
+  "vignette": 0.34,
+  "chromatic": 0.002,
+  "motionBlur": 0,
+  "glitch": null,
+  "flash": null
+ },
+ "paths": [],
+ "textures": [],
+ "layers": [
+  {
+   "id": "sky-glow",
+   "name": "Sky glow",
+   "role": "anticipation",
+   "kind": "decal",
+   "start": 0.05,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     -2.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "additive",
+    "ramp": {
+     "space": "layerTime",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#ff8030",
+       "intensity": 0.42
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 0.16
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.85,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "softRadial",
+    "proceduralParams": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": null
+   },
+   "geometry": {
+    "type": "plane",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 2.7,
+    "length": 5.4,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.85,
+       0.85
+      ],
+      [
+       4.75,
+       0.85
+      ],
+      [
+       5.9,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "haze",
+   "name": "Outer haze",
+   "role": "secondary",
+   "kind": "decal",
+   "start": 0.1,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     -0.06
+    ],
+    "rotation": [
+     -0.52,
+     0.2,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "alpha",
+    "ramp": {
+     "space": "radial",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#fff1b0",
+       "intensity": 1.1
+      },
+      {
+       "t": 0.26,
+       "color": "#ffd080",
+       "intensity": 0.86
+      },
+      {
+       "t": 0.54,
+       "color": "#ffa030",
+       "intensity": 0.62
+      },
+      {
+       "t": 0.8,
+       "color": "#c0330c",
+       "intensity": 0.46
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 0.3
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.45,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": {
+     "curve": {
+      "keys": [
+       [
+        0,
+        0.18
+       ],
+       [
+        0.78,
+        0.18
+       ],
+       [
+        0.97,
+        0.9
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "softness": 0.18,
+     "edgeWidth": 0,
+     "edgeColor": "#ffd080",
+     "edgeIntensity": 0,
+     "displacementProtect": 0,
+     "rimBias": 0.62
+    },
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "swirlDisc",
+    "proceduralParams": [
+     0.55,
+     0.08,
+     0.03,
+     2
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": {
+     "bands": {
+      "arms": 2,
+      "wind": 0.7,
+      "width": 0.9,
+      "warp": 1.4
+     },
+     "detail": {
+      "arms": 7,
+      "wind": 2.75,
+      "warp": 6.2,
+      "contrast": 0.62
+     },
+     "lobe": {
+      "scale1": 2,
+      "scale2": 4,
+      "amount": 0.3
+     },
+     "strength": {
+      "keys": [
+       [
+        0,
+        0
+       ],
+       [
+        0.167,
+        1
+       ],
+       [
+        0.8,
+        1
+       ],
+       [
+        0.958,
+        0
+       ]
+      ],
+      "ease": "smooth"
+     }
+    }
+   },
+   "geometry": {
+    "type": "disc",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 3.4,
+    "length": 0.01,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       0.45
+      ],
+      [
+       4.7,
+       0.45
+      ],
+      [
+       5.9,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "disc-outer",
+   "name": "Swirl disc outer",
+   "role": "primary",
+   "kind": "ring",
+   "start": 0.2,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0
+    ],
+    "rotation": [
+     -0.5900000000000001,
+     0.17900000000000002,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "alpha",
+    "ramp": {
+     "space": "radial",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#fff1b0",
+       "intensity": 1.1
+      },
+      {
+       "t": 0.26,
+       "color": "#ffd080",
+       "intensity": 0.86
+      },
+      {
+       "t": 0.54,
+       "color": "#ffa030",
+       "intensity": 0.62
+      },
+      {
+       "t": 0.8,
+       "color": "#c0330c",
+       "intensity": 0.46
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 0.3
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.95,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": {
+     "curve": {
+      "keys": [
+       [
+        0,
+        0.5
+       ],
+       [
+        0.78,
+        0.5
+       ],
+       [
+        0.97,
+        1.12
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "softness": 0.18,
+     "edgeWidth": 0,
+     "edgeColor": "#ffd080",
+     "edgeIntensity": 0,
+     "displacementProtect": 0,
+     "rimBias": 0.62
+    },
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "swirlDisc",
+    "proceduralParams": [
+     1.1,
+     0.35,
+     0.05,
+     3
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": {
+     "bands": {
+      "arms": 3,
+      "wind": 1.85,
+      "width": 0.5,
+      "warp": 1.4
+     },
+     "detail": {
+      "arms": 7,
+      "wind": 2.75,
+      "warp": 6.2,
+      "contrast": 0.62
+     },
+     "lobe": {
+      "scale1": 2,
+      "scale2": 4,
+      "amount": 0.82
+     },
+     "strength": {
+      "keys": [
+       [
+        0,
+        0
+       ],
+       [
+        0.167,
+        1
+       ],
+       [
+        0.8,
+        1
+       ],
+       [
+        0.958,
+        0
+       ]
+      ],
+      "ease": "smooth"
+     }
+    }
+   },
+   "geometry": {
+    "type": "disc",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 2.6,
+    "length": 0.01,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.8,
+       0.95
+      ],
+      [
+       4.95,
+       0.95
+      ],
+      [
+       5.8,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "disc-mid",
+   "name": "Swirl disc mid",
+   "role": "primary",
+   "kind": "ring",
+   "start": 0.2,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.05
+    ],
+    "rotation": [
+     -0.45,
+     0.24200000000000002,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "alpha",
+    "ramp": {
+     "space": "radial",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#fff1b0",
+       "intensity": 1.1
+      },
+      {
+       "t": 0.26,
+       "color": "#ffd080",
+       "intensity": 0.86
+      },
+      {
+       "t": 0.54,
+       "color": "#ffa030",
+       "intensity": 0.62
+      },
+      {
+       "t": 0.8,
+       "color": "#c0330c",
+       "intensity": 0.46
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 0.3
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.8,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": {
+     "curve": {
+      "keys": [
+       [
+        0,
+        0.5
+       ],
+       [
+        0.78,
+        0.5
+       ],
+       [
+        0.97,
+        1.12
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "softness": 0.18,
+     "edgeWidth": 0,
+     "edgeColor": "#ffd080",
+     "edgeIntensity": 0,
+     "displacementProtect": 0,
+     "rimBias": 0.62
+    },
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "swirlDisc",
+    "proceduralParams": [
+     0.9,
+     0.5,
+     0.05,
+     3
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": {
+     "bands": {
+      "arms": 3,
+      "wind": 1.85,
+      "width": 0.5,
+      "warp": 1.4
+     },
+     "detail": {
+      "arms": 7,
+      "wind": 2.75,
+      "warp": 6.2,
+      "contrast": 0.62
+     },
+     "lobe": {
+      "scale1": 2,
+      "scale2": 4,
+      "amount": 0.64
+     },
+     "strength": {
+      "keys": [
+       [
+        0,
+        0
+       ],
+       [
+        0.167,
+        1
+       ],
+       [
+        0.8,
+        1
+       ],
+       [
+        0.958,
+        0
+       ]
+      ],
+      "ease": "smooth"
+     }
+    }
+   },
+   "geometry": {
+    "type": "disc",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 2.08,
+    "length": 0.01,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.8,
+       0.8
+      ],
+      [
+       4.95,
+       0.8
+      ],
+      [
+       5.8,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "disc-core",
+   "name": "Swirl disc core",
+   "role": "primary",
+   "kind": "ring",
+   "start": 0.2,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.1
+    ],
+    "rotation": [
+     -0.555,
+     0.158,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "additive",
+    "ramp": {
+     "space": "radial",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#fff1b0",
+       "intensity": 1.1
+      },
+      {
+       "t": 0.26,
+       "color": "#ffd080",
+       "intensity": 0.86
+      },
+      {
+       "t": 0.54,
+       "color": "#ffa030",
+       "intensity": 0.62
+      },
+      {
+       "t": 0.8,
+       "color": "#c0330c",
+       "intensity": 0.46
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 0.3
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.38,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": {
+     "curve": {
+      "keys": [
+       [
+        0,
+        0.5
+       ],
+       [
+        0.78,
+        0.5
+       ],
+       [
+        0.97,
+        1.12
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "softness": 0.18,
+     "edgeWidth": 0,
+     "edgeColor": "#ffd080",
+     "edgeIntensity": 0,
+     "displacementProtect": 0,
+     "rimBias": 0.62
+    },
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "swirlDisc",
+    "proceduralParams": [
+     0.7,
+     0.7,
+     0.05,
+     3
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": {
+     "bands": {
+      "arms": 3,
+      "wind": 1.85,
+      "width": 0.5,
+      "warp": 1.4
+     },
+     "detail": {
+      "arms": 7,
+      "wind": 2.75,
+      "warp": 6.2,
+      "contrast": 0.62
+     },
+     "lobe": {
+      "scale1": 2,
+      "scale2": 4,
+      "amount": 0.42
+     },
+     "strength": {
+      "keys": [
+       [
+        0,
+        0
+       ],
+       [
+        0.167,
+        1
+       ],
+       [
+        0.8,
+        1
+       ],
+       [
+        0.958,
+        0
+       ]
+      ],
+      "ease": "smooth"
+     }
+    }
+   },
+   "geometry": {
+    "type": "disc",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 1.56,
+    "length": 0.01,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.8,
+       0.38
+      ],
+      [
+       4.95,
+       0.38
+      ],
+      [
+       5.8,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "puffs-outer",
+   "name": "Cloud puffs outer",
+   "role": "primary",
+   "kind": "blob",
+   "start": 0.25,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.02
+    ],
+    "rotation": [
+     -0.52,
+     0.2,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "alpha",
+    "ramp": {
+     "space": "life",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#ffa030",
+       "intensity": 1
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 1
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.92,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "solid",
+    "proceduralParams": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "toon": {
+     "bands": 2,
+     "thresholds": [
+      0.42,
+      0.7
+     ],
+     "shadow": "#a12c14",
+     "body": "#c8420e",
+     "highlight": "#ef7b2c",
+     "light": [
+      0,
+      0,
+      1
+     ],
+     "rim": {
+      "power": 3,
+      "amount": 0.14
+     }
+    },
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": null
+   },
+   "blob": {
+    "arrangement": "orbit",
+    "count": 40,
+    "seed": 8123,
+    "radius": [
+     0.22,
+     0.42
+    ],
+    "spread": 2.45,
+    "height": 1.5,
+    "rise": -0.66,
+    "gravity": 0,
+    "drift": 0.26,
+    "grow": 5,
+    "stagger": [
+     0,
+     0.12
+    ],
+    "life": [
+     7,
+     7.8
+    ],
+    "squash": 1,
+    "bump": {
+     "amplitude": 0.34,
+     "frequency": 2.6,
+     "speed": 0.35
+    },
+    "comma": null,
+    "pathId": null,
+    "head": null,
+    "perAnchor": 1,
+    "retract": null,
+    "lightFrom": {
+     "layerId": null,
+     "position": [
+      0,
+      3,
+      0.4
+     ],
+     "falloff": 0.42
+    }
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.9,
+       0.92
+      ],
+      [
+       4.55,
+       0.92
+      ],
+      [
+       5.45,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "puffs-inner",
+   "name": "Cloud puffs inner",
+   "role": "primary",
+   "kind": "blob",
+   "start": 0.25,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.02
+    ],
+    "rotation": [
+     -0.52,
+     0.2,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "alpha",
+    "ramp": {
+     "space": "life",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#ffa030",
+       "intensity": 1
+      },
+      {
+       "t": 1,
+       "color": "#7a1a10",
+       "intensity": 1
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.8,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "solid",
+    "proceduralParams": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "toon": {
+     "bands": 2,
+     "thresholds": [
+      0.42,
+      0.7
+     ],
+     "shadow": "#a12c14",
+     "body": "#c8420e",
+     "highlight": "#ef7b2c",
+     "light": [
+      0,
+      0,
+      1
+     ],
+     "rim": {
+      "power": 3,
+      "amount": 0.14
+     }
+    },
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": null
+   },
+   "blob": {
+    "arrangement": "orbit",
+    "count": 34,
+    "seed": 4471,
+    "radius": [
+     0.15,
+     0.3
+    ],
+    "spread": 1.62,
+    "height": 0.8,
+    "rise": -0.66,
+    "gravity": 0,
+    "drift": 0.26,
+    "grow": 5,
+    "stagger": [
+     0,
+     0.12
+    ],
+    "life": [
+     7,
+     7.8
+    ],
+    "squash": 1,
+    "bump": {
+     "amplitude": 0.34,
+     "frequency": 2.6,
+     "speed": 0.35
+    },
+    "comma": null,
+    "pathId": null,
+    "head": null,
+    "perAnchor": 1,
+    "retract": null,
+    "lightFrom": {
+     "layerId": null,
+     "position": [
+      0,
+      3,
+      0.4
+     ],
+     "falloff": 0.42
+    }
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.9,
+       0.8
+      ],
+      [
+       4.55,
+       0.8
+      ],
+      [
+       5.45,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "flecks",
+   "name": "Debris flecks",
+   "role": "secondary",
+   "kind": "particles",
+   "start": 0.55,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.06
+    ],
+    "rotation": [
+     -0.52,
+     0.2,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "alpha",
+    "ramp": {
+     "space": "life",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#1a0806",
+       "intensity": 1
+      },
+      {
+       "t": 1,
+       "color": "#2a100a",
+       "intensity": 1
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 0.9,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "softRadial",
+    "proceduralParams": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": null
+   },
+   "emitter": {
+    "count": 120,
+    "shape": {
+     "type": "orbit",
+     "axis": [
+      0,
+      0,
+      1
+     ],
+     "length": 0,
+     "radius": 2.6,
+     "innerRadius": 0.75,
+     "angle": 0,
+     "size": [
+      1,
+      1,
+      1
+     ],
+     "surfaceOnly": false,
+     "bias": [
+      0,
+      0,
+      0
+     ],
+     "pathId": null,
+     "sourceLayerId": null,
+     "interiorFraction": 0
+    },
+    "spawn": {
+     "mode": "burst",
+     "window": 0.75,
+     "rate": 0,
+     "duration": 0,
+     "bursts": [],
+     "headCurve": null,
+     "originsFromPath": false
+    },
+    "velocity": {
+     "mode": "orbit",
+     "speed": [
+      0.22,
+      0.26
+     ],
+     "direction": [
+      0,
+      0,
+      1
+     ],
+     "angle": 1.413716694115407,
+     "inherit": 0,
+     "speedCurve": null
+    },
+    "life": [
+     4.5,
+     7
+    ],
+    "forces": {
+     "gravity": [
+      0,
+      0,
+      0
+     ],
+     "drag": 0,
+     "curl": null,
+     "vortex": null,
+     "wind": [
+      0,
+      0,
+      0
+     ],
+     "floor": null,
+     "planarDrag": 0
+    },
+    "render": {
+     "mode": "billboard",
+     "stretch": 0,
+     "size": [
+      0.026,
+      0.056
+     ],
+     "sizeCurve": {
+      "keys": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        1
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "alphaCurve": {
+      "keys": [
+       [
+        0,
+        0
+       ],
+       [
+        0.12,
+        1
+       ],
+       [
+        0.78,
+        1
+       ],
+       [
+        1,
+        0
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "alphaAlongSpawn": null,
+     "rotation": {
+      "initial": [
+       0,
+       6.283185
+      ],
+      "speed": [
+       -1.2,
+       1.2
+      ]
+     },
+     "sortMode": "none",
+     "twinkle": null,
+     "strip": null,
+     "anchor": "center"
+    },
+    "trail": null,
+    "sub": null
+   },
+   "tracks": [],
+   "overrides": []
+  },
+  {
+   "id": "core-halo",
+   "name": "Core halo",
+   "role": "primary",
+   "kind": "sprite",
+   "start": 0,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.14
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "additive",
+    "ramp": {
+     "space": "layerTime",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#fff1b0",
+       "intensity": 0.62
+      },
+      {
+       "t": 1,
+       "color": "#ffa030",
+       "intensity": 0.22
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 1,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "softRadial",
+    "proceduralParams": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": null,
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": null
+   },
+   "geometry": {
+    "type": "plane",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 1.3,
+    "length": 2.6,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.4,
+       1
+      ],
+      [
+       5.05,
+       1
+      ],
+      [
+       5.95,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "core-disc",
+   "name": "Core",
+   "role": "primary",
+   "kind": "sprite",
+   "start": 0,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "material": {
+    "blend": "additive",
+    "ramp": {
+     "space": "layerTime",
+     "stops": [
+      {
+       "t": 0,
+       "color": "#fff6d8",
+       "intensity": 1.1
+      },
+      {
+       "t": 1,
+       "color": "#fff1b0",
+       "intensity": 0.8
+      }
+     ],
+     "displacementShift": 0,
+     "heightSpan": 2
+    },
+    "opacity": 1,
+    "mask": {
+     "textureId": null,
+     "uvScale": [
+      1,
+      1
+     ],
+     "uvPan": [
+      0,
+      0
+     ],
+     "rotation": 0,
+     "randomRotation": false,
+     "atlas": null,
+     "flipbook": null
+    },
+    "noise": null,
+    "erosion": null,
+    "softParticle": 0,
+    "fresnel": null,
+    "procedural": "softRadial",
+    "proceduralParams": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "toon": null,
+    "outline": null,
+    "opaqueUntil": null,
+    "rgbSplit": null,
+    "reveal": null,
+    "lattice": null,
+    "planeGlow": null,
+    "ripples": null,
+    "stripes": null,
+    "flicker": {
+     "rate": 6,
+     "amount": 0.22
+    },
+    "sdfLine": null,
+    "beads": null,
+    "flow": null,
+    "swirl": null
+   },
+   "geometry": {
+    "type": "plane",
+    "segments": 64,
+    "radialSegments": 16,
+    "radius": 0.36,
+    "length": 0.72,
+    "thickness": 0.08,
+    "taper": 1,
+    "vertexNoise": null,
+    "lightning": null,
+    "band": null,
+    "slab": null,
+    "frame": null
+   },
+   "tracks": [
+    {
+     "target": "material.opacity",
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.4,
+       1
+      ],
+      [
+       5.05,
+       1
+      ],
+      [
+       5.95,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    }
+   ],
+   "overrides": []
+  },
+  {
+   "id": "core-light",
+   "name": "Core light",
+   "role": "primary",
+   "kind": "light",
+   "start": 0,
+   "end": 6,
+   "enabled": true,
+   "transform": {
+    "position": [
+     0,
+     3,
+     0.4
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "motion": null,
+   "jitter": null,
+   "collapse": null,
+   "window": null,
+   "light": {
+    "color": "#ffb060",
+    "intensity": {
+     "keys": [
+      [
+       0,
+       0
+      ],
+      [
+       0.08,
+       11
+      ],
+      [
+       0.82,
+       11
+      ],
+      [
+       1,
+       0
+      ]
+     ],
+     "ease": "smooth"
+    },
+    "radius": 10,
+    "decay": 2
+   },
+   "tracks": [],
+   "overrides": []
+  }
+ ]
+}

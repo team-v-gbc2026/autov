@@ -19,7 +19,7 @@ export const DEFAULT_SUPABASE_URL = "https://tkjstnitmfwgmedipcvs.supabase.co";
 export const VFX_TEXTURE_BUCKET = "vfx-textures";
 export const VFX_FIXTURE_BUCKET = "vfx-fixtures";
 
-/** The ten hand-authored exemplars in fixtures/v2 / the vfx-fixtures bucket. */
+/** The hand-authored exemplars in fixtures/v2 / the vfx-fixtures bucket. */
 export const FIXTURE_IDS = [
   "beam",
   "energy-column",
@@ -29,7 +29,10 @@ export const FIXTURE_IDS = [
   "healing-aura",
   "ice-blast",
   "lightning-impact",
+  "meteor-rain",
+  "portal",
   "shield",
+  "sky-vortex",
   "smoke-burst",
 ] as const;
 

@@ -593,6 +593,7 @@ test("structural repair is bounded by the baseline document", () => {
         "crystals",
         "arcs",
         "streakBurst",
+        "reflection",
       ])
         if (layer[slot] === undefined) layer[slot] = null;
     return { document: copy, explanation: "repair" };

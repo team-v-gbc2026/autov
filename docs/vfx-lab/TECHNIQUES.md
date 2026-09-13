@@ -24,11 +24,12 @@ A **technique card** is that missing layer. Each one is a named, reusable constr
 - `vocabulary.missing` — the vocabulary the renderer does not have yet.
 - `sources` — which research doc it came from.
 
-22 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the eleven `RecipeV2Id`
+26 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the thirteen `RecipeV2Id`
 families to its 3-4 most relevant cards; `TECHNIQUE_KEYWORDS` is a list of `[RegExp, TechniqueId[]]`
-pairs that add cards for shapes the eight families don't cover directly — aura/heal, portal,
-vortex/tornado, glitch/hologram, energy column, water, a second look at meteor, crystal/ice
-outside `ice-blast`, and smoke outside `smoke-burst`.
+pairs that add cards for shapes a family doesn't cover directly — aura/heal, sigil/summon,
+glitch/hologram, water, meteor/comet, crystal/ice outside `ice-blast`, and smoke outside
+`smoke-burst`. (Portal, vortex and energy column now have families of their own; their keywords
+route to those families and to the same cards.)
 
 ## How it reaches the prompt
 
@@ -48,7 +49,7 @@ It is wired into the v2 candidate call (`route.ts`, `action: "candidate"`, along
 `technique: techniqueBrief(family, run.prompt)` in the same JSON payload as everything else the
 model already reads.
 
-## The 22 cards
+## The 26 cards
 
 | Card | One line |
 |---|---|
@@ -66,14 +67,18 @@ model already reads.
 | `four-point-sparkles` | Staggered, wobbling, bell-alpha four-point star instances for magic accents. |
 | `staggered-instance-timing` | Per-instance birth/scale offset so a repeated group never moves in lockstep. |
 | `uv-erosion-front` | An erosion curve that outruns the alpha fade, so a mesh tears rather than fades. |
-| `polar-swirl-disc` | Three stacked spinning discs with swirl-biased noise panning for a vortex/tornado. |
+| `polar-swirl-disc` | Three stacked discs whose ANGLE is sheared by twist/distance, so noise becomes spiral arms. |
 | `blinking-arc-ribbons` | Camera-facing ribbons that blink per-segment on an independent per-arc seed. |
 | `edge-biased-sparks` | Perimeter-only spark spawn plus a separately pulsing rim mesh for a portal/shield edge. |
 | `instanced-shard-burst` | Closed-form ballistic debris burst with angular geometry for ice/glitch impact. |
-| `hex-lattice-fresnel-shield` | Two hex passes, high fresnel power, repeatedly-pulsed erosion for a shield dome. |
+| `hex-lattice-fresnel-shield` | One relaxed Voronoi lattice, a high fresnel rim, a per-cell dissolve and great-circle ripples. |
 | `stepped-hash-glitch` | Discrete stepped vertex/erosion jitter plus RGB-split ramp stops for a glitch look. |
-| `speed-line-cap` | A stretched, jittering core plus a scrolling-stripe hemisphere cap for a fast projectile head. |
+| `speed-line-cap` | A `teardropStreak` card anchored at its leading point, so the streak trails the tip. |
 | `two-layer-noise-mist` | Two independently panning noise layers with floor collision for lingering ground mist. |
+| `sdf-frame-rim` | One rounded-rect signed distance carrying a portal's whole rim, drawn up both sides at once. |
+| `panning-flow-interior` | Four panning noise octaves with a view parallax, so a flat card reads as an interior. |
+| `orbiting-lobe-ring` | Cel lobes on a ring band at r^-0.65, far half drawn first and dimmer, lit from the core. |
+| `path-anchored-trail` | Lobes that HOLD where the head passed, retracting from one end, with events hung off the path. |
 
 ## Family and keyword routing
 
@@ -86,7 +91,9 @@ model already reads.
 | `beam` | stripe-panner-core-and-sheath, converging-charge, vent-on-shutoff, three-tone-layer-stack |
 | `energy-column` | stripe-panner-core-and-sheath, blinking-arc-ribbons, three-tone-layer-stack, edge-biased-sparks |
 | `shield` | hex-lattice-fresnel-shield, converging-charge, staggered-instance-timing |
-| `meteor-rain` | speed-line-cap, instanced-shard-burst, staggered-instance-timing |
+| `meteor-rain` | path-anchored-trail, speed-line-cap, instanced-shard-burst, cauliflower-blob-cluster |
+| `portal` | sdf-frame-rim, panning-flow-interior, edge-biased-sparks, ground-ring-with-inner-fill |
+| `sky-vortex` | polar-swirl-disc, orbiting-lobe-ring, cauliflower-blob-cluster, staggered-instance-timing |
 | `ice-blast` | instanced-shard-burst, two-layer-noise-mist, staggered-instance-timing |
 | `healing-aura` | path-window-ribbon, ground-ring-with-inner-fill, upright-glow-cylinder, four-point-sparkles |
 | `glitch-projectile` | stepped-hash-glitch, staggered-instance-timing, instanced-shard-burst, path-window-ribbon |
@@ -94,12 +101,12 @@ model already reads.
 | Prompt keyword | Cards added |
 |---|---|
 | `aura\|heal` | ground-ring-with-inner-fill, upright-glow-cylinder, path-window-ribbon, four-point-sparkles |
-| `portal` | edge-biased-sparks, two-layer-noise-mist, path-window-ribbon |
-| `vortex\|tornado\|swirl` | polar-swirl-disc, edge-biased-sparks |
+| `portal\|gate\|doorway\|rift` | sdf-frame-rim, panning-flow-interior, edge-biased-sparks |
+| `vortex\|tornado\|swirl\|maelstrom` | polar-swirl-disc, orbiting-lobe-ring, edge-biased-sparks |
 | `glitch\|digital\|hologram` | stepped-hash-glitch, instanced-shard-burst |
 | `column\|overload\|pillar\|surge` | blinking-arc-ribbons, stripe-panner-core-and-sheath, upright-glow-cylinder |
 | `water\|liquid` | two-layer-noise-mist, polar-swirl-disc |
-| `meteor` | speed-line-cap, instanced-shard-burst |
+| `meteor\|comet\|falling` | path-anchored-trail, speed-line-cap, instanced-shard-burst |
 | `sigil\|rune\|circle\|summon\|cast` | cast-sigil-reveal, ground-ring-with-inner-fill |
 | `crystal\|ice\|frost` | instanced-shard-burst, two-layer-noise-mist, hex-lattice-fresnel-shield |
 | `smoke\|puff\|cloud` | cauliflower-blob-cluster, inverted-hull-outline, flat-splash-accent, two-layer-noise-mist |
@@ -181,6 +188,28 @@ shared by every part of a composite body), `paths[].type:"line"`, `emitter.shape
 flipbook hold) and the `lensFlare` / `radialRays` procedurals. `vent-on-shutoff` and
 `converging-charge` were rewritten around the first four of those.
 
-19 of the 22 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
-remaining 3 — `ground-ring-with-inner-fill`, `polar-swirl-disc` and `stepped-hash-glitch` — each
-contribute exactly one entry to the renderer backlog above.
+### Closed 2026-09-14 — the portal / vortex / meteor spike port
+
+The last of the three standing backlog entries closed with the port of the S8 portal, S9 vortex and
+S11 meteor spikes (`TOOLBOX_V2_MAPPING.md` §11–§13):
+
+| Was missing | Now | Card |
+|---|---|---|
+| polar swirl UV remap (angle += strength/dist baked into `material.noise` panning) | `material.procedural:"swirlDisc"` with `material.swirl.{bands,detail,lobe,strength}` — the angle is sheared by `twist/(distance+eps)`, an explicit log spiral draws the arms, an independently wound tighter spiral shades them, and one `strength` envelope winds the whole thing up and unwinds it | polar-swirl-disc |
+
+The port also added vocabulary no card had asked for: `geometry.type:"frame"` with
+`material.sdfLine` and `material.beads` (a rim read off a signed distance, with a `"perimeter"`
+`material.reveal` running up both sides at once), `material.flow` (a multi-layer panning surface
+with a view parallax), `kind:"reflection"`, `ramp.space:"radial"`, `blob.arrangement:"orbit"` and
+`"path"` with `blob.{lightFrom,retract,head,perAnchor}`, `emitter.shape.type:"frame"` and
+`"orbit"`, `emitter.velocity.mode:"orbit"`, `emitter.spawn.mode:"event"` with
+`spawn.originsFromPath`, `emitter.render.anchor:"head"` with
+`material.procedural:"teardropStreak"`, `layer.window` (a layer that starts when a path's head
+reaches a point rather than at a clock time) and `environment.groundPool`. Four cards were added
+around them — `sdf-frame-rim`, `panning-flow-interior`, `orbiting-lobe-ring` and
+`path-anchored-trail` — and `polar-swirl-disc`, `speed-line-cap` and `edge-biased-sparks` were
+rewritten.
+
+25 of the 26 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
+remaining 2 entries in the backlog above belong to `ground-ring-with-inner-fill` and
+`stepped-hash-glitch`.

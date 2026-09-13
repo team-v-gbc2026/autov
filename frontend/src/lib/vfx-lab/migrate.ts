@@ -158,6 +158,10 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
     ripples: null,
     stripes: null,
     flicker: null,
+    sdfLine: null,
+    beads: null,
+    flow: null,
+    swirl: null,
   };
 }
 
@@ -207,6 +211,7 @@ function buildGeometry(layer: Layer, animated: Set<NumericTarget>): GeometryV2 {
         : null,
     band: null,
     slab: null,
+    frame: null,
   };
 }
 
@@ -234,6 +239,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       bias: [0, 0, 0],
       pathId: null,
       sourceLayerId: null,
+      interiorFraction: 0,
     },
     spawn: {
       mode: "burst",
@@ -242,6 +248,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       duration: 0,
       bursts: [],
       headCurve: null,
+      originsFromPath: false,
     },
     velocity: {
       mode: "radial",
@@ -313,6 +320,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       sortMode: "byDistance",
       twinkle: null,
       strip: null,
+      anchor: "center",
     },
     trail: null,
     sub: null,
@@ -368,6 +376,7 @@ function upgradeLayer(layer: Layer): LayerV2 {
     motion: layer.motion ?? null,
     jitter: null,
     collapse: null,
+    window: null,
     material: buildMaterial(layer, animated),
     tracks,
     overrides,

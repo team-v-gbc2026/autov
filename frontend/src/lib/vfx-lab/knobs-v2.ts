@@ -235,8 +235,27 @@ export function applyKnobs(
           0.01,
           12,
         );
+        // A frame's bar width and its corner round are part of its size: a
+        // doorway scaled to twice the height with the same bar reads as a
+        // different object, not as a bigger one.
+        if (layer.geometry.type === "frame") {
+          layer.geometry.thickness = clamp(
+            layer.geometry.thickness * kMeshScale,
+            0.001,
+            3,
+          );
+          if (layer.geometry.frame)
+            layer.geometry.frame.corner = clamp(
+              layer.geometry.frame.corner * kMeshScale,
+              0,
+              Math.min(layer.geometry.radius, layer.geometry.length * 0.5),
+            );
+        }
       }
     }
+    // A reflection has no geometry of its own: it draws its source's, which the
+    // knob has already scaled. Nothing to do, and scaling reflection.scale would
+    // change the FLOOR's foreshortening rather than the effect's size.
 
     // K5/K9 — the generated kinds: a blob's cluster dimensions and a splash's
     // slivers scale with meshScale, and verticalStretch reaches only the blob's
@@ -251,8 +270,13 @@ export function applyKnobs(
       ];
       b.spread = clamp(b.spread * kMeshScale, 0, 8);
       b.height = clamp(b.height * kMeshScale * kVertical, 0, 12);
-      b.rise = clamp(b.rise * kMeshScale * kVertical, -12, 20);
-      b.gravity = clamp(b.gravity * kMeshScale * kVertical, -20, 20);
+      // An "orbit" re-reads `rise` as an ANGULAR SPEED, and an angle does not
+      // scale with metres: a wider ring that also turned faster would not be
+      // the same effect at a different size.
+      if (b.arrangement !== "orbit") {
+        b.rise = clamp(b.rise * kMeshScale * kVertical, -12, 20);
+        b.gravity = clamp(b.gravity * kMeshScale * kVertical, -20, 20);
+      }
       b.drift = clamp(b.drift * kMeshScale, -8, 8);
       b.squash = clamp(b.squash * kVertical, 0.3, 3);
       b.life = [

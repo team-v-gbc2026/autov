@@ -60,15 +60,39 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   two palettes by instance parity); and the `lensFlare` / `radialRays` procedurals, both radially
   cut off and both supplying their own ramp key. Ported from the S7 beam and S10 column spikes
   (`TOOLBOX_V2_MAPPING.md` §9–§10); `beam` is rebuilt on them and `energy-column` is new.
+- **Edge, spiral and event vocabulary** (`events-v2.ts`, `blob-v2.ts`, `schema-v2.ts`,
+  `shaders-v2.ts`, `runtime-v2.ts`, `environment-v2.ts`): `geometry.type:"frame"` (a rounded-rect
+  strip exposing a normalised PERIMETER coordinate) with `material.sdfLine` (the double-line rim:
+  a bar, a hot spine, an inner line and up to three halo skirts, coloured from one ramp sampled at
+  four fixed keys), `material.beads` and a `"perimeter"` `material.reveal` that draws up both sides
+  at once; `material.flow` (up to four panning noise octaves mixed into one mask, with a
+  view-direction parallax on the slowest, keying a `"surface"` ramp); `kind:"reflection"` (a
+  flipped, washed copy of another mesh layer painted on the floor, drawing the SOURCE's own
+  geometry and material); `material.procedural:"swirlDisc"` with `material.swirl` and
+  `ramp.space:"radial"` (the angle sheared by `twist/(distance+eps)`, an explicit log spiral for
+  the arms and an independent tighter one for the shading, under one `strength` envelope);
+  `blob.arrangement:"orbit"` (a ring band at r^-0.65 with a far/near split) and `"path"` (lobes
+  anchored at fixed path parameters, born as `blob.head` passes them, with `blob.retract` eating
+  the column from one end), plus `blob.lightFrom`; `emitter.shape.type:"frame"` and `"orbit"` with
+  `emitter.velocity.mode:"orbit"`; `emitter.render.anchor:"head"` with
+  `material.procedural:"teardropStreak"`; `layer.window` and `emitter.spawn.mode:"event"` +
+  `spawn.originsFromPath` (a path is a CLOCK: a layer starts, or an instance is born, the moment a
+  head reaches a point on it); and `environment.groundPool` (analytic disc/rect pools in the ground
+  shader). Ported from the S8 portal, S9 vortex and S11 meteor spikes
+  (`TOOLBOX_V2_MAPPING.md` §11–§13); `portal` and `sky-vortex` are new and `meteor-rain` is rebuilt.
 - **Pipeline v2** (`protocol-v2.ts`, `recipes-v2.ts`, `pipeline.ts`, `refine.ts`, `route.ts`): planner/candidate/
   review/refine on schema v2 with structured outputs, scale anchors, lint-driven repair, review v2
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).
 - **Exemplars** (`fixtures/v2/*/document.json`): fire-projectile, smoke-burst, lightning-impact, beam,
-  fire-slash, ice-blast, shield, healing-aura, glitch-projectile, energy-column — hand-authored
-  against the benchmark references (the "oracle"). The last three are the fx15, fx04 and fx16
-  cases; the planner reaches them by prompt keyword (`recipeV2For(id, prompt)` on aura/heal,
-  glitch/digital/hologram and column/overload/pillar/surge), since `PlanSchema` still names v1
-  recipe ids.
+  fire-slash, ice-blast, shield, healing-aura, glitch-projectile, energy-column, portal,
+  sky-vortex, meteor-rain — hand-authored against the benchmark references (the "oracle"). The
+  last five are the fx15, fx04, fx16, fx14, fx17 and fx09 cases; the planner reaches the four the
+  v1 vocabulary cannot name by prompt keyword (`recipeV2For(id, prompt)` on aura/heal,
+  glitch/digital/hologram, column/overload/pillar/surge and vortex/tornado/swirl/maelstrom), since
+  `PlanSchema` still names v1 recipe ids — `portal` is the exception, because v1 has a `portal`
+  recipe id and `V1_RECIPE_TO_V2` now routes it to the family of the same name. Nothing is built in
+  code any more: `meteor-rain` was the last code-built recipe and it moved to a fixture with the
+  S11 port.
 - **Dev gallery** `/dev/vfx-v2` (`npm run dev`): exemplars + every generated benchmark run, references,
   feature toggles, orbit camera, contact-sheet capture. `/dev` is excluded from production builds at build time
   (`scripts/verify-dev-excluded.mjs`).
@@ -77,7 +101,7 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
 
 ## Where the v2 assets live
 
-The 32-texture v2 library and the ten exemplar documents are served from two public
+The 32-texture v2 library and the thirteen exemplar documents are served from two public
 Supabase Storage buckets instead of `frontend/public/` — the PNGs are no longer committed, so
 they never enter a build or a deployment.
 
@@ -127,5 +151,10 @@ Dropped: visual parameter "cards" (prior art: Design Galleries, 1997; weak novel
 ## Open renderer/pipeline items
 
 - v1→v2 visual parity of upgraded documents is not claimed (upgrader maps everything to a teardrop shell).
+- `layer.window` is resolved ONCE, when a document is loaded (`resolveEventWindows`), and the result
+  is not idempotent: resolving an already-resolved document would shift its windows a second time.
+  The runtime applies it in `setDocument` and nothing else calls it.
+- A `path` emitter shape samples ONE document path, so five descents need five tip layers; only the
+  event-spawned populations (`spawn.originsFromPath` with no `shape.pathId`) collapse to one layer.
 - Texture generation is off in v2 (library only). `quality.style` ps1/ps2 is approximate.
 - Structured-output documents are 13–15 kB minified; candidate max_output_tokens 32 000.

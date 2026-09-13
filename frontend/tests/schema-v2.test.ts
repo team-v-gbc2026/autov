@@ -263,6 +263,7 @@ test("wire round-trip: homogeneous arrays parse back into the runtime contract",
       crystals: layer.crystals ?? null,
       arcs: layer.arcs ?? null,
       streakBurst: layer.streakBurst ?? null,
+    reflection: layer.reflection ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -384,6 +385,7 @@ test("blob and splash round-trip through the wire contract", () => {
       crystals: layer.crystals ?? null,
       arcs: layer.arcs ?? null,
       streakBurst: layer.streakBurst ?? null,
+    reflection: layer.reflection ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -620,6 +622,7 @@ test("paths, ribbons and bursts round-trip through the wire contract", () => {
         crystals: layer.crystals ?? null,
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
+      reflection: layer.reflection ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -851,6 +854,7 @@ test("the ice and shield exemplars round-trip through the wire contract", () => 
         crystals: layer.crystals ?? null,
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
+      reflection: layer.reflection ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -1091,6 +1095,7 @@ test("the beam and column exemplars round-trip through the wire contract", () =>
         crystals: layer.crystals ?? null,
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
+      reflection: layer.reflection ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -1282,4 +1287,320 @@ rejectColumn(
     d.layers.find((l) => l.id === "column-shell")!.collapse!.start = 9;
   },
   /never runs/,
+);
+
+// ---------------------------------------------------------------------------
+// The portal / vortex / meteor port: geometry.type "frame" with
+// material.sdfLine and material.beads, material.reveal mode "perimeter",
+// material.flow, kind "reflection", material.procedural "swirlDisc" with
+// material.swirl and ramp.space "radial", blob.arrangement "orbit" and "path"
+// with blob.lightFrom and blob.retract, emitter.shape "frame" and "orbit",
+// emitter.velocity "orbit", emitter.spawn "event" with originsFromPath,
+// emitter.render.anchor "head" with procedural "teardropStreak",
+// layer.window and environment.groundPool.
+// ---------------------------------------------------------------------------
+
+const PORTAL = path.join(process.cwd(), "fixtures/v2/portal/document.json");
+const VORTEX = path.join(process.cwd(), "fixtures/v2/sky-vortex/document.json");
+const METEOR = path.join(process.cwd(), "fixtures/v2/meteor-rain/document.json");
+const portalRaw = JSON.parse(readFileSync(PORTAL, "utf8"));
+const vortexRaw = JSON.parse(readFileSync(VORTEX, "utf8"));
+const meteorRaw = JSON.parse(readFileSync(METEOR, "utf8"));
+const portal = (): VfxDocumentV2 => structuredClone(portalRaw);
+const vortex = (): VfxDocumentV2 => structuredClone(vortexRaw);
+const meteor = (): VfxDocumentV2 => structuredClone(meteorRaw);
+
+test("the portal exemplar is one frame strip, a flow interior and its reflection", () => {
+  const doc = validateDocumentV2(portal());
+  const rim = doc.layers.find((l) => l.id === "rim")!;
+  assert.equal(rim.geometry!.type, "frame");
+  assert.ok(rim.geometry!.frame);
+  assert.equal(rim.geometry!.frame!.perimeterOrigin, "bottom");
+  // The rim is a signed distance, not four bars: one sdfLine carries the bar,
+  // the spine, the inner line and the halo skirts.
+  assert.ok(rim.material!.sdfLine!.core > 0);
+  assert.ok(rim.material!.sdfLine!.spine > 0);
+  assert.equal(rim.material!.sdfLine!.halo.length, 3);
+  assert.ok(rim.material!.beads!.count > 0);
+  // The doorway draws itself up BOTH sides at once, finishes early, and a
+  // track on reveal.to un-draws it from the top.
+  assert.equal(rim.material!.reveal!.mode, "perimeter");
+  assert.ok(rim.material!.reveal!.to > 1);
+  assert.ok(rim.tracks.some((t) => t.target === "material.reveal.to"));
+
+  const interior = doc.layers.find((l) => l.id === "interior")!;
+  assert.equal(interior.material!.flow!.layers.length, 4);
+  assert.equal(
+    interior.material!.flow!.mix.length,
+    interior.material!.flow!.layers.length,
+  );
+  assert.ok(interior.material!.flow!.parallax > 0);
+  // A flow layer keys its "surface" ramp on the MASK, so the threshold track
+  // is what clouds the interior over.
+  assert.equal(interior.material!.ramp.space, "surface");
+  assert.ok(interior.tracks.some((t) => t.target === "material.flow.threshold"));
+
+  const reflection = doc.layers.find((l) => l.kind === "reflection")!;
+  assert.equal(reflection.reflection!.sourceLayerId, "interior");
+  assert.equal(reflection.material, undefined);
+  assert.equal(reflection.geometry, undefined);
+
+  const sparks = doc.layers.find((l) => l.id === "sparks")!;
+  assert.equal(sparks.emitter!.shape.type, "frame");
+  assert.ok(sparks.emitter!.shape.interiorFraction > 0);
+
+  const pool = doc.environment.groundPool![0];
+  assert.equal(pool.shape, "rect");
+  assert.ok(pool.anisotropy > 1);
+});
+
+test("the vortex exemplar is three swirl discs, orbiting lobes and orbiting flecks", () => {
+  const doc = validateDocumentV2(vortex());
+  const discs = doc.layers.filter(
+    (l) => l.material?.procedural === "swirlDisc" && l.role === "primary",
+  );
+  assert.equal(discs.length, 3);
+  // Every disc winds on ONE shared envelope, or the vortex spins up in pieces.
+  for (const disc of discs) {
+    assert.equal(disc.material!.ramp.space, "radial");
+    assert.deepEqual(
+      disc.material!.swirl!.strength,
+      discs[0].material!.swirl!.strength,
+    );
+    // The detail spiral is wound INDEPENDENTLY of the band mask.
+    assert.notEqual(
+      disc.material!.swirl!.detail.arms,
+      disc.material!.swirl!.bands.arms,
+    );
+    // The erosion curve is the mask threshold over the layer's own progress.
+    assert.ok(disc.material!.erosion!.rimBias > 0);
+  }
+  const puffs = doc.layers.filter((l) => l.blob?.arrangement === "orbit");
+  assert.ok(puffs.length >= 2, "one band of 40 lobes reads as beads");
+  for (const puff of puffs) {
+    // `height` is the inner radius and `spread` the outer one.
+    assert.ok(puff.blob!.height < puff.blob!.spread);
+    assert.ok(puff.blob!.lightFrom);
+  }
+  const flecks = doc.layers.find((l) => l.id === "flecks")!;
+  assert.equal(flecks.emitter!.shape.type, "orbit");
+  assert.equal(flecks.emitter!.velocity.mode, "orbit");
+  assert.ok(flecks.emitter!.shape.innerRadius < flecks.emitter!.shape.radius);
+  // It hangs in the air.
+  assert.equal(doc.environment.ground, "none");
+});
+
+test("the meteor exemplar hangs every impact off its own path", () => {
+  const doc = validateDocumentV2(meteor());
+  assert.equal(doc.paths.length, 5);
+  const trails = doc.layers.filter((l) => l.blob?.arrangement === "path");
+  assert.equal(trails.length, 5);
+  for (const trail of trails) {
+    assert.ok(trail.blob!.pathId);
+    assert.ok(trail.blob!.head, "anchors are born by the head, not by a stagger");
+    assert.ok(trail.blob!.perAnchor >= 2);
+    assert.ok(trail.blob!.retract!.from < trail.blob!.retract!.to);
+  }
+  const tips = doc.layers.filter(
+    (l) => l.material?.procedural === "teardropStreak",
+  );
+  assert.equal(tips.length, 5);
+  for (const tip of tips) {
+    assert.equal(tip.emitter!.render.anchor, "head");
+    assert.equal(tip.emitter!.velocity.mode, "alongPath");
+  }
+  // Every impact layer is an EVENT on its own path, never a clock time.
+  const bursts = doc.layers.filter((l) => l.window);
+  assert.ok(bursts.length >= 5);
+  for (const burst of bursts)
+    assert.ok(doc.paths.some((p) => p.id === burst.window!.at.pathId));
+  // One debris layer per population, covering all five impacts.
+  const events = doc.layers.filter((l) => l.emitter?.spawn.mode === "event");
+  assert.ok(events.length >= 3);
+  for (const layer of events) {
+    assert.ok(layer.emitter!.spawn.originsFromPath);
+    assert.equal(layer.emitter!.shape.pathId, null);
+  }
+  assert.equal(doc.environment.groundPool!.length, 5);
+});
+
+test("the portal, vortex and meteor exemplars lint clean", () => {
+  assert.deepEqual(lintDocumentV2(validateDocumentV2(portal())), []);
+  assert.deepEqual(lintDocumentV2(validateDocumentV2(vortex())), []);
+  assert.deepEqual(lintDocumentV2(validateDocumentV2(meteor())), []);
+});
+
+test("the three new exemplars round-trip through the wire contract", () => {
+  for (const source of [portal, vortex, meteor]) {
+    const doc = validateDocumentV2(source());
+    const wire = {
+      ...structuredClone(doc),
+      layers: doc.layers.map((layer) => ({
+        ...structuredClone(layer),
+        material: layer.material ?? null,
+        emitter: layer.emitter ?? null,
+        geometry: layer.geometry ?? null,
+        light: layer.light ?? null,
+        blob: layer.blob ?? null,
+        splash: layer.splash ?? null,
+        ribbon: layer.ribbon ?? null,
+        wireBurst: layer.wireBurst ?? null,
+        crystals: layer.crystals ?? null,
+        arcs: layer.arcs ?? null,
+        streakBurst: layer.streakBurst ?? null,
+        reflection: layer.reflection ?? null,
+      })),
+    };
+    delete (wire as Record<string, unknown>).textures;
+    DocumentV2WireSchema.parse(wire);
+    assert.deepEqual(fromWireV2(wire), { ...doc, textures: [] });
+  }
+});
+
+function rejects(
+  name: string,
+  source: () => VfxDocumentV2,
+  mutate: (doc: VfxDocumentV2) => void,
+  pattern: RegExp,
+) {
+  test(`rejects ${name}`, () => {
+    const doc = source();
+    mutate(doc);
+    assert.throws(() => validateDocumentV2(doc), pattern);
+  });
+}
+
+rejects(
+  "frame geometry with no frame spec",
+  portal,
+  (d) => {
+    d.layers.find((l) => l.id === "rim")!.geometry!.frame = null;
+  },
+  /Frame geometry needs geometry.frame/,
+);
+rejects(
+  "a corner round wider than the frame",
+  portal,
+  (d) => {
+    d.layers.find((l) => l.id === "rim")!.geometry!.frame!.corner = 1;
+  },
+  /Frame corner is wider than the frame/,
+);
+rejects(
+  "a perimeter reveal on something that is not a frame",
+  portal,
+  (d) => {
+    d.layers.find((l) => l.id === "interior")!.material!.reveal = {
+      mode: "perimeter",
+      from: 0,
+      to: 1,
+      frontWidth: 0.1,
+    };
+  },
+  /needs geometry.type "frame"/,
+);
+rejects(
+  "an sdfLine with no lit term",
+  portal,
+  (d) => {
+    const line = d.layers.find((l) => l.id === "rim")!.material!.sdfLine!;
+    line.core = 0;
+    line.spine = 0;
+    line.innerWidth = 0;
+    line.halo = [];
+  },
+  /no lit term/,
+);
+rejects(
+  "a flow with one weight per layer missing",
+  portal,
+  (d) => {
+    d.layers.find((l) => l.id === "interior")!.material!.flow!.mix = [1];
+  },
+  /one mix weight per layer/,
+);
+rejects(
+  "a reflection that carries its own material",
+  portal,
+  (d) => {
+    d.layers.find((l) => l.kind === "reflection")!.material = defaultMaterial();
+  },
+  /draws its SOURCE layer's geometry and material/,
+);
+rejects(
+  "a reflection of a layer that is not a mesh",
+  portal,
+  (d) => {
+    d.layers.find((l) => l.kind === "reflection")!.reflection!.sourceLayerId =
+      "sparks";
+  },
+  /Reflection source must be a mesh layer/,
+);
+rejects(
+  "an orbit blob whose inner radius is outside its outer one",
+  vortex,
+  (d) => {
+    const blob = d.layers.find((l) => l.blob?.arrangement === "orbit")!.blob!;
+    blob.height = blob.spread + 1;
+  },
+  /inner radius\) under blob.spread/,
+);
+rejects(
+  "a path blob with no head curve",
+  meteor,
+  (d) => {
+    d.layers.find((l) => l.blob?.arrangement === "path")!.blob!.head = null;
+  },
+  /needs blob.head/,
+);
+rejects(
+  "blob.pathId on an arrangement that is not a path",
+  vortex,
+  (d) => {
+    d.layers.find((l) => l.blob?.arrangement === "orbit")!.blob!.pathId = "nope";
+  },
+  /arrangement "path" only/,
+);
+rejects(
+  "an orbit emitter with no band",
+  vortex,
+  (d) => {
+    const shape = d.layers.find((l) => l.id === "flecks")!.emitter!.shape;
+    shape.innerRadius = shape.radius;
+  },
+  /needs shape.innerRadius under shape.radius/,
+);
+rejects(
+  "velocity mode orbit without an orbit shape",
+  vortex,
+  (d) => {
+    d.layers.find((l) => l.id === "flecks")!.emitter!.shape.type = "sphere";
+  },
+  /needs emitter.shape.type "orbit"/,
+);
+rejects(
+  "an event spawn with no path origins",
+  meteor,
+  (d) => {
+    d.layers.find(
+      (l) => l.emitter?.spawn.mode === "event",
+    )!.emitter!.spawn.originsFromPath = false;
+  },
+  /needs spawn.originsFromPath/,
+);
+rejects(
+  "a layer window naming a path the document does not have",
+  meteor,
+  (d) => {
+    d.layers.find((l) => l.window)!.window!.at.pathId = "nope";
+  },
+  /Missing path nope/,
+);
+rejects(
+  "a ground pool following a layer the document does not have",
+  meteor,
+  (d) => {
+    d.environment.groundPool![0].followsLayerId = "nope";
+  },
+  /Missing ground pool layer/,
 );
