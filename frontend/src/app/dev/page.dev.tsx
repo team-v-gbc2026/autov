@@ -77,6 +77,11 @@ const cards = [
     body: "Suspended orange spiral vortex spike served from dev-assets/vfx-v2/spike-vortex.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-column",
+    title: "Toolbox v2 spike — golden energy column",
+    body: "Golden energy-overload column spike served from dev-assets/vfx-v2/spike-column.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
