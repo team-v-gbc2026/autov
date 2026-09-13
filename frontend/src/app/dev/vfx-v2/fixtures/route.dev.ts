@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  knownFixtureIds,
+  loadFixtureDocument,
+  readLocalFixtureJson,
+} from "@/lib/vfx-lab/fixtures-server";
 
-// Lists fixtures/v2/<id>/document.json for the vfx-v2 dev gallery, plus
+// Lists the v2 exemplar fixtures for the vfx-v2 dev gallery, plus
 // every live-generated v2 result found under
 // <AUTOV_DATA_DIR or .autov-local>/benchmarks/<runDir>/<case>/effect.json.
 //
@@ -9,6 +14,10 @@ import path from "node:path";
 // effect authored in the v1 (autov.lab/1) schema, used to render a
 // side-by-side v1 comparison. When it's absent, v1Document is null and the
 // gallery shows "no v1 counterpart" instead of a second viewport.
+//
+// Exemplar documents are read from the public vfx-fixtures bucket
+// (v2/<id>/document.json) and fall back to the local fixtures/v2 copy when the
+// fetch fails; v1.json counterparts are always read locally.
 //
 // Fixtures and generated runs may not exist yet in a given checkout; that's
 // expected. This route tolerates either root being absent rather than
@@ -48,28 +57,16 @@ function resolveDataDir(): string {
   );
 }
 
-function listExemplarFixtures(): FixtureEntry[] {
-  const fixturesRoot = path.join(process.cwd(), "fixtures", "v2");
-
-  let entries: fs.Dirent[] = [];
-  try {
-    entries = fs.readdirSync(fixturesRoot, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
+async function listExemplarFixtures(): Promise<FixtureEntry[]> {
   const fixtures: FixtureEntry[] = [];
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory()) continue;
-    const dir = path.join(fixturesRoot, entry.name);
-    const document = readJson(path.join(dir, "document.json"));
+  for (const id of knownFixtureIds()) {
+    const document = await loadFixtureDocument(id);
     if (document === null) continue;
-    const v1Document = readJson(path.join(dir, "v1.json"));
     fixtures.push({
-      id: entry.name,
-      name: docName(document, entry.name),
+      id,
+      name: docName(document, id),
       document,
-      v1Document,
+      v1Document: readLocalFixtureJson(id, "v1.json"),
       group: "exemplar",
     });
   }
@@ -139,6 +136,9 @@ function listGeneratedFixtures(): FixtureEntry[] {
 }
 
 export async function GET() {
-  const fixtures = [...listExemplarFixtures(), ...listGeneratedFixtures()];
+  const fixtures = [
+    ...(await listExemplarFixtures()),
+    ...listGeneratedFixtures(),
+  ];
   return Response.json({ fixtures });
 }

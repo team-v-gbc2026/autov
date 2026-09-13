@@ -3,6 +3,11 @@
 
 export interface TextureManifestEntryV2 {
   id: string;
+  /**
+   * File name inside the texture library. Resolve it with `textureUrl(file)`
+   * from ./asset-urls — the library is served from Supabase Storage, not from
+   * frontend/public.
+   */
   file: string;
   kind: string;
   tileable: boolean;
@@ -14,7 +19,7 @@ export interface TextureManifestEntryV2 {
 export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   {
     id: "debris-01",
-    file: "/textures/v2/debris-01.png",
+    file: "debris-01.png",
     kind: "decal",
     tileable: false,
     tags: [
@@ -28,7 +33,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "droplet-01",
-    file: "/textures/v2/droplet-01.png",
+    file: "droplet-01.png",
     kind: "decal",
     tileable: false,
     tags: [
@@ -42,7 +47,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "ember-01",
-    file: "/textures/v2/ember-01.png",
+    file: "ember-01.png",
     kind: "glow",
     tileable: false,
     tags: [
@@ -56,7 +61,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "flame-lick-cluster-01",
-    file: "/textures/v2/flame-lick-cluster-01.png",
+    file: "flame-lick-cluster-01.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -70,7 +75,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "flame-tongue-01",
-    file: "/textures/v2/flame-tongue-01.png",
+    file: "flame-tongue-01.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -84,7 +89,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "flame-tongue-02",
-    file: "/textures/v2/flame-tongue-02.png",
+    file: "flame-tongue-02.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -98,7 +103,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "flipbook-burst-6x6",
-    file: "/textures/v2/flipbook-burst-6x6.png",
+    file: "flipbook-burst-6x6.png",
     kind: "flipbook",
     tileable: false,
     tags: [
@@ -112,7 +117,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "flipbook-fire-8x8",
-    file: "/textures/v2/flipbook-fire-8x8.png",
+    file: "flipbook-fire-8x8.png",
     kind: "flipbook",
     tileable: false,
     tags: [
@@ -126,7 +131,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "flipbook-smoke-8x8",
-    file: "/textures/v2/flipbook-smoke-8x8.png",
+    file: "flipbook-smoke-8x8.png",
     kind: "flipbook",
     tileable: false,
     tags: [
@@ -139,7 +144,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "frost-01",
-    file: "/textures/v2/frost-01.png",
+    file: "frost-01.png",
     kind: "decal",
     tileable: false,
     tags: [
@@ -153,7 +158,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "glitter-01",
-    file: "/textures/v2/glitter-01.png",
+    file: "glitter-01.png",
     kind: "glow",
     tileable: false,
     tags: [
@@ -167,7 +172,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "ground-glow-01",
-    file: "/textures/v2/ground-glow-01.png",
+    file: "ground-glow-01.png",
     kind: "glow",
     tileable: false,
     tags: [
@@ -181,7 +186,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "ice-shard-01",
-    file: "/textures/v2/ice-shard-01.png",
+    file: "ice-shard-01.png",
     kind: "shape",
     tileable: false,
     tags: [
@@ -195,7 +200,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "magic-sigil-01",
-    file: "/textures/v2/magic-sigil-01.png",
+    file: "magic-sigil-01.png",
     kind: "sigil",
     tileable: false,
     tags: [
@@ -209,7 +214,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "mask-glow-cross-01",
-    file: "/textures/v2/mask-glow-cross-01.png",
+    file: "mask-glow-cross-01.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -223,7 +228,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "mask-soft-01",
-    file: "/textures/v2/mask-soft-01.png",
+    file: "mask-soft-01.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -237,7 +242,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "mask-soft-02",
-    file: "/textures/v2/mask-soft-02.png",
+    file: "mask-soft-02.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -251,7 +256,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "mask-soft-03",
-    file: "/textures/v2/mask-soft-03.png",
+    file: "mask-soft-03.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -265,7 +270,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "noise-cloud-tile-01",
-    file: "/textures/v2/noise-cloud-tile-01.png",
+    file: "noise-cloud-tile-01.png",
     kind: "noise",
     tileable: true,
     tags: [
@@ -279,7 +284,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "noise-cloud-tile-02",
-    file: "/textures/v2/noise-cloud-tile-02.png",
+    file: "noise-cloud-tile-02.png",
     kind: "noise",
     tileable: true,
     tags: [
@@ -293,7 +298,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "noise-streak-tile-01",
-    file: "/textures/v2/noise-streak-tile-01.png",
+    file: "noise-streak-tile-01.png",
     kind: "noise",
     tileable: true,
     tags: [
@@ -307,7 +312,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "ring-gradient-01",
-    file: "/textures/v2/ring-gradient-01.png",
+    file: "ring-gradient-01.png",
     kind: "ring",
     tileable: false,
     tags: [
@@ -321,7 +326,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "ring-soft-01",
-    file: "/textures/v2/ring-soft-01.png",
+    file: "ring-soft-01.png",
     kind: "ring",
     tileable: false,
     tags: [
@@ -335,7 +340,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "scorch-01",
-    file: "/textures/v2/scorch-01.png",
+    file: "scorch-01.png",
     kind: "decal",
     tileable: false,
     tags: [
@@ -349,7 +354,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "smoke-puff-01",
-    file: "/textures/v2/smoke-puff-01.png",
+    file: "smoke-puff-01.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -363,7 +368,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "smoke-puff-02",
-    file: "/textures/v2/smoke-puff-02.png",
+    file: "smoke-puff-02.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -377,7 +382,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "smoke-puff-03",
-    file: "/textures/v2/smoke-puff-03.png",
+    file: "smoke-puff-03.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -391,7 +396,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "smoke-wisp-01",
-    file: "/textures/v2/smoke-wisp-01.png",
+    file: "smoke-wisp-01.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -405,7 +410,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "smoke-wisp-02",
-    file: "/textures/v2/smoke-wisp-02.png",
+    file: "smoke-wisp-02.png",
     kind: "mask",
     tileable: false,
     tags: [
@@ -419,7 +424,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "spark-dot-01",
-    file: "/textures/v2/spark-dot-01.png",
+    file: "spark-dot-01.png",
     kind: "glow",
     tileable: false,
     tags: [
@@ -433,7 +438,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "spark-streak-01",
-    file: "/textures/v2/spark-streak-01.png",
+    file: "spark-streak-01.png",
     kind: "streak",
     tileable: false,
     tags: [
@@ -447,7 +452,7 @@ export const TEXTURE_MANIFEST_V2: readonly TextureManifestEntryV2[] = [
   },
   {
     id: "spark-streak-02",
-    file: "/textures/v2/spark-streak-02.png",
+    file: "spark-streak-02.png",
     kind: "streak",
     tileable: false,
     tags: [

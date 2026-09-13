@@ -24,6 +24,11 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  assetBaseScript,
+  resolveTextureSource,
+  serveLocalTexture,
+} from "./vfx-assets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -240,16 +245,21 @@ const bundled = await esbuild.build({
   absWorkingDir: root,
   logLevel: "warning",
 });
+const textures = resolveTextureSource(root);
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>dry run</title>
 <style>html,body{margin:0;background:#000}</style></head><body>
+${assetBaseScript(textures.base)}
 <script>${bundled.outputFiles[0].text.replace(/<\/script>/g, "<\\/script>")}</script>
 </body></html>`;
 
-// --- static server (public/ carries the v2 texture library) ----------------
+// --- static server ---------------------------------------------------------
+// The v2 texture library lives in the vfx-textures bucket; serveLocalTexture
+// mirrors it from a local directory when one is available (VFX_ASSET_DIR).
 
 const publicDir = path.join(root, "public");
 const server = createServer((req, res) => {
   const url = (req.url || "/").split("?")[0];
+  if (serveLocalTexture(url, res, textures.dir)) return;
   if (url === "/" || url === "/index.html") {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(html);

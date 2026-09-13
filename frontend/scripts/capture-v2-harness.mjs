@@ -1,8 +1,9 @@
 // Headless captureV2 harness.
 //
-// captureV2 needs a DOM, a WebGL context and the texture library served from
-// /textures/v2/*, so it cannot run under the node test runner. This module
-// bundles it once, serves frontend/public beside it, opens the page in
+// captureV2 needs a DOM, a WebGL context and the v2 texture library, so it
+// cannot run under the node test runner. This module bundles it once, serves
+// frontend/public plus a local texture directory beside it (see
+// scripts/vfx-assets.mjs — VFX_ASSET_DIR / VFX_ASSET_BASE), opens the page in
 // Playwright chromium on SwiftShader and returns real Evidence records —
 // contact sheet, motion strip, rendered pixels, 30 Hz diagnostics and jitter —
 // for whichever documents the caller passes in.
@@ -14,6 +15,11 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assetBaseScript,
+  resolveTextureSource,
+  serveLocalTexture,
+} from "./vfx-assets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -61,13 +67,16 @@ export async function captureDocumentsV2(documents, options = {}) {
     logLevel: "warning",
   });
   const js = bundle.outputFiles[0].text;
+  const textures = resolveTextureSource(root);
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>v2 capture</title>
 <style>html,body{margin:0;background:#000}</style></head><body>
+${assetBaseScript(textures.base)}
 <script>${js.replace(/<\/script>/g, "<\\/script>")}</script></body></html>`;
 
   const publicDir = path.join(root, "public");
   const server = createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
+    if (serveLocalTexture(url, res, textures.dir)) return;
     if (url === "/" || url === "/index.html") {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(html);

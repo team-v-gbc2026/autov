@@ -1,21 +1,18 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
+import { notFound } from "next/navigation";
 import Studio from "@/components/studio";
+import { loadFixtureDocument } from "@/lib/vfx-lab/fixtures-server";
 import { validateDocumentV2 } from "@/lib/vfx-lab/schema-v2";
 
 export const metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function VfxUiReviewPage() {
-  const document = validateDocumentV2(
-    JSON.parse(
-      readFileSync(
-        path.join(process.cwd(), "fixtures/v2/fire-projectile/document.json"),
-        "utf8",
-      ),
-    ),
-  );
+export default async function VfxUiReviewPage() {
+  // Bucket first (vfx-fixtures/v2/fire-projectile/document.json), local
+  // fixtures/v2 copy as the offline fallback.
+  const loaded = await loadFixtureDocument("fire-projectile");
+  if (loaded === null) notFound();
+  const document = validateDocumentV2(loaded);
   return (
     <Studio
       project={{

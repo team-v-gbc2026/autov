@@ -23,6 +23,27 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
 - **Live runs**: `node scripts/run-benchmark.mjs --live --schema v2 …` (see `TOOLBOX_V2_STATUS` in the project
   notes for the exact command). Three rounds on fx12/fx01/fx13 so far.
 
+## Where the v2 assets live
+
+The 32-texture v2 library and the seven exemplar documents are served from two public
+Supabase Storage buckets instead of `frontend/public/` — the PNGs are no longer committed, so
+they never enter a build or a deployment.
+
+- Textures: `vfx-textures/v2/<file>` — base URL from `NEXT_PUBLIC_VFX_ASSET_BASE`, else derived
+  from `NEXT_PUBLIC_SUPABASE_URL` as `<url>/storage/v1/object/public/vfx-textures/v2`.
+  Resolved by `textureUrl()` in `src/lib/vfx-lab/asset-urls.ts`; the runtime loads them
+  with `crossOrigin = "anonymous"`.
+- Fixtures: `vfx-fixtures/v2/<id>/document.json`. `frontend/fixtures/v2/**` stays in the repo for
+  tests and harnesses; `fixtures-server.ts` fetches the bucket copy first (short timeout) and
+  falls back to the local file, so the dev gallery, `/dev/vfx-studio-v2` and `/dev/vfx-ui-review`
+  work offline.
+- Upload: `npm run upload:vfx-assets` (service role key in `frontend/.env.local`,
+  `--dry-run` / `--verify` / `--textures <dir>`).
+- Headless harnesses serve local PNGs from `$VFX_ASSET_DIR`, `public/textures/v2`,
+  `.vfx-textures/v2` or `../textures-codex/library`, so CI needs no network.
+
+See `LOCAL_SETUP.md` for the full conventions.
+
 ## What the live runs taught us
 
 Given the vocabulary and written scale rules, the model produces documents that are structurally right

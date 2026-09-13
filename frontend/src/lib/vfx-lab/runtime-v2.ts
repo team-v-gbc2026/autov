@@ -6,6 +6,7 @@ import { createPostStack, type PostStackV2 } from "./post-v2";
 import { evaluateLayerV2 } from "./evaluate-v2";
 import { upgradeDocument } from "./migrate";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
+import { textureUrl } from "./asset-urls";
 import type { VfxDocument } from "./schema";
 import {
   isV2,
@@ -165,6 +166,9 @@ const SUB_MODE_INDEX: Record<string, number> = {
   continuous: 2,
 };
 
+// The library lives in the public `vfx-textures` bucket (or wherever
+// NEXT_PUBLIC_VFX_ASSET_BASE / globalThis.__VFX_ASSET_BASE points), so these
+// are absolute cross-origin URLs in production.
 const TEXTURE_FILES = new Map(
   TEXTURE_MANIFEST_V2.map((entry) => [entry.id, entry.file] as const),
 );
@@ -211,6 +215,12 @@ function lcg(seed: number) {
 
 class TextureCacheV2 {
   private readonly loader = new THREE.TextureLoader();
+
+  constructor() {
+    // The library is cross-origin (Supabase Storage). WebGL refuses to sample
+    // a tainted image, so the request has to be an anonymous CORS request.
+    this.loader.setCrossOrigin("anonymous");
+  }
   private readonly cache = new Map<string, THREE.Texture>();
   private pending = 0;
   private waiters: (() => void)[] = [];
@@ -221,7 +231,8 @@ class TextureCacheV2 {
     const cached = this.cache.get(key);
     if (cached) return cached;
     const embedded = doc.textures?.find((asset) => asset.id === id);
-    const url = embedded ? embedded.data : TEXTURE_FILES.get(id);
+    const file = TEXTURE_FILES.get(id);
+    const url = embedded ? embedded.data : file ? textureUrl(file) : undefined;
     if (!url) return null;
     this.pending++;
     const texture = this.loader.load(

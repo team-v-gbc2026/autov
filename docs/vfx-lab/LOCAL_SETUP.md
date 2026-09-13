@@ -27,6 +27,61 @@ The UI shows conservative cumulative spend against $30. It includes outstanding 
 - Three.js downloads a self-contained HTML player. Open it locally or serve it with any static web server; playback does not use OpenAI credits.
 - The last valid document is autosaved in browser localStorage. Generation runs and token accounting are stored privately in `frontend/.autov-local/`. Download generation evidence before closing the tab to retain the complete comparison report.
 
+## VFX v2 assets (textures and fixtures)
+
+The v2 texture library and the v2 exemplar documents are **not** shipped in the
+build. They live in two public Supabase Storage buckets:
+
+| Objects | Bucket path | Public URL |
+| --- | --- | --- |
+| 32 PNGs + `manifest.json` | `vfx-textures/v2/<file>` | `<SUPABASE_URL>/storage/v1/object/public/vfx-textures/v2/<file>` |
+| 7 exemplar documents | `vfx-fixtures/v2/<id>/document.json` | `<SUPABASE_URL>/storage/v1/object/public/vfx-fixtures/v2/<id>/document.json` |
+
+`src/lib/vfx-lab/asset-urls.ts` resolves both. The texture base URL is
+`NEXT_PUBLIC_VFX_ASSET_BASE` when set, otherwise
+`<NEXT_PUBLIC_SUPABASE_URL>/storage/v1/object/public/vfx-textures/v2`, otherwise
+the shared team project. The renderer loads textures with
+`crossOrigin = "anonymous"` so WebGL can sample them.
+
+`frontend/fixtures/v2/**` stays in the repo (tests and harnesses import it
+directly). The dev pages and `/dev/vfx-v2/fixtures` fetch the bucket copy first
+with a short timeout and fall back to the local file, so they work offline.
+
+### Uploading
+
+Put the service role key in `frontend/.env.local` (never commit it, never use a
+`NEXT_PUBLIC_` prefix):
+
+```sh
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Then, with the PNG originals available locally:
+
+```sh
+npm run upload:vfx-assets -- --dry-run                          # list the 40 objects
+npm run upload:vfx-assets -- --textures ../textures-codex/library
+npm run upload:vfx-assets -- --verify                           # GET every public URL
+```
+
+Uploads use `x-upsert: true` and `cache-control: max-age=31536000`, print a
+per-file ok/error table and exit non-zero on any failure.
+
+### Working offline
+
+Headless harnesses (`render-v2-fixture.mjs`, `capture-v2-harness.mjs`,
+`calibrate-v2.mjs`, `dry-run-measure-v2.mjs`) never need the network:
+`scripts/vfx-assets.mjs` serves PNGs from the first directory that exists —
+`$VFX_ASSET_DIR`, `frontend/public/textures/v2`, `frontend/.vfx-textures/v2`
+(gitignored mirror), `../textures-codex/library` — and injects
+`globalThis.__VFX_ASSET_BASE = "/textures/v2"` so the runtime points at it. Set
+`VFX_ASSET_BASE=<url>` to force a remote base instead, and
+`VFX_FIXTURES_LOCAL_ONLY=1` to make the dev pages skip the bucket fetch.
+
+For the browser app offline, keep a copy of the PNGs in
+`frontend/public/textures/v2/` and run with
+`NEXT_PUBLIC_VFX_ASSET_BASE=/textures/v2`.
+
 ## Verification
 
 ```sh

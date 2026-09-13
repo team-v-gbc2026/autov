@@ -2,7 +2,9 @@
 // Headless verification for the v2 renderer.
 //
 // Bundles a tiny entry that imports runtime-v2 plus a fixture, serves it (with
-// frontend/public so /textures/v2/* resolves), opens it in Playwright chromium
+// frontend/public, plus local textures at /textures/v2/* when a texture
+// directory is available — see scripts/vfx-assets.mjs), opens it in Playwright
+// chromium
 // on SwiftShader and screenshots a few times into .autov-local/v2-verify/.
 //
 // Usage: node scripts/render-v2-fixture.mjs [fixtureId] [times...]
@@ -19,6 +21,11 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assetBaseScript,
+  resolveTextureSource,
+  serveLocalTexture,
+} from "./vfx-assets.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -116,13 +123,15 @@ const bundle = await esbuild.build({
 });
 const js = bundle.outputFiles[0].text;
 
+const textures = resolveTextureSource(root);
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>v2 verify</title>
 <style>html,body{margin:0;background:#000}#host{width:1280px;height:720px}canvas{display:block}</style>
-</head><body><div id="host"></div><script>${js.replace(/<\/script>/g, "<\\/script>")}</script></body></html>`;
+</head><body><div id="host"></div>${assetBaseScript(textures.base)}<script>${js.replace(/<\/script>/g, "<\\/script>")}</script></body></html>`;
 
 const publicDir = path.join(root, "public");
 const server = createServer((req, res) => {
   const url = (req.url || "/").split("?")[0];
+  if (serveLocalTexture(url, res, textures.dir)) return;
   if (url === "/" || url === "/index.html") {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(html);

@@ -15,7 +15,8 @@
     "prebuild": "npm run bundle:runtime",
     "verify:runtime": "node scripts/verify-renderer.mjs",
     "benchmark": "node scripts/run-benchmark.mjs",
-    "verify:browser": "node scripts/verify-vfx-browser.mjs"
+    "verify:browser": "node scripts/verify-vfx-browser.mjs",
+    "upload:vfx-assets": "node scripts/upload-vfx-assets.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.20",
