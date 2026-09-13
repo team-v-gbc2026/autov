@@ -19,7 +19,7 @@ window.spikeParams = params;
 const PAL = {
   purple: { shadow: "#2a1470", body: "#5a3ce0", high: "#a794f7", rim: "#b7a8ff", line: "#241060" },
   pink:   { shadow: "#9c0f88", body: "#e81eb4", high: "#ff7ad6", rim: "#ffa8ea", line: "#8a0a78" },
-  hot:    { shadow: "#b9b7f0", body: "#e2e0f6", high: "#f4f2ff", rim: "#cfd0f0", line: "#a9a7d8" },
+  hot:    { shadow: "#a6a4dc", body: "#d2d0e8", high: "#eceaf8", rim: "#bcbde0", line: "#9a98cc" },
 };
 
 // ---------- GLSL ----------
@@ -51,13 +51,23 @@ float snoise(vec3 v){
 
 // radius field of one lobe: unit sphere + positive-biased fbm -> cauliflower bumps
 const glslRadius = /* glsl */`
-uniform float uTime,uSeed,uAmp,uFreq,uSpeed,uSquash;
+uniform float uTime,uSeed,uAmp,uFreq,uSpeed,uSquash,uCurl,uTaper,uRot;
 float lobeR(vec3 n){
   vec3 q=n*uFreq+vec3(uSeed*7.3,uSeed*3.1-uTime*uSpeed,uSeed*11.7);
   float f=.6*snoise(q)+.3*snoise(q*2.1+5.)+.15*snoise(q*4.3+11.);
   return 1.+uAmp*(.45*f+.55*abs(f));
 }
-vec3 lobeP(vec3 n){ vec3 p=n*lobeR(n); p.y*=uSquash; return p; }
+// comma: taper one end to a tail, then bend the whole lobe around the z axis
+vec3 lobeP(vec3 n){
+  vec3 p=n*lobeR(n);
+  float s=clamp(p.y*.5+.5,0.,1.);
+  p.xz*=mix(1.,1.-uTaper,smoothstep(.2,1.,s));
+  float a=uCurl*p.y;
+  p.xy=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xy;
+  p.xy=mat2(cos(uRot),-sin(uRot),sin(uRot),cos(uRot))*p.xy;
+  p.y*=uSquash;
+  return p;
+}
 `;
 
 const lobeVert = /* glsl */`
@@ -131,6 +141,7 @@ const lobeBase = new THREE.ShaderMaterial({
   uniforms: {
     uTime: { value: 0 }, uSeed: { value: 0 }, uAmp: { value: 0.14 }, uFreq: { value: 2.2 },
     uSpeed: { value: 0.5 }, uSquash: { value: 1 }, uInflate: { value: 0 },
+    uCurl: { value: 0 }, uTaper: { value: 0 }, uRot: { value: 0 },
     uShadow: { value: hex("#000") }, uBody: { value: hex("#888") }, uHigh: { value: hex("#fff") },
     uRim: { value: hex("#fff") }, uLight: { value: new THREE.Vector3(-0.5, 0.8, 0.5) },
     uBands: { value: 3 }, uOpacity: { value: 1 }, uRimPow: { value: 3.0 }, uRimAmt: { value: 0.42 },
@@ -140,6 +151,14 @@ const lobeBase = new THREE.ShaderMaterial({
 
 function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
 function smoothstep(a, b, x) { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+function hash(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+// tail points away from the cluster centre, hook curls back
+function comma(i, x, y, curlMin, curlMax, taper) {
+  const h = hash(i), dx = x, dy = Math.max(0.25, y * 0.35);
+  const len = Math.hypot(dx, dy) || 1;
+  return { curl: (curlMin + (curlMax - curlMin) * h) * (dx < 0 ? -1 : 1), taper,
+    rot: -Math.atan2(dx / len, dy / len) };
+}
 
 const lobes = [];
 function addLobe(d) {
@@ -154,6 +173,9 @@ function addLobe(d) {
   mat.uniforms.uFreq.value = d.freq ?? 2.3;
   mat.uniforms.uSquash.value = d.squash ?? 1;
   mat.uniforms.uRimAmt.value = d.rimAmt ?? 0.42;
+  mat.uniforms.uCurl.value = d.curl ?? 0;
+  mat.uniforms.uTaper.value = d.taper ?? 0;
+  mat.uniforms.uRot.value = d.rot ?? 0;
   const mesh = new THREE.Mesh(lobeGeo, mat);
   mesh.renderOrder = d.order ?? 10;
 
@@ -165,6 +187,9 @@ function addLobe(d) {
   omat.uniforms.uAmp.value = d.amp ?? 0.15;
   omat.uniforms.uFreq.value = d.freq ?? 2.3;
   omat.uniforms.uSquash.value = d.squash ?? 1;
+  omat.uniforms.uCurl.value = d.curl ?? 0;
+  omat.uniforms.uTaper.value = d.taper ?? 0;
+  omat.uniforms.uRot.value = d.rot ?? 0;
   const outline = new THREE.Mesh(lobeGeo, omat);
   outline.renderOrder = (d.order ?? 10) - 1;
 
@@ -195,22 +220,26 @@ MOUND.forEach((m, i) => addLobe({
 
 // the column: paired lobes per level, rise grows with height -> one fused stack that shoots up
 const COL = [];
-for (let j = 0; j < 8; j++) {
-  const wob = 0.16 * Math.sin(j * 1.1);
-  const w = 0.24 - j * 0.021;
-  const rise = 2.2 + j * 1.6;
-  const R = 0.44 - j * 0.024;
-  COL.push({ t0: 0.38 + j * 0.018, R: R * (1 + 0.12 * Math.sin(j * 2.3)), x: wob - w, rise, life: 1.24 - j * 0.05 });
-  COL.push({ t0: 0.39 + j * 0.018, R: R * (1 - 0.10 * Math.sin(j * 1.7)), x: wob + w, rise: rise * 1.04, life: 1.22 - j * 0.05 });
+for (let j = 0; j < 13; j++) {
+  const wob = 0.15 * Math.sin(j * 0.8);
+  const w = 0.23 - j * 0.013;
+  const rise = 2.2 + j * 0.98;
+  const R = 0.42 - j * 0.014;
+  COL.push({ t0: 0.38 + j * 0.011, R: R * (1 + 0.10 * Math.sin(j * 2.3)), x: wob - w, rise, life: 1.24 - j * 0.03 });
+  COL.push({ t0: 0.39 + j * 0.011, R: R * (1 - 0.08 * Math.sin(j * 1.7)), x: wob + w, rise: rise * 1.03, life: 1.22 - j * 0.03 });
+  // smoother core behind the pair: fills the gap so the contour stays continuous
+  COL.push({ t0: 0.38 + j * 0.011, R: R * 1.3, x: wob, rise: rise * 1.015, life: 1.23 - j * 0.03, core: 1 });
 }
 // wider cap on top of the column
 COL.push({ t0: 0.49, R: 0.54, x: -0.22, rise: 14.5, life: 0.80 });
 COL.push({ t0: 0.50, R: 0.48, x: 0.20, rise: 13.8, life: 0.80 });
 COL.push({ t0: 0.52, R: 0.40, x: -0.02, rise: 16.0, life: 0.74 });
 COL.forEach((c, i) => addLobe({
-  family: "purple", t0: c.t0, life: c.life, R0: c.R, base: [c.x, 1.5, 0.35 + (i % 3 - 1) * 0.2],
+  family: "purple", t0: c.t0, life: c.life, R0: c.R,
+  base: [c.x, 1.5, c.core ? -0.15 : 0.35 + (i % 3 - 1) * 0.16],
   drift: [c.x * 0.5, 0], rise: c.rise, g: c.rise * 0.5, k: 4.5, seed: seed(),
-  amp: 0.16, freq: 2.0, order: 12,
+  amp: c.core ? 0.07 : 0.13, freq: c.core ? 1.5 : 2.0, order: c.core ? 11 : 12,
+  outlineW: c.core ? 0.055 : 0.02,
 }));
 
 // second column pulse — keeps a purple stalk standing while the pink spreads
@@ -241,10 +270,10 @@ const PINK = [
   { x: -0.18, y: 0.30, t0: 0.82, R: 0.46, dx: -0.15, rise: 0.6 },
   { x: 0.20, y: 0.30, t0: 0.83, R: 0.46, dx: 0.15, rise: 0.6 },
 ];
-PINK.forEach((p, i) => addLobe({
+PINK.forEach((p, i) => addLobe(Object.assign({
   family: "pink", t0: p.t0, life: 0.92, R0: p.R, base: [p.x, p.y, (i % 3 - 1) * 0.3],
-  drift: [p.dx, 0], rise: p.rise, g: 0.6, k: 3.4, seed: seed(), amp: 0.17, freq: 1.9, order: 14,
-}));
+  drift: [p.dx, 0], rise: p.rise, g: 0.6, k: 3.4, seed: seed(), amp: 0.14, freq: 1.9, order: 14,
+}, comma(i + 3, p.x, p.y, 0.35, 0.55, 0.26))));
 
 // separation: pink pieces break off and drift outward/upward
 const PINK2 = [
@@ -257,21 +286,22 @@ const PINK2 = [
   { x: -1.30, y: 0.50, t0: 1.36, R: 0.24, dx: -0.7, rise: 1.0 },
   { x: 1.30, y: 0.50, t0: 1.37, R: 0.24, dx: 0.7, rise: 1.0 },
 ];
-PINK2.forEach((p, i) => addLobe({
+PINK2.forEach((p, i) => addLobe(Object.assign({
   family: "pink", t0: p.t0, life: Math.min(0.60, 1.86 - p.t0), R0: p.R, base: [p.x, p.y, (i % 3 - 1) * 0.25],
-  drift: [p.dx, 0], rise: p.rise, g: 0.8, k: 4, seed: seed(), amp: 0.26, freq: 2.6, squash: 1.2, order: 14,
-}));
+  drift: [p.dx, 0], rise: p.rise, g: 0.8, k: 4, seed: seed(), amp: 0.13, freq: 2.4, squash: 1.25, order: 14,
+}, comma(i + 31, p.x, p.y, 1.15, 1.75, 0.62))));
 
-// thin vertical string of purple wisps — the last thing alive
+// thin vertical string of purple wisps — the last thing alive, fading from the bottom up
 const WISP = [];
-for (let i = 0; i < 6; i++) WISP.push({
-  t0: 1.12 + 0.17 * i, y: 0.50, R: 0.29 - 0.018 * i, rise: 3.1 - 0.07 * i,
-  x: (i % 2 ? -1 : 1) * (0.10 + 0.02 * i), life: 0.95 - 0.04 * i,
+for (let i = 0; i < 5; i++) WISP.push({
+  t0: 1.14 + 0.21 * i, y: 0.50, R: 0.30 - 0.028 * i, rise: 3.2 - 0.12 * i,
+  x: (i % 2 ? -1 : 1) * (0.10 + 0.03 * i), life: 1.02 - 0.10 * i,
 });
-WISP.forEach((w, i) => addLobe({
-  family: "purple", t0: w.t0, life: w.life, R0: w.R, base: [w.x, w.y, 0.7], drift: [w.x * 2.2, 0],
-  rise: w.rise, g: 0.5, k: 4, seed: seed(), amp: 0.34, freq: 3.0, squash: 2.0, order: 15,
-}));
+WISP.forEach((w, i) => addLobe(Object.assign({
+  family: "purple", t0: w.t0, life: w.life, R0: w.R, base: [w.x, w.y, 0.7], drift: [w.x * 1.6, 0],
+  rise: w.rise, g: 0.5, k: 4, seed: seed(), amp: 0.16, freq: 2.6,
+  squash: 1.6 + 0.15 * i, order: 15, sway: [0.22 + 0.05 * i, 4.2, i * 1.7],
+}, comma(i + 61, w.x, w.y, 1.05, 1.60, 0.58))));
 
 // ---------- grey splash (flat unlit jagged shards) ----------
 const splashMat = new THREE.ShaderMaterial({
@@ -282,20 +312,22 @@ const splashMat = new THREE.ShaderMaterial({
     void main(){ vec3 c=mix(uDark,uCol,smoothstep(.0,.55,vUv.y)); gl_FragColor=vec4(c,uOpacity);}`,
 });
 
-function sliverGeo(len, width, curve, taper) {
-  const N = 22, pos = [], uv = [], idx = [];
+// one sliver: pointed both ends, independently jagged edges, hashed asymmetry
+function sliverGeo(len, width, curve, taper, h) {
+  const N = 34, pos = [], uv = [], idx = [];
+  const nL = 2 + Math.floor(hash(h) * 3), nR = 2 + Math.floor(hash(h + 7) * 3);
+  const oL = hash(h + 3), oR = hash(h + 11);
+  const dL = 0.34 + 0.30 * hash(h + 5), dR = 0.34 + 0.30 * hash(h + 13);
+  const edge = (t, base, n, off, depth) => base * (1 - depth * ((t * n + off) % 1));
   for (let i = 0; i <= N; i++) {
-    const s = i / N;
-    const x = (Math.sin(Math.PI * s * 0.5) - 0.25 * Math.sin(Math.PI * s)) * curve;
-    const y = len * s;
-    const w = width * Math.pow(1 - s, taper) * Math.pow(smoothstep(0, 0.34, s), 0.7);
-    pos.push(x - w, y, 0, x + w, y, 0);
-    uv.push(0, 1 - s, 1, 1 - s);
+    const t = i / N;
+    const x = (Math.sin(Math.PI * t * 0.5) - 0.25 * Math.sin(Math.PI * t)) * curve;
+    const y = len * t;
+    const base = width * Math.pow(1 - t, taper) * Math.pow(smoothstep(0, 0.3, t), 0.7);
+    pos.push(x - edge(t, base, nL, oL, dL), y, 0, x + edge(t, base, nR, oR, dR), y, 0);
+    uv.push(0, 1 - t, 1, 1 - t);
   }
-  for (let i = 0; i < N; i++) {
-    const a = i * 2;
-    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-  }
+  for (let i = 0; i < N; i++) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
@@ -303,18 +335,25 @@ function sliverGeo(len, width, curve, taper) {
   return g;
 }
 
-const SPLASH = [
-  { ang: -84, len: 2.6, w: 0.40, curve: 1.4, t0: 0.86, fly: [-1.2, 0.4], z: -0.9, r: 1.85, y: 0.55 },
-  { ang: -66, len: 3.2, w: 0.42, curve: 1.6, t0: 0.88, fly: [-1.4, 0.9], z: -0.9, r: 1.80, y: 0.62 },
-  { ang: -48, len: 2.9, w: 0.34, curve: 1.3, t0: 0.91, fly: [-1.1, 1.2], z: -0.9, r: 1.45, y: 0.80 },
-  { ang: -28, len: 2.3, w: 0.26, curve: 0.9, t0: 0.95, fly: [-0.7, 1.4], z: 0.9, r: 0.95, y: 0.95 },
-  { ang: 28, len: 2.3, w: 0.26, curve: -0.9, t0: 0.95, fly: [0.7, 1.4], z: 0.9, r: 0.95, y: 0.95 },
-  { ang: 48, len: 2.9, w: 0.34, curve: -1.3, t0: 0.91, fly: [1.1, 1.2], z: -0.9, r: 1.45, y: 0.80 },
-  { ang: 66, len: 3.2, w: 0.42, curve: -1.6, t0: 0.88, fly: [1.4, 0.9], z: -0.9, r: 1.80, y: 0.62 },
-  { ang: 84, len: 2.6, w: 0.40, curve: -1.4, t0: 0.86, fly: [1.2, 0.4], z: -0.9, r: 1.85, y: 0.55 },
-];
+const SPLASH = [];
+for (let k = 0; k < 8; k++) {
+  const h = k * 9 + 1;
+  let ang = -104 + k * 29.5 + (hash(h) - 0.5) * 18;
+  if (Math.abs(ang) < 38) ang = ang < 0 ? -38 : 38;
+  if (Math.abs(ang) > 94) ang = ang < 0 ? -94 : 94;
+  const mul = 0.5 + 1.1 * hash(h + 2);          // short bowl-huggers .. long shards
+  const long = mul > 1.25;
+  SPLASH.push({
+    ang, len: 2.0 * mul, w: 0.22 + 0.2 * hash(h + 4), curve: (ang < 0 ? 1 : -1) * (0.9 + 0.9 * hash(h + 6)),
+    t0: 0.84 + 0.12 * hash(h + 8), z: hash(h + 10) < 0.3 ? 0.9 : -0.9,
+    r: 1.25 + 0.7 * hash(h + 12), y: 0.40 + 0.6 * hash(h + 14), h,
+    fly: [(ang < 0 ? -1 : 1) * (0.8 + 1.0 * hash(h + 16)), 0.3 + 1.2 * hash(h + 18)],
+    long, fade: long ? [1.55, 1.95] : [1.34, 1.72],
+  });
+}
+
 const splashes = SPLASH.map((s) => {
-  const g = sliverGeo(s.len, s.w, s.curve, 1.6);
+  const g = sliverGeo(s.len, s.w, s.curve, 1.6, s.h);
   const m = splashMat.clone();
   const mesh = new THREE.Mesh(g, m);
   const dark = new THREE.Mesh(g, (() => { const d = splashMat.clone(); d.uniforms.uCol.value = hex("#40404c"); d.uniforms.uDark.value = hex("#2a2a34"); return d; })());
@@ -347,6 +386,10 @@ const glint = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpaci
     float ax=pow(max(0.,1.-abs(p.x)),2.)*pow(max(0.,1.-abs(p.y)*7.),2.5);
     float ay=pow(max(0.,1.-abs(p.y)),2.)*pow(max(0.,1.-abs(p.x)*7.),2.5);
     float a=clamp(core*1.2+ax+ay,0.,2.); gl_FragColor=vec4(uCol*a,min(1.,a)*uOpacity); }`, 1, {}, 22);
+const groundRing = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpacity;
+  void main(){ vec2 p=(vUv-.5)*vec2(1.,2.6); float d=length(p)*2.;
+    float a=smoothstep(.28,.78,d)*(1.-smoothstep(.78,1.05,d)); a=pow(a,1.4);
+    gl_FragColor=vec4(uCol*a,a*uOpacity); }`, 1, {}, 5);
 const groundGlow = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpacity;
   void main(){ vec2 p=(vUv-.5)*vec2(1.,3.2); float d=length(p)*2.; float a=pow(max(0.,1.-d),2.2); gl_FragColor=vec4(uCol*a,a*uOpacity); }`, 1, {}, 4);
 
@@ -387,7 +430,7 @@ function evalLobes(t) {
     if (!alive) continue;
     const r = d.R0 * easeOutCubic(Math.min(a * (d.k ?? 3), 1)) * (1 - smoothstep(0.7, 1, a));
     const sa = Math.sqrt(a);
-    const x = d.base[0] + d.drift[0] * sa;
+    const x = d.base[0] + d.drift[0] * sa + (d.sway ? d.sway[0] * Math.sin(d.sway[1] * a + d.sway[2]) : 0);
     const y = d.base[1] + d.rise * a - 0.5 * d.g * a * a;
     const z = d.base[2] + d.drift[1] * sa;
     L.mesh.position.set(x, y, z); L.mesh.scale.setScalar(Math.max(r, 1e-4));
@@ -400,7 +443,7 @@ function evalLobes(t) {
     L.mat.uniforms.uTime.value = t; L.omat.uniforms.uTime.value = t;
     L.mat.uniforms.uBands.value = params.bands3 ? 3 : 2;
     L.mat.uniforms.uLight.value.copy(lightDir);
-    L.omat.uniforms.uInflate.value = 0.055 / Math.max(r, 0.12);
+    L.omat.uniforms.uInflate.value = (d.outlineW ?? 0.055) / Math.max(r, 0.12);
   }
 }
 
@@ -408,8 +451,8 @@ function evalSplash(t) {
   for (const S of splashes) {
     const { s, grp, m, dark } = S;
     const a = (t - s.t0) / 0.34;                // scale-out
-    const det = smoothstep(1.24, 1.60, t);      // detach + fly outward
-    const fade = 1 - smoothstep(1.42, 1.85, t);
+    const det = smoothstep(s.long ? 1.10 : 1.24, s.long ? 1.70 : 1.60, t); // detach + fly outward
+    const fade = 1 - smoothstep(s.fade[0], s.fade[1], t);
     const vis = params.splash && t > s.t0 && fade > 0.01;
     grp.visible = vis;
     if (!vis) continue;
@@ -417,7 +460,7 @@ function evalSplash(t) {
     const rad = s.ang * Math.PI / 180;
     grp.position.set(Math.sin(rad) * s.r + s.fly[0] * det, s.y + s.fly[1] * det, s.z);
     grp.rotation.z = -rad + det * Math.sign(s.ang) * 0.5;
-    grp.scale.set(sc * (1 - 0.35 * det), sc * (1 - 0.15 * det), 1);
+    grp.scale.set(sc * (1 - (s.long ? 0.55 : 0.35) * det), sc * (1 - 0.15 * det), 1);
     m.uniforms.uOpacity.value = fade;
     dark.material.uniforms.uOpacity.value = fade * 0.85;
   }
@@ -427,7 +470,7 @@ const cWhite = hex("#fff4ff"), cPink = hex("#ff8fe0"), cBlue = hex("#6a7cff"), c
 function evalGlow(t) {
   const on = params.glow;
   // base glow: white -> pink, 0.25 .. 1.45
-  const gA = (smoothstep(0.20, 0.30, t) * (1 - smoothstep(1.05, 1.45, t))) * 0.9;
+  const gA = (smoothstep(0.20, 0.30, t) * (1 - smoothstep(1.05, 1.45, t))) * 0.9 * (1 - 0.3 * (1 - smoothstep(0.45, 0.62, t)));
   softGlow.visible = on && gA > 0.01;
   if (softGlow.visible) {
     const mixv = smoothstep(0.6, 1.0, t);
@@ -446,6 +489,16 @@ function evalGlow(t) {
     const s = 2.2 + 2.0 * smoothstep(0.3, 1.2, t);
     groundGlow.scale.set(s, s * 0.5, 1);
     groundGlow.position.set(0, 0.12, -0.4);
+  }
+  // faint blue ring on the ground under the hot ball
+  const rA = smoothstep(0.24, 0.33, t) * (1 - smoothstep(0.62, 0.90, t));
+  groundRing.visible = on && rA > 0.01;
+  if (groundRing.visible) {
+    groundRing.material.uniforms.uCol.value.copy(cBlue);
+    groundRing.material.uniforms.uOpacity.value = rA * 0.75;
+    const s = 2.4 + 1.6 * smoothstep(0.26, 0.75, t);
+    groundRing.scale.set(s, s * 0.42, 1);
+    groundRing.position.set(0, 0.10, -0.5);
   }
   // yellow glint 0.00 .. 0.24 with a pulse, then a soft yellow ball
   const pulse = Math.min(1, t / 0.06) * (1 - smoothstep(0.13, 0.26, t));
