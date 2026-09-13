@@ -1,0 +1,483 @@
+// autoV toolbox v2 — S12 spike: stylized water projectile (hand-built, no LLM).
+// state = f(t, seed): every piece reads the clock, nothing accumulates, seek == play.
+// The head is the S1 fire teardrop shell with a pale-cyan surface ramp and a panning
+// stripe instead of erosion; the tail is MESH (curved sheets + toon droplets), never
+// particles, because water reads as smooth surfaces and rounded volumes.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 4.0;
+const T_IN = 0.40;          // appear window
+const T_OUT0 = 3.0, T_OUT1 = 3.95;
+const N_MEM = 16;           // curved membrane sheets
+const N_DROP = 26;          // rounded droplets
+const N_CHIP = 8;           // tiny splash chips
+
+const P = (window.spikeParams = {
+  play: true, time: 0, speed: 1,
+  bloom: 0.40, threshold: 1.0, exposure: 1.0,
+  layers: { head: true, streaks: true, membranes: true, droplets: true, pool: true, post: true },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const h11 = (p) => { const x = Math.sin(p * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const easeOutBack = (x) => { const c1 = 1.70158, c3 = c1 + 1; const u = clamp01(x) - 1; return 1 + c3 * u * u * u + c1 * u * u; };
+const hex = (h) => new THREE.Color(h);
+
+// ---------------------------------------------------------------- layout
+// same framing as the S1 fire spike: elevated oblique, head low-left of centre,
+// the tail streaming to the upper right of the frame (= +TAIL in world).
+const HEAD = new THREE.Vector3(-0.35, 0.62, 0.15);
+const TAIL = new THREE.Vector3(0.86, 0.09, -0.50).normalize();
+const UPV = new THREE.Vector3(0, 1, 0);
+const T1 = new THREE.Vector3().crossVectors(TAIL, UPV).normalize();   // lateral
+const T2 = new THREE.Vector3().crossVectors(T1, TAIL).normalize();    // "up" of the flow frame
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = hex("#141316");
+const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 60);
+{
+  const az = -0.55, el = 0.38, dist = 5.9;
+  camera.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist).add(new THREE.Vector3(0.55, 0, 0));
+  camera.lookAt(0.34, 0.36, -0.14);
+}
+
+// ground: dark plane + two grid frequencies + the analytic cyan pool under the head
+const groundMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uBase: { value: hex("#453f3b") }, uGrid: { value: hex("#b5afa7") },
+    uPool: { value: hex("#39cfff") }, uHead: { value: new THREE.Vector3() },
+    uPoolI: { value: 1 }, uCam: { value: camera.position },
+  },
+  vertexShader: /* glsl */`
+    varying vec3 vWp;
+    void main(){ vec4 wp=modelMatrix*vec4(position,1.); vWp=wp.xyz; gl_Position=projectionMatrix*viewMatrix*wp; }`,
+  fragmentShader: /* glsl */`
+    precision highp float; varying vec3 vWp;
+    uniform vec3 uBase,uGrid,uPool,uHead,uCam; uniform float uPoolI;
+    void main(){
+      vec2 q=vWp.xz*1.15;
+      vec2 g=abs(fract(q-0.5)-0.5)/fwidth(q); float line=1.-min(min(g.x,g.y),1.);
+      vec2 g2=abs(fract(q*0.25-0.5)-0.5)/fwidth(q*0.25); float line2=1.-min(min(g2.x,g2.y),1.);
+      vec3 c=mix(uBase,uGrid,line*0.24+line2*0.16);
+      // the pool is analytic: a soft ellipse under the head, stretched along the flow
+      vec2 d=vWp.xz-uHead.xz; d.x*=0.62;
+      float pool=exp(-dot(d,d)*4.6);
+      c+=uPool*pool*uPoolI*0.62;
+      float dist=length(vWp.xz-uCam.xz);
+      c=mix(c,uBase*0.55,smoothstep(9.,26.,dist));
+      gl_FragColor=vec4(c,1.);
+    }`,
+});
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), groundMat);
+ground.rotation.x = -Math.PI / 2; ground.renderOrder = 0; scene.add(ground);
+
+// ---------------------------------------------------------------- head shell
+// the S1 teardrop: a sphere pushed into a blunt-nosed drop along the flow axis, with
+// LOW vertex noise (water is smooth) and a squash/stretch that conserves volume.
+const glslNoise = /* glsl */`
+vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.); const vec4 D=vec4(0.,.5,1.,2.);
+  vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));
+  float n_=.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.*x_);
+  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.+1.; vec4 s1=floor(b1)*2.+1.; vec4 sh=-step(h,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.); m=m*m;
+  return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+float fbm3(vec3 p){ return .5*snoise(p)+.25*snoise(p*2.02+7.)+.125*snoise(p*4.05+3.); }
+`;
+const glslRamp = /* glsl */`
+uniform vec4 uRamp[6]; uniform float uRampT[6]; uniform int uRampN;
+vec3 ramp(float u){
+  u=clamp(u,0.,1.);
+  vec3 c=uRamp[0].rgb*uRamp[0].a; float prev=uRampT[0];
+  for(int i=1;i<6;i++){ if(i>=uRampN) break; float t=uRampT[i]; vec3 ci=uRamp[i].rgb*uRamp[i].a; float f=smoothstep(prev,t,u); c=mix(c,ci,f); prev=t; }
+  return c;
+}
+`;
+function rampUniforms(stops) {
+  const arr = [], ts = [];
+  for (let i = 0; i < 6; i++) { const s = stops[Math.min(i, stops.length - 1)]; const c = hex(s.color); arr.push(new THREE.Vector4(c.r, c.g, c.b, s.intensity)); ts.push(s.t); }
+  return { uRamp: { value: arr }, uRampT: { value: ts }, uRampN: { value: stops.length } };
+}
+
+const headU = Object.assign({
+  uTime: { value: 0 }, uHead: { value: HEAD.clone() }, uAxis: { value: TAIL.clone() },
+  uLen: { value: 1.36 }, uRad: { value: 0.360 }, uSquash: { value: 1 }, uScale: { value: 1 },
+  uCam: { value: camera.position }, uStreak: { value: 1 }, uDim: { value: 1 }, uFlash: { value: 0 },
+}, rampUniforms([
+  // tip white-cyan (over 1.0 so only the core blooms) -> body cyan -> tail translucent blue
+  { t: 0.00, color: "#35d0ff", intensity: 0.70 },
+  { t: 0.10, color: "#1ec6ff", intensity: 0.70 },
+  { t: 0.30, color: "#17bdff", intensity: 0.66 },
+  { t: 0.62, color: "#1183dc", intensity: 0.50 },
+  { t: 1.00, color: "#1550b0", intensity: 0.28 },
+]));
+const headMat = new THREE.ShaderMaterial({
+  uniforms: headU, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.NormalBlending,
+  vertexShader: /* glsl */`
+    uniform float uTime,uLen,uRad,uSquash,uScale; uniform vec3 uHead,uAxis;
+    varying vec3 vN,vWp; varying float vAlong; varying vec2 vRing;
+    ${glslNoise}
+    vec3 ortho(vec3 a){ return normalize(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0))); }
+    void main(){
+      // sphere -> drop: along = (1-z)/2, 0 = blunt nose (leading, -TAIL side), 1 = rear
+      float along=clamp((1.-position.z)*.5,0.,1.); vAlong=along;
+      // blunt rounded nose, body swelling just behind it, narrowing rear
+      float a2=pow(along,.78);
+      float prof=pow(sin(3.14159265*clamp(a2*.92+.08,0.,1.)),.62);
+      float r=uRad*(prof*(1.-along*.26)+.03);
+      float len=uLen*(0.06+0.94*along);
+      vec3 t1=ortho(uAxis), t2=cross(uAxis,t1);
+      vec2 ring=normalize(position.xy+vec2(1e-5)); vRing=ring;
+      // squash & stretch: longer along the flow, thinner across, volume roughly kept
+      r*=uSquash*uScale; len*=(1./uSquash)*uScale;
+      vec3 base=uHead+uAxis*(len-uLen*0.40*uScale)+(t1*ring.x+t2*ring.y)*r;
+      // low, slow vertex noise: water wobbles, it does not flicker
+      float nz=fbm3(vec3(ring*1.5+vec2(along*2.2,0.), along*1.8-uTime*1.15));
+      vec3 pos=base+(t1*ring.x+t2*ring.y)*nz*(.035+.20*along)*uRad*uScale
+                   +uAxis*nz*.10*along*uScale;
+      vWp=pos; vN=normalize(t1*ring.x+t2*ring.y+uAxis*(0.5-along)*0.5);
+      gl_Position=projectionMatrix*viewMatrix*vec4(pos,1.);
+    }`,
+  fragmentShader: /* glsl */`
+    precision highp float; uniform float uTime,uStreak,uDim,uFlash; uniform vec3 uCam;
+    varying vec3 vN,vWp; varying float vAlong; varying vec2 vRing;
+    ${glslNoise} ${glslRamp}
+    void main(){
+      vec3 V=normalize(uCam-vWp); float fres=1.-abs(dot(normalize(vN),V));
+      float ang=atan(vRing.y,vRing.x);
+      // surface ramp keyed on the along coordinate, nudged by a slow surface flow
+      float n=.5+.5*snoise(vec3(ang*1.6, vAlong*2.4-uTime*1.1, .7));
+      float key=clamp(vAlong*1.05+(n-.5)*.16,0.,1.);
+      vec3 col=ramp(key);
+      // grooves: a second, higher-frequency surface field darkens narrow creases, which is
+      // what gives the reference head its faceted "folded water" read
+      float gr=.5+.5*snoise(vec3(ang*3.1, vAlong*3.6-uTime*.9, 5.3));
+      float crease=smoothstep(.44,.30,gr)*smoothstep(.0,.09,vAlong);
+      col*=mix(1., .52, crease*.72);
+      // surface streaks: thin white bands panning backward along the body, broken into
+      // segments by the angular noise so they read as flowing water, not as rings
+      float band=fract(vAlong*3.2-uTime*1.5+n*0.30);
+      float stripe=smoothstep(.10,.0,abs(band-.5)-.045);
+      float seg=smoothstep(.40,.66,.5+.5*snoise(vec3(ang*5.0,vAlong*.45,uTime*.35)));
+      col+=vec3(.80,.96,1.)*stripe*seg*uStreak*0.50*(1.-smoothstep(.45,.98,vAlong));
+      // soft white rim all round, brightest on the nose
+      col+=vec3(.42,.80,1.)*pow(fres,3.4)*(.20-.12*smoothstep(.2,.9,vAlong));
+      // hot core at the very nose (the only part that exceeds 1.0 for bloom)
+      col+=vec3(.62,.92,1.)*.55*smoothstep(.05,0.,vAlong)*(.8+.2*n);
+      col+=vec3(.45,.80,1.)*uFlash*0.7;
+      float a=uDim*(.86-smoothstep(.50,1.,vAlong)*.50);
+      gl_FragColor=vec4(col*uDim,a);
+    }`,
+});
+const headMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), headMat);
+headMesh.frustumCulled = false; headMesh.renderOrder = 20; scene.add(headMesh);
+
+// additive halo sprite behind the head
+const haloMat = new THREE.ShaderMaterial({
+  uniforms: { uCol: { value: hex("#3fc6ff") }, uI: { value: 1 } },
+  transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+  vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader: `precision highp float; varying vec2 vUv; uniform vec3 uCol; uniform float uI;
+    void main(){ float d=length(vUv-.5)*2.; float a=pow(clamp(1.-d,0.,1.),2.9); gl_FragColor=vec4(uCol*a*uI,a*uI); }`,
+});
+const halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), haloMat);
+halo.renderOrder = 4; scene.add(halo);
+
+// ---------------------------------------------------------------- toon material
+// 2 bands against a FIXED world light + a thin lighter rim; this is the smoke spike's
+// cel material with the band count dropped to two, which is what the reference shows.
+const toonVert = /* glsl */`
+varying vec3 vN,vV;
+void main(){
+  vec4 wp=modelMatrix*vec4(position,1.);
+  vN=normalize(mat3(modelMatrix)*normal);
+  vV=normalize(cameraPosition-wp.xyz);
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}`;
+const toonFrag = /* glsl */`
+precision highp float; varying vec3 vN,vV;
+uniform vec3 uShadow,uHigh,uRim,uLight; uniform float uRimPow,uRimAmt,uOpacity;
+void main(){
+  vec3 N=normalize(vN); if(!gl_FrontFacing) N=-N;
+  float ndl=dot(N,normalize(uLight))*.5+.5;
+  vec3 c = ndl<.55 ? uShadow : uHigh;
+  float rim=pow(1.-clamp(dot(N,normalize(vV)),0.,1.),uRimPow);
+  c+=uRim*rim*uRimAmt;
+  gl_FragColor=vec4(c,uOpacity);
+}`;
+const LIGHT = new THREE.Vector3(-0.45, 0.85, 0.45).normalize();
+function toonMat(shadow, high, rim, opts = {}) {
+  return new THREE.ShaderMaterial({
+    vertexShader: toonVert, fragmentShader: toonFrag,
+    side: opts.side ?? THREE.DoubleSide, transparent: false, depthWrite: true,
+    uniforms: {
+      uShadow: { value: hex(shadow) }, uHigh: { value: hex(high) }, uRim: { value: hex(rim) },
+      uLight: { value: LIGHT.clone() }, uRimPow: { value: opts.rimPow ?? 3.0 },
+      uRimAmt: { value: opts.rimAmt ?? 0.36 }, uOpacity: { value: 1 },
+    },
+  });
+}
+
+// ---------------------------------------------------------------- membranes
+// a curved sheet: a plane bent around the flow axis and tapered at both ends, so it
+// reads as a torn ribbon of water rather than as a card.
+function sheetGeo(len, width, curl, seed) {
+  const NU = 18, NV = 7;
+  const pos = [], idx = [], nrm = [];
+  const R = width / Math.max(0.25, curl);
+  for (let i = 0; i <= NU; i++) {
+    const u = i / NU;
+    // crescent taper: widest near the middle, pinched at both ends
+    const w = width * Math.pow(Math.sin(Math.PI * Math.min(0.999, 0.06 + u * 0.94)), 0.55);
+    // shallow arc along the length so the sheet is a crescent, not a straight strip
+    const bow = Math.sin(Math.PI * u) * len * 0.16 * (h11(seed * 3.1) > 0.5 ? 1 : -1);
+    for (let j = 0; j <= NV; j++) {
+      const v = j / NV - 0.5;
+      const a = v * curl * (w / Math.max(1e-3, width));
+      pos.push(u * len - len * 0.5, R * Math.sin(a) * (w / Math.max(1e-3, width)) + bow, R * (Math.cos(a) - 1) * (w / Math.max(1e-3, width)));
+      nrm.push(0, Math.cos(a), -Math.sin(a));
+    }
+  }
+  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+    const a = i * (NV + 1) + j, b = a + NV + 1;
+    idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+const MEM_DT = 0.095, MEM_PERIOD = N_MEM * MEM_DT;       // one slot fires every 0.095 s
+const membranes = [];
+for (let i = 0; i < N_MEM; i++) {
+  const h1 = h11(i * 2.7 + 0.4), h2 = h11(i * 5.3 + 3.1), h3 = h11(i * 1.9 + 11.7), h4 = h11(i * 7.1 + 21.3);
+  const big = i % 4 === 0;                       // one sheet in four is a large crescent
+  const len = (big ? 0.88 : 0.44) + h1 * (big ? 0.40 : 0.34);
+  const width = (big ? 0.50 : 0.23) + h2 * 0.26;
+  const curl = 1.05 + h3 * 1.15;
+  const dark = h4 < 0.62;
+  const mat = dark
+    ? toonMat("#0b2a86", "#1e52cf", "#7fc6ff", { rimAmt: 0.30 })
+    : toonMat("#1449a8", "#3f8fe8", "#a8e2ff", { rimAmt: 0.34 });
+  const mesh = new THREE.Mesh(sheetGeo(len, width, curl, i + 1), mat);
+  mesh.frustumCulled = false; mesh.renderOrder = 10;
+  scene.add(mesh);
+  membranes.push({
+    mesh, mat, len,
+    birth: i * MEM_DT + h1 * 0.05,
+    life: 1.30 + h2 * 0.55,
+    speed: (big ? 0.88 : 1.50) + h3 * 0.80,
+    start: (big ? -0.18 : 0.0) + h4 * 0.26,   // how far behind the nose it peels off (negative = still inside)
+    lat: (h1 - 0.5) * 0.42,
+    amp: 0.070 + h2 * 0.105,          // undulation
+    w: 3.4 + h3 * 2.6,
+    ph: h4 * 6.2831853,
+    spin: (h2 - 0.5) * 3.4,
+    spin0: h3 * 6.2831853,
+    yaw: (h4 - 0.5) * 0.7,
+  });
+}
+
+// ---------------------------------------------------------------- droplets
+const dropGeo = new THREE.SphereGeometry(1, 20, 14);
+// teardrop: pinch one pole so a few pieces read as falling drops
+const tearGeo = (() => {
+  const g = new THREE.SphereGeometry(1, 20, 14);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i), s = y > 0 ? 1 - Math.pow(y, 1.6) * 0.72 : 1;
+    p.setX(i, p.getX(i) * s); p.setZ(i, p.getZ(i) * s); p.setY(i, y * 1.25);
+  }
+  g.computeVertexNormals(); return g;
+})();
+
+const dropMats = [
+  toonMat("#0b2a86", "#1e52cf", "#8fd0ff", { rimAmt: 0.34 }),
+  toonMat("#123f9e", "#2f6fdd", "#a8e2ff", { rimAmt: 0.34 }),
+  toonMat("#1d6bb8", "#5fc2f0", "#ddf6ff", { rimAmt: 0.40 }),
+];
+const DROP_DT = 0.052, DROP_PERIOD = N_DROP * DROP_DT;
+const droplets = [];
+for (let i = 0; i < N_DROP + N_CHIP; i++) {
+  const chip = i >= N_DROP;
+  const h1 = h11(i * 3.3 + 5.1), h2 = h11(i * 6.7 + 2.9), h3 = h11(i * 2.1 + 19.3), h4 = h11(i * 9.4 + 31.7);
+  const r = chip ? 0.026 + h1 * 0.020 : 0.058 + Math.pow(h1, 1.9) * 0.135;
+  const mat = dropMats[h2 < 0.42 ? 0 : h2 < 0.78 ? 1 : 2];
+  const mesh = new THREE.Mesh(h3 < 0.35 ? tearGeo : dropGeo, mat);
+  mesh.frustumCulled = false; mesh.renderOrder = 11;
+  scene.add(mesh);
+  droplets.push({
+    mesh, r, chip,
+    birth: (i % N_DROP) * DROP_DT + h4 * 0.03,
+    period: DROP_PERIOD,
+    life: chip ? 0.45 + h2 * 0.35 : 0.80 + h3 * 0.60,
+    speed: (chip ? 1.7 : 1.20) + h4 * 0.85,
+    start: -0.10 + h1 * 0.50,
+    lat: (h2 - 0.5) * (chip ? 0.34 : 0.20),
+    up: (h3 - 0.5) * 0.14,
+    amp: 0.035 + h4 * 0.070,
+    w: 3.0 + h1 * 3.4,
+    ph: h2 * 6.2831853,
+    spread: (h3 - 0.5) * 0.42,
+    spin: (h4 - 0.5) * 5.0,
+  });
+}
+
+// ---------------------------------------------------------------- post
+let composer, bloom;
+function buildPost() {
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  bloom = new UnrealBloomPass(new THREE.Vector2(w, h), P.bloom, 1.0, P.threshold);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+}
+function resize() {
+  const host = canvas.parentElement; const w = host.clientWidth, h = Math.round(w * 9 / 16);
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  buildPost();
+}
+window.addEventListener("resize", resize); resize();
+
+// ---------------------------------------------------------------- apply(t)
+const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4();
+const basis = new THREE.Matrix4().makeBasis(TAIL, T2, T1);   // local x = flow, y = flow-up
+
+// the absolute birth of the instance of `slot` that is alive at time t (closed form):
+// nothing is spawned before T_IN*0.55 or after T_OUT0, so appear/fade need no state.
+function cycleBirth(birth0, period, t) {
+  const k = Math.floor((t - birth0) / period);
+  return birth0 + k * period;
+}
+
+function apply(t) {
+  const L = P.layers;
+  const appear = easeOutBack(clamp01(t / T_IN));
+  const fade = 1 - ss(T_OUT0, T_OUT1 - 0.35, t);
+  const headScale = appear * (0.60 + 0.40 * fade);
+  const headDim = clamp01(appear * 1.2) * fade;
+  // slow squash & stretch at 1.3 Hz, plus the appear flash
+  const sq = 1 + 0.06 * Math.sin(t * 2 * Math.PI * 1.3);
+  headU.uTime.value = t;
+  headU.uSquash.value = sq;
+  headU.uScale.value = headScale;
+  headU.uDim.value = headDim;
+  headU.uStreak.value = L.streaks ? 1 : 0;
+  headU.uFlash.value = 0.85 * Math.pow(1 - clamp01(t / (T_IN * 1.15)), 2.2);
+  headMesh.visible = L.head && headDim > 0.01;
+
+  // halo: a billboard slightly behind the nose, scaled with the head
+  const hc = HEAD.clone().add(TAIL.clone().multiplyScalar(-0.18));
+  halo.position.copy(hc);
+  halo.quaternion.copy(camera.quaternion);
+  const hs = 2.45 * headScale;
+  halo.scale.set(hs, hs * 0.86, 1);
+  haloMat.uniforms.uI.value = L.head ? headDim * (0.44 + 0.50 * headU.uFlash.value) : 0;
+  halo.visible = L.head && headDim > 0.01;
+
+  groundMat.uniforms.uHead.value.copy(HEAD);
+  groundMat.uniforms.uPoolI.value = L.pool ? headDim * 0.95 : 0;
+
+  // ---- membranes
+  for (const m of membranes) {
+    const birthAbs = cycleBirth(m.birth, MEM_PERIOD, t);
+    const age = t - birthAbs;
+    const live = birthAbs > T_IN * 0.5 && birthAbs < T_OUT0 && age >= 0 && age < m.life;
+    m.mesh.visible = L.membranes && live;
+    if (!m.mesh.visible) continue;
+    const u = age / m.life;
+    const d = m.start + m.speed * age;                     // distance behind the nose
+    const sway = m.amp * Math.sin(m.w * age + m.ph) * (0.35 + 0.65 * Math.min(1, age * 2.2));
+    _p.copy(HEAD)
+      .addScaledVector(TAIL, d)
+      .addScaledVector(T1, m.lat * (0.4 + 0.6 * u))
+      .addScaledVector(T2, sway - 0.02 * d);
+    m.mesh.position.copy(_p);
+    // tumble about the flow axis + a small yaw so the crescents do not all face the same way
+    _m.copy(basis);
+    _q.setFromRotationMatrix(_m);
+    m.mesh.quaternion.copy(_q);
+    m.mesh.rotateX(m.spin0 + m.spin * age);
+    m.mesh.rotateY(m.yaw * Math.sin(age * 1.7 + m.ph));
+    const grow = ss(0, 0.10, age);
+    const shrink = 1 - ss(0.75, 1.0, u);
+    const s = grow * shrink * (0.85 + 0.15 * u) * (birthAbs > T_OUT0 - 0.5 ? 0.8 : 1);
+    m.mesh.scale.set(s, s, s);
+    if (s < 0.02) m.mesh.visible = false;
+  }
+
+  // ---- droplets
+  for (const dp of droplets) {
+    const birthAbs = cycleBirth(dp.birth, dp.period, t);
+    const age = t - birthAbs;
+    const stop = dp.chip ? T_OUT0 + 0.55 : T_OUT0 + 0.35;   // a few last drops after the head goes
+    const live = birthAbs > T_IN * 0.5 && birthAbs < stop && age >= 0 && age < dp.life;
+    dp.mesh.visible = L.droplets && live;
+    if (!dp.mesh.visible) continue;
+    const u = age / dp.life;
+    const d = dp.start + dp.speed * age;
+    const sway = dp.amp * Math.sin(dp.w * age + dp.ph);
+    _p.copy(HEAD)
+      .addScaledVector(TAIL, d)
+      .addScaledVector(T1, dp.lat + dp.spread * age * 0.5)
+      .addScaledVector(T2, dp.up + sway - 0.03 * d);
+    dp.mesh.position.copy(_p);
+    dp.mesh.rotation.set(dp.spin * age, dp.ph + dp.spin * age * 0.6, dp.lat * 4);
+    const grow = ss(0, 0.08, age);
+    const shrink = 1 - ss(0.78, 1.0, u);
+    const s = dp.r * grow * shrink;
+    dp.mesh.scale.set(s * (dp.chip ? 1 : 1.15), s, s);
+    if (s < 0.004) dp.mesh.visible = false;
+  }
+
+  ground.visible = true;
+}
+
+// ---------------------------------------------------------------- frame
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom; bloom.threshold = P.threshold;
+  apply(P.time);
+  if (P.layers.post) composer.render(); else renderer.render(scene, camera);
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+window.__spikeReady = true;

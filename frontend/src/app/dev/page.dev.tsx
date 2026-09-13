@@ -87,6 +87,11 @@ const cards = [
     body: "Five violet-tipped meteors with chunky cel-shaded smoke trails, served from dev-assets/vfx-v2/spike-meteor.html.",
   },
   {
+    href: "/dev/vfx-v2/spike-water",
+    title: "Toolbox v2 spike — water projectile",
+    body: "Pale-cyan water head with dark-blue membrane sheets and toon droplets, served from dev-assets/vfx-v2/spike-water.html.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
