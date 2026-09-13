@@ -38,9 +38,14 @@ import {
   type PipelineResult,
 } from "@/lib/vfx-lab/pipeline";
 import { score, type Plan } from "@/lib/vfx-lab/protocol";
+import { scoreV2 } from "@/lib/vfx-lab/protocol-v2";
 import type { VfxRuntime } from "@/lib/vfx-lab/runtime";
 import "./studio.css";
 import "../vfx-studio/studio-ui.css";
+
+/** A candidate carries whichever review its run's contract produced. */
+const candidateScore = (candidate: Candidate) =>
+  candidate.reviewV2 ? scoreV2(candidate.reviewV2) : score(candidate.review);
 
 type Status = {
   configured: boolean;
@@ -693,12 +698,14 @@ export default function VfxStudio() {
                         · {c.document.name}
                       </span>
                       <span>
-                        {score(c.review) < 0
+                        {candidateScore(c) < 0
                           ? "Rendered"
-                          : `${score(c.review).toFixed(1)} / 5`}
+                          : `${candidateScore(c).toFixed(1)} / 5`}
                       </span>
                     </button>
-                    {c.review && <p>{c.review.verdict}</p>}
+                    {(c.review || c.reviewV2) && (
+                      <p>{(c.review ?? c.reviewV2)!.verdict}</p>
+                    )}
                     {c.error && <p>{c.error}</p>}
                   </div>
                 ))}

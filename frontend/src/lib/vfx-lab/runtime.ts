@@ -33,6 +33,11 @@ export type Evidence = {
   observations: { time: number; visible: string[] }[];
   renderedPixels?: number;
   temporal?: TemporalDiagnostics;
+  /** v2 only: a motion strip of consecutive frames around the impact. */
+  strip?: string;
+  stripTimes?: number[];
+  /** v2 only: how much of the rendered activity arrives as spikes. */
+  jitterScore?: number;
 };
 const kindIndex = {
   ring: 0,

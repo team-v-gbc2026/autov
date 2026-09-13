@@ -5,6 +5,14 @@ import {
   type VfxDocumentV2,
 } from "./schema-v2";
 import { score, type Review, type Plan, type Usage } from "./protocol";
+import {
+  acceptanceV2,
+  defectCountV2,
+  improvesV2,
+  REVIEW_V2_DEFECTS,
+  scoreV2,
+  type ReviewV2,
+} from "./protocol-v2";
 import type { Evidence } from "./runtime";
 
 /** Which document contract this run generates against. */
@@ -16,6 +24,10 @@ export type Candidate<D extends PipelineDocument = VfxDocument> = {
   document: D;
   evidence: Evidence;
   review?: Review;
+  /** v2 runs answer the six-axis checklist review instead of v1's four axes. */
+  reviewV2?: ReviewV2;
+  /** v2 only: the temporal spike measure this candidate was reviewed with. */
+  jitterScore?: number;
   origin: "generated" | "refined";
   error?: string;
 };
@@ -68,6 +80,25 @@ function improves(next: Review | undefined, baseline: Review) {
     noRegression &&
     next.observations.filter((x) => x.result === "fail").length <=
       baseline.observations.filter((x) => x.result === "fail").length
+  );
+}
+/**
+ * v2's scalar round has no `diagnoses` list to solo-render. Pick the layer the
+ * director notes actually name, then fall back to the layer carrying the frame.
+ */
+function diagnosticLayerV2(
+  doc: { layers: readonly { id: string; role: string; enabled: boolean }[] },
+  review: ReviewV2,
+): string | undefined {
+  const named = doc.layers.find((layer) =>
+    review.directorNotes.some((note) =>
+      note.toLowerCase().includes(layer.id.toLowerCase()),
+    ),
+  );
+  return (
+    named?.id ??
+    doc.layers.find((l) => l.role === "primary" && l.enabled)?.id ??
+    doc.layers.find((l) => l.enabled)?.id
   );
 }
 export function generatePipeline(
@@ -125,6 +156,31 @@ export async function generatePipeline(
       trace.push(`Schema v2 lint: ${warning}`);
     return doc;
   };
+  // The two contracts answer different review shapes. These three closures are
+  // the only places in the pipeline that need to know which one is in play.
+  const reviewScore = (candidate?: Candidate<PipelineDocument>) =>
+    schema === "v2" ? scoreV2(candidate?.reviewV2) : score(candidate?.review);
+  const reviewRequest = (
+    document: PipelineDocument,
+    evidence: Evidence,
+  ): Record<string, unknown> => ({
+    action: "review",
+    runId,
+    document,
+    sheet: evidence.sheet,
+    times: evidence.times,
+    temporal: evidence.temporal,
+    ...(schema === "v2" && evidence.strip
+      ? { strip: evidence.strip, jitter: evidence.jitterScore }
+      : {}),
+  });
+  const storeReview = (
+    candidate: Candidate<PipelineDocument>,
+    answer: Record<string, unknown>,
+  ) => {
+    if (schema === "v2") candidate.reviewV2 = answer.review as ReviewV2;
+    else candidate.review = answer.review as Review;
+  };
   step("Designing composition, timing and motion…");
   const planned = await call({
     action: "plan",
@@ -162,7 +218,11 @@ export async function generatePipeline(
       step(`Building candidate ${i + 1} of ${count}…`);
       const result = await call({ action: "candidate", runId, index: i });
       const document = accept(result.document);
-      step(`Rendering candidate ${i + 1} at sixteen event-timed moments…`);
+      step(
+        schema === "v2"
+          ? `Rendering candidate ${i + 1}: eight event-timed frames and a twelve-frame motion strip…`
+          : `Rendering candidate ${i + 1} at sixteen event-timed moments…`,
+      );
       const evidence = await capture(document),
         candidate: Candidate<PipelineDocument> = {
           id: `${runId}-${i}`,
@@ -170,24 +230,21 @@ export async function generatePipeline(
           evidence,
           origin: "generated",
         };
+      if (evidence.jitterScore !== undefined)
+        candidate.jitterScore = evidence.jitterScore;
       if (evidence.renderedPixels !== undefined && evidence.renderedPixels < 8)
         throw new Error("Rendered candidate has no visible effect pixels.");
       candidates.push(candidate);
       await options.candidate({ ...candidate });
       if (options.mode === "quality") {
         step(
-          `Reviewing candidate ${i + 1}: intent, motion, hierarchy, finish…`,
+          schema === "v2"
+            ? `Reviewing candidate ${i + 1}: six axes and the defect checklist…`
+            : `Reviewing candidate ${i + 1}: intent, motion, hierarchy, finish…`,
         );
         try {
-          const reviewed = await call({
-            action: "review",
-            runId,
-            document,
-            sheet: evidence.sheet,
-            times: evidence.times,
-            temporal: evidence.temporal,
-          });
-          candidate.review = reviewed.review as Review;
+          const reviewed = await call(reviewRequest(document, evidence));
+          storeReview(candidate, reviewed);
         } catch (error) {
           if (signal.aborted) throw error;
           candidate.error =
@@ -211,20 +268,27 @@ export async function generatePipeline(
       `No valid candidate. Previous effect preserved. ${trace[trace.length - 1]}`,
     );
   let selected = candidates.reduce((a, b) =>
-    score(b.review) > score(a.review) ? b : a,
+    reviewScore(b) > reviewScore(a) ? b : a,
   );
   if (
     options.mode === "quality" &&
-    selected.review?.sufficientEvidence &&
-    selected.review.diagnoses.length &&
-    score(selected.review) < 4.5
+    (schema === "v2"
+      ? selected.reviewV2?.sufficientEvidence &&
+        (selected.reviewV2.directorNotes.length ||
+          defectCountV2(selected.reviewV2))
+      : selected.review?.sufficientEvidence &&
+        selected.review.diagnoses.length) &&
+    reviewScore(selected) < 4.5
   ) {
     try {
       const baseline = selected;
       step("Diagnosing the best candidate with an isolated render, bloom off…");
-      const layerId = baseline.review!.diagnoses.find((d) =>
-        baseline.document.layers.some((l) => l.id === d.layerId),
-      )?.layerId;
+      const layerId =
+        schema === "v2"
+          ? diagnosticLayerV2(baseline.document, baseline.reviewV2!)
+          : baseline.review!.diagnoses.find((d) =>
+              baseline.document.layers.some((l) => l.id === d.layerId),
+            )?.layerId;
       if (layerId) {
         const diagnostic = await capture(baseline.document, layerId, true);
         step("Applying one bounded refinement…");
@@ -232,7 +296,7 @@ export async function generatePipeline(
           action: "refine",
           runId,
           document: baseline.document,
-          review: baseline.review,
+          review: schema === "v2" ? baseline.reviewV2 : baseline.review,
           diagnostic: diagnostic.sheet,
         });
         const document = accept(result.document),
@@ -248,20 +312,19 @@ export async function generatePipeline(
           evidence,
           origin: "refined",
         };
+        if (evidence.jitterScore !== undefined)
+          refined.jitterScore = evidence.jitterScore;
         candidates.push(refined);
         await options.candidate({ ...refined });
         step("Re-rendering and checking the refinement…");
-        const reviewed = await call({
-          action: "review",
-          runId,
-          document,
-          sheet: evidence.sheet,
-          times: evidence.times,
-          temporal: evidence.temporal,
-        });
-        refined.review = reviewed.review as Review;
+        const reviewed = await call(reviewRequest(document, evidence));
+        storeReview(refined, reviewed);
         await options.candidate({ ...refined });
-        if (improves(refined.review, baseline.review!)) {
+        if (
+          schema === "v2"
+            ? improvesV2(refined.reviewV2, baseline.reviewV2!)
+            : improves(refined.review, baseline.review!)
+        ) {
           selected = refined;
           step("Refinement improved the review. Best valid state retained.");
         } else
@@ -281,20 +344,40 @@ export async function generatePipeline(
   // still uses the immutable accepted candidate and its complete criteria.
   const structuralSource = candidates.reduce(
     (best, candidate) =>
-      score(candidate.review) > score(best.review) ? candidate : best,
+      reviewScore(candidate) > reviewScore(best) ? candidate : best,
     selected,
   );
-  if (
-    options.mode === "quality" &&
-    selected.review?.sufficientEvidence &&
-    (score(selected.review) < 3.5 ||
-      selected.review.observations.some((item) => item.result === "fail")) &&
-    structuralSource.review?.diagnoses.some(
-      (d) =>
-        ["other", "timing", "misaligned"].includes(d.symptom) ||
-        structuralSource !== selected,
-    )
-  ) {
+  // v2 has no symptom vocabulary: the defect checklist is what says whether a
+  // repair needs new structure, and a structural defect is one the scalar round
+  // cannot reach — a missing ground contact, a shape too small, a flat palette.
+  const STRUCTURAL_DEFECTS_V2 = REVIEW_V2_DEFECTS.filter((defect) =>
+    ["floating", "smallInFrame", "flatColor", "visibleCards"].includes(defect),
+  );
+  const needsStructure =
+    schema === "v2"
+      ? selected.reviewV2?.sufficientEvidence &&
+        (scoreV2(selected.reviewV2) < 3.5 ||
+          selected.reviewV2.observations.some(
+            (item) => item.result === "fail",
+          )) &&
+        Boolean(
+          structuralSource.reviewV2 &&
+          (STRUCTURAL_DEFECTS_V2.some(
+            (defect) => structuralSource.reviewV2!.defects[defect],
+          ) ||
+            structuralSource !== selected),
+        )
+      : selected.review?.sufficientEvidence &&
+        (score(selected.review) < 3.5 ||
+          selected.review.observations.some(
+            (item) => item.result === "fail",
+          )) &&
+        structuralSource.review?.diagnoses.some(
+          (d) =>
+            ["other", "timing", "misaligned"].includes(d.symptom) ||
+            structuralSource !== selected,
+        );
+  if (options.mode === "quality" && needsStructure) {
     const baseline = selected;
     try {
       step("Repairing the shape or timing of diagnosed layers, once…");
@@ -302,7 +385,8 @@ export async function generatePipeline(
         action: "restructure",
         runId,
         document: structuralSource.document,
-        review: structuralSource.review,
+        review:
+          schema === "v2" ? structuralSource.reviewV2 : structuralSource.review,
         sheet: structuralSource.evidence.sheet,
       });
       const document = accept(result.document),
@@ -315,20 +399,19 @@ export async function generatePipeline(
         evidence,
         origin: "refined",
       };
+      if (evidence.jitterScore !== undefined)
+        repaired.jitterScore = evidence.jitterScore;
       candidates.push(repaired);
       await options.candidate({ ...repaired });
       step("Checking the structural repair against the original references…");
-      const reviewed = await call({
-        action: "review",
-        runId,
-        document,
-        sheet: evidence.sheet,
-        times: evidence.times,
-        temporal: evidence.temporal,
-      });
-      repaired.review = reviewed.review as Review;
+      const reviewed = await call(reviewRequest(document, evidence));
+      storeReview(repaired, reviewed);
       await options.candidate({ ...repaired });
-      if (improves(repaired.review, baseline.review!)) {
+      if (
+        schema === "v2"
+          ? improvesV2(repaired.reviewV2, baseline.reviewV2!)
+          : improves(repaired.review, baseline.review!)
+      ) {
         selected = repaired;
         step(
           "Structural repair improved the review. Best valid state retained.",
@@ -344,6 +427,12 @@ export async function generatePipeline(
       );
     }
   }
+  if (schema === "v2" && selected.reviewV2)
+    step(
+      acceptanceV2(selected.reviewV2) === "proposed"
+        ? `Review v2: proposed at ${scoreV2(selected.reviewV2).toFixed(2)} / 5, ${defectCountV2(selected.reviewV2)} defects admitted.`
+        : `Review v2: needs rework at ${scoreV2(selected.reviewV2).toFixed(2)} / 5, ${defectCountV2(selected.reviewV2)} defects admitted.`,
+    );
   step(
     options.mode === "fast"
       ? "Ready. Rendered and validated; visual review was not requested."

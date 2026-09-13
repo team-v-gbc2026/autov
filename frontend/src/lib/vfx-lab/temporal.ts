@@ -55,6 +55,40 @@ export function summarizeActivity(
     activityCurve: [...indices].map((i) => [at(i), round(activity[i])]),
   };
 }
+/**
+ * How much of an effect's frame-to-frame movement arrives as spikes rather than
+ * as continuous change — a flicker measure, not a smoothness proof.
+ *
+ * `activity` is the peak-normalised 0..1 series `summarizeActivity` works from.
+ * Differences straddling the impact window (impact +/- 0.1 s) are excluded,
+ * because a flash is a deliberate discontinuity and would otherwise dominate.
+ * Of the remaining differences, those larger than twice the mean count as
+ * spikes, and the score is their total share of the sampled differences: 0 for a
+ * clean ramp, and it climbs as the curve breaks into steps.
+ */
+export function jitterScore(
+  activity: readonly number[],
+  sampleRate = 30,
+  impact = -1,
+) {
+  if (
+    !Number.isFinite(sampleRate) ||
+    sampleRate <= 0 ||
+    activity.length < 2 ||
+    activity.some((v) => !Number.isFinite(v))
+  )
+    throw new Error("Invalid activity samples");
+  const quiet = (index: number) =>
+    !(Math.abs(index / sampleRate - impact) <= 0.1);
+  const deltas: number[] = [];
+  for (let i = 1; i < activity.length; i++)
+    if (quiet(i - 1) && quiet(i))
+      deltas.push(Math.abs(activity[i] - activity[i - 1]));
+  if (deltas.length < 2) return 0;
+  const mean = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+  const spikes = deltas.filter((d) => d > mean * 2);
+  return Number((spikes.reduce((a, b) => a + b, 0) / deltas.length).toFixed(4));
+}
 /** Total visible RGB change against a rendered, extinguished baseline. Alpha ignored. */
 export function measureFrameActivity(
   pixels: ArrayLike<number>,

@@ -5,6 +5,7 @@ import { RUNTIME_VERSION_V2, VfxRuntimeV2 } from "./runtime-v2";
 import { type VfxDocumentV2, validateDocumentV2 } from "./schema-v2";
 import type { Evidence } from "./runtime";
 import {
+  jitterScore,
   measureFrameActivity,
   summarizeActivity,
   type TemporalDiagnostics,
@@ -24,64 +25,87 @@ import {
 // asked to judge.
 // ---------------------------------------------------------------------------
 
-const SHEET_WIDTH = 1280;
-const TILE_WIDTH = 320;
-const TILE_HEIGHT = 180;
-const ROW_HEIGHT = 202;
-const MAX_TIMES = 16;
+// Sheet: 8 tiles at 640x360, four per row. Half the tile count of v1 at four
+// times the area — the defect checklist asks about particle variation, billboard
+// edges and aliasing, and none of those survive a 320x180 thumbnail.
+const SHEET_COLUMNS = 4;
+const TILE_WIDTH = 640;
+const TILE_HEIGHT = 360;
+const LABEL_HEIGHT = 22;
 
-/** Event-timed capture moments; mirrors v1's spacing rules on v2 layers. */
-export function captureTimesV2(doc: VfxDocumentV2) {
+// Strip: 12 consecutive frames at 320x180, 33 ms apart, four per row. Twelve
+// adjacent frames are the only evidence in the record that shows whether motion
+// is continuous or arrives in steps.
+const STRIP_COLUMNS = 4;
+const STRIP_TILE_WIDTH = 320;
+const STRIP_TILE_HEIGHT = 180;
+const STRIP_FRAMES = 12;
+const STRIP_STEP = 0.033;
+const STRIP_LEAD = 0.1;
+
+const round3 = (t: number) => Math.round(t * 1000) / 1000;
+
+/** Real event onset: prose and nominal `impact` metadata may disagree. */
+export function impactTimeV2(doc: VfxDocumentV2) {
   const impacts = doc.layers
     .filter((l) => l.enabled && l.role === "impact")
     .map((l) => l.start);
-  const impact = impacts.length ? Math.min(...impacts) : doc.impact;
-  const normalize = (t: number) =>
-    Math.round(clamp(t, 0, doc.duration - 0.001) * 1000) / 1000;
-  const selected = new Set<number>([
+  return impacts.length ? Math.min(...impacts) : doc.impact;
+}
+
+/** Round to milliseconds, keep inside the document, keep strictly ascending. */
+function ascending(times: number[], duration: number) {
+  const ceiling = round3(Math.max(0, duration - 0.001));
+  const out: number[] = [];
+  times.forEach((time, index) => {
+    const headroom = round3(
+      Math.max(0, ceiling - (times.length - 1 - index) * 0.001),
+    );
+    let value = round3(clamp(time, 0, headroom));
+    const previous = out[out.length - 1];
+    if (previous !== undefined && value <= previous)
+      value = round3(Math.min(headroom, previous + 0.001));
+    out.push(value);
+  });
+  return out;
+}
+
+/**
+ * The eight moments the sheet shows: the anticipation beat, the frame before
+ * impact, impact itself, three moments across the falloff, the middle of the
+ * dissipation and the last renderable frame.
+ */
+export function captureTimesV2(doc: VfxDocumentV2) {
+  const impact = impactTimeV2(doc);
+  const end = doc.duration - 0.001;
+  const dissipation = impact + 0.4;
+  return ascending(
+    [
+      impact - 0.12,
+      impact - 1 / 30,
+      impact,
+      impact + 0.05,
+      impact + 0.15,
+      dissipation,
+      (dissipation + end) / 2,
+      end,
+    ],
+    doc.duration,
+  );
+}
+
+/** Twelve consecutive frames from 0.1 s before impact, 33 ms apart. */
+export function stripTimesV2(doc: VfxDocumentV2) {
+  const span = (STRIP_FRAMES - 1) * STRIP_STEP;
+  const start = clamp(
+    impactTimeV2(doc) - STRIP_LEAD,
     0,
-    normalize(doc.duration * 0.1),
-    normalize(doc.duration * 0.2),
-    normalize(doc.duration * 0.35),
-    normalize(doc.duration * 0.55),
-    normalize(doc.duration * 0.8),
-    normalize(doc.duration - 0.001),
-  ]);
-  if (
-    doc.layers.some(
-      (l) => l.enabled && l.role === "primary" && l.end - l.start > 0.6,
-    )
-  ) {
-    selected.add(normalize(doc.duration * 0.9));
-    selected.add(normalize(doc.duration * 0.96));
-  }
-  const priority = [
-    Math.max(0, impact - 0.02),
-    impact + 0.02,
-    ...doc.layers
-      .filter(
-        (l) =>
-          l.enabled &&
-          (l.role === "primary" || l.role === "impact") &&
-          l.end - l.start <= 0.5,
-      )
-      .map((l) => l.start + Math.min(0.08, (l.end - l.start) / 2)),
-    impact + 0.08,
-    impact * 0.5,
-    impact + 0.18,
-    impact + 0.35,
-    impact + 0.65,
-    doc.duration * 0.35,
-    doc.duration * 0.65,
-    doc.duration * 0.82,
-  ];
-  for (const time of priority) {
-    if (selected.size >= MAX_TIMES) break;
-    selected.add(normalize(time));
-  }
-  for (let i = 1; selected.size < MAX_TIMES && i < 24; i++)
-    selected.add(normalize((doc.duration * i) / 24));
-  return [...selected].sort((a, b) => a - b);
+    Math.max(0, doc.duration - 0.001 - span),
+  );
+  return ascending(
+    Array.from({ length: STRIP_FRAMES }, (_, i) => start + i * STRIP_STEP),
+    doc.duration,
+  );
 }
 
 function rendererDescription(renderer: THREE.WebGLRenderer) {
@@ -118,36 +142,84 @@ export async function captureV2(
     // One warm-up frame so every shader is compiled before the first tile.
     runtime.render(0, options.solo, options.diagnostic);
 
+    // One grid draws both images: the only differences are the tile size, the
+    // column count and the label font.
+    const compose = (
+      moments: number[],
+      columns: number,
+      tileWidth: number,
+      tileHeight: number,
+      fontSize: number,
+      count: (pixels: Uint8ClampedArray) => void = () => {},
+    ) => {
+      runtime.resize(tileWidth, tileHeight);
+      const rowHeight = tileHeight + LABEL_HEIGHT;
+      const canvas = document.createElement("canvas");
+      canvas.width = columns * tileWidth;
+      canvas.height = Math.ceil(moments.length / columns) * rowHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) throw new Error("Capture unavailable.");
+      context.fillStyle = "#101112";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      moments.forEach((time, index) => {
+        runtime.render(time, options.solo, options.diagnostic);
+        const x = (index % columns) * tileWidth;
+        const y = Math.floor(index / columns) * rowHeight;
+        context.drawImage(
+          runtime.renderer.domElement,
+          x,
+          y,
+          tileWidth,
+          tileHeight,
+        );
+        count(context.getImageData(x, y, tileWidth, tileHeight).data);
+        context.fillStyle = "#bdc5cc";
+        context.font = `${fontSize}px monospace`;
+        context.fillText(
+          `${time.toFixed(3)} s`,
+          x + 12,
+          y + tileHeight + LABEL_HEIGHT - 7,
+        );
+      });
+      return canvas;
+    };
+
     const times = captureTimesV2(doc);
-    const sheet = document.createElement("canvas");
-    sheet.width = SHEET_WIDTH;
-    sheet.height = Math.ceil(times.length / 4) * ROW_HEIGHT;
-    const ctx = sheet.getContext("2d", { willReadFrequently: true });
-    if (!ctx) throw new Error("Capture unavailable.");
-    ctx.fillStyle = "#101112";
-    ctx.fillRect(0, 0, sheet.width, sheet.height);
     let renderedPixels = 0;
-    times.forEach((time, index) => {
-      runtime.render(time, options.solo, options.diagnostic);
-      const x = (index % 4) * TILE_WIDTH;
-      const y = Math.floor(index / 4) * ROW_HEIGHT;
-      ctx.drawImage(runtime.renderer.domElement, x, y, TILE_WIDTH, TILE_HEIGHT);
-      const pixels = ctx.getImageData(x, y, TILE_WIDTH, TILE_HEIGHT).data;
-      // Compare against the actual corner background, before the timestamp text.
-      const background = [pixels[0], pixels[1], pixels[2]];
-      for (let p = 0; p < pixels.length; p += 4)
-        if (
-          Math.max(...background.map((v, c) => Math.abs(pixels[p + c] - v))) >
-          12
-        )
-          renderedPixels++;
-      ctx.fillStyle = "#bdc5cc";
-      ctx.font = "11px monospace";
-      ctx.fillText(`${time.toFixed(3)} s`, x + 12, y + 195);
-    });
+    const sheet = compose(
+      times,
+      SHEET_COLUMNS,
+      TILE_WIDTH,
+      TILE_HEIGHT,
+      14,
+      (pixels) => {
+        // Compare against the actual corner background, before the label text.
+        const background = [pixels[0], pixels[1], pixels[2]];
+        for (let p = 0; p < pixels.length; p += 4)
+          if (
+            Math.max(...background.map((v, c) => Math.abs(pixels[p + c] - v))) >
+            12
+          )
+            renderedPixels++;
+      },
+    );
+    // The strip is motion evidence, not a second look at the effect: a solo
+    // diagnostic render has nothing continuous to show.
+    const stripTimes = options.diagnostic ? [] : stripTimesV2(doc);
+    const strip = options.diagnostic
+      ? undefined
+      : compose(
+          stripTimes,
+          STRIP_COLUMNS,
+          STRIP_TILE_WIDTH,
+          STRIP_TILE_HEIGHT,
+          11,
+        ).toDataURL("image/jpeg", 0.88);
 
     let temporal: TemporalDiagnostics | undefined;
+    let jitter: number | undefined;
     if (!options.diagnostic) {
+      runtime.resize(STRIP_TILE_WIDTH, STRIP_TILE_HEIGHT);
       const activity = document.createElement("canvas");
       activity.width = 160;
       activity.height = 90;
@@ -169,13 +241,22 @@ export async function captureV2(
         );
       }
       temporal = summarizeActivity(energies, 30, doc.duration);
+      const peak = Math.max(...energies);
+      jitter = jitterScore(
+        energies.map((v) => (peak ? v / peak : 0)),
+        30,
+        impactTimeV2(doc),
+      );
     }
 
     const forward = runtime.camera.getWorldDirection(new THREE.Vector3());
     return {
       renderedPixels,
       temporal,
+      jitterScore: jitter,
       sheet: sheet.toDataURL("image/jpeg", 0.88),
+      strip,
+      stripTimes,
       times,
       width: TILE_WIDTH,
       height: TILE_HEIGHT,

@@ -20,7 +20,12 @@ import {
   validateDocumentV2,
   type VfxDocumentV2,
 } from "../src/lib/vfx-lab/schema-v2";
-import type { Review } from "../src/lib/vfx-lab/protocol";
+import {
+  acceptanceV2,
+  REVIEW_V2_DEFECTS,
+  scoreV2,
+  type ReviewV2,
+} from "../src/lib/vfx-lab/protocol-v2";
 
 const fixture = () =>
   validateDocumentV2(
@@ -29,30 +34,36 @@ const fixture = () =>
     ),
   );
 
-const review = (score: number): Review => ({
+/** The v2 reviewer's answer shape: six axes plus the full defect checklist. */
+const reviewV2 = (
+  score: number,
+  defects: Partial<Record<(typeof REVIEW_V2_DEFECTS)[number], boolean>> = {},
+  notes = ["denser secondary particles, longer erosion tail"],
+): ReviewV2 => ({
   sufficientEvidence: true,
   semantic: score,
   motion: score,
   hierarchy: score,
-  finish: score,
-  verdict: "Observed",
+  detail: score,
+  smoothness: score,
+  beauty: score,
+  defects: Object.fromEntries(
+    REVIEW_V2_DEFECTS.map((defect) => [defect, defects[defect] ?? false]),
+  ) as ReviewV2["defects"],
   observations: [
     { criterion: "visible fire", result: "pass", evidence: "1 s" },
   ],
-  diagnoses: [
-    {
-      layerId: "flame-shell",
-      symptom: "washed-out",
-      hypothesis: "too bright",
-      correction: "lower intensity",
-    },
-  ],
+  verdict: "Observed",
+  directorNotes: notes,
 });
 const capture = () => ({
   sheet: "data:image/jpeg;base64,TEST",
+  strip: "data:image/jpeg;base64,STRIP",
+  stripTimes: [0.9, 0.933, 0.966],
+  jitterScore: 0.04,
   times: [0.5, 1, 2, 3.4],
-  width: 320,
-  height: 180,
+  width: 640,
+  height: 360,
   runtime: "test-v2",
   renderer: "test",
   camera: [5, 3, 7],
@@ -68,7 +79,7 @@ test("v2 mode validates candidates against autov.lab/2 and records the contract"
     if (body.action === "plan")
       return { runId: "v2-run", plan: {}, schema: "v2" };
     if (body.action === "candidate") return { document: fixture() };
-    if (body.action === "review") return { review: review(5) };
+    if (body.action === "review") return { review: reviewV2(5) };
     throw Error("unexpected");
   };
   const result = await generatePipeline({
@@ -89,7 +100,69 @@ test("v2 mode validates candidates against autov.lab/2 and records the contract"
   assert.ok(result.trace.some((line) => line.includes("v2")));
   assert.equal(bodies[0].schema, "v2");
   assert.equal(result.candidates.length, 1);
-  assert.equal(result.candidates[0].review?.semantic, 5);
+  assert.equal(result.candidates[0].reviewV2?.semantic, 5);
+  // v1's four-axis review is never populated on a v2 run.
+  assert.equal(result.candidates[0].review, undefined);
+  assert.equal(result.candidates[0].jitterScore, 0.04);
+  // The reviewer is sent the motion strip and the spike measure alongside the
+  // sheet; a perfect review needs no refinement round.
+  const reviewBody = bodies.find((b) => b.action === "review")!;
+  assert.equal(reviewBody.strip, "data:image/jpeg;base64,STRIP");
+  assert.equal(reviewBody.jitter, 0.04);
+  assert.equal(
+    bodies.some((b) => b.action === "refine" || b.action === "restructure"),
+    false,
+  );
+  assert.equal(acceptanceV2(result.candidates[0].reviewV2), "proposed");
+  assert.ok(result.trace.some((line) => line.includes("Review v2: proposed")));
+});
+
+test("a weak v2 review drives the refinement rounds off the defect checklist", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const answers = [
+    reviewV2(3, { floating: true, uniformParticles: true }),
+    reviewV2(3.1, { floating: true, uniformParticles: true }),
+    reviewV2(3.2, { floating: true, uniformParticles: true }),
+  ];
+  let reviews = 0;
+  const result = await generatePipeline({
+    prompt: "a fire projectile",
+    references: [],
+    mode: "quality",
+    candidateCount: 1,
+    schema: "v2",
+    signal: new AbortController().signal,
+    request: async (body) => {
+      bodies.push(body);
+      if (body.action === "plan")
+        return {
+          runId: "weak-run",
+          plan: { criteria: ["visible fire"] },
+          schema: "v2",
+        };
+      if (body.action === "candidate") return { document: fixture() };
+      if (body.action === "review")
+        return { review: answers[Math.min(reviews++, answers.length - 1)] };
+      return { document: fixture() };
+    },
+    capture,
+    progress: () => {},
+    candidate: () => {},
+  });
+  // Both bounded rounds ran: the scalar one off the director notes, the
+  // structural one off an admitted defect the scalar round cannot reach.
+  assert.ok(bodies.some((b) => b.action === "refine"));
+  assert.ok(bodies.some((b) => b.action === "restructure"));
+  // The scalar round moved the score by less than the 0.15 margin and was not
+  // adopted; the structural one cleared it.
+  assert.ok(result.candidates.some((c) => c.id === "weak-run-refined"));
+  assert.equal(result.selected.id, "weak-run-structural");
+  // Clearing the margin is not acceptance: the defects are still admitted.
+  assert.equal(acceptanceV2(result.selected.reviewV2), "rework");
+  assert.ok(scoreV2(result.selected.reviewV2) < 3.8);
+  assert.ok(
+    result.trace.some((line) => line.includes("Review v2: needs rework")),
+  );
 });
 
 test("a v1 document is never accepted as a v2 candidate", async () => {
