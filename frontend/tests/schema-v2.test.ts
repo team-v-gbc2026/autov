@@ -533,13 +533,17 @@ test("the glitch exemplar anchors its trail to one shared bezier", () => {
   // The hairlines ride the same path, so they can never drift off the trail.
   const ribbon = doc.layers.find((l) => l.kind === "ribbon")!;
   assert.equal(ribbon.ribbon!.pathId, "arc");
-  // The head and its core break in the SAME stepped windows.
+  // The head, its core and its tail glints break in the SAME stepped windows.
   const jittered = doc.layers.filter((l) => l.jitter);
-  assert.ok(jittered.length >= 3);
+  assert.ok(jittered.length >= 4);
   const head = jittered.filter((l) => l.id.startsWith("dart"));
-  assert.equal(head.length, 2);
-  assert.deepEqual(head[0].jitter, head[1].jitter);
+  assert.equal(head.length, 3);
+  for (const layer of head.slice(1))
+    assert.deepEqual(layer.jitter, head[0].jitter, layer.id);
   assert.ok(head[0].jitter!.gate > 0.5);
+  // All three ride the same motion keys, so the head never comes apart.
+  for (const layer of head.slice(1))
+    assert.deepEqual(layer.motion, head[0].motion, layer.id);
   // The burst is outlines plus spokes, split per channel.
   const burst = doc.layers.find((l) => l.kind === "wireBurst")!;
   assert.ok(burst.wireBurst!.spokes > 0);

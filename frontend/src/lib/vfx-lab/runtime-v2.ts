@@ -202,6 +202,18 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   swirlRing: 14,
   ringFill: 15,
 };
+/**
+ * Spawn modes the vertex shader knows about. It has to stay in step with the
+ * `selfBirth` branches in glslParticleCore AND with particlePositionV2's CPU
+ * mirror: a mode missing here silently falls back to "burst", which is what
+ * made a path-anchored trail appear all at once instead of following its head.
+ */
+const SPAWN_MODE_INDEX: Record<string, number> = {
+  burst: 0,
+  continuous: 1,
+  bursts: 2,
+  pathAnchored: 3,
+};
 const SUB_MODE_INDEX: Record<string, number> = {
   alongPath: 0,
   onDeath: 1,
@@ -638,14 +650,7 @@ function emitterCoreUniforms(
       value:
         emitter.spawn.mode === "continuous" ? emitter.spawn.duration : duration,
     },
-    [`u${P}SpawnMode`]: {
-      value:
-        emitter.spawn.mode === "continuous"
-          ? 1
-          : emitter.spawn.mode === "bursts"
-            ? 2
-            : 0,
-    },
+    [`u${P}SpawnMode`]: { value: SPAWN_MODE_INDEX[emitter.spawn.mode] ?? 0 },
     [`u${P}BurstT`]: { value: new Array(CURVE_KEYS).fill(0) },
     [`u${P}BurstC`]: { value: new Array(CURVE_KEYS).fill(1) },
     [`u${P}BurstN`]: { value: Math.max(1, emitter.spawn.bursts.length) },

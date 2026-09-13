@@ -363,7 +363,7 @@ test("a wire burst is a pure function of its spec, and stays inside its core box
 
 test("layer jitter is stepped, gated and identical on a seek", () => {
   const head = glitch.layers.filter((l) => l.jitter && l.id.startsWith("dart"));
-  assert.equal(head.length, 2);
+  assert.equal(head.length, 3);
   const layer = head[0];
   const spec = layer.jitter!;
   const step = 1 / spec.frequency;
@@ -402,9 +402,10 @@ test("layer jitter is stepped, gated and identical on a seek", () => {
     if (t >= layer.end) break;
     for (const v of at(t)) assert.ok(Math.abs(v) <= spec.amplitude + 1e-9);
   }
-  // Both dart layers share one jitter spec, so they break by the same offset.
+  // Every dart layer shares one jitter spec, so they break by the same offset.
   for (const t of [base, base + step * 2, base + step * 7])
-    assert.deepEqual(offsetOf(head[0], t), offsetOf(head[1], t), `${t}`);
+    for (const other of head.slice(1))
+      assert.deepEqual(offsetOf(head[0], t), offsetOf(other, t), `${other.id}@${t}`);
 });
 
 test("both new exemplars carry a path every referencing layer can resolve", () => {
