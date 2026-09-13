@@ -15,6 +15,10 @@ export default function DevPage() {
         <strong>VFX UI review <span aria-hidden="true">↗</span></strong>
         <p style={{ color: "#8e9a9f", fontSize: 14, margin: "8px 0 0" }}>Preview the studio layout, emitter controls, and timeline with fixture data.</p>
       </Link>
+      <Link href="/dev/chat" style={{ display: "block", marginTop: 16, padding: 24, border: "1px solid #ffffff20", borderRadius: 12, color: "inherit" }}>
+        <strong>Agent chat preview ↗</strong>
+        <p style={{ color: "#8e9a9f", fontSize: 14, margin: "8px 0 0" }}>Message formatting and simulated streaming with Send/Stop controls.</p>
+      </Link>
     </main>
   );
 }

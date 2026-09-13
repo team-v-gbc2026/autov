@@ -7,10 +7,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const headers = new Headers(request.headers);
     headers.set("x-autov-project-id", id);
-    const { client } = await authorizeProject(new Request(request, { headers }));
+    const { client } = await authorizeProject(new Request(request.url, { headers, signal: request.signal }));
     const unavailable = configurationError();
     if (unavailable) throw new ChatError("NOT_CONFIGURED", unavailable, 503);
     const binding = await conversation(client, id);
     return Response.json({ sessionId: binding.session_id }, { headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) { return responseError(error); }
+  } catch (error) {
+    console.warn("studio.conversation", JSON.stringify({
+      code: error instanceof ChatError ? error.code : "INTERNAL_ERROR",
+      type: error instanceof Error ? error.name : "UnknownError",
+    }));
+    return responseError(error);
+  }
 }

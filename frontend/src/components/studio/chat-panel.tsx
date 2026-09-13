@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useImperativeHandle, type Ref } from "react";
+import ChatMessage from "./chat-message";
+import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
 import { useEveAgent } from "eve/react";
 import { agentHeaders, loadConversation } from "@/lib/agent/client";
@@ -12,7 +14,7 @@ import type { VfxUiDocument } from "@/components/vfx-studio/ui-model";
 
 export type ChatPanelHandle = ComposerHandle;
 type VfxEditing = { document: VfxUiDocument; selectedEmitterId?: string };
-type AgentHandle = { send: (prompt: string, referenceIds: string[]) => Promise<boolean> };
+type AgentHandle = { stop: () => Promise<void>; send: (prompt: string, referenceIds: string[]) => Promise<boolean> };
 
 export default function ChatPanel({
   projectId,
@@ -45,6 +47,19 @@ export default function ChatPanel({
     mentionEmitter: emitter => composer.current?.mentionEmitter(emitter),
     setText: text => composer.current?.setText(text),
   }));
+  const [responding, setResponding] = useState(false);
+  const scroll = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  useEffect(() => {
+    const container = scroll.current;
+    const content = container?.querySelector(".messages");
+    if (!container || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottom.current) container.scrollTop = container.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
   const [notice, setNotice] = useState("");
   const messages = initialGenerations;
   const [agentHasHistory, setAgentHasHistory] = useState(false);
@@ -67,28 +82,17 @@ export default function ChatPanel({
   ) || [];
   const hasHistory = messages.length > 0 || versions.length > 0 || scopedEdits.length > 0 || !!connection?.sessionId || agentHasHistory;
   return (
-    <aside className="glass chat-panel">
+    <aside className={`glass chat-panel ${styles.panel}`}>
       <div className="panel-heading">
         <div>
-          <h2>Chat</h2>
+          <h2>Assistant</h2><span className={styles.subtitle}>Your VFX creative partner</span>
         </div>
         <div>{button("panel", "Collapse creative assistant", onCollapse)}</div>
       </div>
-      <div className={`chat-content ${hasHistory ? "" : "chat-content-empty"}`}>
+      <div ref={scroll} onScroll={event => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} className={`chat-content ${hasHistory ? "" : "chat-content-empty"}`}>
         {!hasHistory && <ChatEmptyState disabled={saving || !connection} onSelect={value => { composer.current?.setText(value); }} />}
         <div className="messages" aria-live="polite">
-          {messages.map((message) => (
-            <div key={message.id}>
-              <p className="user-message">{displayPrompt(message.prompt)}</p>
-              <p className="assistant-message">
-                {message.status === "draft"
-                  ? "Prompt saved."
-                  : message.status === "failed"
-                    ? "Generation failed."
-                    : `Generation ${message.status}.`}
-              </p>
-            </div>
-          ))}
+          {messages.map(message => <ChatMessage key={message.id} role="user" text={displayPrompt(message.prompt)} caption={message.status === "draft" ? "Saved prompt · history" : `Generation ${message.status}`} />)}
           {versions.map((version) => (
             <a
               className="effect-download"
@@ -106,21 +110,22 @@ export default function ChatPanel({
               </p>
             </div>
           ))}
-          {connection ? <AgentConversation key={`${projectId}-${attempt}`} ref={agent} projectId={projectId} sessionId={connection.sessionId} vfx={vfx} setSaving={setSaving} onHistory={setAgentHasHistory} reconnect={reconnect} /> : (
-            <p className="account-notice" role="status">{connectionError || "Connecting assistant…"}
+          {connection ? <AgentConversation key={`${projectId}-${attempt}`} ref={agent} projectId={projectId} sessionId={connection.sessionId} vfx={vfx} setSaving={setSaving} onActivity={setResponding} onHistory={setAgentHasHistory} reconnect={reconnect} /> : (
+            <p className={styles.notice} role="status">{connectionError || "Connecting assistant…"}
               {connectionError && <button type="button" onClick={reconnect}>Retry connection</button>}
             </p>
           )}
           {notice && (
-            <p className="account-notice" role="status">
+            <p className={styles.notice} role="status">
               {notice}
             </p>
           )}
         </div>
       </div>
-      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy || !connection} saving={saving} sendLabel="Send message" onSend={async (prompt, referenceIds) => {
+      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy || !connection} saving={saving} responding={responding} onStop={async () => { if (!agent.current) throw new Error("Assistant disconnected"); await agent.current.stop(); }} sendLabel="Send message" onSend={async (prompt, referenceIds) => {
         if (saving || busy || !agent.current) return false;
         setNotice("");
+        stickToBottom.current = true;
         return agent.current.send(prompt, referenceIds);
       }} />
       <div className="chat-footnote">
@@ -131,7 +136,7 @@ export default function ChatPanel({
 }
 
 
-function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistory, reconnect }: {
+function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistory, onActivity, reconnect }: {
   ref: Ref<AgentHandle>;
   projectId: string;
   sessionId: string | null;
@@ -139,6 +144,7 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
   setSaving: (saving: boolean) => void;
   reconnect: () => void;
   onHistory: (hasHistory: boolean) => void;
+  onActivity: (active: boolean) => void;
 }) {
   const accepted = useRef(false);
   const sending = useRef(false);
@@ -155,9 +161,11 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
   const resuming = agent.status === "resuming";
   useEffect(() => {
     setSaving(active || resuming);
-    return () => setSaving(false);
-  }, [active, resuming, setSaving]);
+    onActivity(active);
+    return () => { setSaving(false); onActivity(false); };
+  }, [active, resuming, setSaving, onActivity]);
   useImperativeHandle(ref, () => ({
+    async stop() { await agent.cancel(); },
     async send(prompt, referenceIds) {
       if (sending.current || active || resuming || agent.status === "error") return false;
       sending.current = true;
@@ -174,18 +182,14 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
     },
   }));
   return <>
-    {agent.data.messages.map(message => <div key={message.id}>
-      {message.parts.map((part, index) => part.type === "text" ? (
-        <p key={index} className={message.role === "user" ? "user-message" : "assistant-message"} style={{ whiteSpace: "pre-wrap" }}>{displayPrompt(part.text)}</p>
-      ) : part.type === "file" ? (
-        <p key={index} className="assistant-message">Reference: {part.filename || "Image"}</p>
-      ) : null)}
-    </div>)}
-    {resuming && <p className="account-notice" role="status">Reconnecting to your conversation…</p>}
-    {active && <div className="account-notice" role="status">{agent.status === "submitted" ? "Sending…" : "Assistant is responding…"}
-      <button type="button" onClick={() => { void agent.cancel().catch(() => setSendError("Could not stop the response. Reconnect and try again.")); }}>Stop</button>
-    </div>}
-    {(sendError || agent.error) && <p className="account-notice" role="alert">{sendError || "The assistant is unavailable. Reconnect to check the conversation before retrying."}
+    {agent.data.messages.map(message => <ChatMessage key={message.id} role={message.role}
+      text={displayPrompt(message.parts.filter(part => part.type === "text").map(part => part.text).join("\n\n"))}
+      files={message.parts.filter(part => part.type === "file").map(part => part.filename || "Reference image")}
+      streaming={message.metadata?.status === "streaming"}
+    />)}
+    {resuming && <div className={styles.reconnecting} role="status"><svg className={styles.spinner} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity=".2" /><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg><span>Reconnecting</span></div>}
+    {active && <div className={styles.notice} role="status"><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span>{agent.status === "submitted" ? "Sending your message" : "Responding"}</div>}
+    {(sendError || agent.error) && <p className={`${styles.notice} ${styles.error}`} role="alert">{sendError || "The assistant is unavailable. Reconnect to check the conversation before retrying."}
       <button type="button" onClick={reconnect}>Reconnect</button>
     </p>}
   </>;
