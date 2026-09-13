@@ -261,10 +261,10 @@ test("every v2 recipe example is a valid, lint-clean document", () => {
     assert.doesNotThrow(() => validateDocumentV2(doc), id);
     assert.deepEqual(lintDocumentV2(doc), [], id);
     // A readable example, not a kitchen sink. The hand-authored exemplars sit
-    // at the top of this range: lightning-impact needs ten layers to carry the
-    // bolt (sheath + core), the contact, the ground ring and glow, two spark
-    // populations, debris, smoke and the light.
-    assert.ok(doc.layers.length <= 10, `${id} has ${doc.layers.length} layers`);
+    // at the top of this range: beam needs the most layers (19) to carry a
+    // charge, a triple-layer core/sheath/ribbons beam, muzzle and endpoint
+    // flares, sparks and a post-shutoff residue burst across two lights.
+    assert.ok(doc.layers.length <= 20, `${id} has ${doc.layers.length} layers`);
     assert.ok(
       doc.layers.some((l) => l.kind === "light"),
       `${id} has no light layer`,
