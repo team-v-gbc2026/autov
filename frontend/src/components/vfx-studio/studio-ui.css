@@ -3,10 +3,7 @@
 .lab .transport { bottom: var(--timeline-bottom); }
 .lab .chat-panel { top: var(--workspace-panel-top); bottom: var(--timeline-bottom); }
 .lab .lab-environment-strip { position: absolute; top: var(--workspace-panel-top); left: var(--left-space); right: var(--right-space); max-width: 900px; margin: 0 auto; height: var(--environment-height); z-index: 3; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 8px; }
-.lab .lab-environment-trigger { display: flex; align-items: center; gap: 9px; flex-shrink: 0; height: 28px; padding: 0 9px; border: 1px solid #ffffff0d; border-radius: 5px; background: #ffffff03; color: #b9b4aa; font-size: 11px; }
 .lab .lab-scene-export { display: flex; align-items: center; margin-left: auto; padding-left: 5px; border-left: 1px solid #ffffff0d; }
-.lab .lab-environment-trigger:hover, .lab .lab-environment-trigger[aria-expanded="true"] { background: #ffffff08; color: #e0d8c9; }
-.lab .lab-environment-trigger > span { display: flex; margin-left: auto; }
 .lab .lab-environment-panel { position: absolute; top: calc(100% + 6px); left: 0; width: min(320px, 100%); display: grid; gap: 20px; padding: 18px; border: 1px solid #ffffff19; border-radius: 8px; background: var(--panel); backdrop-filter: blur(22px); box-shadow: 0 16px 40px #0006; }
 .lab .lab-environment-panel[hidden] { display: none; }
 .lab .lab-environment-field { display: grid; grid-template-columns: 56px minmax(0, 1fr) 3ch; align-items: center; gap: 10px; color: #a6afb1; font-size: 10px; }
@@ -23,15 +20,11 @@
 .lab input[type="range"] { width: 100%; min-width: 0; accent-color: #d2b47e; }
 .lab input[type="color"] { width: 100%; height: 25px; border: 0; background: none; cursor: pointer; }
 
-/* Open timeline/control shelves take real space; the renderer observes and fits this box. */
+/* The workspace canvas fills the page; panels and transport overlay the scene. */
 .lab .lab-preview-stage {
   position: absolute;
-  top: calc(var(--workspace-panel-top) + var(--environment-height) + 8px);
-  right: var(--right-space);
-  bottom: max(40px, calc(var(--timeline-height, 250px) + var(--timeline-bottom) + 12px));
-  left: var(--left-space);
-  min-height: 100px;
-  transition: inset 180ms ease;
+  inset: 0;
+  z-index: 0;
 }
 .lab .lab-preview-stage .scene-container { inset: 0; }
 .lab .lab-emitter-heading { display: flex; align-items: center; justify-content: space-between; min-width: 0; padding: 0 8px; border-right: 1px solid #ffffff0c; color: #a2abad; font-size: 9px; }

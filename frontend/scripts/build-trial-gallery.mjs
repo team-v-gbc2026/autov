@@ -1,4 +1,4 @@
-import { browserOptions } from "./browser-options.mjs";
+import { webgpuBrowserOptions } from "./browser-options.mjs";
 import { readFile, writeFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
@@ -33,7 +33,7 @@ const built = await build({
   platform: "browser",
   minify: true,
 });
-const browser = await chromium.launch(browserOptions());
+const browser = await chromium.launch(webgpuBrowserOptions());
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 await page.goto(
   new URL(

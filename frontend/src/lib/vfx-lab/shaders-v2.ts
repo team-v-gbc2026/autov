@@ -1,5 +1,5 @@
-import * as THREE from "three";
-import type { Curve, Ramp } from "./schema-v2";
+// Migration reference used only by scripts/webgpu/port-shaders.mts.
+// The production renderer imports static TSL from shaders-v2-nodes.js.
 
 // ---------------------------------------------------------------------------
 // GLSL for the autov.lab/2 renderer.
@@ -567,19 +567,23 @@ void main(){
   float rot=vRot+uMaskRot;
   vec2 p=vUv-.5; float c=cos(rot), s=sin(rot); p=mat2(c,-s,s,c)*p; vec2 uvp=p+.5;
   float n=.5;
-  if(uHasNoise==1){
+  // Plain discs and un-eroded masks do not consume noise. Avoid evaluating
+  // three simplex octaves per fragment unless a feature actually uses them.
+  bool needsNoise=uUseErosion==1 || abs(uDistort)>0. ||
+    (uHasMask==0 && (uProcedural==1 || uProcedural==2));
+  if(needsNoise && uHasNoise==1){
     vec2 nuv=uvp*uNoiseScale+uNoisePan*uTime+vSeed.xy*7.;
     float n1=texture2D(uNoise,nuv).r;
     float n2=texture2D(uNoise,nuv*1.7+vec2(.3,.1)-uNoisePan*uTime*.6).r;
     n=n1*.65+n2*.35;
-  } else {
+  } else if(needsNoise) {
     n=.5+.5*fbm3(vec3(uvp*uNoiseScale*2.+uNoisePan*uTime, vSeed.x*17.));
   }
   // noise.distortionPan scrolls the field that drives the distortion (never the
   // mask lookup itself, which would slide the sprite out of its own UV range).
   float nd=n;
   vec2 dp=uDistortPan*uTime;
-  if(dot(dp,dp)>0.){
+  if(abs(uDistort)>0. && dot(dp,dp)>0.){
     if(uHasNoise==1) nd=texture2D(uNoise, uvp*uNoiseScale+uNoisePan*uTime+dp+vSeed.xy*7.).r;
     else nd=.5+.5*fbm3(vec3(uvp*uNoiseScale*2.+uNoisePan*uTime+dp, vSeed.x*17.));
   }
@@ -816,66 +820,4 @@ void main(){
 // Uniform builders
 // ---------------------------------------------------------------------------
 
-export function rampUniforms(ramp: Ramp) {
-  const colors: THREE.Vector4[] = [];
-  const stops: number[] = [];
-  for (let i = 0; i < RAMP_STOPS; i++) {
-    const stop = ramp.stops[Math.min(i, ramp.stops.length - 1)];
-    // `new THREE.Color(hex)` already converts sRGB -> linear; converting again
-    // washes the whole palette out.
-    const color = new THREE.Color(stop.color);
-    colors.push(new THREE.Vector4(color.r, color.g, color.b, stop.intensity));
-    stops.push(stop.t);
-  }
-  return {
-    uRamp: { value: colors },
-    uRampT: { value: stops },
-    uRampN: { value: ramp.stops.length },
-  };
-}
-
-export function writeRamp(
-  uniforms: Record<string, THREE.IUniform>,
-  ramp: Ramp,
-) {
-  const colors = uniforms.uRamp.value as THREE.Vector4[];
-  const stops = uniforms.uRampT.value as number[];
-  for (let i = 0; i < RAMP_STOPS; i++) {
-    const stop = ramp.stops[Math.min(i, ramp.stops.length - 1)];
-    const color = new THREE.Color(stop.color);
-    colors[i].set(color.r, color.g, color.b, stop.intensity);
-    stops[i] = stop.t;
-  }
-  uniforms.uRampN.value = ramp.stops.length;
-}
-
-const FALLBACK_CURVE: Curve = { keys: [[0, 1] as [number, number], [1, 1]], ease: "linear" };
-
-export function curveUniforms(name: string, curve: Curve | null) {
-  const source = curve ?? FALLBACK_CURVE;
-  const keys: THREE.Vector2[] = [];
-  for (let i = 0; i < CURVE_KEYS; i++) {
-    const key = source.keys[Math.min(i, source.keys.length - 1)];
-    keys.push(new THREE.Vector2(key[0], key[1]));
-  }
-  return {
-    [`uCurve${name}`]: { value: keys },
-    [`uCurve${name}N`]: { value: source.keys.length },
-    [`uCurve${name}Ease`]: { value: source.ease === "smooth" ? 1 : 0 },
-  };
-}
-
-export function writeCurve(
-  uniforms: Record<string, THREE.IUniform>,
-  name: string,
-  curve: Curve | null,
-) {
-  const source = curve ?? FALLBACK_CURVE;
-  const keys = uniforms[`uCurve${name}`].value as THREE.Vector2[];
-  for (let i = 0; i < CURVE_KEYS; i++) {
-    const key = source.keys[Math.min(i, source.keys.length - 1)];
-    keys[i].set(key[0], key[1]);
-  }
-  uniforms[`uCurve${name}N`].value = source.keys.length;
-  uniforms[`uCurve${name}Ease`].value = source.ease === "smooth" ? 1 : 0;
-}
+export { rampUniforms, writeRamp, curveUniforms, writeCurve } from "./uniforms-v2";

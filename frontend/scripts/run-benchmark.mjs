@@ -1,4 +1,4 @@
-import { browserOptions } from "./browser-options.mjs";
+import { browserOptions, webgpuBrowserOptions } from "./browser-options.mjs";
 import {
   readFile,
   writeFile,
@@ -269,7 +269,7 @@ const built = await build({
   platform: "browser",
   minify: true,
 });
-const browser = await chromium.launch(browserOptions());
+const browser = await chromium.launch(schema === "v2" ? webgpuBrowserOptions() : browserOptions());
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   page.on("console", (msg) => {

@@ -11,3 +11,11 @@ assert.ok(!/import\s+.*from\s+["']https?:/.test(bundle));
 console.log(
   `Self-contained Three.js runtime verified (${(Buffer.byteLength(bundle) / 1024).toFixed(0)} KiB).`,
 );
+
+const v2 = await readFile("public/vfx-runtime-v2.js", "utf8");
+assert.ok(v2.includes("autov.lab/2-three-r186-webgpu"));
+assert.ok(v2.includes("VfxRuntimeV2"));
+assert.ok(!v2.includes("OPENAI_API_KEY"));
+assert.ok(!v2.includes("api.openai.com"));
+assert.ok(!v2.includes("GLSLDecoder"), "Shader translation must stay offline");
+console.log(`Self-contained V2 WebGPU runtime verified (${(Buffer.byteLength(v2) / 1024).toFixed(0)} KiB).`);

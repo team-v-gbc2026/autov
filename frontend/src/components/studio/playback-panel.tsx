@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Icon from "./icon";
 import { iconButton as button } from "./icon-button";
-import type { Playback } from "./use-playback";
+import type { Playback } from "./playback-clock";
 
 export default function PlaybackPanel({
   playback,

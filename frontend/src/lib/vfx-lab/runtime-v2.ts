@@ -1,4 +1,6 @@
-import * as THREE from "three";
+import type { IUniform } from "three";
+import * as THREE from "three/webgpu";
+import { createV2NodeMaterial, type V2NodeMaterial } from "./node-material-v2";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildGeometry } from "./geometry";
 import { createEnvironment, type EnvironmentV2 } from "./environment-v2";
@@ -11,6 +13,7 @@ import type { VfxDocument } from "./schema";
 import {
   isV2,
   validateDocumentV2,
+  validateWorkspaceDocumentV2,
   type Curve,
   type Emitter,
   type LayerV2,
@@ -20,19 +23,17 @@ import {
 import {
   CURVE_KEYS,
   curveUniforms,
-  particleFragmentV2,
-  particleVertexSource,
   rampUniforms,
-  surfaceFragmentV2,
-  surfaceVertexV2,
-  trailFragmentV2,
-  trailVertexSource,
   writeCurve,
   writeRamp,
-} from "./shaders-v2";
-import { STRIKE_HZ, buildLightningGeometry, lightningBounds } from "./lightning-v2";
+} from "./uniforms-v2";
+import {
+  STRIKE_HZ,
+  buildLightningGeometry,
+  lightningBounds,
+} from "./lightning-v2";
 
-export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186";
+export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186-webgpu";
 
 // ---------------------------------------------------------------------------
 // autov.lab/2 renderer.
@@ -300,7 +301,9 @@ function makeAttributes(count: number, seed: number): ParticleAttributes {
 
 function orthoOf(a: THREE.Vector3, out: THREE.Vector3) {
   const helper =
-    Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    Math.abs(a.y) < 0.9
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(1, 0, 0);
   out.crossVectors(a, helper);
   return out.lengthSq() > 1e-10 ? out.normalize() : out.set(1, 0, 0);
 }
@@ -465,7 +468,8 @@ function particlePositionV2(
     (emitter.velocity.speed[1] - emitter.velocity.speed[0]) * x3;
   const drag = emitter.forces.drag;
   const d = emitter.velocity.speedCurve
-    ? life * speedIntegral(emitter.velocity.speedCurve, age / Math.max(life, 1e-4))
+    ? life *
+      speedIntegral(emitter.velocity.speedCurve, age / Math.max(life, 1e-4))
     : drag < 0.001
       ? age
       : (1 - Math.exp(-drag * age)) / drag;
@@ -493,7 +497,11 @@ interface LayerObject {
   id: string;
   source: LayerV2;
   object: THREE.Object3D;
-  update(time: number, flags: FeatureFlagsV2, camera: THREE.PerspectiveCamera): void;
+  update(
+    time: number,
+    flags: FeatureFlagsV2,
+    camera: THREE.PerspectiveCamera,
+  ): void;
   bounds(time: number, push: (p: THREE.Vector3) => void): void;
   dispose(): void;
   /** Non-null for particle layers that need the depth texture. */
@@ -508,7 +516,8 @@ interface LayerObject {
 
 function spawnPeriod(emitter: Emitter, duration: number) {
   if (emitter.spawn.mode !== "continuous") return Math.max(duration, 1e-3);
-  const period = emitter.spawn.rate > 0 ? emitter.count / emitter.spawn.rate : duration;
+  const period =
+    emitter.spawn.rate > 0 ? emitter.count / emitter.spawn.rate : duration;
   return Math.max(1e-3, Math.min(period, duration));
 }
 
@@ -539,7 +548,7 @@ function emitterCoreUniforms(
   P: string,
   emitter: Emitter,
   duration: number,
-): Record<string, THREE.IUniform> {
+): Record<string, IUniform> {
   const period = spawnPeriod(emitter, duration);
   const speed = emitter.velocity.speedCurve ?? FLAT_CURVE;
   const keys: THREE.Vector2[] = [];
@@ -547,7 +556,7 @@ function emitterCoreUniforms(
     const key = speed.keys[Math.min(i, speed.keys.length - 1)];
     keys.push(new THREE.Vector2(key[0], key[1]));
   }
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     [`u${P}Period`]: { value: period },
     [`u${P}SpawnWindow`]: { value: spawnWindowOf(emitter, period) },
     [`u${P}SpawnDuration`]: {
@@ -585,18 +594,24 @@ function emitterCoreUniforms(
       value: new THREE.Vector2().fromArray(emitter.velocity.speed),
     },
     [`u${P}SpeedKey`]: { value: keys },
-    [`u${P}SpeedN`]: { value: emitter.velocity.speedCurve ? speed.keys.length : 0 },
+    [`u${P}SpeedN`]: {
+      value: emitter.velocity.speedCurve ? speed.keys.length : 0,
+    },
     [`u${P}Life`]: { value: new THREE.Vector2().fromArray(emitter.life) },
     [`u${P}Gravity`]: {
       value: new THREE.Vector3().fromArray(emitter.forces.gravity),
     },
     [`u${P}Drag`]: { value: emitter.forces.drag },
-    [`u${P}Wind`]: { value: new THREE.Vector3().fromArray(emitter.forces.wind) },
+    [`u${P}Wind`]: {
+      value: new THREE.Vector3().fromArray(emitter.forces.wind),
+    },
     [`u${P}Curl`]: { value: emitter.forces.curl?.strength ?? 0 },
     [`u${P}CurlFreq`]: { value: emitter.forces.curl?.frequency ?? 1 },
     [`u${P}CurlSpeed`]: { value: emitter.forces.curl?.speed ?? 1 },
     [`u${P}VortexAxis`]: {
-      value: new THREE.Vector3().fromArray(emitter.forces.vortex?.axis ?? [0, 1, 0]),
+      value: new THREE.Vector3().fromArray(
+        emitter.forces.vortex?.axis ?? [0, 1, 0],
+      ),
     },
     [`u${P}VortexW`]: { value: emitter.forces.vortex?.strength ?? 0 },
     [`u${P}VortexFalloff`]: { value: emitter.forces.vortex?.falloff ?? 0 },
@@ -659,7 +674,9 @@ function createParticleLayer(
   // The schema already rejects a non-particles parent; the runtime refuses to
   // bind one anyway rather than reading an absent emitter.
   const parentEmitter =
-    parentLayer && parentLayer.kind === "particles" ? parentLayer.emitter! : null;
+    parentLayer && parentLayer.kind === "particles"
+      ? parentLayer.emitter!
+      : null;
   const parentAttrs = parentEmitter
     ? makeAttributes(
         Math.max(1, Math.round(parentEmitter.count * density)),
@@ -716,7 +733,7 @@ function createParticleLayer(
   const trailTexture = textures.resolve(trail?.textureId ?? null, doc, false);
   const period = spawnPeriod(emitter, doc.duration);
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     ...emitterCoreUniforms("", emitter, doc.duration),
     ...(parentEmitter
@@ -740,14 +757,19 @@ function createParticleLayer(
     uPathT0: { value: 0 },
     uPathDt: {
       value: parentLayer
-        ? Math.max(1e-3, (parentLayer.end - parentLayer.start) / (CURVE_KEYS - 1))
+        ? Math.max(
+            1e-3,
+            (parentLayer.end - parentLayer.start) / (CURVE_KEYS - 1),
+          )
         : 1,
     },
     uRenderMode: { value: RENDER_INDEX[emitter.render.mode] ?? 0 },
     uStretch: { value: emitter.render.stretch },
     uMotionBlur: { value: doc.post.motionBlur },
     uSize: { value: new THREE.Vector2().fromArray(emitter.render.size) },
-    uRot: { value: new THREE.Vector2().fromArray(emitter.render.rotation.speed) },
+    uRot: {
+      value: new THREE.Vector2().fromArray(emitter.render.rotation.speed),
+    },
     uRotInit: {
       value: material.mask.randomRotation
         ? new THREE.Vector2().fromArray(emitter.render.rotation.initial)
@@ -810,17 +832,18 @@ function createParticleLayer(
     ...curveUniforms("G", trail?.widthCurve ?? null),
   };
 
-  const shaderMaterial = new THREE.ShaderMaterial({
+  const shaderMaterial = createV2NodeMaterial(
+    parentEmitter ? "subParticle" : "particle",
     uniforms,
-    vertexShader: particleVertexSource(!!parentEmitter),
-    fragmentShader: particleFragmentV2,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    // Velocity-aligned quads flip winding; both faces must draw.
-    side: THREE.DoubleSide,
-    ...blendingFor(material.blend),
-  });
+    {
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      // Velocity-aligned quads flip winding; both faces must draw.
+      side: THREE.DoubleSide,
+      ...blendingFor(material.blend),
+    },
+  );
 
   const mesh = new THREE.Mesh(geometry, shaderMaterial);
   mesh.name = layer.id;
@@ -833,7 +856,7 @@ function createParticleLayer(
   const group = new THREE.Group();
   group.name = layer.id;
   group.add(mesh);
-  let trailMaterial: THREE.ShaderMaterial | null = null;
+  let trailMaterial: V2NodeMaterial | null = null;
   let trailGeometry: THREE.InstancedBufferGeometry | null = null;
   if (trail) {
     const strip = trailStripGeometry(trail.segments);
@@ -852,16 +875,17 @@ function createParticleLayer(
       trailGeometry.setAttribute("aPExtra2", parentAttributes[2]);
     }
     trailGeometry.instanceCount = count;
-    trailMaterial = new THREE.ShaderMaterial({
+    trailMaterial = createV2NodeMaterial(
+      parentEmitter ? "subTrail" : "trail",
       uniforms,
-      vertexShader: trailVertexSource(!!parentEmitter),
-      fragmentShader: trailFragmentV2,
-      transparent: true,
-      depthWrite: false,
-      depthTest: true,
-      side: THREE.DoubleSide,
-      ...blendingFor(material.blend),
-    });
+      {
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        side: THREE.DoubleSide,
+        ...blendingFor(material.blend),
+      },
+    );
     const ribbon = new THREE.Mesh(trailGeometry, trailMaterial);
     ribbon.name = `${layer.id}-trail`;
     ribbon.frustumCulled = false;
@@ -1091,7 +1115,8 @@ function curveAt(curve: Curve | null | undefined, u: number) {
   if (x <= keys[0][0]) return keys[0][1];
   for (let i = 1; i < keys.length; i++)
     if (x <= keys[i][0]) {
-      let f = (x - keys[i - 1][0]) / Math.max(keys[i][0] - keys[i - 1][0], 1e-5);
+      let f =
+        (x - keys[i - 1][0]) / Math.max(keys[i][0] - keys[i - 1][0], 1e-5);
       if (curve.ease === "smooth") f = f * f * (3 - 2 * f);
       return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * f;
     }
@@ -1117,10 +1142,14 @@ function unitBarGeometry(
   const indices: number[] = [];
   const sheets: [number, number][][] = tube
     ? [
-        Array.from({ length: Math.max(3, Math.min(48, radialSegments)) + 1 }, (_, j) => {
-          const a = (j / Math.max(3, Math.min(48, radialSegments))) * Math.PI * 2;
-          return [Math.cos(a), Math.sin(a)] as [number, number];
-        }),
+        Array.from(
+          { length: Math.max(3, Math.min(48, radialSegments)) + 1 },
+          (_, j) => {
+            const a =
+              (j / Math.max(3, Math.min(48, radialSegments))) * Math.PI * 2;
+            return [Math.cos(a), Math.sin(a)] as [number, number];
+          },
+        ),
       ]
     : [
         [
@@ -1142,7 +1171,14 @@ function unitBarGeometry(
         uvs.push(ring.length > 2 ? j / (ring.length - 1) : j, t);
         if (i < rows && j < ring.length - 1) {
           const k = base + i * ring.length + j;
-          indices.push(k, k + 1, k + ring.length, k + 1, k + ring.length + 1, k + ring.length);
+          indices.push(
+            k,
+            k + 1,
+            k + ring.length,
+            k + 1,
+            k + ring.length + 1,
+            k + ring.length,
+          );
         }
       }
     }
@@ -1230,7 +1266,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
     // A square of half-size `radius`; scaled per frame and turned to face the
     // camera in the vertex shader.
     return new THREE.PlaneGeometry(2, 2);
-  if (layer.kind === "decal" && (geometry.type === "plane" || geometry.type === "auto"))
+  if (
+    layer.kind === "decal" &&
+    (geometry.type === "plane" || geometry.type === "auto")
+  )
     // Flat dressing in local XY, scaled per frame to radius x length/2.
     return new THREE.PlaneGeometry(2, 2);
   // Flat carriers are unit-sized and scaled per frame, so a track on
@@ -1283,9 +1322,13 @@ function createMeshLayer(
   const noise = textures.resolve(material.noise?.textureId ?? null, doc, true);
   const vertexNoise = geometry.vertexNoise;
   const rampSpace =
-    material.ramp.space === "surface" ? 2 : material.ramp.space === "layerTime" ? 1 : 0;
+    material.ramp.space === "surface"
+      ? 2
+      : material.ramp.space === "layerTime"
+        ? 1
+        : 0;
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     uLayerU: { value: 0 },
     uRampKeyMode: { value: rampSpace },
@@ -1350,17 +1393,15 @@ function createMeshLayer(
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
   };
 
-  const shaderMaterial = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: surfaceVertexV2,
-    fragmentShader: surfaceFragmentV2,
+  const shaderMaterial = createV2NodeMaterial("surface", uniforms, {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
     ...blendingFor(material.blend),
   });
   const boltSeed = hashSeed(doc.seed, layer.id);
-  const bolt = geometry.type === "lightning" && geometry.lightning ? geometry : null;
+  const bolt =
+    geometry.type === "lightning" && geometry.lightning ? geometry : null;
   /**
    * The factor that turns the unit mesh into the authored size, read off the
    * *live* geometry every frame so a track on geometry.length or
@@ -1368,7 +1409,9 @@ function createMeshLayer(
    */
   const ribbon = isArcRibbon(layer);
   const flatCard =
-    geometry.type === "plane" || geometry.type === "auto" || geometry.type === "disc";
+    geometry.type === "plane" ||
+    geometry.type === "auto" ||
+    geometry.type === "disc";
   const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
     // The arc ribbon, the analytic shell and the bolt build themselves from the
     // live uniforms, so only transform.scale applies on top of them.
@@ -1512,7 +1555,8 @@ function createMeshLayer(
       const point = new THREE.Vector3();
       if (bolt) {
         // Strike-independent: the envelope every strike of this bolt fits in.
-        for (const p of lightningBounds(g, boltSeed)) push(p.applyMatrix4(matrix));
+        for (const p of lightningBounds(g, boltSeed))
+          push(p.applyMatrix4(matrix));
         return;
       }
       if (ringTorus) {
@@ -1605,7 +1649,8 @@ function createMeshLayer(
           // gated the same way the vertex shader gates it.
           const radius = r + 0.55 * amplitude * envelope * radius_ * 2.4;
           const gate = Math.min(1, Math.max(0, (a - 0.35) / 0.45));
-          const lick = radius_ * amplitude * 6.2 * 0.6 * gate * gate * (3 - 2 * gate);
+          const lick =
+            radius_ * amplitude * 6.2 * 0.6 * gate * gate * (3 - 2 * gate);
           const lift = length_ * 0.236 * a ** 2.3 + lick;
           const center = head
             .clone()
@@ -1667,10 +1712,7 @@ function spawnBoundsV2(
     extent.set(lateral, lateral, lateral);
     const axis = new THREE.Vector3().fromArray(shape.axis);
     if (axis.lengthSq() > 1e-10) {
-      const reach = axis
-        .clone()
-        .normalize()
-        .multiplyScalar(shape.length);
+      const reach = axis.clone().normalize().multiplyScalar(shape.length);
       if (shape.type === "line") lean.copy(reach);
       else
         extent.add(
@@ -1739,7 +1781,7 @@ function createLightLayer(layer: LayerV2): LayerObject {
 // ---------------------------------------------------------------------------
 
 export class VfxRuntimeV2 {
-  readonly renderer: THREE.WebGLRenderer;
+  readonly renderer: THREE.WebGPURenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(
     32,
@@ -1759,8 +1801,9 @@ export class VfxRuntimeV2 {
   private interactive = true;
   private readonly environment: EnvironmentV2;
   private post: PostStackV2;
+  private postSamples = 4;
   private readonly textures = new TextureCacheV2();
-  private readonly depthTarget: THREE.WebGLRenderTarget;
+  private readonly depthTarget: THREE.RenderTarget;
   private readonly group = new THREE.Group();
   private objects: LayerObject[] = [];
   private doc?: VfxDocumentV2;
@@ -1769,16 +1812,63 @@ export class VfxRuntimeV2 {
   /** Seeds the camera-shake noise; set from the document. */
   private shakeSeed = 1;
   private disposed = false;
+  private initialized = false;
+  private initialization: Promise<void>;
+  private deviceError: Error | null = null;
+  private removeDeviceErrorListener?: () => void;
+  private previewSample: { time: number; solo?: string; diagnostic: boolean } | null = null;
   private width = 1280;
   private height = 720;
 
-  constructor(readonly host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({
+  constructor(readonly host: HTMLElement, private readonly options: { preview?: boolean } = {}) {
+    this.renderer = new THREE.WebGPURenderer({
       antialias: false,
       alpha: false,
-      preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
+    // No silent WebGL fallback: evaluation must use the same WebGPU backend.
+    this.initialization = Promise.resolve().then(async () => {
+      if (!globalThis.navigator?.gpu)
+        throw new Error(
+          "WebGPU is unavailable. Use a supported browser in a secure context.",
+        );
+      await this.renderer.init();
+      this.initialized = true;
+      if (
+        !(this.renderer.backend as unknown as { isWebGPUBackend?: boolean })
+          .isWebGPUBackend
+      ) {
+        this.renderer.dispose();
+        this.initialized = false;
+        throw new Error(
+          "WebGPU is unavailable. Use a WebGPU-capable browser with hardware acceleration.",
+        );
+      }
+      if (this.disposed) {
+        this.renderer.dispose();
+        return;
+      }
+      // WebGPU validation errors are asynchronous and do not throw from render().
+      // Surface them through the preview's existing error/retry state instead of
+      // continuing to present a black canvas when a particle pipeline is rejected.
+      const device = (this.renderer.backend as unknown as { device: GPUDevice }).device;
+      const onGpuError = (event: GPUUncapturedErrorEvent) => {
+        if (!this.disposed)
+          this.deviceError = new Error(`WebGPU rendering failed: ${event.error.message}`);
+      };
+      device.addEventListener("uncapturederror", onGpuError);
+      this.removeDeviceErrorListener = () => device.removeEventListener("uncapturederror", onGpuError);
+    });
+    // Report through whenReady()/render(), including callers that mount then unmount.
+    void this.initialization.catch((error) => {
+      this.deviceError =
+        error instanceof Error ? error : new Error(String(error));
+    });
+    this.renderer.onDeviceLost = () => {
+      this.deviceError = new Error(
+        "The WebGPU device disconnected. Reload the scene.",
+      );
+    };
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.setPixelRatio(
@@ -1791,7 +1881,10 @@ export class VfxRuntimeV2 {
     // out of the bottom-right of the host. `webgpu-canvas` (the class the v1
     // runtime uses) pins it to width/height 100% of the host.
     this.renderer.domElement.className = "webgpu-canvas";
-    this.renderer.domElement.setAttribute("aria-label", "Generated VFX preview");
+    this.renderer.domElement.setAttribute(
+      "aria-label",
+      "Generated VFX preview",
+    );
     host.appendChild(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -1800,7 +1893,7 @@ export class VfxRuntimeV2 {
     this.controls.maxDistance = 60;
     this.scene.add(this.group);
     this.environment = createEnvironment(this.scene);
-    this.depthTarget = new THREE.WebGLRenderTarget(1, 1, {
+    this.depthTarget = new THREE.RenderTarget(1, 1, {
       depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
       depthBuffer: true,
     });
@@ -1808,23 +1901,24 @@ export class VfxRuntimeV2 {
       this.renderer,
       this.scene,
       this.camera,
-      this.width,
-      this.height,
     );
     this.resize();
   }
 
   setFeatureFlags(flags: Partial<FeatureFlagsV2>) {
+    this.previewSample = null;
     const aa = this.flags.aa;
     this.flags = { ...this.flags, ...flags };
-    if (this.doc) this.environment.apply(this.doc, this.scene, this.flags.ground);
+    if (this.doc)
+      this.environment.apply(this.doc, this.scene, this.flags.ground);
     if (aa !== this.flags.aa) this.rebuildPost();
   }
 
   /** Accepts a v2 document, or a v1 document which is upgraded on the way in. */
   setDocument(input: VfxDocumentV2 | VfxDocument) {
+    this.previewSample = null;
     const doc = isV2(input)
-      ? validateDocumentV2(input)
+      ? (this.options.preview ? validateWorkspaceDocumentV2(input) : validateDocumentV2(input))
       : upgradeDocument(input as VfxDocument);
     this.disposeObjects();
     this.doc = applyStyle(doc);
@@ -1834,7 +1928,13 @@ export class VfxRuntimeV2 {
       .map((layer, index) => {
         if (layer.kind === "light") return createLightLayer(layer);
         if (layer.kind === "particles")
-          return createParticleLayer(this.doc!, layer, index, this.textures, depth);
+          return createParticleLayer(
+            this.doc!,
+            layer,
+            index,
+            this.textures,
+            depth,
+          );
         return createMeshLayer(this.doc!, layer, index, this.textures);
       });
     const lights = this.objects
@@ -1845,7 +1945,10 @@ export class VfxRuntimeV2 {
           Math.max(...a.source.light!.intensity.keys.map((k) => k[1])),
       );
     for (const object of this.objects) {
-      if (object.source.kind === "light" && lights.indexOf(object) >= MAX_LIGHTS)
+      if (
+        object.source.kind === "light" &&
+        lights.indexOf(object) >= MAX_LIGHTS
+      )
         continue;
       this.group.add(object.object);
     }
@@ -1856,26 +1959,28 @@ export class VfxRuntimeV2 {
     this.rebuildPost();
     this.computeFraming();
     this.resetCamera();
+    this.resize(this.width, this.height);
   }
 
   /** Resolves once every texture the current document needs has loaded. */
   whenReady() {
-    return this.textures.whenReady();
+    return Promise.all([this.initialization, this.textures.whenReady()]).then(
+      () => {
+        this.previewSample = null;
+        if (this.deviceError) throw this.deviceError;
+      },
+    );
   }
 
   private rebuildPost() {
     const doc = this.doc;
     const samples = doc && doc.quality.aa !== "none" && this.flags.aa ? 4 : 0;
-    this.post.dispose();
-    this.post = createPostStack(
-      this.renderer,
-      this.scene,
-      this.camera,
-      this.width,
-      this.height,
-      samples,
-    );
-    if (doc) this.post.apply(doc, { post: this.flags.post, aa: this.flags.aa });
+    if (samples !== this.postSamples) {
+      this.postSamples = samples;
+      this.post.dispose();
+      this.post = createPostStack(this.renderer, this.scene, this.camera, samples);
+    }
+    if (doc) this.post.apply(doc, { post: this.flags.post, aa: this.flags.aa && !this.options.preview });
   }
 
   /**
@@ -1967,7 +2072,9 @@ export class VfxRuntimeV2 {
       this.frame = { center: new THREE.Vector3(0, 0.75, 0), distance: 6 };
       return;
     }
-    const size = box.getSize(new THREE.Vector3()).max(new THREE.Vector3(1e-3, 1e-3, 1e-3));
+    const size = box
+      .getSize(new THREE.Vector3())
+      .max(new THREE.Vector3(1e-3, 1e-3, 1e-3));
     const center = box.getCenter(new THREE.Vector3());
     const tan = Math.tan(THREE.MathUtils.degToRad(doc.camera.fov / 2));
     const framing = Math.max(0.1, doc.camera.framing);
@@ -2002,7 +2109,44 @@ export class VfxRuntimeV2 {
     this.controls.enabled = on;
   }
 
+  /** Fit the complete sampled effect into a CSS-pixel safe rectangle. The
+   * asymmetric projection keeps orbit centered on the effect, not the UI gap.
+   */
+  focus(area: { left: number; top: number; width: number; height: number }, solo?: string) {
+    if (!this.doc) return;
+    const box = new THREE.Box3();
+    for (const object of this.objects) {
+      const layer = object.source;
+      if (!layer.enabled || layer.kind === "light" || (solo && layer.id !== solo)) continue;
+      for (let i = 0; i <= 48; i++)
+        object.bounds(layer.start + (layer.end - layer.start) * i / 48, point => box.expandByPoint(point));
+    }
+    if (box.isEmpty()) box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const vertical = THREE.MathUtils.degToRad(this.doc.camera.fov) / 2;
+    const horizontal = Math.atan(Math.tan(vertical) * area.width / area.height);
+    const distance = Math.max(1, sphere.radius * 1.12 / Math.sin(Math.min(vertical, horizontal)));
+    const direction = this.camera.position.clone().sub(this.controls.target).normalize();
+    if (!direction.lengthSq()) direction.copy(directionOf(this.doc.camera.azimuth, this.doc.camera.elevation));
+    // Flush pending damping before taking ownership of the new pose.
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.target.copy(sphere.center);
+    this.controls.maxDistance = Math.max(60, distance * 2);
+    this.camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    this.camera.fov = this.doc.camera.fov;
+    this.camera.far = Math.max(this.camera.far, distance + sphere.radius * 2);
+    this.camera.setViewOffset(area.width, area.height, -area.left, -area.top, this.width, this.height);
+    this.controls.update();
+    this.controls.enableDamping = damping;
+    this.previewSample = null;
+  }
+
   resetCamera() {
+    this.camera.clearViewOffset();
+    this.camera.aspect = this.width / this.height;
+    this.previewSample = null;
     const doc = this.doc;
     if (!doc) return;
     const dir = directionOf(doc.camera.azimuth, doc.camera.elevation);
@@ -2020,24 +2164,29 @@ export class VfxRuntimeV2 {
     if (this.interactive) this.controls.update();
   }
 
-  resize(width = this.host.clientWidth || 1280, height = this.host.clientHeight) {
+  resize(
+    width = this.host.clientWidth || 1280,
+    height = this.host.clientHeight,
+  ) {
+    this.previewSample = null;
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height || Math.round((w * 9) / 16)));
     this.width = w;
     this.height = h;
+    // Interactive previews retain MSAA but cap raster work at one megapixel.
+    // Offscreen evaluation/export keeps the document AA and requested resolution.
+    if (this.options.preview)
+      this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5, Math.sqrt(1_000_000 / (w * h))));
     this.renderer.setSize(w, h, false);
-    this.post.setSize(w, h);
     const pixelWidth = this.renderer.domElement.width;
     const pixelHeight = this.renderer.domElement.height;
     this.depthTarget.setSize(pixelWidth, pixelHeight);
     for (const object of this.objects)
       object.object.traverse((node) => {
         const material = (node as THREE.Mesh).material as
-          | THREE.ShaderMaterial
-          | undefined;
+          V2NodeMaterial | undefined;
         const resolution = material?.uniforms?.uResolution?.value as
-          | THREE.Vector2
-          | undefined;
+          THREE.Vector2 | undefined;
         resolution?.set(pixelWidth, pixelHeight);
       });
     this.camera.aspect = w / h;
@@ -2094,7 +2243,9 @@ export class VfxRuntimeV2 {
           nz * strength * swing * 0.6,
           "XYZ",
         );
-        this.camera.quaternion.multiply(new THREE.Quaternion().setFromEuler(euler));
+        this.camera.quaternion.multiply(
+          new THREE.Quaternion().setFromEuler(euler),
+        );
         this.camera.position.addScaledVector(
           new THREE.Vector3(nx, ny, nz),
           strength * 0.35,
@@ -2106,11 +2257,37 @@ export class VfxRuntimeV2 {
   }
 
   render(time: number, solo?: string, diagnostic = false) {
+    this.renderSample(time, solo, diagnostic, false);
+  }
+
+  /** Paused previews draw only for edits, resize, seeking, or orbit damping.
+   * Explicit capture render() always submits a fresh frame for canvas readback.
+   */
+  renderPreview(time: number, solo?: string) {
+    this.renderSample(time, solo, false, true);
+  }
+
+  private renderSample(time: number, solo: string | undefined, diagnostic: boolean, skipUnchanged: boolean) {
     if (this.disposed || !this.doc) return;
-    // Advances damping toward whatever orbit/pan/zoom the user has done since
-    // the last frame. Skipped entirely in the deterministic capture path
-    // (setInteractive(false)) so captures never depend on controls state.
-    if (this.interactive) this.controls.update();
+    if (this.deviceError) throw this.deviceError;
+    if (!this.initialized)
+      throw new Error("Await whenReady() before rendering a V2 document.");
+    const cameraChanged = this.interactive && this.controls.update();
+    // No emitter/light is alive and the camera has no authored motion: all
+    // times in this interval produce the same environment image.
+    const sampleTime = skipUnchanged && !this.doc.camera.shake && !this.doc.camera.pushIn &&
+      !this.doc.layers.some(layer => layer.enabled && time >= layer.start && time < layer.end)
+      ? -Infinity : time;
+    if (skipUnchanged && !cameraChanged && this.previewSample?.time === sampleTime &&
+        this.previewSample.solo === solo && this.previewSample.diagnostic === diagnostic) return;
+    // Each explicit time sample is a complete frame, including multiple captures
+    // in one browser task. r186 advances NodeFrame only from its own RAF loop;
+    // without this seam FRAME-cached post nodes silently reuse the first sample.
+    // Keep this version-specific access here and cover it with seek/solo tests.
+    const nodes = (
+      this.renderer as unknown as { _nodes: { nodeFrame: { frameId: number } } }
+    )._nodes;
+    nodes.nodeFrame.frameId++;
     const move = this.applyCameraMove(time);
     const doc = this.doc;
     for (const object of this.objects) {
@@ -2121,7 +2298,7 @@ export class VfxRuntimeV2 {
     this.renderer.toneMappingExposure = doc.post.exposure;
     this.post.apply(doc, {
       post: this.flags.post && !diagnostic,
-      aa: this.flags.aa,
+      aa: this.flags.aa && !this.options.preview,
     });
 
     if (this.flags.softParticles && this.objects.some((o) => o.soft)) {
@@ -2139,9 +2316,10 @@ export class VfxRuntimeV2 {
       for (const object of hidden) object.visible = true;
     }
 
-    if (this.flags.post && !diagnostic) this.post.composer.render(0);
+    if (this.flags.post && !diagnostic) this.post.render();
     else this.renderer.render(this.scene, this.camera);
 
+    this.previewSample = { time: sampleTime, solo, diagnostic };
     if (move) {
       this.camera.position.copy(move.position);
       this.camera.quaternion.copy(move.quaternion);
@@ -2160,6 +2338,7 @@ export class VfxRuntimeV2 {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.removeDeviceErrorListener?.();
     this.controls.dispose();
     this.disposeObjects();
     this.environment.dispose();
@@ -2167,7 +2346,7 @@ export class VfxRuntimeV2 {
     this.textures.dispose();
     this.depthTarget.depthTexture?.dispose();
     this.depthTarget.dispose();
-    this.renderer.dispose();
+    if (this.initialized) this.renderer.dispose();
     this.renderer.domElement.remove();
   }
 }

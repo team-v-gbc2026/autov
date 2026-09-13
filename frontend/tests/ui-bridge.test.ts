@@ -194,6 +194,30 @@ test("environment sliders map onto post bloom and exposure", () => {
   assert.ok(Math.abs(ui.exposure - 50) <= 1);
 });
 
+test("resizing an emitter scales lifetime and spawn timing in both directions", () => {
+  const doc = createDocument();
+  const layer = doc.layers[0];
+  layer.emitter!.spawn.mode = "bursts";
+  layer.emitter!.spawn.bursts = [{ t: 0.1, count: 20 }, { t: 0.3, count: 20 }];
+  const original = structuredClone(layer);
+  const extended = applyLayerPatch(doc, layer.id, { end: layer.end * 2 });
+  const emitter = extended.layers[0].emitter!;
+  assert.deepEqual(emitter.life, original.emitter!.life.map(value => value * 2));
+  assert.equal(emitter.spawn.window, original.emitter!.spawn.window * 2);
+  assert.deepEqual(emitter.spawn.bursts.map(burst => burst.t), [0.2, 0.6]);
+  const restored = applyLayerPatch(extended, layer.id, { end: layer.end });
+  assert.deepEqual(restored.layers[0], original);
+  assert.deepEqual(doc.layers[0], original, "the source document stays detached");
+});
+
+test("moving an emitter preserves its lifetime and emission schedule", () => {
+  const doc = createDocument();
+  const layer = doc.layers[0];
+  const moved = applyLayerPatch(doc, layer.id, { start: 0.5, end: layer.end + 0.5 });
+  assert.equal(moved.layers[0].start, 0.5);
+  assert.deepEqual(moved.layers[0].emitter, layer.emitter);
+});
+
 test("duration changes keep every layer and edit inside the document", () => {
   const doc = load("beam");
   const shorter = applyDuration(doc, 1.5);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { webgpuBrowserOptions } from "./browser-options.mjs";
 // Reference-conditioned renderer response calibration — headless driver.
 //
 // Bundles the v2 runtime plus features-v2 into a browser page, renders one
@@ -443,14 +444,7 @@ if (!args.self) {
 
 process.env.PLAYWRIGHT_BROWSERS_PATH =
   process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
-const browser = await chromium.launch({
-  args: [
-    "--use-gl=angle",
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
-    "--ignore-gpu-blocklist",
-  ],
-});
+const browser = await chromium.launch(webgpuBrowserOptions());
 const problems = [];
 const started = Date.now();
 let report;

@@ -10,7 +10,8 @@ type Active = {
   host: HTMLElement;
   errors: string[];
   render: (time: number) => void;
-  renderer: { getContext(): WebGLRenderingContext | WebGL2RenderingContext };
+  renderer: { getContext(): unknown; domElement: HTMLCanvasElement };
+  webgpu?: boolean;
   dispose: () => void;
 };
 let active: Active | undefined;
@@ -36,6 +37,7 @@ export async function begin(
       errors,
       render: (time) => runtime.render(time),
       renderer: runtime.renderer,
+      webgpu: true,
       dispose: () => runtime.dispose(),
     };
   } else {
@@ -52,7 +54,8 @@ export async function begin(
       dispose: () => runtime.dispose(),
     };
   }
-  const gl = active.renderer.getContext(),
+  if (active!.webgpu) return { width: 960, height: 540, renderer: "WebGPU" };
+  const gl = active!.renderer.getContext() as WebGLRenderingContext,
     debug = gl.getExtension("WEBGL_debug_renderer_info");
   return {
     width: 960,
@@ -67,7 +70,15 @@ export function frame(time: number) {
   active.render(time);
   if (active.errors.length) throw Error(active.errors.join("; "));
   // Read the completed framebuffer directly so the capture path can report GL errors.
-  const gl = active.renderer.getContext();
+  if (active.webgpu) {
+    const source = active.renderer.domElement;
+    const canvas = document.createElement("canvas");
+    canvas.width = source.width;
+    canvas.height = source.height;
+    canvas.getContext("2d")!.drawImage(source, 0, 0);
+    return canvas.toDataURL("image/png");
+  }
+  const gl = active.renderer.getContext() as WebGLRenderingContext;
   if (gl.isContextLost()) throw Error("Video capture graphics context lost");
   gl.finish();
   const width = gl.drawingBufferWidth,

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { webgpuBrowserOptions } from "./browser-options.mjs";
 // Headless verification for the v2 renderer.
 //
 // Bundles a tiny entry that imports runtime-v2 plus a fixture, serves it (with
@@ -153,14 +154,7 @@ const port = server.address().port;
 process.env.PLAYWRIGHT_BROWSERS_PATH =
   process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
 
-const browser = await chromium.launch({
-  args: [
-    "--use-gl=angle",
-    "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader",
-    "--ignore-gpu-blocklist",
-  ],
-});
+const browser = await chromium.launch(webgpuBrowserOptions());
 const page = await browser.newPage({
   viewport: { width: 1280, height: 720 },
   deviceScaleFactor: 1,
