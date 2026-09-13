@@ -22,6 +22,11 @@ const cards = [
     body: "Preview the studio layout, emitter controls, and timeline with fixture data.",
   },
   {
+    href: "/dev/vfx-studio-v2",
+    title: "VFX studio on v2",
+    body: "Product studio on a real v2 exemplar — ?fixture=<id>.",
+  },
+  {
     href: "/dev/vfx-v2",
     title: "Toolbox v2 gallery",
     body: "Side-by-side v1/v2 viewports for every fixtures/v2 exemplar and locally generated benchmark run.",

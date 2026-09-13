@@ -56,7 +56,11 @@ type StudioProps = {
   initialDocument?: VfxDocumentV2;
 };
 
-function downloadDocument(document: VfxUiDocument) {
+/**
+ * Export the autov.lab/2 document when one exists — that is the real, lossless
+ * effect — and the UI-dialect document only when the timeline is UI-only.
+ */
+function downloadDocument(document: VfxUiDocument | VfxDocumentV2) {
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(document, null, 2)], {
       type: "application/json",
@@ -64,7 +68,8 @@ function downloadDocument(document: VfxUiDocument) {
   );
   const anchor = window.document.createElement("a");
   anchor.href = url;
-  anchor.download = `${document.name.toLowerCase().replaceAll(" ", "-")}.json`;
+  // Generated v2 names are free text, so keep the filename to safe characters.
+  anchor.download = `${document.name.toLowerCase().replaceAll(" ", "-").replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "effect"}.json`;
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
@@ -246,7 +251,7 @@ export default function Studio({
           label="Export effect JSON"
           onClick={() => {
             setEnvironmentOpen(false);
-            downloadDocument(vfxDocument);
+            downloadDocument(doc ?? vfxDocument);
           }}
         />
       </div>
