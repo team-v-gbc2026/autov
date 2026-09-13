@@ -8,6 +8,7 @@ export async function createClient() {
   const { url, key } = supabaseConfig();
   return createServerClient(url, key, {
     cookies: {
+      encode: "tokens-only",
       getAll: () => filterSupabaseCookies(store.getAll(), url),
       setAll(values) {
         try { values.forEach(({ name, value, options }) => store.set(name, value, options)); }

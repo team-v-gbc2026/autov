@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBoardLayout, referenceName } from "./studio/board/board-store";
 import ParticleScene from "./particle-scene";
 import StudioHeader from "./studio/studio-header";
@@ -9,6 +9,8 @@ import ChatPanel from "./studio/chat-panel";
 import type { ChatPanelHandle } from "./studio/chat-panel";
 import PlaybackPanel from "./studio/playback-panel";
 import PanelToggle from "./studio/panel-toggle";
+import Icon from "./studio/icon";
+import IconButton from "./studio/icon-button";
 import { usePlayback } from "./studio/use-playback";
 import { useReferences } from "./studio/use-references";
 import type {
@@ -18,13 +20,12 @@ import type {
   EffectVersion,
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
+import EmitterControls from "./vfx-studio/emitter-controls";
 import {
   cloneSample,
   createEmitter,
   normalizeVfxDocument,
-  PARAMETER_NAMES,
   type VfxLayer,
-  type VfxSampleId,
   type VfxUiDocument,
 } from "./vfx-studio/ui-model";
 import "./vfx-studio/studio-ui.css";
@@ -59,6 +60,27 @@ export default function Studio({
   initialGenerations,
   versions,
 }: StudioProps) {
+  const [environmentOpen, setEnvironmentOpen] = useState(false);
+  const environmentPanel = useRef<HTMLElement>(null);
+  const environmentTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!environmentOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!environmentPanel.current?.contains(event.target as Node)) setEnvironmentOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setEnvironmentOpen(false);
+        environmentTrigger.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [environmentOpen]);
   const [left, setLeft] = useState(true);
   const [right, setRight] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -67,7 +89,7 @@ export default function Studio({
     () => cloneSample("amber").layers[1].id,
   );
   const [soloLayerId, setSoloLayerId] = useState<string>();
-  const [vfxNotice, setVfxNotice] = useState("");
+  const [importError, setImportError] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
   const playback = usePlayback(vfxDocument.duration);
   const references = useReferences(project.id, userId, initialReferences);
@@ -86,14 +108,6 @@ export default function Studio({
       layers: document.layers.map(layer => layer.id === id ? update(layer) : layer),
     }));
   };
-  const selectSample = (id: VfxSampleId) => {
-    const next = cloneSample(id);
-    setVfxDocument(next);
-    setSelectedLayerId(next.layers[1]?.id || next.layers[0].id);
-    setSoloLayerId(undefined);
-    setVfxNotice(`${next.name} sample loaded.`);
-    playback.setTime(0);
-  };
   const addEmitter = () => {
     const emitter = createEmitter(vfxDocument.layers.length + 1, vfxDocument.duration);
     setVfxDocument(document => ({
@@ -103,111 +117,86 @@ export default function Studio({
     setSelectedLayerId(emitter.id);
     setSoloLayerId(undefined);
   };
-  const effectControls = (
-    <div className="lab-controls lab-emitter-controls">
-      <h3 className="lab-section-label lab-wide">
-        {selectedLayer.name} · {selectedLayer.kind} · {selectedLayer.start.toFixed(2)}–{selectedLayer.end.toFixed(2)} s
-      </h3>
+  const effectControls = <EmitterControls layer={selectedLayer} onChange={patch => updateLayer(selectedLayer.id, layer => ({ ...layer, ...patch }))} />;
+  const environmentControls = (
+    <section ref={environmentPanel} className="glass lab-environment-strip" aria-label="Scene controls"
+      onBlur={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEnvironmentOpen(false);
+      }}
+    >
       <button
+        ref={environmentTrigger}
         type="button"
-        className="lab-action lab-wide"
-        onClick={() => {
-          setRight(true);
-          chat.current?.editLayer(selectedLayer.id);
-        }}
+        className="lab-environment-trigger"
+        aria-expanded={environmentOpen}
+        aria-controls="environment-settings"
+        onClick={() => setEnvironmentOpen(open => !open)}
       >
-        Edit this emitter in chat ↗
+        <Icon name="sliders" size={14} />
+        Environment
+        <span className={environmentOpen ? "rotated" : ""}><Icon name="chevron" size={14} /></span>
       </button>
-      <label className="lab-field">
-        Color
-        <input
-          type="color"
-          aria-label="Emitter color"
-          value={selectedLayer.color}
-          onChange={event => updateLayer(selectedLayer.id, layer => ({ ...layer, color: event.target.value }))}
-        />
-      </label>
-      <label className="lab-field">
-        Secondary color
-        <input
-          type="color"
-          aria-label="Emitter secondary color"
-          value={selectedLayer.secondaryColor}
-          onChange={event => updateLayer(selectedLayer.id, layer => ({ ...layer, secondaryColor: event.target.value }))}
-        />
-      </label>
-      <label className="lab-field">
-        Blend
-        <select
-          aria-label="Emitter blend"
-          value={selectedLayer.blend}
-          onChange={event => updateLayer(selectedLayer.id, layer => ({
-            ...layer,
-            blend: event.target.value as VfxLayer["blend"],
-          }))}
-        >
-          <option value="additive">Additive</option>
-          <option value="normal">Normal</option>
-        </select>
-      </label>
-      {PARAMETER_NAMES.map(name => (
-        <label className="lab-field" key={name}>
-          <span>{name}<output>{(selectedLayer.parameters[name] / 100).toFixed(2)}</output></span>
+      <div id="environment-settings" className="lab-environment-panel" hidden={!environmentOpen}>
+        <label className="lab-environment-field">
+          Bloom
           <input
-            aria-label={`Emitter ${name.toLowerCase()}`}
             type="range"
+            aria-label="Bloom"
             min="0"
             max="100"
-            value={selectedLayer.parameters[name]}
-            onChange={event => updateLayer(selectedLayer.id, layer => ({
-              ...layer,
-              parameters: {
-                ...layer.parameters,
-                [name]: Number(event.target.value),
-              },
+            id="environment-bloom"
+            value={vfxDocument.environment.bloom}
+            onChange={event => setVfxDocument(document => ({
+              ...document,
+              environment: { ...document.environment, bloom: Number(event.target.value) },
             }))}
           />
+          <output htmlFor="environment-bloom">{vfxDocument.environment.bloom}</output>
         </label>
-      ))}
-    </div>
-  );
-  const environmentControls = (
-    <div className="lab-shelf">
-      <label className="lab-field">
-        Bloom
-        <input
-          type="range"
-          aria-label="Bloom"
-          min="0"
-          max="100"
-          value={vfxDocument.environment.bloom}
-          onChange={event => setVfxDocument(document => ({
+        <label className="lab-environment-field">
+          Exposure
+          <input
+            type="range"
+            aria-label="Exposure"
+            min="0"
+            max="100"
+            id="environment-exposure"
+            value={vfxDocument.environment.exposure}
+            onChange={event => setVfxDocument(document => ({
+              ...document,
+              environment: { ...document.environment, exposure: Number(event.target.value) },
+            }))}
+          />
+          <output htmlFor="environment-exposure">{vfxDocument.environment.exposure}</output>
+        </label>
+        <IconButton
+          name="reset"
+          label="Reset environment"
+          onClick={() => setVfxDocument(document => ({
             ...document,
-            environment: { ...document.environment, bloom: Number(event.target.value) },
+            environment: { bloom: 64, exposure: 48 },
           }))}
         />
-      </label>
-      <label className="lab-field">
-        Exposure
-        <input
-          type="range"
-          aria-label="Exposure"
-          min="0"
-          max="100"
-          value={vfxDocument.environment.exposure}
-          onChange={event => setVfxDocument(document => ({
-            ...document,
-            environment: { ...document.environment, exposure: Number(event.target.value) },
-          }))}
+      </div>
+      <div className="lab-scene-export">
+        <IconButton
+          name="upload"
+          label="Import effect JSON"
+          onClick={() => {
+            setEnvironmentOpen(false);
+            importInput.current?.click();
+          }}
         />
-      </label>
-      <button type="button" className="lab-action" onClick={() => setVfxDocument(document => ({
-        ...document,
-        environment: { bloom: 64, exposure: 48 },
-      }))}>
-        Reset environment
-      </button>
-    </div>
+        <IconButton
+          name="download"
+          label="Export effect JSON"
+          onClick={() => {
+            setEnvironmentOpen(false);
+            downloadDocument(vfxDocument);
+          }}
+        />
+      </div>
+    </section>
   );
 
   return (
@@ -217,40 +206,13 @@ export default function Studio({
       <div className="viewport-grid" />
       <div className="lab-preview-stage">
         <ParticleScene time={playback.time} />
-        <div className="lab-preview-caption">
-          <span>LIVE PREVIEW</span>
-          <strong>{vfxDocument.name}</strong>
-          <small>{soloLayerId ? `${selectedLayer.name} · SOLO` : `${vfxDocument.layers.filter(layer => layer.enabled).length} EMITTERS VISIBLE`}</small>
-        </div>
       </div>
       <StudioHeader
         project={project}
         email={email}
-        actions={
-          <>
-            <select
-              aria-label="Load VFX sample"
-              className="lab-mode"
-              defaultValue=""
-              onChange={event => {
-                selectSample(event.target.value as VfxSampleId);
-                event.target.value = "";
-              }}
-            >
-              <option value="" disabled>Samples</option>
-              <option value="amber">Amber rupture</option>
-              <option value="plasma">Plasma bloom</option>
-              <option value="ember">Ember trail</option>
-            </select>
-            <button type="button" className="lab-action" onClick={() => importInput.current?.click()}>
-              Import JSON
-            </button>
-            <button type="button" className="lab-action" onClick={() => downloadDocument(vfxDocument)}>
-              JSON ↓
-            </button>
-          </>
-        }
+
       />
+      {environmentControls}
       <input
         ref={importInput}
         hidden
@@ -261,16 +223,16 @@ export default function Studio({
           const file = event.target.files?.[0];
           event.target.value = "";
           if (!file) return;
+          setImportError("");
           try {
             if (file.size > 1_000_000) throw new Error("Effect JSON must be under 1 MB.");
             const next = normalizeVfxDocument(JSON.parse(await file.text()));
             setVfxDocument(next);
             setSelectedLayerId(next.layers[0].id);
             setSoloLayerId(undefined);
-            setVfxNotice(`${file.name} imported.`);
             playback.setTime(0);
           } catch (error) {
-            setVfxNotice(error instanceof Error ? error.message : "Could not import this JSON file.");
+            setImportError(error instanceof Error ? error.message : "Could not import this JSON file.");
           }
         }}
       />
@@ -289,7 +251,7 @@ export default function Studio({
       </div>
       <div hidden={!right}>
         <ChatPanel
-          key={`${project.id}-${vfxDocument.name}-${vfxDocument.duration}`}
+          key={`${project.id}-${vfxDocument.name}`}
           projectId={project.id}
           initialGenerations={initialGenerations}
           versions={versions}
@@ -302,24 +264,27 @@ export default function Studio({
           onCollapse={() => setRight(false)}
           vfx={{
             document: vfxDocument,
-            selectedId: selectedLayer.id,
-            onSelect: setSelectedLayerId,
-            onScopedEdit: (layerId, edit) => updateLayer(layerId, layer => ({
-              ...layer,
-              edits: [...layer.edits, edit],
-            })),
           }}
         />
       </div>
       <PlaybackPanel
         playback={playback}
         duration={vfxDocument.duration}
-        name={vfxDocument.name}
+        minDuration={Math.max(0.01, ...vfxDocument.layers.flatMap(layer => [layer.end, ...layer.edits.map(edit => edit.end)]))}
+        onDurationChange={duration => {
+          playback.setPlaying(false);
+          playback.setTime(Math.min(playback.time, duration));
+          setVfxDocument(document => ({ ...document, duration }));
+        }}
         tracks={
           <EmitterTimeline
             layers={vfxDocument.layers}
             duration={vfxDocument.duration}
             time={playback.time}
+            onSeek={time => {
+              playback.setPlaying(false);
+              playback.setTime(time);
+            }}
             selected={selectedLayer.id}
             solo={soloLayerId}
             onSelect={setSelectedLayerId}
@@ -328,18 +293,25 @@ export default function Studio({
               setSoloLayerId(soloLayerId === id ? undefined : id);
             }}
             onToggle={id => updateLayer(id, layer => ({ ...layer, enabled: !layer.enabled }))}
+            editorControls={effectControls}
+            onTag={id => {
+              const layer = vfxDocument.layers.find(item => item.id === id);
+              if (!layer) return;
+              setRight(true);
+              chat.current?.mentionEmitter(layer);
+            }}
             onAdd={addEmitter}
+            onTimingChange={(id, edge, value) => {
+              playback.setPlaying(false);
+              updateLayer(id, layer => ({ ...layer, [edge]: value }));
+            }}
           />
         }
-        effectControls={effectControls}
-        environmentLabel="Environment"
-      >
-        {environmentControls}
-      </PlaybackPanel>
-      <footer className="viewport-footer">
-        <span><i /> {vfxDocument.layers.length} emitters · UI controls only</span>
-        <span>{vfxNotice || "VFX generation logic is not included"}</span>
-      </footer>
+      />
+      {importError && <div className="lab-import-error" role="alert">
+        <span>{importError}</span>
+        <IconButton name="close" label="Dismiss import error" onClick={() => setImportError("")} />
+      </div>}
     </main>
   );
 }

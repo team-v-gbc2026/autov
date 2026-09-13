@@ -7,25 +7,19 @@ import type { Playback } from "./use-playback";
 export default function PlaybackPanel({
   playback,
   duration = 8,
-  name = "Particle study",
-  children,
+  minDuration,
+  onDurationChange,
   tracks,
-  effectControls,
-  environmentLabel,
 }: {
   playback: Playback;
   duration?: number;
-  name?: string;
-  children?: ReactNode;
+  minDuration: number;
+  onDurationChange: (duration: number) => void;
   tracks?: ReactNode;
-  effectControls?: ReactNode;
-  environmentLabel?: string;
 }) {
   const { playing, setPlaying, time, setTime, loop, setLoop } = playback;
-  const [controls, setControls] = useState<false | "effect" | "environment">(
-    false,
-  );
   const [timelineOpen, setTimelineOpen] = useState(true);
+  const [durationError, setDurationError] = useState("");
   const panel = useRef<HTMLElement>(null);
   const hasTracks = Boolean(tracks);
 
@@ -92,7 +86,39 @@ export default function PlaybackPanel({
             </div>
             <span className="time-code">
               {time.toFixed(2).padStart(5, "0")} {" "}
-              <span>/ {duration.toFixed(2).padStart(5, "0")}</span>
+              <span>/</span>
+              <input
+                key={duration}
+                className="lab-duration-input"
+                aria-label="Total effect duration in seconds"
+                title={`Total duration · minimum ${minDuration.toFixed(2)} s to include all emitters and edits`}
+                type="number"
+                required
+                aria-describedby={durationError ? "duration-error" : undefined}
+                min={minDuration}
+                max={60}
+                step="any"
+                defaultValue={duration.toFixed(2)}
+                onBlur={event => {
+                  const value = Number(event.target.value);
+                  if (event.target.value.trim() && Number.isFinite(value) && value >= minDuration && value <= 60) {
+                    setDurationError("");
+                    onDurationChange(value);
+                  } else {
+                    event.target.value = duration.toFixed(2);
+                    setDurationError(`Use ${minDuration.toFixed(2)}–60 seconds. Shorten emitter bars or edits first to use a shorter duration.`);
+                  }
+                }}
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    if (event.currentTarget.reportValidity()) event.currentTarget.blur();
+                  } else if (event.key === "Escape") {
+                    event.currentTarget.value = duration.toFixed(2);
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+              <span>s</span>
             </span>
             <button
               className="icon-button timeline-collapse"
@@ -105,72 +131,8 @@ export default function PlaybackPanel({
               <Icon name="chevron" size={15} />
             </button>
           </div>
-          <div className="timeline">
-            <div className="time-ruler">
-              {[0, duration / 4, duration / 2, duration * 0.75, duration].map(
-                (value) => <span key={value}>{value.toFixed(2)}</span>,
-              )}
-            </div>
-            <div className="timeline-track">
-              <div className="effect-clip">
-                <span>{name}</span>
-                <span>{duration.toFixed(1)}s</span>
-              </div>
-              <div
-                className="playhead"
-                style={{ left: `${(time / duration) * 100}%` }}
-              />
-              <input
-                aria-label="Playback position"
-                type="range"
-                min="0"
-                max={duration}
-                step="0.01"
-                value={time}
-                onChange={(e) => setTime(Number(e.target.value))}
-              />
-            </div>
-            {tracks}
-          </div>
-          <div className="lab-control-tabs">
-            <button
-              className="controls-toggle"
-              aria-expanded={controls === "effect"}
-              aria-controls="effect-controls"
-              onClick={() =>
-                setControls(controls === "effect" ? false : "effect")
-              }
-            >
-              <span>
-                <Icon name="sliders" size={14} /> Effect controls
-              </span>
-              <span className={controls === "effect" ? "rotated" : ""}>
-                <Icon name="chevron" size={15} />
-              </span>
-            </button>
-            {environmentLabel && (
-              <button
-                className="controls-toggle"
-                aria-expanded={controls === "environment"}
-                aria-controls="effect-controls"
-                onClick={() =>
-                  setControls(
-                    controls === "environment" ? false : "environment",
-                  )
-                }
-              >
-                <span>{environmentLabel}</span>
-                <Icon name="sliders" size={14} />
-              </button>
-            )}
-          </div>
-          {controls && (
-            <div id="effect-controls" className="control-shelf">
-              {(controls === "effect"
-                ? effectControls || children
-                : children) || <p>No effect controls available.</p>}
-            </div>
-          )}
+          {durationError && <p id="duration-error" className="lab-duration-error" role="status">{durationError}</p>}
+          <div className="timeline">{tracks}</div>
         </section>
       )}
     </>

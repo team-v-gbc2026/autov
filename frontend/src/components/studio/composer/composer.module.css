@@ -2,7 +2,7 @@
 .editor :global(.tiptap) { min-height: 85px; max-height: 220px; overflow-y: auto; outline: none; font-size: 12px; color: #d0d8de; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; padding: 2px 0 10px; }
 .editor :global(.tiptap p) { margin: 0; }
 .editor :global(.tiptap p.is-editor-empty:first-child::before) { color: #6c7982; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
-.editor :global(.tiptap:has(p:only-child > br:only-child)::before) { content: "Describe your effect... @ to reference"; color: #6c7982; position: absolute; pointer-events: none; font-size: 10px; }
+.editor :global(.tiptap:has(p:only-child > br:only-child)::before) { content: "Describe your effect... @ reference, # emitter"; color: #6c7982; position: absolute; pointer-events: none; font-size: 10px; }
 .tools { display: flex; align-items: center; gap: 3px; }
 .tools > span { font-size: 9px; color: #87949c; }
 .error { font-size: 10px; line-height: 1.6; margin: 8px 0 0; color: #d0a6a0; }
@@ -11,3 +11,5 @@
 .picker > button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px; border-radius: 5px; font-size: 11px; color: #bbc7ce; }
 .picker > button:hover, .picker > button.active { background: #ffffff09; }
 .picker img { object-fit: cover; border-radius: 4px; }.picker button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.picker small { margin-left: auto; color: #788893; }.picker p { font-size: 11px; color: #8a989f; padding: 10px; }
+
+.emitterDot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; margin: 0 10px; }

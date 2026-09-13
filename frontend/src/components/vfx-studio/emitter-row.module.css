@@ -1,0 +1,14 @@
+.panel { font-family: var(--font-geist-sans, sans-serif); z-index: 30; padding: 4px; border: 1px solid #ffffff20; border-radius: 7px; background: #202427ed; backdrop-filter: blur(22px); box-shadow: 0 12px 32px #0005; }
+.actions { display: flex; gap: 3px; }
+.editor { width: min(320px, calc(100vw - 24px)); max-height: min(260px, calc(100dvh - 24px)); display: flex; flex-direction: column; padding: 0; border-radius: 11px; background: #1c2023f5; box-shadow: 0 20px 60px #0007, 0 2px 8px #0004; }
+.heading { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 10px; padding: 8px 9px 8px 12px; border-bottom: 1px solid #ffffff10; }
+.heading > div { min-width: 0; }
+.heading h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e0e2dd; font-size: 13px; font-weight: 500; letter-spacing: -.2px; }
+.controls { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.controls::-webkit-scrollbar { display: none; }
+
+.dragHandle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 4px 0; color: inherit; text-align: left; cursor: grab; touch-action: none; user-select: none; }
+.dragHandle:active { cursor: grabbing; }
+.dragHandle:focus-visible { outline: 2px solid #c9b184; outline-offset: 2px; border-radius: 3px; }
+.dragHandle::before { content: "⠿"; color: #738086; font-size: 16px; }
+.dragHandle span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
