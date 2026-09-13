@@ -1,6 +1,19 @@
 /* VFX studio presentation and interaction state. Generation stays outside this file. */
-.lab { --timeline-height: 250px; }
+.lab { --timeline-height: 250px; --timeline-bottom: max(12px, env(safe-area-inset-bottom, 0px)); --studio-header-height: 76px; --environment-height: 36px; }
+.lab .transport { bottom: var(--timeline-bottom); }
+.lab .chat-panel { bottom: var(--timeline-bottom); }
+.lab .lab-environment-strip { position: absolute; top: calc(var(--studio-header-height) + 20px); left: var(--left-space); right: var(--right-space); max-width: 900px; margin: 0 auto; height: var(--environment-height); z-index: 3; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 8px; }
+.lab .lab-environment-trigger { display: flex; align-items: center; gap: 9px; flex-shrink: 0; height: 28px; padding: 0 9px; border: 1px solid #ffffff0d; border-radius: 5px; background: #ffffff03; color: #b9b4aa; font-size: 11px; }
+.lab .lab-scene-export { display: flex; align-items: center; margin-left: auto; padding-left: 5px; border-left: 1px solid #ffffff0d; }
+.lab .lab-environment-trigger:hover, .lab .lab-environment-trigger[aria-expanded="true"] { background: #ffffff08; color: #e0d8c9; }
+.lab .lab-environment-trigger > span { display: flex; margin-left: auto; }
+.lab .lab-environment-panel { position: absolute; top: calc(100% + 6px); left: 0; width: min(320px, 100%); display: grid; gap: 20px; padding: 18px; border: 1px solid #ffffff19; border-radius: 8px; background: var(--panel); backdrop-filter: blur(22px); box-shadow: 0 16px 40px #0006; }
+.lab .lab-environment-panel[hidden] { display: none; }
+.lab .lab-environment-field { display: grid; grid-template-columns: 56px minmax(0, 1fr) 3ch; align-items: center; gap: 10px; color: #a6afb1; font-size: 10px; }
+.lab .lab-environment-field input[type="range"] { width: 100%; height: 24px; margin: 0; cursor: pointer; }
+.lab .lab-environment-field output { min-width: 3ch; color: #d2b47e; font: 9px var(--font-geist-mono), monospace; text-align: right; }
 .lab .header-actions { max-width: 55%; }
+.lab .lab-import-error { position: absolute; top: calc(var(--studio-header-height) + 8px); right: 20px; z-index: 12; display: flex; align-items: center; gap: 12px; max-width: min(360px, calc(100% - 40px)); padding: 10px 12px; border: 1px solid #ffffff20; border-radius: 7px; background: #25201f; color: #d6aca4; font-size: 11px; }
 .lab .lab-action { padding: 8px 10px; border: 1px solid #ffffff17; border-radius: 5px; font-size: 10px; white-space: nowrap; }
 .lab .lab-action:hover:not(:disabled) { background: #ffffff09; }
 .lab .lab-mode,
@@ -13,61 +26,56 @@
 /* Open timeline/control shelves take real space; the renderer observes and fits this box. */
 .lab .lab-preview-stage {
   position: absolute;
-  top: 76px;
+  top: calc(var(--studio-header-height) + var(--environment-height) + 28px);
   right: var(--right-space);
-  bottom: calc(var(--timeline-height, 250px) + 70px);
+  bottom: max(40px, calc(var(--timeline-height, 250px) + var(--timeline-bottom) + 12px));
   left: var(--left-space);
   min-height: 100px;
   transition: inset 180ms ease;
 }
 .lab .lab-preview-stage .scene-container { inset: 0; }
-.lab .lab-preview-caption {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 2;
-  display: grid;
-  gap: 7px;
-  min-width: 170px;
-  padding: 12px 16px;
-  border: 1px solid #ffffff0d;
-  border-radius: 8px;
-  background: #11131580;
-  box-shadow: 0 12px 35px #0004;
-  pointer-events: none;
-  backdrop-filter: blur(10px);
-}
-.lab .lab-preview-caption span,
-.lab .lab-preview-caption small { color: #817b71; font-family: var(--font-geist-mono), monospace; font-size: 7px; letter-spacing: 1.2px; }
-.lab .lab-preview-caption strong { color: #d9d7d2; font-size: 12px; font-weight: 450; }
-
-.lab .lab-control-tabs { display: flex; }
-.lab .lab-control-tabs > button { flex: 1; min-width: 0; }
-.lab .lab-control-tabs > button[aria-expanded="true"] { background: #ffffff08; color: #e0e7e5; }
-.lab .lab-emitter-heading { display: flex; align-items: center; justify-content: space-between; margin: 7px 0 5px; color: #778187; font-family: var(--font-geist-mono), monospace; font-size: 7px; letter-spacing: .8px; text-transform: uppercase; }
-.lab .lab-add-emitter { padding: 4px 7px; border: 1px solid #ffffff12; border-radius: 4px; color: #9aa3a7; font-family: var(--font-geist-sans), sans-serif; font-size: 8px; letter-spacing: 0; text-transform: none; }
+.lab .lab-emitter-heading { display: flex; align-items: center; justify-content: space-between; min-width: 0; padding: 0 8px; border-right: 1px solid #ffffff0c; color: #a2abad; font-size: 9px; }
+.lab .lab-emitter-count { margin-left: 4px; color: #69767c; font: 8px var(--font-geist-mono), monospace; }
+.lab .lab-add-emitter { display: grid; place-items: center; width: 22px; height: 24px; padding: 0; border-radius: 4px; color: #9aa3a7; }
 .lab .lab-add-emitter:hover { background: #ffffff08; }
-.lab .lab-emitter-tracks { max-height: 116px; overflow: auto; scrollbar-width: thin; }
-.lab .lab-emitter-row { display: grid; grid-template-columns: 145px minmax(0, 1fr); height: 29px; border-radius: 4px; }
+.lab .timeline { --emitter-label-width: 170px; }
+.lab .lab-timeline-scroll { max-height: 148px; overflow: auto; scrollbar-width: none; }
+.lab .lab-timeline-scroll::-webkit-scrollbar { display: none; }
+.lab .lab-timeline-body { position: relative; }
+.lab .lab-emitter-tracks { position: relative; z-index: 0; }
+.lab .lab-ruler-row { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: var(--emitter-label-width) minmax(0, 1fr); background: #1b1e20; }
+.lab .time-ruler { position: relative; height: 32px; align-items: center; padding: 0 0 8px; }
+.lab .time-ruler input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; touch-action: none; }
+.lab .time-ruler:focus-within { outline: 1px solid #d2b47e; outline-offset: -1px; border-radius: 3px; }
+.lab .lab-playhead-area { position: absolute; top: 0; bottom: 0; left: var(--emitter-label-width); right: 0; z-index: 5; pointer-events: none; }
+.lab .lab-timeline-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: #f2e6d1; transform: translateX(-.5px); }
+.lab .lab-timeline-playhead::before { content: ""; position: sticky; top: 0; display: block; margin-left: -3px; width: 7px; height: 7px; background: #f2e6d1; clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); }
+.lab .lab-emitter-row { display: grid; grid-template-columns: var(--emitter-label-width) minmax(0, 1fr); height: 29px; border-radius: 4px; }
 .lab .lab-emitter-row.selected { background: #ffffff0c; }
-.lab .lab-emitter-label { display: flex; align-items: center; min-width: 0; padding-right: 8px; gap: 2px; }
+.lab .lab-emitter-label { display: flex; align-items: center; min-width: 0; padding: 0 7px 0 3px; gap: 4px; border-left: 2px solid transparent; border-right: 1px solid #ffffff0c; background: #11141640; }
 .lab .lab-emitter-label button { padding: 3px; }
-.lab .lab-layer-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+.lab .lab-layer-dot { display: inline-block; flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; }
+.lab .lab-emitter-visibility { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 24px; border-radius: 4px; color: #8b969b; }
+.lab .lab-emitter-visibility:hover { background: #ffffff08; }
+.lab .lab-emitter-label[data-enabled="false"] .lab-emitter-name, .lab .lab-emitter-label[data-enabled="false"] .lab-layer-dot { opacity: .4; }
 .lab .lab-emitter-name { flex: 1; min-width: 0; overflow: hidden; font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.lab .lab-tiny { color: #7e7466; font-size: 8px; }
-.lab .lab-tiny[aria-pressed="true"] { color: #f0c47c; }
+.lab .lab-emitter-solo { display: grid; place-items: center; flex-shrink: 0; width: 20px; height: 24px; border-radius: 4px; opacity: 0; pointer-events: none; color: #929b9e; }
+.lab .lab-emitter-row:hover .lab-emitter-solo, .lab .lab-emitter-row:focus-within .lab-emitter-solo, .lab .lab-emitter-solo[aria-pressed="true"] { opacity: 1; pointer-events: auto; }
+.lab .lab-emitter-solo[aria-pressed="true"] { color: #f0c47c; background: #d2b47e15; }
 .lab .lab-emitter-lane { position: relative; background: repeating-linear-gradient(90deg, #ffffff09 0 1px, transparent 1px 25%); }
 .lab .lab-emitter-bar { position: absolute; top: 4px; min-width: 2px; height: 21px; overflow: hidden; padding: 0 4px; border: 1px solid; border-radius: 3px; background: #ffffff10; font-size: 8px; text-align: left; white-space: nowrap; }
 .lab .lab-emitter-bar[aria-pressed="true"] { background: #ffffff22; }
+.lab .lab-emitter-handle { position: absolute; top: 2px; width: 10px; height: 25px; padding: 0; z-index: 4; cursor: ew-resize; touch-action: none; border-radius: 3px; background: #171a1c; border: 1px solid currentColor; }
+.lab .lab-emitter-handle-start { transform: translateX(-50%); }
+.lab .lab-emitter-handle-end { transform: translateX(-50%); }
+.lab .lab-emitter-handle::after { content: ""; display: block; width: 2px; height: 11px; margin: auto; border-inline: 1px solid currentColor; opacity: .7; }
+.lab .lab-emitter-handle:hover, .lab .lab-emitter-handle:focus-visible { background: #43413a; }
+.lab .time-code { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lab input.lab-duration-input { width: 58px; padding: 4px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.lab .lab-duration-error { margin: 0; padding: 0 14px 8px; color: #d2b47e; font-size: 10px; line-height: 1.5; }
 .lab .lab-scoped-edit { position: absolute; bottom: 2px; z-index: 2; min-width: 3px; height: 3px; border-radius: 2px; background: #f2d392; box-shadow: 0 0 7px #f2d39280; }
-.lab .lab-emitter-playhead { position: absolute; top: 0; bottom: 0; z-index: 3; width: 1px; background: #f2e6d1; pointer-events: none; }
 .lab .timeline { padding-bottom: 12px; }
-.lab .timeline > .time-ruler,
-.lab .timeline > .timeline-track { margin-left: 145px; }
-.lab .timeline > .timeline-track { height: 15px; }
-.lab .timeline > .timeline-track .effect-clip { padding: 0 4px; font-size: 7px; }
 
-.lab .control-shelf { max-height: 148px; overflow: auto; padding: 12px 18px; scrollbar-width: thin; }
 .lab .lab-controls { display: grid; gap: 11px; }
 .lab .lab-emitter-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .lab .lab-wide { grid-column: 1 / -1; margin: 0; }
@@ -75,23 +83,19 @@
 .lab .lab-field { display: grid; gap: 7px; color: #8e9a9f; font-size: 10px; }
 .lab .lab-field > span { display: flex; align-items: center; justify-content: space-between; }
 .lab .lab-field output { color: #6f7d84; font-family: var(--font-geist-mono), monospace; font-size: 8px; }
-.lab .lab-shelf { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: end; gap: 14px; }
-.lab .lab-chat-options { margin: 0 12px 8px; }
-.lab .lab-control-row { display: flex; align-items: center; gap: 10px; }
-.lab .lab-control-row > * { flex: 1; min-width: 0; }
-.lab .lab-edit-scope { display: grid; gap: 8px; margin-top: 8px; padding: 9px; border: 1px solid #ffffff0d; border-radius: 6px; background: #ffffff03; }
 .lab .scoped-edit-message .assistant-message { color: #b9aa8e; }
 
 @media (max-width: 800px) {
-  .lab .header-actions .lab-action:last-of-type { display: none; }
+  .lab { --studio-header-height: 65px; }
+  .lab .chat-panel { bottom: calc(var(--timeline-height, 200px) + var(--timeline-bottom) + 12px); }
+  .lab .lab-environment-strip { top: calc(var(--studio-header-height) + 15px); }
   .lab .lab-mode { width: 88px; }
-  .lab .lab-emitter-row { grid-template-columns: 115px minmax(0, 1fr); }
-  .lab .timeline > .time-ruler,
-  .lab .timeline > .timeline-track { margin-left: 115px; }
+  .lab .timeline { --emitter-label-width: 140px; }
   .lab .lab-emitter-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .lab .lab-shelf { grid-template-columns: 1fr; }
+}
+@media (hover: none) {
+  .lab .lab-emitter-solo { opacity: 1; pointer-events: auto; }
 }
 @media (max-height: 700px) {
-  .lab .lab-emitter-tracks { max-height: 87px; }
-  .lab .control-shelf { max-height: 130px; }
+  .lab .lab-timeline-scroll { max-height: 119px; }
 }

@@ -5,17 +5,25 @@ import StarterKit from "@tiptap/starter-kit";
 import type { SuggestionProps } from "@tiptap/suggestion";
 import type { Reference } from "@/lib/project-types";
 import { ReferenceContext, ReferenceMention } from "./reference-mention";
-import { encodeMention } from "./prompt-format";
+import { PluginKey } from "@tiptap/pm/state";
+import { EmitterContext, EmitterMention, type EmitterTag } from "./emitter-mention";
+import { encodeEmitterMention, encodeMention } from "./prompt-format";
 import ReferencePicker from "./reference-picker";
 import Tooltip from "@/components/ui/tooltip";
 import Icon from "../icon";
 import styles from "./composer.module.css";
 
-export type ComposerHandle = { mention: (reference: Reference) => void; setText: (text: string) => void };
-export default function ReferenceComposer({ ref, references, busy, saving, uploadFile, onSend, sendLabel = "Save prompt" }: {
-  ref: Ref<ComposerHandle>; references: Reference[]; busy: boolean; saving: boolean;
+export type ComposerHandle = { mention: (reference: Reference) => void; setText: (text: string) => void; mentionEmitter: (emitter: EmitterTag) => void };
+export default function ReferenceComposer({ ref, references, emitters = [], busy, saving, uploadFile, onSend, sendLabel = "Save prompt" }: {
+  ref: Ref<ComposerHandle>; references: Reference[]; emitters?: EmitterTag[]; busy: boolean; saving: boolean;
   uploadFile: (file: File) => Promise<Reference>; onSend: (prompt: string, ids: string[]) => Promise<boolean>; sendLabel?: string;
 }) {
+  const latestEmitters = useRef(emitters);
+  useEffect(() => { latestEmitters.current = emitters; }, [emitters]);
+  const [emitterPicker, setEmitterPicker] = useState<SuggestionProps<EmitterTag> | null>(null);
+  const emitterPickerRef = useRef<SuggestionProps<EmitterTag> | null>(null);
+  const emitterActiveRef = useRef(0);
+  const [emitterActive, setEmitterActive] = useState(0);
   const latest = useRef(references);
   useEffect(() => { latest.current = references; }, [references]);
   const [picker, setPicker] = useState<SuggestionProps<Reference> | null>(null);
@@ -56,15 +64,45 @@ export default function ReferenceComposer({ ref, references, busy, saving, uploa
           };
         },
       },
+    }),
+    // Suggestion callbacks read current emitters only when the user types.
+    // eslint-disable-next-line react-hooks/refs
+    EmitterMention.configure({
+      suggestion: {
+        char: "#",
+        pluginKey: new PluginKey("emitterMention"),
+        items: ({ query }) => latestEmitters.current.filter(item => item.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8),
+        command: ({ editor, range, props }) => editor.chain().focus().insertContentAt(range, [{ type: "emitterMention", attrs: { id: props.id, label: latestEmitters.current.find(item => item.id === props.id)?.name || props.label } }, { type: "text", text: " " }]).run(),
+        render: () => {
+          const show = (props: SuggestionProps<EmitterTag>) => { emitterPickerRef.current = props; emitterActiveRef.current = 0; setEmitterActive(0); setEmitterPicker(props); };
+          return {
+            onStart: show, onUpdate: show,
+            onExit: () => { emitterPickerRef.current = null; setEmitterPicker(null); },
+            onKeyDown: ({ event }) => {
+              const current = emitterPickerRef.current;
+              if (event.key === "Escape") { emitterPickerRef.current = null; setEmitterPicker(null); return true; }
+              if (!current) return false;
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                emitterActiveRef.current = (emitterActiveRef.current + (event.key === "ArrowDown" ? 1 : -1) + current.items.length) % Math.max(1, current.items.length);
+                setEmitterActive(emitterActiveRef.current); return true;
+              }
+              if (event.key === "Enter" && current.items[emitterActiveRef.current]) { current.command(current.items[emitterActiveRef.current]); return true; }
+              return false;
+            },
+          };
+        },
+      },
     })],
-    editorProps: { attributes: { role: "textbox", "aria-label": "Describe your effect. Type @ to mention a board reference.", "aria-multiline": "true", "data-placeholder": "Describe your effect... @ to reference" } },
+    editorProps: { attributes: { role: "textbox", "aria-label": "Describe your effect. Type @ for a reference or # for an emitter.", "aria-multiline": "true", "data-placeholder": "Describe your effect... @ reference, # emitter" } },
     onUpdate: ({ editor }) => setHasText(!editor.isEmpty),
   });
   useEffect(() => { editor?.setEditable(!saving); }, [editor, saving]);
   function insert(reference: Reference) {
     editor?.chain().focus().insertContent([{ type: "mention", attrs: { id: reference.id, label: reference.name } }, { type: "text", text: " " }]).run();
   }
-  useImperativeHandle(ref, () => ({ mention: insert, setText: text => { editor?.chain().focus().insertContent(text).run(); } }));
+  useImperativeHandle(ref, () => ({ mention: insert, mentionEmitter: emitter => {
+    editor?.chain().focus().insertContent([{ type: "emitterMention", attrs: { id: emitter.id, label: emitter.name } }, { type: "text", text: " " }]).run();
+  }, setText: text => { editor?.chain().focus().insertContent(text).run(); } }));
   function replaceUpload(id: string, attributes: Record<string, string>) {
     if (!editor || editor.isDestroyed) return;
     const transaction = editor.state.tr;
@@ -103,30 +141,39 @@ export default function ReferenceComposer({ ref, references, busy, saving, uploa
   }
   async function send() {
     if (!editor || editor.isEmpty || saving || busy || uploading) return;
-    const ids = new Set<string>(); let invalid = false;
+    const ids = new Set<string>(); let invalid = false; let invalidEmitter = false;
     editor.state.doc.descendants(node => {
+      if (node.type.name === "emitterMention" && !emitters.some(item => item.id === node.attrs.id)) invalidEmitter = true;
       if (node.type.name !== "mention") return;
       if (node.attrs.status !== "ready" || !references.some(ref => ref.id === node.attrs.id)) invalid = true;
       else ids.add(node.attrs.id);
     });
+    if (invalidEmitter) { setError("Remove unavailable emitter tags before sending."); return; }
     if (invalid) { setError("Retry or remove unavailable references before sending."); return; }
     if (ids.size > 8) { setError("Use up to 8 references per prompt."); return; }
-    const text = editor.getText({ textSerializers: { mention: ({ node }) => encodeMention(node.attrs.id, references.find(ref => ref.id === node.attrs.id)?.name || node.attrs.label) } });
+    const text = editor.getText({ textSerializers: { emitterMention: ({ node }) => encodeEmitterMention(node.attrs.id, emitters.find(item => item.id === node.attrs.id)?.name || node.attrs.label), mention: ({ node }) => encodeMention(node.attrs.id, references.find(ref => ref.id === node.attrs.id)?.name || node.attrs.label) } });
     if (text.length > 10000) { setError("Keep the prompt under 10,000 characters."); return; }
     setError("");
     if (await onSend(text, [...ids])) editor.commands.clearContent();
   }
-  return <ReferenceContext.Provider value={{ references, retry: id => { void retry(id); } }}>
+  return <EmitterContext.Provider value={emitters}><ReferenceContext.Provider value={{ references, retry: id => { void retry(id); } }}>
     <form className={`composer ${styles.composer}`} onSubmit={event => { event.preventDefault(); void send(); }}>
       {picker && <ReferencePicker items={picker.items} active={active} onSelect={reference => picker.command(reference)} />}
+      {emitterPicker && <div className={styles.picker} aria-label="Choose an emitter">
+        <span className={styles.pickerHeading}>Emitters</span>
+        {emitterPicker.items.length ? emitterPicker.items.map((emitter, index) => <button type="button" key={emitter.id} className={index === emitterActive ? styles.active : ""} onMouseDown={event => event.preventDefault()} onClick={() => emitterPicker.command(emitter)}>
+          <span className={styles.emitterDot} style={{ background: emitter.color }} /><span>{emitter.name}</span><small>#</small>
+        </button>) : <p>No matching emitters.</p>}
+      </div>}
       <EditorContent editor={editor} className={styles.editor} />
       <div className="composer-toolbar"><div className={styles.tools}>
         <Tooltip content="Upload reference images" side="top"><button type="button" className="icon-button" disabled={saving || busy || uploading} aria-label="Upload reference images" onMouseDown={event => event.preventDefault()} onClick={() => fileInput.current?.click()}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 12 7-7a3 3 0 0 1 4 4L9 19a5 5 0 0 1-7-7L12 2M6 14l9-9" /></svg></button></Tooltip>
         <Tooltip content="Choose from board" side="top"><button type="button" className="icon-button" aria-label="Choose from board" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" @").run()}>@</button></Tooltip>
+        {emitters.length > 0 && <Tooltip content="Tag an emitter" side="top"><button type="button" className="icon-button" aria-label="Tag an emitter" disabled={saving} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().insertContent(" #").run()}>#</button></Tooltip>}
         <span role="status">{uploading ? "Uploading..." : saving ? "Saving..." : ""}</span>
       </div><button type="submit" className="send-button" disabled={!hasText || saving || busy || uploading} aria-label={sendLabel} title={sendLabel}><Icon name="arrow" /></button></div>
       <input hidden ref={fileInput} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { void filesSelected(event.target.files); event.target.value = ""; }} />
       {error && <p className={styles.error} role="alert">{error}</p>}
     </form>
-  </ReferenceContext.Provider>;
+  </ReferenceContext.Provider></EmitterContext.Provider>;
 }

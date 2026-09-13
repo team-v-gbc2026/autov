@@ -1,14 +1,34 @@
 type RawCookie = { name: string; value: string };
 
-export function filterSupabaseCookies<T extends RawCookie>(cookies: T[], supabaseUrl: string): T[] {
-  const refMatch = supabaseUrl.match(/https?:\/\/([a-z0-9-]+)\.supabase\.co/i);
-  const projectRef = refMatch?.[1];
-  const pattern = projectRef ? `sb-${projectRef}-auth-token` : undefined;
+export function supabaseStorageKey(supabaseUrl: string) {
+  return `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token`;
+}
 
-  return cookies.filter((cookie) => {
-    if (cookie.name === "sb-auth-token") return true;
-    if (pattern && cookie.name === pattern) return true;
-    if (/^sb-[a-z0-9-]+-auth-token$/i.test(cookie.name)) return true;
+export function filterSupabaseCookies<T extends RawCookie>(cookies: T[], supabaseUrl: string): T[] {
+  const key = supabaseStorageKey(supabaseUrl);
+  // Preserve complete values, obsolete chunks for SDK cleanup, and PKCE flows.
+  return cookies.filter(({ name }) =>
+    name === key || name.startsWith(`${key}.`) || name.startsWith(`${key}-`),
+  );
+}
+
+export function hasLegacySession(cookies: RawCookie[], supabaseUrl: string): boolean {
+  const key = supabaseStorageKey(supabaseUrl);
+  let value = cookies.find(cookie => cookie.name === key)?.value ?? "";
+  if (!value) {
+    for (let index = 0; ; index++) {
+      const chunk = cookies.find(cookie => cookie.name === `${key}.${index}`);
+      if (!chunk) break;
+      value += chunk.value;
+    }
+  }
+  try {
+    const json = value.startsWith("base64-")
+      ? atob(value.slice(7).replace(/-/g, "+").replace(/_/g, "/"))
+      : value;
+    // A migration signal only, never an authorization check.
+    return Object.prototype.hasOwnProperty.call(JSON.parse(json), "user");
+  } catch {
     return false;
-  });
+  }
 }
