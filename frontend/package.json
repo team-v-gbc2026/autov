@@ -31,6 +31,8 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "@tiptap/suggestion": "^3.31.3",
+    "ai": "7.0.99",
+    "eve": "0.54.3",
     "next": "16.3.5",
     "openai": "^7.15.0",
     "react": "19.2.8",
@@ -39,9 +41,7 @@
     "react-zoom-pan-pinch": "^4.2.0",
     "sharp": "0.35.4",
     "three": "0.186.0",
-    "zod": "^4.6.2",
-    "ai": "7.0.99",
-    "eve": "0.54.3"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

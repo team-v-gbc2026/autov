@@ -9,6 +9,12 @@ import { evaluateLayerV2Readonly as evaluateLayerV2 } from "./evaluate-v2";
 import { upgradeDocument } from "./migrate";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
 import { textureUrl } from "./asset-urls";
+import {
+  IDENTITY_PLACEMENT,
+  clonePlacement,
+  placementsEqual,
+  type EffectPlacement,
+} from "./placement";
 import type { VfxDocument } from "./schema";
 import {
   isV2,
@@ -1793,6 +1799,9 @@ function createLightLayer(layer: LayerV2): LayerObject {
 // Runtime
 // ---------------------------------------------------------------------------
 
+/** Transient, used and read within a single synchronous bounds sample. */
+const placementSample = new THREE.Vector3();
+
 export class VfxRuntimeV2 {
   readonly renderer: THREE.WebGPURenderer;
   readonly scene = new THREE.Scene();
@@ -1831,16 +1840,21 @@ export class VfxRuntimeV2 {
   private preparedPreviewDocument?: VfxDocumentV2;
   private lastPreviewRequest = { time: 0, solo: undefined as string | undefined };
   private deviceError: Error | null = null;
+  // Effect-local -> workspace. Held here as well as on the group so
+  // framing and focus can transform sampled bounds, which are produced in
+  // the effect's own frame and never pass through the group's matrix.
+  private placement: EffectPlacement = clonePlacement(IDENTITY_PLACEMENT);
+  private readonly placementMatrix = new THREE.Matrix4();
   private removeDeviceErrorListener?: () => void;
   private previewSample: { time: number; solo?: string; diagnostic: boolean } | null = null;
   private width = 1280;
   private height = 720;
 
-  constructor(readonly host: HTMLElement, private readonly options: { preview?: boolean } = {}) {
+  constructor(readonly host: HTMLElement, private readonly options: { preview?: boolean; powerPreference?: "high-performance" | "low-power" } = {}) {
     this.renderer = new THREE.WebGPURenderer({
       antialias: false,
       alpha: false,
-      powerPreference: "high-performance",
+      powerPreference: this.options.powerPreference ?? "high-performance",
     });
     // No silent WebGL fallback: evaluation must use the same WebGPU backend.
     this.initialization = Promise.resolve().then(async () => {
@@ -1880,9 +1894,20 @@ export class VfxRuntimeV2 {
       this.deviceError =
         error instanceof Error ? error : new Error(String(error));
     });
-    this.renderer.onDeviceLost = () => {
+    // three passes {api, message, reason, originalEvent}; keep the reason so a
+    // driver-level loss is distinguishable from an out-of-memory or a validation
+    // failure instead of all three reading as the same generic disconnect.
+    this.renderer.onDeviceLost = (info?: {
+      reason?: string | null;
+      message?: string;
+    }) => {
+      const detail = [info?.reason, info?.message]
+        .filter((part): part is string => Boolean(part))
+        .join(": ");
       this.deviceError = new Error(
-        "The WebGPU device disconnected. Reload the scene.",
+        detail
+          ? `The WebGPU device disconnected (${detail}). Reload the scene.`
+          : "The WebGPU device disconnected. Reload the scene.",
       );
     };
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2070,6 +2095,50 @@ export class VfxRuntimeV2 {
    * the trimmed trajectory box take over, and the distance is clamped either
    * way so no single layer can push the camera out to the horizon.
    */
+  /**
+   * Where the effect sits in the workspace. Placement is viewer state, kept out
+   * of the effect document (see placement.ts): setting it never edits, and
+   * never needs to regenerate, the effect.
+   *
+   * Applying it to the group is most of the job — the particle, trail and
+   * geometry shaders all build on modelMatrix/modelViewMatrix, and the light is
+   * a group child, so they follow together and forces stay expressed in the
+   * effect's rotated frame. Framing and focus are the paths a parent transform
+   * does not reach, because they read bounds directly; both apply
+   * placementMatrix themselves.
+   *
+   * The backdrop, ground and camera are scene children, not group children, and
+   * stay where they are by construction.
+   */
+  setPlacement(placement: EffectPlacement) {
+    if (this.disposed) return;
+    if (placementsEqual(placement, this.placement)) return;
+    this.placement = clonePlacement(placement);
+    this.group.position.fromArray(this.placement.position);
+    this.group.rotation.fromArray(this.placement.rotation);
+    this.group.updateMatrixWorld(true);
+    this.placementMatrix.compose(
+      this.group.position,
+      this.group.quaternion,
+      this.group.scale,
+    );
+    // Keep auto-framing pointed at the effect's new home, without moving the
+    // camera: resetCamera()/focus() consume this on their next call.
+    this.computeFraming();
+    // A paused preview skips unchanged samples; a drag must still redraw.
+    this.previewSample = null;
+  }
+
+  /** The placed effect's root, for hit-testing the effect in the viewport.
+   * Deliberately the only handle onto the scene graph the editor is given. */
+  get effectRoot(): THREE.Object3D {
+    return this.group;
+  }
+
+  getPlacement(): EffectPlacement {
+    return clonePlacement(this.placement);
+  }
+
   private computeFraming() {
     const doc = this.doc;
     if (!doc) return;
@@ -2084,10 +2153,17 @@ export class VfxRuntimeV2 {
       trim: number,
     ) => {
       const axes: number[][] = [[], [], []];
+      // Bounds are reported in the effect's own frame; the framing basis is a
+      // workspace basis. Placing the group moves the pixels but not these
+      // samples, so the transform has to be applied here too or a moved effect
+      // frames at its authored origin. Copy first: callers reuse their vector.
       const push = (p: THREE.Vector3) => {
-        axes[0].push(p.dot(right));
-        axes[1].push(p.dot(up));
-        axes[2].push(p.dot(dir));
+        const world = placementSample
+          .copy(p)
+          .applyMatrix4(this.placementMatrix);
+        axes[0].push(world.dot(right));
+        axes[1].push(world.dot(up));
+        axes[2].push(world.dot(dir));
       };
       for (let i = 0; i <= steps; i++) sample((doc.duration * i) / steps, push);
       if (!axes[0].length) return null;
@@ -2195,7 +2271,11 @@ export class VfxRuntimeV2 {
       const layer = object.source;
       if (!layer.enabled || layer.kind === "light" || (solo && layer.id !== solo)) continue;
       for (let i = 0; i <= 48; i++)
-        object.bounds(layer.start + (layer.end - layer.start) * i / 48, point => box.expandByPoint(point));
+        object.bounds(layer.start + (layer.end - layer.start) * i / 48, point =>
+          box.expandByPoint(
+            placementSample.copy(point).applyMatrix4(this.placementMatrix),
+          ),
+        );
     }
     if (box.isEmpty()) box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
     const sphere = box.getBoundingSphere(new THREE.Sphere());

@@ -5,6 +5,7 @@ import { createDocument } from "@/lib/vfx-lab/ui-bridge";
 import {
   knownFixtureIds,
   loadFixtureDocument,
+  readLocalFixtureJson,
 } from "@/lib/vfx-lab/fixtures-server";
 import {
   validateDocumentV2,
@@ -27,7 +28,15 @@ function fixtureIds() {
 async function loadFixture(id: string): Promise<VfxDocumentV2> {
   const document = await loadFixtureDocument(id);
   if (document === null) notFound();
-  return validateDocumentV2(document);
+  try {
+    return validateDocumentV2(document);
+  } catch (remoteError) {
+    // The bucket is intentionally tried first, but a stale uploaded document
+    // must not take down the dev studio when the checked-in fixture is valid.
+    const local = readLocalFixtureJson(id);
+    if (local === null) throw remoteError;
+    return validateDocumentV2(local);
+  }
 }
 
 export default async function VfxStudioV2Page({

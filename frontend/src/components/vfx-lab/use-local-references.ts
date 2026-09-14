@@ -62,13 +62,14 @@ export async function prepareReference(url: string): Promise<string> {
     bitmap.close();
   }
 }
-export function useLocalReferences(): ReferenceState {
+export function useLocalReferences(enabled = true): ReferenceState {
   const [references, setReferences] = useState<Reference[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const lock = useRef(true);
   const latest = useRef<Reference[]>([]);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     stored("read")
       .then((items) => {
@@ -89,7 +90,7 @@ export function useLocalReferences(): ReferenceState {
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
   async function uploadFile(file: File): Promise<Reference> {
     if (lock.current) throw new Error("Wait for the current upload to finish.");
     if (

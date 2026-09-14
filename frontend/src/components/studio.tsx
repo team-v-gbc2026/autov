@@ -12,6 +12,7 @@ import Icon from "./studio/icon";
 import IconButton from "./studio/icon-button";
 import { PlaybackFrames, usePlaybackClock } from "./studio/playback-clock";
 import { useReferences } from "./studio/use-references";
+import { useLocalReferences } from "./vfx-lab/use-local-references";
 import type {
   Project,
   Reference,
@@ -21,6 +22,10 @@ import type {
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
 import EmitterControls from "./vfx-studio/emitter-controls";
 import WorkspaceScene from "./studio/workspace-scene";
+import StudioBackdrop from "./studio/studio-backdrop";
+import { DEFAULT_BACKDROP_SETTINGS, type BackdropController, type BackdropSnapshot } from "@/lib/vfx-lab/backdrop-controller";
+import type { PlacementController, PlacementSnapshot } from "@/lib/vfx-lab/placement-controller";
+import { IDENTITY_PLACEMENT } from "@/lib/vfx-lab/placement";
 import {
   createEmitter,
   normalizeVfxDocument,
@@ -86,6 +91,19 @@ export default function Studio({
   standalone = false,
   headerActions,
 }: StudioProps) {
+  const [backdropOpen, setBackdropOpen] = useState(false);
+  const [backdropController, setBackdropController] = useState<BackdropController | null>(null);
+  const [backdropSnapshot, setBackdropSnapshot] = useState<BackdropSnapshot>({ state: "empty", settings: DEFAULT_BACKDROP_SETTINGS, error: null, numSplats: null });
+  const [placementController, setPlacementController] = useState<PlacementController | null>(null);
+  const [placementSnapshot, setPlacementSnapshot] = useState<PlacementSnapshot>({
+    placement: IDENTITY_PLACEMENT,
+    mode: "translate",
+    space: "world",
+    visible: false,
+    dragging: false,
+    canUndo: false,
+  });
+  const workspaceStorageKey = `autov.workspace.${encodeURIComponent(userId)}.${encodeURIComponent(project.id)}`;
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const environmentPanel = useRef<HTMLElement>(null);
   const environmentTrigger = useRef<HTMLButtonElement>(null);
@@ -130,7 +148,9 @@ export default function Studio({
   const importInput = useRef<HTMLInputElement>(null);
   const clock = usePlaybackClock(vfxDocument.duration);
   const playback = clock.getSnapshot();
-  const references = useReferences(project.id, userId, initialReferences);
+  const projectReferences = useReferences(project.id, userId, initialReferences);
+  const localReferences = useLocalReferences(standalone);
+  const references = standalone ? localReferences : projectReferences;
 
   const { layout } = useBoardLayout(project.id);
   const chat = useRef<ChatPanelHandle>(null);
@@ -244,6 +264,65 @@ export default function Studio({
           onClick={() => changeEnvironment({ bloom: 64, exposure: 48 })}
         />
       </div>
+      <button type="button" className="icon-button" aria-haspopup="dialog" aria-controls="studio-backdrop" aria-expanded={backdropOpen} onClick={() => { setEnvironmentOpen(false); setBackdropOpen(true); }}>Backdrop</button>
+      {/* Placement moves the whole effect in the workspace. It is viewer state:
+          dragging never edits or regenerates the effect document. */}
+      <div className="lab-placement-controls" role="group" aria-label="Effect placement">
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={placementSnapshot.visible}
+          disabled={!placementController}
+          onClick={() => placementController?.setVisible(!placementSnapshot.visible)}
+        >
+          Place
+        </button>
+        {/* Always rendered, disabled until the handle is shown: hiding the mode
+            buttons until then leaves no way to discover that rotation exists. */}
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={placementSnapshot.mode === "translate"}
+          disabled={!placementController || !placementSnapshot.visible}
+          onClick={() => placementController?.setMode("translate")}
+        >
+          Move
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={placementSnapshot.mode === "rotate"}
+          disabled={!placementController || !placementSnapshot.visible}
+          onClick={() => placementController?.setMode("rotate")}
+        >
+          Rotate
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={placementSnapshot.space === "local"}
+          disabled={!placementController || !placementSnapshot.visible}
+          title={placementSnapshot.space === "local" ? "Rotating around the effect's own axes" : "Rotating around workspace axes"}
+          onClick={() =>
+            placementController?.setSpace(placementSnapshot.space === "local" ? "world" : "local")
+          }
+        >
+          {placementSnapshot.space === "local" ? "Local" : "World"}
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          disabled={!placementController || !placementSnapshot.canUndo}
+          onClick={() => placementController?.undo()}
+        >
+          Undo
+        </button>
+        <IconButton
+          name="reset"
+          label="Reset placement"
+          onClick={() => placementController?.reset()}
+        />
+      </div>
       <div className="lab-scene-export">
         <IconButton
           name="upload"
@@ -271,7 +350,9 @@ export default function Studio({
     >
       <div className="viewport-grid" />
       <div className="lab-preview-stage">
-        <WorkspaceScene focusRequest={focusRequest} doc={doc} clock={clock} solo={soloLayerId} />
+        <WorkspaceScene focusRequest={focusRequest} doc={doc} clock={clock} solo={soloLayerId}
+          backdropStorageKey={`${workspaceStorageKey}.backdrop.v1`} onBackdropReady={setBackdropController} onBackdropChange={setBackdropSnapshot}
+          placementStorageKey={`${workspaceStorageKey}.placement.v1`} onPlacementReady={setPlacementController} onPlacementChange={setPlacementSnapshot} />
       </div>
       <StudioHeader
         project={project}
@@ -279,6 +360,7 @@ export default function Studio({
         actions={headerActions}
       />
       {environmentControls}
+      <StudioBackdrop key={workspaceStorageKey} open={backdropOpen} onClose={() => setBackdropOpen(false)} controller={backdropController} snapshot={backdropSnapshot} cleanImageStorageKey={`${workspaceStorageKey}.clean-image.v1`} />
       <input
         ref={importInput}
         hidden

@@ -1,8 +1,26 @@
 "use client";
 
+import { viewerGpuPreference } from "@/lib/vfx-lab/viewer-gpu-preference";
+
 import Link from "next/link";
+import styles from "@/components/vfx-lab/viewer-workspace.module.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type * as THREE from "three";
 import { VfxRuntime } from "@/lib/vfx-lab/runtime";
+import {
+  BackdropController,
+  DEFAULT_BACKDROP_SETTINGS,
+  type BackdropSnapshot,
+} from "@/lib/vfx-lab/backdrop-controller";
+import {
+  loadBackdropSettings,
+  saveBackdropSettings,
+} from "@/lib/vfx-lab/backdrop-settings";
+import {
+  BackdropPanel,
+  type BackdropPreset,
+} from "@/components/vfx-lab/backdrop-panel";
+import { SplatGenerationPanel } from "@/components/vfx-lab/splat-generation-panel";
 import { validateDocument } from "@/lib/vfx-lab/schema";
 
 // --- Contract this page codes against -------------------------------------
@@ -54,11 +72,21 @@ const FLAG_KEYS: (keyof FeatureFlags)[] = [
   "softParticles",
 ];
 
+const BACKDROP_PRESETS: BackdropPreset[] = [
+  { label: "terrain diorama (.ply)", url: "/backdrops/terrain.ply" },
+  { label: "figure (.ply)", url: "/backdrops/figure.ply" },
+];
+
 const DEFAULT_FLAGS: FeatureFlags = Object.fromEntries(
   FLAG_KEYS.map((key) => [key, true]),
 ) as FeatureFlags;
 
 interface VfxRuntimeV2Instance {
+  // The backdrop controller is handed these; it adds its own objects and
+  // removes exactly those again. Nothing here mutates runtime behaviour.
+  readonly scene: THREE.Scene;
+  readonly renderer: import("three/webgpu").WebGPURenderer;
+  whenReady(): Promise<void>;
   setDocument(doc: unknown): void;
   render(time: number): void;
   resize(): void;
@@ -67,7 +95,7 @@ interface VfxRuntimeV2Instance {
   setFeatureFlags(flags: FeatureFlags): void;
 }
 
-type VfxRuntimeV2Ctor = new (host: HTMLElement) => VfxRuntimeV2Instance;
+type VfxRuntimeV2Ctor = new (host: HTMLElement, options?: { powerPreference?: "high-performance" | "low-power" }) => VfxRuntimeV2Instance;
 
 type FixtureEntry = {
   id: string;
@@ -179,6 +207,17 @@ export default function VfxV2DevGalleryPage() {
   const [capturing, setCapturing] = useState(false);
 
   const v2HostRef = useRef<HTMLDivElement | null>(null);
+  const backdropRef = useRef<BackdropController | null>(null);
+  // Mirrored into state so the panel re-renders when the controller appears;
+  // the ref is what cleanup uses, since it must not depend on a render.
+  const [backdropCtl, setBackdropCtl] = useState<BackdropController | null>(null);
+  const timeRef = useRef(0);
+  const [backdrop, setBackdrop] = useState<BackdropSnapshot>({
+    state: "empty",
+    settings: { ...DEFAULT_BACKDROP_SETTINGS },
+    error: null,
+    numSplats: null,
+  });
   const v1HostRef = useRef<HTMLDivElement | null>(null);
   const v2RuntimeRef = useRef<VfxRuntimeV2Instance | null>(null);
   const v1RuntimeRef = useRef<VfxRuntime | null>(null);
@@ -283,15 +322,60 @@ export default function VfxV2DevGalleryPage() {
     if (runtimeV2Mod.status !== "ready" || !v2HostRef.current) return;
     const host = v2HostRef.current;
     let runtime: VfxRuntimeV2Instance | null = null;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+    if (cancelled) return;
     try {
-      runtime = new runtimeV2Mod.value(host);
+      runtime = new runtimeV2Mod.value(host, { powerPreference: viewerGpuPreference() });
       v2RuntimeRef.current = runtime;
+
+      // Viewer-owned backdrop: created after the runtime exists, handed the
+      // runtime's own scene/renderer, and disposed below before the runtime
+      // tears the renderer down.
+      const created = runtime;
+      const controller = new BackdropController({
+        scene: created.scene,
+        renderer: created.renderer,
+        requestRender: () => { void created.whenReady().then(() => { if (v2RuntimeRef.current === created) created.render(timeRef.current); }).catch(() => {}); },
+        onChange: (snap) => {
+          setBackdrop(snap);
+          saveBackdropSettings(snap.settings);
+        },
+      });
+      backdropRef.current = controller;
+      setBackdropCtl(controller);
+      // Handle for scripts/verify-backdrop.mjs. This page lives under /dev and
+      // is stripped from production builds (scripts/dev-pages.mjs verify).
+      (window as unknown as Record<string, unknown>).__vfxV2 = {
+        runtime: created,
+        backdrop: controller,
+      };
+      const saved = loadBackdropSettings();
+      setBackdrop(controller.snapshot);
+      void controller.applySettings(saved).catch(() => {
+        /* a stale saved URL just leaves the backdrop empty */
+      });
+
       runtime.setFeatureFlags(flags);
+      if (selectedFixture) {
+        const validate = schemaV2Mod.status === "ready" ? schemaV2Mod.value : (d: unknown) => d;
+        runtime.setDocument(validate(selectedFixture.document));
+      }
+      void runtime.whenReady().then(() => { if (!cancelled) runtime?.render(timeRef.current); })
+        .catch(error => { if (!cancelled) setV2Error(String(error)); });
       setV2Error(null);
     } catch (err) {
       setV2Error(`VfxRuntimeV2 failed to construct: ${String(err)}`);
     }
+    });
     return () => {
+      cancelled = true;
+      // Order matters: the runtime's dispose() ends with renderer.dispose(),
+      // which would strand the backdrop's GPU resources.
+      backdropRef.current?.dispose();
+      backdropRef.current = null;
+      setBackdropCtl(null);
+      delete (window as unknown as Record<string, unknown>).__vfxV2;
       runtime?.dispose();
       v2RuntimeRef.current = null;
     };
@@ -346,14 +430,21 @@ export default function VfxV2DevGalleryPage() {
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Feature flags -> v2 runtime.
+
   useEffect(() => {
     v2RuntimeRef.current?.setFeatureFlags(flags);
   }, [flags]);
 
   // Drive both viewports off one shared clock.
   useEffect(() => {
-    v2RuntimeRef.current?.render(time);
+    timeRef.current = time;
+    const runtime = v2RuntimeRef.current;
+    let cancelled = false;
+    if (runtime) void runtime.whenReady().then(() => {
+      if (!cancelled && v2RuntimeRef.current === runtime) runtime.render(time);
+    }).catch(error => { if (!cancelled) setV2Error(String(error)); });
     v1RuntimeRef.current?.render(time);
+    return () => { cancelled = true; };
   }, [time]);
 
   // Play/pause loop.
@@ -421,28 +512,149 @@ export default function VfxV2DevGalleryPage() {
   }, [duration, time]);
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#0e0f11",
-        color: "#e6e6e6",
-        fontFamily: "ui-sans-serif, system-ui, sans-serif",
-        padding: 16,
-      }}
-    >
-      <header style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 16 }}>
-        <h1 style={{ fontSize: 16, margin: 0 }}>Toolbox v2 dev gallery</h1>
-        <span style={{ fontSize: 12, color: "#7d848c" }}>
-          excluded from production builds
-        </span>
-        <Link href="/dev/vfx-v2/spike" style={{ fontSize: 12, color: "#6ea8fe", marginLeft: "auto" }}>
-          Spike →
-        </Link>
+    <main className={styles.workspace}>
+      <header className={styles.header}>
+        <div><span className={styles.eyebrow}>AUTOV · V2 WORKSPACE</span><h1>Build your scene backdrop</h1><p>Start with an image, review the cleanup, then create a Gaussian splat.</p></div>
+        <Link href="/dev/vfx-v2/spike">Open spike ↗</Link>
       </header>
+          <SplatGenerationPanel
+            controller={backdropCtl}
+            panelStyle={panelStyle}
+            labelStyle={labelStyle}
+            buttonStyle={buttonStyle}
+          />
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 1000 }}>
-        {/* Left: controls */}
-        <div style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+
+      <section className={styles.sceneSection} aria-label="Scene preview and backdrop settings">
+        <div className={styles.sceneMain}>
+          <div className={styles.sectionHeading}><h2>Scene preview</h2><span>Orbit, position and inspect your backdrop</span></div>
+          <div style={panelStyle}>
+            <span style={labelStyle}>Live V2 scene</span>
+            <div
+              ref={v2HostRef}
+              style={{
+                width: "100%",
+                aspectRatio: "16 / 9",
+                background: "#000",
+                borderRadius: 4,
+                overflow: "hidden",
+                position: "relative",
+              }}
+            >
+              {runtimeV2Mod.status === "missing" && (
+                <div style={noteStyle("warn")}>
+                  VfxRuntimeV2 not built yet — waiting for
+                  <br />
+                  src/lib/vfx-lab/runtime-v2.ts (export {"{"} VfxRuntimeV2 {"}"})
+                </div>
+              )}
+              {runtimeV2Mod.status === "ready" && !selectedFixture && (
+                <div style={noteStyle()}>Select a fixture.</div>
+              )}
+              {v2Error && <div style={noteStyle("warn")}>{v2Error}</div>}
+            </div>
+            {schemaV2Mod.status === "missing" && (
+              <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
+                schema-v2.ts not built yet — rendering fixtures unvalidated.
+              </p>
+            )}
+          </div>
+
+
+          <div className={styles.viewerTools}>
+          <div style={panelStyle}>
+            <span style={labelStyle}>Playback</span>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+              <button style={buttonStyle} onClick={() => setPlaying((p) => !p)}>
+                {playing ? "Pause" : "Play"}
+              </button>
+              <select
+                aria-label="Playback speed"
+                value={speed}
+                onChange={(e) => setSpeed(Number(e.target.value))}
+                style={{ ...buttonStyle, cursor: "pointer" }}
+              >
+                {[0.25, 0.5, 1, 2, 4].map((s) => (
+                  <option key={s} value={s}>
+                    {s}×
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: 12, color: "#9aa0a6", marginLeft: "auto" }}>
+                {time.toFixed(2)}s / {duration.toFixed(2)}s
+              </span>
+            </div>
+            <input
+              type="range"
+              aria-label="Playback timeline"
+              min={0}
+              max={duration}
+              step={0.01}
+              value={Math.min(time, duration)}
+              onChange={(e) => {
+                setPlaying(false);
+                setTime(Number(e.target.value));
+              }}
+              style={{ width: "100%" }}
+            />
+          </div>
+
+          <div style={panelStyle}>
+            <span style={labelStyle}>Camera</span>
+            <button
+              style={{ ...buttonStyle, width: "100%" }}
+              onClick={() => v2RuntimeRef.current?.resetCamera()}
+              disabled={runtimeV2Mod.status !== "ready" || !selectedFixture}
+            >
+              Reset camera
+            </button>
+            <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
+              drag: orbit · right-drag/shift: pan · wheel: zoom
+            </p>
+          </div>
+
+          <div style={panelStyle}>
+            <span style={labelStyle}>Capture</span>
+            <button
+              style={{ ...buttonStyle, width: "100%", opacity: capturing ? 0.6 : 1 }}
+              onClick={capture}
+              disabled={capturing || runtimeV2Mod.status !== "ready" || !selectedFixture}
+            >
+              {capturing ? "Capturing…" : `Contact sheet (${TILE_COUNT} frames)`}
+            </button>
+            <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
+              8 evenly-spaced frames across the document&apos;s duration, 2×4 tiles
+              at {TILE_W}×{TILE_H} — paste this into PRs.
+            </p>
+          </div>
+
+          </div>
+          {captureImg && (
+            <div style={panelStyle}>
+              <span style={labelStyle}>Contact sheet</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={captureImg} alt="v2 contact sheet" style={{ width: "100%", borderRadius: 4 }} />
+            </div>
+          )}
+
+        </div>
+        <aside className={styles.backdropSettings}><div className={styles.sectionHeading}><h2>Backdrop settings</h2></div>
+          <BackdropPanel
+            controller={backdropCtl}
+            snapshot={backdrop}
+            presets={BACKDROP_PRESETS}
+            panelStyle={panelStyle}
+            labelStyle={labelStyle}
+            buttonStyle={buttonStyle}
+          />
+
+
+        </aside>
+      </section>
+      <section className={styles.developerSection} aria-label="Developer comparison tools">
+        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>DEVELOPER TOOLS</span><h2>Effect comparison & references</h2></div><span>Local gallery · excluded from production</span></div>
+        <div className={styles.developerGrid}>
+          <div className={styles.fixtureTools}>
           <div style={panelStyle}>
             <span style={labelStyle}>Fixture</span>
             {fixtures === null && <div style={noteStyle()}>loading…</div>}
@@ -504,41 +716,6 @@ export default function VfxV2DevGalleryPage() {
           </div>
 
           <div style={panelStyle}>
-            <span style={labelStyle}>Playback</span>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
-              <button style={buttonStyle} onClick={() => setPlaying((p) => !p)}>
-                {playing ? "Pause" : "Play"}
-              </button>
-              <select
-                value={speed}
-                onChange={(e) => setSpeed(Number(e.target.value))}
-                style={{ ...buttonStyle, cursor: "pointer" }}
-              >
-                {[0.25, 0.5, 1, 2, 4].map((s) => (
-                  <option key={s} value={s}>
-                    {s}×
-                  </option>
-                ))}
-              </select>
-              <span style={{ fontSize: 12, color: "#9aa0a6", marginLeft: "auto" }}>
-                {time.toFixed(2)}s / {duration.toFixed(2)}s
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.01}
-              value={Math.min(time, duration)}
-              onChange={(e) => {
-                setPlaying(false);
-                setTime(Number(e.target.value));
-              }}
-              style={{ width: "100%" }}
-            />
-          </div>
-
-          <div style={panelStyle}>
             <span style={labelStyle}>Feature flags (v2)</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {FLAG_KEYS.map((key) => (
@@ -554,71 +731,10 @@ export default function VfxV2DevGalleryPage() {
             </div>
           </div>
 
-          <div style={panelStyle}>
-            <span style={labelStyle}>Camera</span>
-            <button
-              style={{ ...buttonStyle, width: "100%" }}
-              onClick={() => v2RuntimeRef.current?.resetCamera()}
-              disabled={runtimeV2Mod.status !== "ready" || !selectedFixture}
-            >
-              Reset camera
-            </button>
-            <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
-              drag: orbit · right-drag/shift: pan · wheel: zoom
-            </p>
-          </div>
 
-          <div style={panelStyle}>
-            <span style={labelStyle}>Capture</span>
-            <button
-              style={{ ...buttonStyle, width: "100%", opacity: capturing ? 0.6 : 1 }}
-              onClick={capture}
-              disabled={capturing || runtimeV2Mod.status !== "ready" || !selectedFixture}
-            >
-              {capturing ? "Capturing…" : `Contact sheet (${TILE_COUNT} frames)`}
-            </button>
-            <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
-              8 evenly-spaced frames across the document&apos;s duration, 2×4 tiles
-              at {TILE_W}×{TILE_H} — paste this into PRs.
-            </p>
-          </div>
-        </div>
 
-        {/* Center: viewports + capture output */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 16, maxWidth: 960 }}>
-          <div style={panelStyle}>
-            <span style={labelStyle}>v2 renderer</span>
-            <div
-              ref={v2HostRef}
-              style={{
-                width: "100%",
-                aspectRatio: "16 / 9",
-                background: "#000",
-                borderRadius: 4,
-                overflow: "hidden",
-                position: "relative",
-              }}
-            >
-              {runtimeV2Mod.status === "missing" && (
-                <div style={noteStyle("warn")}>
-                  VfxRuntimeV2 not built yet — waiting for
-                  <br />
-                  src/lib/vfx-lab/runtime-v2.ts (export {"{"} VfxRuntimeV2 {"}"})
-                </div>
-              )}
-              {runtimeV2Mod.status === "ready" && !selectedFixture && (
-                <div style={noteStyle()}>Select a fixture.</div>
-              )}
-              {v2Error && <div style={noteStyle("warn")}>{v2Error}</div>}
-            </div>
-            {schemaV2Mod.status === "missing" && (
-              <p style={{ fontSize: 11, color: "#7d848c", marginTop: 6 }}>
-                schema-v2.ts not built yet — rendering fixtures unvalidated.
-              </p>
-            )}
           </div>
-
-          <div style={panelStyle}>
+          <div>          <div style={panelStyle}>
             <span style={labelStyle}>v1 renderer</span>
             <div
               style={{
@@ -640,18 +756,9 @@ export default function VfxV2DevGalleryPage() {
             </div>
           </div>
 
-          {captureImg && (
-            <div style={panelStyle}>
-              <span style={labelStyle}>Contact sheet</span>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={captureImg} alt="v2 contact sheet" style={{ width: "100%", borderRadius: 4 }} />
-            </div>
-          )}
-        </div>
-
-        {/* Right: reference images + prompt for the selected case */}
+</div>
         {referenceCaseId && (
-          <div style={{ width: 200, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className={styles.references}>
             <div style={panelStyle}>
               <span style={labelStyle}>Reference ({referenceCaseId})</span>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -685,7 +792,8 @@ export default function VfxV2DevGalleryPage() {
             )}
           </div>
         )}
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

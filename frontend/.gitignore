@@ -55,3 +55,10 @@ public/vfx-runtime.js
 public/vfx-runtime.js.LICENSE.txt
 public/vfx-runtime-v2.js
 public/vfx-runtime-v2.js.LICENSE.txt
+
+# Legacy local dev copies and generated splat assets
+/src/app/(dev)/
+/public/backdrops/*.ply
+/public/backdrops/*.spz
+/public/backdrops/*.ksplat
+/public/backdrops/*.splat

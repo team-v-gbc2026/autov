@@ -1,7 +1,13 @@
 "use client";
 
+import { viewerGpuPreference } from "@/lib/vfx-lab/viewer-gpu-preference";
+
 import { useEffect, useRef, useState } from "react";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
+import type { BackdropController, BackdropSnapshot } from "@/lib/vfx-lab/backdrop-controller";
+import { loadBackdropSettings, saveBackdropSettings } from "@/lib/vfx-lab/backdrop-settings";
+import type { PlacementController, PlacementSnapshot } from "@/lib/vfx-lab/placement-controller";
+import { loadPlacement, savePlacement } from "@/lib/vfx-lab/placement-settings";
 import type { PlaybackClock } from "./playback-clock";
 import type { VfxRuntimeV2 } from "@/lib/vfx-lab/runtime-v2";
 
@@ -17,17 +23,29 @@ export default function WorkspaceScene({
   clock,
   solo,
   focusRequest = 0,
+  backdropStorageKey,
+  onBackdropReady,
+  onBackdropChange,
+  placementStorageKey,
+  onPlacementReady,
+  onPlacementChange,
 }: {
   doc: VfxDocumentV2;
   clock: PlaybackClock;
   solo?: string;
   focusRequest?: number;
+  backdropStorageKey: string;
+  onBackdropReady?: (controller: BackdropController | null) => void;
+  onBackdropChange?: (snapshot: BackdropSnapshot) => void;
+  placementStorageKey: string;
+  onPlacementReady?: (controller: PlacementController | null) => void;
+  onPlacementChange?: (snapshot: PlacementSnapshot) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<VfxRuntimeV2 | null>(null);
   // The rAF loop and the async mount read the latest props through refs, so a
   // new clock, solo or document never tears the renderer down.
-  const latest = useRef({ clock, solo });
+  const latest = useRef({ clock, solo, onBackdropReady, onBackdropChange, onPlacementReady, onPlacementChange });
   const pending = useRef(doc);
   const installed = useRef<VfxDocumentV2 | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -35,7 +53,7 @@ export default function WorkspaceScene({
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    latest.current = { clock, solo };
+    latest.current = { clock, solo, onBackdropReady, onBackdropChange, onPlacementReady, onPlacementChange };
     pending.current = doc;
   });
 
@@ -46,6 +64,8 @@ export default function WorkspaceScene({
     let frame = 0;
     let observer: ResizeObserver | undefined;
     let instance: VfxRuntimeV2 | undefined;
+    let backdrop: BackdropController | undefined;
+    let placement: PlacementController | undefined;
     const fail = (message: string) => {
       if (cancelled) return;
       setError(message);
@@ -54,12 +74,70 @@ export default function WorkspaceScene({
     import("@/lib/vfx-lab/runtime-v2")
       .then(async ({ VfxRuntimeV2 }) => {
         if (cancelled) return;
-        instance = new VfxRuntimeV2(element, { preview: true });
+        instance = new VfxRuntimeV2(element, { preview: true, powerPreference: viewerGpuPreference() });
         runtime.current = instance;
         instance.setDocument(pending.current);
         installed.current = pending.current;
         await instance.whenReady();
         if (cancelled) return;
+        const { BackdropController } = await import("@/lib/vfx-lab/backdrop-controller");
+        if (cancelled) return;
+        let restoring = true;
+        backdrop = new BackdropController({
+          scene: instance.scene,
+          renderer: instance.renderer,
+          requestRender: () => {
+            if (cancelled || !instance) return;
+            try {
+              // Preview skips unchanged clock snapshots; backdrop edits also
+              // need a fresh frame while playback is paused.
+              instance.render(latest.current.clock.getSnapshot().time, latest.current.solo);
+            } catch (problem) {
+              fail(problem instanceof Error ? problem.message : "Could not render the backdrop.");
+            }
+          },
+          onChange: snapshot => {
+            if (cancelled) return;
+            latest.current.onBackdropChange?.(snapshot);
+            if (!restoring) saveBackdropSettings(snapshot.settings, backdropStorageKey);
+          },
+        });
+        latest.current.onBackdropReady?.(backdrop);
+        latest.current.onBackdropChange?.(backdrop.snapshot);
+        // Transform and visibility only: the asset itself loads on demand from
+        // the Backdrop panel, never at startup.
+        backdrop.restoreSettings(loadBackdropSettings(backdropStorageKey));
+        restoring = false;
+        const { PlacementController } = await import("@/lib/vfx-lab/placement-controller");
+        if (cancelled) return;
+        let restoringPlacement = true;
+        placement = new PlacementController({
+          scene: instance.scene,
+          camera: instance.camera,
+          domElement: instance.renderer.domElement,
+          orbit: instance.controls,
+          effectRoot: instance.effectRoot,
+          applyPlacement: next => instance?.setPlacement(next),
+          requestRender: () => {
+            if (cancelled || !instance) return;
+            try {
+              // Paused playback still has to show the drag.
+              instance.render(latest.current.clock.getSnapshot().time, latest.current.solo);
+            } catch (problem) {
+              fail(problem instanceof Error ? problem.message : "Could not render the placement.");
+            }
+          },
+          onChange: snapshot => {
+            if (cancelled) return;
+            latest.current.onPlacementChange?.(snapshot);
+            if (!restoringPlacement) savePlacement(snapshot.placement, placementStorageKey);
+          },
+        });
+        // Restore without an undo entry: reopening a workspace is not an edit.
+        placement.setPlacement(loadPlacement(placementStorageKey), { history: false });
+        restoringPlacement = false;
+        latest.current.onPlacementReady?.(placement);
+        latest.current.onPlacementChange?.(placement.snapshot);
         instance.resize();
         observer = new ResizeObserver(() => {
           if (!cancelled) instance?.resize();
@@ -91,11 +169,15 @@ export default function WorkspaceScene({
       cancelled = true;
       cancelAnimationFrame(frame);
       observer?.disconnect();
+      latest.current.onBackdropReady?.(null);
+      latest.current.onPlacementReady?.(null);
+      placement?.dispose();
+      backdrop?.dispose();
       instance?.dispose();
       runtime.current = null;
       installed.current = null;
     };
-  }, [attempt]);
+  }, [attempt, backdropStorageKey, placementStorageKey]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
