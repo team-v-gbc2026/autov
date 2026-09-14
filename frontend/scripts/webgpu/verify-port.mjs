@@ -86,9 +86,12 @@ try {
     "energy-column": 1.73,
     "fire-projectile": 0.8,
     "fire-slash": 0.4,
+    // main's pre-merge fire-slash lives only in 0.2-0.5 s of its 1.4 s document.
+    "fire-slash-classic": 0.3,
     "glitch-projectile": 1.8,
     "healing-aura": 1.2,
     "ice-blast": 0.8,
+    "ice-blast-classic": 0.8,
     "lightning-impact": 0.22,
     "meteor-rain": 2.31,
     "playful-impact": 0.3,
