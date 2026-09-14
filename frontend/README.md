@@ -1,3 +1,5 @@
+Studio agent setup and architecture: [Eve integration](../docs/EVE_STUDIO_INTEGRATION.md).
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

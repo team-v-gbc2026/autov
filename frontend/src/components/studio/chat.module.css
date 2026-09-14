@@ -1,0 +1,60 @@
+.panel { isolation: isolate; }
+.panel :global(.panel-heading) { min-height: 58px; }
+.subtitle { display: block; color: #7f898b; font-size: 10px; margin-top: 4px; letter-spacing: .02em; }
+.panel :global(.chat-content) { scroll-behavior: auto; padding: 22px 18px; scrollbar-width: thin; scrollbar-color: #ffffff20 transparent; }
+.panel :global(.messages) { display: flex; flex-direction: column; gap: 26px; margin: 0; }
+.message { min-width: 0; width: 100%; }
+.author { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: #b6c0be; font-size: 10px; font-weight: 500; }
+.mark { color: #d5e4d9; font-size: 17px; line-height: 1; }
+.body { font-size: 13px; line-height: 1.75; color: #d3d9d6; overflow-wrap: anywhere; }
+.body p { margin: 0 0 12px; white-space: pre-wrap; }
+.body p:last-child { margin-bottom: 0; }
+.body strong { color: #f0f3ee; font-weight: 600; }
+.body ul,.body ol { margin: 10px 0; padding-left: 20px; }
+.body li { padding-left: 3px; margin: 5px 0; }
+.body code { font-size: 11px; background: #ffffff09; border-radius: 4px; padding: 2px 4px; }
+.body pre { max-width: 100%; overflow: auto; padding: 12px; background: #111615; border: 1px solid #ffffff0d; border-radius: 9px; }
+.body pre code { padding: 0; background: none; }
+.user { align-self: flex-end; max-width: 92%; }
+.user .author { justify-content: flex-end; color: #899590; }
+.user .body { background: #ffffff09; border: 1px solid #ffffff0d; border-radius: 15px 15px 4px 15px; padding: 12px 15px; color: #e5e9e5; }
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; background: #ffffff08; border: 1px solid #ffffff12; border-radius: 6px; padding: 4px 7px; font-size: 10px; color: #abbeb3; }
+.copy { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: #77857e; margin-top: 6px; }
+.copy:hover { color: #d4e3d9; background: #ffffff08; }
+.copy:focus-visible,.notice button:focus-visible { outline: 2px solid #aec5b6; outline-offset: 4px; }
+.caption { display: block; margin-top: 7px; color: #829087; font-size: 10px; text-align: right; }
+.notice { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; font-size: 11px; line-height: 1.7; color: #96a79c; padding: 10px 0; }
+.notice button { color: #d7e5dc; text-decoration: underline; text-underline-offset: 3px; }
+.error { border: 1px solid #c9947540; background: #c9947509; color: #dbbda7; border-radius: 10px; padding: 12px; }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 4px; height: 4px; border-radius: 50%; background: #acc2b4; }
+@media (prefers-reduced-motion: no-preference) { .dots i { animation: pulse 1.4s ease-in-out infinite; } .dots i:nth-child(2) { animation-delay: .18s; } .dots i:nth-child(3) { animation-delay: .36s; } }
+@keyframes pulse { 0%,80%,100% { opacity: .3; } 40% { opacity: 1; } }
+.panel :global(.panel-heading) > div:first-child { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.body ul { list-style: disc; }
+.body ol { list-style: decimal; }
+
+.reconnecting { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 20px 0; color: #96a79c; font-size: 10px; }
+@media (prefers-reduced-motion: no-preference) { .spinner { animation: spin 1s linear infinite; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.mentionChip { display: inline; padding: 1px 5px; margin: 0 1px; border: 1px solid #bba37455; border-radius: 5px; background: #bba37418; color: #dbc695; font: inherit; cursor: pointer; }
+.mentionChip:disabled { opacity: .55; cursor: default; }
+.mentionChip:focus-visible { outline: 2px solid #dbc695; outline-offset: 2px; }
+
+.toolHint { display: flex; align-items: center; gap: 5px; padding: 0; color: #929d96; font-size: 11px; line-height: 1.5; }
+
+.generationProgress { display: flex; align-items: center; gap: 5px; padding: 0; font-size: 11px; color: #929d96; }
+.generationLabel { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; flex: 1; justify-content: space-between; gap: 6px; min-width: 0; }
+.generationElapsed { margin-left: auto; flex: 0 0 auto; white-space: nowrap; color: #7f8c83; font-variant-numeric: tabular-nums; }
+.stageRing { flex-shrink: 0; color: #9eb6a6; }
+@media (prefers-reduced-motion: no-preference) { .stageRing circle { transition: stroke-dashoffset .4s ease; } }
+
+@keyframes pendingRingSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: no-preference) { .pendingRing { animation: pendingRingSpin 1.2s linear infinite; } }
+
+.activityRow { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.activityBrand { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: #b6c0be; font-size: 10px; }
+.activityRow > .toolHint, .activityRow > .generationProgress { flex: 1; min-width: 0; }
+.generationHintText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

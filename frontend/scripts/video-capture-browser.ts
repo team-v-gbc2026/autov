@@ -10,7 +10,8 @@ type Active = {
   host: HTMLElement;
   errors: string[];
   render: (time: number) => void;
-  renderer: { getContext(): WebGLRenderingContext | WebGL2RenderingContext };
+  renderer: { getContext(): unknown; domElement: HTMLCanvasElement };
+  webgpu?: boolean;
   dispose: () => void;
 };
 let active: Active | undefined;
@@ -36,6 +37,7 @@ export async function begin(
       errors,
       render: (time) => runtime.render(time),
       renderer: runtime.renderer,
+      webgpu: true,
       dispose: () => runtime.dispose(),
     };
   } else {
@@ -52,7 +54,8 @@ export async function begin(
       dispose: () => runtime.dispose(),
     };
   }
-  const gl = active.renderer.getContext(),
+  if (active!.webgpu) return { width: 960, height: 540, renderer: "WebGPU" };
+  const gl = active!.renderer.getContext() as WebGLRenderingContext,
     debug = gl.getExtension("WEBGL_debug_renderer_info");
   return {
     width: 960,
@@ -64,7 +67,19 @@ export async function begin(
 }
 export function frame(time: number) {
   if (!active) throw Error("Video capture has not started");
-  const gl = active.renderer.getContext();
+  if (active.webgpu) {
+    active.render(time);
+    if (active.errors.length) throw Error(active.errors.join("; "));
+    // Read the presented canvas immediately, in this same task: the WebGPU
+    // presentation texture is not a persistent screenshot buffer.
+    const source = active.renderer.domElement;
+    const target = document.createElement("canvas");
+    target.width = source.width;
+    target.height = source.height;
+    target.getContext("2d")!.drawImage(source, 0, 0);
+    return target.toDataURL("image/png");
+  }
+  const gl = active.renderer.getContext() as WebGLRenderingContext;
   // WebGL error state is a queue that outlives the call that filled it: a
   // shader/program failure during a *previous* frame's render can otherwise
   // surface here and get misreported as a framebuffer read failure. Drain

@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { clamp } from "./evaluate";
 import { evaluateLayerV2 } from "./evaluate-v2";
 import { RUNTIME_VERSION_V2, VfxRuntimeV2 } from "./runtime-v2";
@@ -108,12 +108,14 @@ export function stripTimesV2(doc: VfxDocumentV2) {
   );
 }
 
-function rendererDescription(renderer: THREE.WebGLRenderer) {
-  const gl = renderer.getContext();
-  const debug = gl.getExtension("WEBGL_debug_renderer_info");
-  return String(
-    gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
-  );
+function rendererDescription(renderer: THREE.WebGPURenderer) {
+  const backend = renderer.backend as unknown as {
+    isWebGPUBackend?: boolean;
+    device?: GPUDevice;
+  };
+  if (!backend.isWebGPUBackend) throw new Error("Evaluation requires WebGPU.");
+  const info = backend.device?.adapterInfo;
+  return `WebGPU ${info?.vendor || ""} ${info?.device || ""} ${info?.description || ""}`.trim();
 }
 
 /**
@@ -123,7 +125,7 @@ function rendererDescription(renderer: THREE.WebGLRenderer) {
  */
 export async function captureV2(
   input: VfxDocumentV2,
-  options: { solo?: string; diagnostic?: boolean } = {},
+  options: { solo?: string; diagnostic?: boolean; times?: number[] } = {},
 ): Promise<Evidence> {
   const doc = validateDocumentV2(input);
   const host = document.createElement("div");
@@ -184,7 +186,8 @@ export async function captureV2(
       return canvas;
     };
 
-    const times = captureTimesV2(doc);
+    if (options.times && (!options.times.length || options.times.length > 8 || options.times.some(time => !Number.isFinite(time) || time < 0 || time > doc.duration))) throw new Error("Capture times must be within the effect duration.");
+    const times = options.times ?? captureTimesV2(doc);
     let renderedPixels = 0;
     const sheet = compose(
       times,

@@ -614,9 +614,10 @@ otherwise push out the card the prompt actually named.
 declared or supplied here. The program therefore failed to compile, Three.js logged it and carried
 on, and **every `splash` layer in every document drew nothing**, leaving a GL_INVALID_OPERATION
 (1282) behind each skipped `useProgram`. In the fx12 candidate that was `white-outward-accent`, the
-one layer meant to break the silhouette outward. `scripts/verify-shader-links.mjs` (`npm run verify:shaders`) and
-`tests/shader-links.test.ts` now render every exemplar and fail on any shader message or non-zero
-`gl.getError()`, so a uniform declared in one variant and used in another cannot ship again. The
-test runs the script as a CHILD PROCESS: the harness owns a browser, an http server and an esbuild
-service, and imported in-process inside the node test runner it never returns. It costs about five
-minutes of SwiftShader, so `AUTOV_SKIP_SHADER_LINKS=1` skips it in a tight edit loop.
+one layer meant to break the silhouette outward.
+
+Under the WebGPU runtime that class of fault cannot ship silently: the programs are generated offline
+by `npm run generate:v2-nodes`, a missing uniform fails the build in `createV2NodeMaterial` with the
+whole missing set named, and a program that fails to compile is a GPU error rather than a skipped
+draw. `npm run verify:webgpu` renders every exemplar and fails on any GPU or console error, which is
+what the WebGL-era `scripts/verify-shader-links.mjs` used to do; that script and its test are gone.

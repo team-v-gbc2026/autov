@@ -8,10 +8,10 @@ import type { BoardItem } from "./board-store";
 import Tooltip from "@/components/ui/tooltip";
 import styles from "./board.module.css";
 
-export default function BoardCard({ reference, position, size, scale, onSize, onResize, onMove, onStop, onPreview, onMention, onRename, onError, disabled }: {
+export default function BoardCard({ reference, position, size, scale, onSize, onResize, onMove, onStop, onPreview, onMention, onRemove, onRename, onError, disabled }: {
   reference: Reference; position: BoardItem; scale: number; onMove: (position: BoardItem) => void; onStop: () => void;
   size: { width: number; height: number }; onSize: (size: { width: number; height: number }) => void;
-  onPreview: () => void; onMention: () => void; onError: () => void; disabled: boolean;
+  onPreview: () => void; onMention: () => void; onRemove: () => void; onError: () => void; disabled: boolean;
   onRename: (name: string) => void; onResize: (size: { width: number; height: number }, corner: ResizeCorner) => void;
 }) {
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -29,6 +29,7 @@ export default function BoardCard({ reference, position, size, scale, onSize, on
       <div className={`${styles.cardActions} board-no-drag`} role="toolbar" aria-label={`Actions for ${reference.name}`} style={{ transform: `translateX(-50%) scale(${1 / scale}) translateY(-8px)` }}>
         <Tooltip content="Regenerate image (coming soon)"><button type="button" aria-label="Regenerate image (coming soon)" aria-disabled="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z" /></svg></button></Tooltip>
         <Tooltip content="Mention in chat" side="top"><button className={`${styles.mention} board-no-drag`} onClick={onMention} aria-label={`Mention ${reference.name} in chat`} disabled={disabled}>@</button></Tooltip>
+        <Tooltip content="Delete reference" side="top"><button type="button" aria-label={`Delete ${reference.name}`} onClick={onRemove} disabled={disabled}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg></button></Tooltip>
       </div>
       <div className={`${styles.cardCaption} board-no-drag`} style={{ transform: `translateX(-50%) scale(${1 / scale}) translateY(8px)` }}>
         <span className={styles.tagPrefix} aria-hidden="true">@</span>

@@ -1,7 +1,6 @@
-import OpenAI from "openai";
-import { zodTextFormat } from "openai/helpers/zod";
+import { callStructuredModel } from "./model-provider";
 import { z } from "zod";
-import { reserve, settle, cost, DATA_DIR } from "./budget";
+import { reserve, settle, DATA_DIR } from "./budget";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -44,97 +43,8 @@ export async function getKey() {
     return undefined;
   }
 }
-export async function callModel<T extends z.ZodType>(
-  schema: T,
-  system: string,
-  text: string,
-  images: string[],
-  signal: AbortSignal,
-  maxOutput = 6000,
-  effort: "low" | "medium" | "high" = "medium",
-  // A large structured document at high effort can outlast the default client
-  // timeout; callers that ask for one raise this deliberately.
-  timeoutMs = 240000,
-): Promise<{ value: z.infer<T>; usage: Usage; elapsedSeconds: number }> {
-  const apiKey = await getKey();
-  if (!apiKey)
-    throw new Error(
-      "OpenAI API key is not configured. Open local settings to connect.",
-    );
-  const model = process.env.OPENAI_VFX_MODEL || "gpt-6-astra";
-  if (model !== "gpt-6-astra")
-    throw new Error(
-      "This local budget uses verified gpt-6-astra rates. Revalidate pricing before changing models.",
-    );
-  const format = zodTextFormat(schema, "vfx_result");
-  const inputBound =
-    Buffer.byteLength(system + text + JSON.stringify(format), "utf8") +
-    4000 +
-    images.length * 20000;
-  // The v2 vocabulary, the technique brief and a full exemplar document put a
-  // candidate request near 300 kB; the guard only has to stop a runaway input,
-  // the reservation below still prices every byte.
-  if (inputBound > 480000)
-    throw new Error(
-      `Input is too large for the local budget guard (${Math.round(inputBound / 1000)} kB).`,
-    );
-  const reservation = await reserve(inputBound, maxOutput);
-  // On timeout, disconnection or failed parsing, retain the reservation: a remote call may still be billable.
-  const client = new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 0 });
-  const startedAt = Date.now();
-  // Stream so response headers arrive at once. Long v2 document calls otherwise
-  // exceed Node's undici headersTimeout (300 s) before the SDK timeout, because a
-  // non-streamed Responses call sends no headers until the whole answer is ready.
-  const stream = client.responses.stream(
-    {
-      model,
-      store: false,
-      service_tier: "default",
-      max_output_tokens: maxOutput,
-      reasoning: { effort },
-      text: { format },
-      input: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text },
-            ...images.map((image_url) => ({
-              type: "input_image" as const,
-              image_url,
-              detail: "high" as const,
-            })),
-          ],
-        },
-      ],
-    },
-    { signal },
-  );
-  const response = await stream.finalResponse();
-  const usage: Usage = {
-    input: response.usage?.input_tokens || 0,
-    output: response.usage?.output_tokens || 0,
-    usd: cost(
-      response.usage?.input_tokens || 0,
-      response.usage?.output_tokens || 0,
-    ),
-    model,
-    responseId: response.id,
-  };
-  if (response.usage) await settle(reservation, usage.input, usage.output);
-  if (response.status !== "completed")
-    throw new Error(
-      `OpenAI response ${response.status}${response.incomplete_details?.reason ? ` (${response.incomplete_details.reason})` : ""}. Previous effect preserved.`,
-    );
-  if (!response.output_text)
-    throw new Error(
-      "OpenAI returned no effect data. Previous effect preserved.",
-    );
-  return {
-    value: schema.parse(JSON.parse(response.output_text)),
-    usage,
-    elapsedSeconds: Math.round((Date.now() - startedAt) / 100) / 10,
-  };
+export async function callModel<T extends z.ZodType>(schema: T, system: string, text: string, images: string[], signal: AbortSignal, maxOutput = 6000, effort: "low" | "medium" | "high" = "medium", timeoutMs = 240000) {
+  return callStructuredModel(schema, system, text, images, signal, maxOutput, effort, timeoutMs, { apiKey: await getKey(), reserve, settle });
 }
 export type Run = {
   structuralAttempted?: boolean;

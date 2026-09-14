@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBoardLayout, referenceName } from "./studio/board/board-store";
-import ParticleScene from "./particle-scene";
 import StudioHeader from "./studio/studio-header";
 import ReferencesPanel from "./studio/references-panel";
 import ChatPanel from "./studio/chat-panel";
@@ -11,7 +10,8 @@ import PlaybackPanel from "./studio/playback-panel";
 import PanelToggle from "./studio/panel-toggle";
 import Icon from "./studio/icon";
 import IconButton from "./studio/icon-button";
-import { usePlayback } from "./studio/use-playback";
+import { PlaybackFrames, usePlaybackClock } from "./studio/playback-clock";
+import { useStudioDocument, type BrowserOperation } from "./studio/use-studio-document";
 import { useReferences } from "./studio/use-references";
 import type {
   Project,
@@ -21,7 +21,7 @@ import type {
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
 import EmitterControls from "./vfx-studio/emitter-controls";
-import V2Scene from "./studio/v2-scene";
+import WorkspaceScene from "./studio/workspace-scene";
 import {
   createEmitter,
   normalizeVfxDocument,
@@ -33,12 +33,12 @@ import {
   applyDuration,
   applyEnvironment,
   applyLayerPatch,
-  createDocument,
+  createWorkspaceDocument,
   projectToUi,
 } from "@/lib/vfx-lab/ui-bridge";
 import {
   isV2,
-  validateDocumentV2,
+  validateWorkspaceDocumentV2,
   type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
 import { upgradeDocument } from "@/lib/vfx-lab/migrate";
@@ -55,6 +55,7 @@ type StudioProps = {
   initialDocument?: VfxDocumentV2;
   /** Dev pages: no Supabase project behind the chat, generate locally only. */
   standalone?: boolean;
+  headerActions?: React.ReactNode;
 };
 
 /**
@@ -84,6 +85,7 @@ export default function Studio({
   versions,
   initialDocument,
   standalone = false,
+  headerActions,
 }: StudioProps) {
   const [environmentOpen, setEnvironmentOpen] = useState(false);
   const environmentPanel = useRef<HTMLElement>(null);
@@ -106,28 +108,54 @@ export default function Studio({
       document.removeEventListener("keydown", escape);
     };
   }, [environmentOpen]);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [left, setLeft] = useState(true);
   const [right, setRight] = useState(true);
   const [saving, setSaving] = useState(false);
   // The autov.lab/2 document is the source of truth; the timeline, the emitter
   // rows and the controls all read a pure projection of it.
-  const [doc, setDoc] = useState<VfxDocumentV2 | null>(initialDocument ?? null);
+  const [selectedLayerId, setSelectedLayerId] = useState(
+    () => initialDocument?.layers[0]?.id ?? "",
+  );
+  const [soloLayerId, setSoloLayerId] = useState<string>();
+  const references = useReferences(project.id, userId, initialReferences);
+  const [referenceFocus, setReferenceFocus] = useState<{ id: string; sequence: number }>();
+  const [emitterFocus, setEmitterFocus] = useState<{ id: string; sequence: number }>();
+  const focusReference = (id: string) => { setLeft(true); setReferenceFocus({ id, sequence: Date.now() }); };
+  const focusEmitter = (id: string) => { setSelectedLayerId(id); setEmitterFocus({ id, sequence: Date.now() }); };
+  const browserHandler = useRef<(operation: BrowserOperation, currentDocument: VfxDocumentV2) => Promise<Record<string, unknown>>>(async () => { throw new Error("Studio is starting."); });
+  const synced = useStudioDocument(project.id, () => initialDocument ? validateWorkspaceDocumentV2(initialDocument) : createWorkspaceDocument(project.name), standalone, (operation, currentDocument) => browserHandler.current(operation, currentDocument), references.reconcileAssets);
+  const { document: doc, setDoc } = synced;
   // A JSON import in the UI dialect has no v2 document behind it, so it stays a
-  // UI-only document (with the placeholder preview) until a generation or a
+  // UI-only document (with the workspace environment visible) until a generation or a
   // v1/v2 import replaces it.
   const [uiImport, setUiImport] = useState<VfxUiDocument | null>(null);
   const vfxDocument = useMemo(
     () => uiImport ?? projectToUi(doc),
     [uiImport, doc],
   );
-  const [selectedLayerId, setSelectedLayerId] = useState(
-    () => initialDocument?.layers[0]?.id ?? "",
-  );
-  const [soloLayerId, setSoloLayerId] = useState<string>();
   const [importError, setImportError] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
-  const playback = usePlayback(vfxDocument.duration);
-  const references = useReferences(project.id, userId, initialReferences);
+  const clock = usePlaybackClock(vfxDocument.duration);
+  const playback = clock.getSnapshot();
+  useEffect(() => { browserHandler.current = async (operation, currentDocument) => {
+    if (operation.kind === "reference_view") focusReference(String(operation.input.referenceId));
+    if (operation.kind === "view") {
+      const input = operation.input;
+      if (typeof input.layerId === "string") focusEmitter(input.layerId);
+      if (typeof input.solo === "boolean") setSoloLayerId(input.solo ? String(input.layerId || selectedLayerId) : undefined);
+      if (typeof input.playing === "boolean") playback.setPlaying(input.playing);
+      if (typeof input.time === "number") playback.setTime(input.time);
+    }
+    if (["preview", "capture_candidate"].includes(operation.kind)) {
+      const { captureV2 } = await import("@/lib/vfx-lab/capture-v2");
+      const captureDoc = operation.kind === "capture_candidate" ? validateWorkspaceDocumentV2(operation.input.document) : currentDocument;
+      const evidence = await captureV2(captureDoc, { solo: typeof operation.input.layerId === "string" ? operation.input.layerId : undefined, times: operation.input.times as number[] | undefined });
+      return { sheet: evidence.sheet, times: evidence.times, renderedPixels: evidence.renderedPixels || 0 };
+    }
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return {};
+  }; });
 
   const { layout } = useBoardLayout(project.id);
   const chat = useRef<ChatPanelHandle>(null);
@@ -146,7 +174,7 @@ export default function Studio({
       }));
       return;
     }
-    setDoc(current => current && applyLayerPatch(current, id, patch));
+    setDoc(current => applyLayerPatch(current, id, patch));
   };
   const addEmitter = () => {
     if (uiImport) {
@@ -156,12 +184,9 @@ export default function Studio({
       setSoloLayerId(undefined);
       return;
     }
-    // An empty timeline has no v2 document yet: the first emitter creates one.
-    // The bridge throws rather than hand back a document with no new layer.
+    // Emitters are added to the existing workspace document and environment.
     try {
-      const next = doc
-        ? addLayer(doc, doc.layers.length)
-        : createDocument(project.name);
+      const next = addLayer(doc, doc.layers.length);
       setDoc(next);
       setSelectedLayerId(next.layers[next.layers.length - 1].id);
       setSoloLayerId(undefined);
@@ -175,7 +200,7 @@ export default function Studio({
   /** A generated or imported v2 document becomes the new source of truth. */
   const openDocument = (next: VfxDocumentV2) => {
     setUiImport(null);
-    setDoc(next);
+    setDoc(validateWorkspaceDocumentV2(next));
     setSelectedLayerId(next.layers[0]?.id ?? "");
     setSoloLayerId(undefined);
     playback.setPlaying(false);
@@ -189,7 +214,7 @@ export default function Studio({
       }));
       return;
     }
-    setDoc(current => current && applyEnvironment(current, patch));
+    setDoc(current => applyEnvironment(current, patch));
   };
   const effectControls = selectedLayer ? <EmitterControls layer={selectedLayer} onChange={patch => patchLayer(selectedLayer.id, patch)} /> : null;
   const environmentControls = (
@@ -198,17 +223,18 @@ export default function Studio({
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEnvironmentOpen(false);
       }}
     >
+      <IconButton name="focus" label="Focus" onClick={() => setFocusRequest(value => value + 1)} />
       <button
         ref={environmentTrigger}
         type="button"
-        className="lab-environment-trigger"
+        className="icon-button"
+        aria-label="Environment settings"
+        title="Environment settings"
         aria-expanded={environmentOpen}
         aria-controls="environment-settings"
         onClick={() => setEnvironmentOpen(open => !open)}
       >
-        <Icon name="sliders" size={14} />
-        Environment
-        <span className={environmentOpen ? "rotated" : ""}><Icon name="chevron" size={14} /></span>
+        <Icon name="environment" />
       </button>
       <div id="environment-settings" className="lab-environment-panel" hidden={!environmentOpen}>
         <label className="lab-environment-field">
@@ -245,6 +271,17 @@ export default function Studio({
       </div>
       <div className="lab-scene-export">
         <IconButton
+          name="reset"
+          label="Reset effect"
+          disabled={saving || !synced.ready}
+          onClick={() => {
+            setEnvironmentOpen(false);
+            openDocument(createWorkspaceDocument(project.name));
+            setEmitterFocus(undefined);
+            setImportError("");
+          }}
+        />
+        <IconButton
           name="upload"
           label="Import effect JSON"
           onClick={() => {
@@ -257,7 +294,7 @@ export default function Studio({
           label="Export effect JSON"
           onClick={() => {
             setEnvironmentOpen(false);
-            downloadDocument(doc ?? vfxDocument);
+            downloadDocument(uiImport ?? doc);
           }}
         />
       </div>
@@ -270,16 +307,12 @@ export default function Studio({
     >
       <div className="viewport-grid" />
       <div className="lab-preview-stage">
-        {doc ? (
-          <V2Scene doc={doc} time={playback.time} solo={soloLayerId} />
-        ) : (
-          <ParticleScene time={playback.time} />
-        )}
+        <WorkspaceScene focusRequest={focusRequest} doc={doc} clock={clock} solo={soloLayerId} />
       </div>
       <StudioHeader
         project={project}
         email={email}
-
+        actions={headerActions}
       />
       {environmentControls}
       <input
@@ -299,10 +332,10 @@ export default function Studio({
             // autov.lab/2 and autov.lab/1 documents open in the renderer; the
             // older UI-only dialect still opens in the timeline alone.
             if (isV2(parsed) || parsed?.schemaVersion === "autov.lab/1") {
-              openDocument(validateDocumentV2(upgradeDocument(parsed)));
+              openDocument(isV2(parsed) ? parsed : upgradeDocument(parsed));
             } else {
               const next = normalizeVfxDocument(parsed);
-              setDoc(null);
+              setDoc(current => ({ ...current, layers: [] }));
               setUiImport(next);
               setSelectedLayerId(next.layers[0].id);
               setSoloLayerId(undefined);
@@ -324,7 +357,7 @@ export default function Studio({
         <PanelToggle side="right" label="Chat" onOpen={() => setRight(true)} />
       )}
       <div hidden={!left}>
-        <ReferencesPanel projectId={project.id} state={boardState} onMention={mention} locked={saving} onCollapse={() => setLeft(false)} />
+        <ReferencesPanel focusRequest={referenceFocus} projectId={project.id} state={boardState} onMention={mention} locked={saving} onCollapse={() => setLeft(false)} />
       </div>
       <div hidden={!right}>
         <ChatPanel
@@ -335,29 +368,39 @@ export default function Studio({
           ref={chat}
           references={displayReferences}
           uploadFile={references.uploadFile}
-          busy={references.busy}
+          busy={references.busy || !synced.ready}
           saving={saving}
           setSaving={setSaving}
           onCollapse={() => setRight(false)}
           vfx={{
             document: vfxDocument,
-            onDocument: openDocument,
+            selectedEmitterId: selectedLayerId,
+            onDocument: generated => openDocument({ ...generated, environment: doc.environment }),
             standalone,
+            beforeSend: async () => { if (uiImport) throw new Error("Import a v2 effect before using studio tools."); await synced.flush(); },
+            onReference: focusReference,
+            onEmitter: focusEmitter,
           }}
         />
       </div>
-      <PlaybackPanel
+      <PlaybackFrames clock={clock}>{playback => <PlaybackPanel
         playback={playback}
+        effectName={vfxDocument.name}
+        onEffectNameChange={name => {
+          if (uiImport) setUiImport(document => document && ({ ...document, name }));
+          else setDoc(document => ({ ...document, name }));
+        }}
         duration={vfxDocument.duration}
         minDuration={Math.max(0.01, ...vfxDocument.layers.flatMap(layer => [layer.end, ...layer.edits.map(edit => edit.end)]))}
         onDurationChange={duration => {
           playback.setPlaying(false);
           playback.setTime(Math.min(playback.time, duration));
           if (uiImport) setUiImport(document => document && ({ ...document, duration }));
-          else setDoc(current => current && applyDuration(current, duration));
+          else setDoc(current => applyDuration(current, duration));
         }}
         tracks={
           <EmitterTimeline
+            focusRequest={emitterFocus}
             layers={vfxDocument.layers}
             duration={vfxDocument.duration}
             time={playback.time}
@@ -380,6 +423,18 @@ export default function Studio({
               setRight(true);
               chat.current?.mentionEmitter(layer);
             }}
+            onDelete={id => {
+              if (uiImport) {
+                setUiImport(current => current && ({ ...current, layers: current.layers.filter(layer => layer.id !== id) }));
+              } else {
+                setDoc(current => {
+                  const layers = current.layers.filter(layer => layer.id !== id);
+                  return { ...current, layers };
+                });
+              }
+              setSelectedLayerId(current => current === id ? vfxDocument.layers.find(layer => layer.id !== id)?.id ?? "" : current);
+              setSoloLayerId(current => current === id ? undefined : current);
+            }}
             onAdd={addEmitter}
             onTimingChange={(id, edge, value) => {
               playback.setPlaying(false);
@@ -387,7 +442,8 @@ export default function Studio({
             }}
           />
         }
-      />
+      />}</PlaybackFrames>
+      {synced.error && <div className="lab-import-error" role="alert"><span>{synced.error} Your local edits are preserved; export them before reloading if there is a conflict.</span></div>}
       {importError && <div className="lab-import-error" role="alert">
         <span>{importError}</span>
         <IconButton name="close" label="Dismiss error" onClick={() => setImportError("")} />

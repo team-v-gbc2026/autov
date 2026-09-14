@@ -1,9 +1,12 @@
-import * as THREE from "three";
+import { layerBuildKey } from "./layer-build-key";
+import type { IUniform } from "three";
+import * as THREE from "three/webgpu";
+import { createV2NodeMaterial, type V2NodeMaterial } from "./node-material-v2";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildGeometry } from "./geometry";
 import { createEnvironment, type EnvironmentV2 } from "./environment-v2";
 import { createPostStack, type PostStackV2 } from "./post-v2";
-import { evaluateLayerV2 } from "./evaluate-v2";
+import { evaluateLayerV2Readonly as evaluateLayerV2 } from "./evaluate-v2";
 import { pathEvents, resolveEventWindows } from "./events-v2";
 import { upgradeDocument } from "./migrate";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
@@ -12,6 +15,7 @@ import type { VfxDocument } from "./schema";
 import {
   isV2,
   validateDocumentV2,
+  validateWorkspaceDocumentV2,
   type Curve,
   type Emitter,
   type GeometryV2,
@@ -59,42 +63,16 @@ import {
 import {
   CURVE_KEYS,
   RADIAL_CUTOFF,
-  arcFragmentV2,
-  arcVertexV2,
-  blobFragmentV2,
-  blobVertexV2,
   curveUniforms,
-  particleFragmentV2,
-  particleVertexSource,
   rampUniforms,
-  ribbonFragmentV2,
-  ribbonVertexV2,
-  splashFragmentV2,
-  splashVertexV2,
-  streakFragmentV2,
-  streakVertexV2,
-  stripFragmentV2,
-  stripVertexSource,
-  sliverFragmentV2,
-  sliverVertexSource,
-  sheetVertexV2,
-  sheetFragmentV2,
-  crescentVertexV2,
-  crescentFragmentV2,
-  lickVertexV2,
-  lickFragmentV2,
-  crystalFragmentV2,
-  crystalVertexV2,
-  surfaceFragmentV2,
-  surfaceVertexV2,
-  trailFragmentV2,
-  trailVertexSource,
-  wireBurstFragmentV2,
-  wireBurstVertexV2,
   writeCurve,
   writeRamp,
-} from "./shaders-v2";
-import { STRIKE_HZ, buildLightningGeometry, lightningBounds } from "./lightning-v2";
+} from "./uniforms-v2";
+import {
+  STRIKE_HZ,
+  buildLightningGeometry,
+  lightningBounds,
+} from "./lightning-v2";
 import {
   sheetGeometry,
   sheetInstances,
@@ -112,7 +90,7 @@ import {
 } from "./crescent-v2";
 import { buildLicksGeometry } from "./licks-v2";
 
-export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186";
+export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186-webgpu";
 
 // ---------------------------------------------------------------------------
 // autov.lab/2 renderer.
@@ -352,13 +330,13 @@ class TextureCacheV2 {
 
   resolve(id: string | null, doc: VfxDocumentV2, repeat: boolean) {
     if (!id) return null;
-    const key = `${id}:${repeat ? "r" : "c"}`;
-    const cached = this.cache.get(key);
-    if (cached) return cached;
     const embedded = doc.textures?.find((asset) => asset.id === id);
     const file = TEXTURE_FILES.get(id);
     const url = embedded ? embedded.data : file ? textureUrl(file) : undefined;
     if (!url) return null;
+    const key = `${url}:${repeat ? "r" : "c"}`;
+    const cached = this.cache.get(key);
+    if (cached) return cached;
     this.pending++;
     const texture = this.loader.load(
       url,
@@ -433,9 +411,9 @@ function makeAttributes(count: number, seed: number): ParticleAttributes {
 }
 
 function orthoOf(a: THREE.Vector3, out: THREE.Vector3) {
-  const helper =
-    Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-  out.crossVectors(a, helper);
+  // a × Y or a × X, without allocating a helper for every particle.
+  if (Math.abs(a.y) < 0.9) out.set(-a.z, 0, a.x);
+  else out.set(0, a.z, -a.y);
   return out.lengthSq() > 1e-10 ? out.normalize() : out.set(1, 0, 0);
 }
 
@@ -453,6 +431,17 @@ function speedIntegral(curve: Curve, u: number) {
   }
   return acc;
 }
+
+// particlePositionV2 is synchronous and never calls user code; only `out`
+// escapes. Reuse its working vectors across sorting and bounds samples.
+const particleScratch = {
+  unit: new THREE.Vector3(), sphere: new THREE.Vector3(), axis: new THREE.Vector3(),
+  a1: new THREE.Vector3(), a2: new THREE.Vector3(), origin: new THREE.Vector3(),
+  base: new THREE.Vector3(), direction: new THREE.Vector3(),
+  front: new THREE.Vector3(), radial: new THREE.Vector3(),
+  turned: new THREE.Vector3(), cross: new THREE.Vector3(),
+  t1: new THREE.Vector3(), t2: new THREE.Vector3(), force: new THREE.Vector3(),
+};
 
 /**
  * Positions for bounds and depth sorting. Deliberately ignores the curl and
@@ -532,9 +521,9 @@ function particlePositionV2(
   const ca = e0 * Math.PI * 2;
   const cz = e1 * 2 - 1;
   const cr = Math.sqrt(Math.max(0, 1 - cz * cz));
-  const unit = new THREE.Vector3(cr * Math.cos(ca), cz, cr * Math.sin(ca));
+  const unit = particleScratch.unit.set(cr * Math.cos(ca), cz, cr * Math.sin(ca));
   const fill = emitter.shape.surfaceOnly ? 1 : Math.sqrt(Math.max(e2, 0));
-  const sph = unit.clone().multiplyScalar(fill);
+  const sph = particleScratch.sphere.copy(unit).multiplyScalar(fill);
   const bias = emitter.shape.bias;
   sph.set(
     sph.x + (Math.abs(sph.x) - sph.x) * clamp01(bias[0]),
@@ -545,7 +534,9 @@ function particlePositionV2(
   if (emitter.spawn.mode === "frontAnchored" && front) {
     // A front-anchored instance sits ON the arc, wherever its own parameter is.
     front.point(s0, out);
-    const dir = new THREE.Vector3(s2 - 0.5, x3 - 0.5, s3 - 0.5).normalize();
+    const dir = particleScratch.direction
+      .set(s2 - 0.5, x3 - 0.5, s3 - 0.5)
+      .normalize();
     const speed =
       emitter.velocity.speed[0] +
       (emitter.velocity.speed[1] - emitter.velocity.speed[0]) * x3;
@@ -554,19 +545,19 @@ function particlePositionV2(
     out
       .addScaledVector(dir, speed * travel)
       .addScaledVector(
-        new THREE.Vector3().fromArray(emitter.forces.gravity),
+        particleScratch.force.fromArray(emitter.forces.gravity),
         0.5 * age * age,
       );
     return true;
   }
 
-  const axis = new THREE.Vector3().fromArray(emitter.shape.axis);
+  const axis = particleScratch.axis.fromArray(emitter.shape.axis);
   if (axis.lengthSq() < 1e-10) axis.set(0, 1, 0);
   axis.normalize();
-  const a1 = orthoOf(axis, new THREE.Vector3());
-  const a2 = new THREE.Vector3().crossVectors(axis, a1);
+  const a1 = orthoOf(axis, particleScratch.a1);
+  const a2 = particleScratch.a2.crossVectors(axis, a1);
   const shape = emitter.shape;
-  const origin = new THREE.Vector3();
+  const origin = particleScratch.origin.set(0, 0, 0);
   switch (shape.type) {
     case "point":
       break;
@@ -731,16 +722,16 @@ function particlePositionV2(
   // spawn radius, so there is no ballistic trajectory to integrate either.
   if (emitter.velocity.mode === "orbit") {
     const h = origin.dot(axis);
-    const rad = origin.clone().addScaledVector(axis, -h);
+    const rad = particleScratch.radial.copy(origin).addScaledVector(axis, -h);
     const r = Math.max(rad.length(), 1e-4);
     const w =
       emitter.velocity.speed[1] * Math.pow(r / Math.max(shape.radius, 1e-3), -0.5);
     const angle = w * age;
-    const turned = rad
-      .clone()
+    const turned = particleScratch.turned
+      .copy(rad)
       .multiplyScalar(Math.cos(angle))
       .addScaledVector(
-        new THREE.Vector3().crossVectors(axis, rad),
+        particleScratch.cross.crossVectors(axis, rad),
         Math.sin(angle),
       );
     const bob =
@@ -769,22 +760,23 @@ function particlePositionV2(
     return true;
   }
 
-  const base = new THREE.Vector3().fromArray(emitter.velocity.direction);
+  const base = particleScratch.base.fromArray(emitter.velocity.direction);
   if (base.lengthSq() < 1e-10) base.set(0, 1, 0);
   base.normalize();
-  const dir = new THREE.Vector3();
+  const dir = particleScratch.direction.set(0, 0, 0);
   if (sites && shape.type === "layerInstances" && emitter.velocity.mode === "radial")
     dir.fromArray(sites.axes, index * 3).normalize();
-  else if (emitter.velocity.mode === "radial")
-    dir.copy(origin.lengthSq() > 1e-10 ? origin.clone().normalize() : base);
-  else if (emitter.velocity.mode === "directional") dir.copy(base);
+  else if (emitter.velocity.mode === "radial") {
+    if (origin.lengthSq() > 1e-10) dir.copy(origin).normalize();
+    else dir.copy(base);
+  } else if (emitter.velocity.mode === "directional") dir.copy(base);
   else if (emitter.velocity.mode === "tangential")
     dir
       .crossVectors(axis, origin.lengthSq() > 1e-10 ? origin : base)
       .normalize();
   else {
-    const t1 = orthoOf(base, new THREE.Vector3());
-    const t2 = new THREE.Vector3().crossVectors(base, t1);
+    const t1 = orthoOf(base, particleScratch.t1);
+    const t2 = particleScratch.t2.crossVectors(base, t1);
     const ph = s2 * Math.PI * 2;
     const cone = s3 * emitter.velocity.angle;
     dir
@@ -799,7 +791,8 @@ function particlePositionV2(
     (emitter.velocity.speed[1] - emitter.velocity.speed[0]) * x3;
   const drag = emitter.forces.drag;
   const d = emitter.velocity.speedCurve
-    ? life * speedIntegral(emitter.velocity.speedCurve, age / Math.max(life, 1e-4))
+    ? life *
+      speedIntegral(emitter.velocity.speedCurve, age / Math.max(life, 1e-4))
     : drag < 0.001
       ? age
       : (1 - Math.exp(-drag * age)) / drag;
@@ -807,10 +800,10 @@ function particlePositionV2(
     .copy(origin)
     .addScaledVector(dir, v0 * d)
     .addScaledVector(
-      new THREE.Vector3().fromArray(emitter.forces.gravity),
+      particleScratch.force.fromArray(emitter.forces.gravity),
       0.5 * age * age,
     )
-    .addScaledVector(new THREE.Vector3().fromArray(emitter.forces.wind), age);
+    .addScaledVector(particleScratch.force.fromArray(emitter.forces.wind), age);
   const planar = emitter.forces.planarDrag;
   if (planar > 0) {
     // Mirrors the shader: the horizontal travel gets its own drag integral, the
@@ -835,7 +828,11 @@ interface LayerObject {
   id: string;
   source: LayerV2;
   object: THREE.Object3D;
-  update(time: number, flags: FeatureFlagsV2, camera: THREE.PerspectiveCamera): void;
+  update(
+    time: number,
+    flags: FeatureFlagsV2,
+    camera: THREE.PerspectiveCamera,
+  ): void;
   bounds(time: number, push: (p: THREE.Vector3) => void): void;
   dispose(): void;
   /** Non-null for particle layers that need the depth texture. */
@@ -857,7 +854,8 @@ interface LayerObject {
 
 function spawnPeriod(emitter: Emitter, duration: number) {
   if (emitter.spawn.mode !== "continuous") return Math.max(duration, 1e-3);
-  const period = emitter.spawn.rate > 0 ? emitter.count / emitter.spawn.rate : duration;
+  const period =
+    emitter.spawn.rate > 0 ? emitter.count / emitter.spawn.rate : duration;
   return Math.max(1e-3, Math.min(period, duration));
 }
 
@@ -918,7 +916,7 @@ function stripeUniforms(material: Material) {
 }
 
 function writeStripes(
-  uniforms: Record<string, THREE.IUniform>,
+  uniforms: Record<string, IUniform>,
   material: Material,
 ) {
   const stripes = material.stripes ?? [];
@@ -940,32 +938,37 @@ function slabUniforms(geometry: GeometryV2) {
     uSlabBase: { value: geometry.slab?.anchor === "base" ? 1 : 0 },
     uSlabTaper: { value: geometry.slab?.taper ?? 1 },
     uSlabN: { value: tiers.length },
+    // Heights in 0..3, colours in 4..7: one uniform array, one uniform buffer.
     uSlabTier: {
-      value: Array.from(
-        { length: 4 },
-        (_, i) =>
-          new THREE.Vector4(tiers[i]?.height ?? 0, tiers[i]?.intensity ?? 0, 0, 0),
-      ),
-    },
-    uSlabCol: {
-      value: Array.from(
-        { length: 4 },
-        (_, i) => new THREE.Color(tiers[i]?.color ?? "#ffffff"),
+      value: Array.from({ length: 8 }, (_, i) =>
+        i < 4
+          ? new THREE.Vector4(
+              tiers[i]?.height ?? 0,
+              tiers[i]?.intensity ?? 0,
+              0,
+              0,
+            )
+          : slabColour(tiers[i - 4]?.color),
       ),
     },
   };
 }
 
+/** A slab tier's colour in the second half of the packed tier array. */
+function slabColour(hex: string | undefined) {
+  const colour = new THREE.Color(hex ?? "#ffffff");
+  return new THREE.Vector4(colour.r, colour.g, colour.b, 0);
+}
+
 function writeSlab(
-  uniforms: Record<string, THREE.IUniform>,
+  uniforms: Record<string, IUniform>,
   geometry: GeometryV2,
 ) {
   const tiers = geometry.slab?.tiers ?? [];
   const packed = uniforms.uSlabTier.value as THREE.Vector4[];
-  const colors = uniforms.uSlabCol.value as THREE.Color[];
   for (let i = 0; i < 4; i++) {
     packed[i].set(tiers[i]?.height ?? 0, tiers[i]?.intensity ?? 0, 0, 0);
-    colors[i].set(tiers[i]?.color ?? "#ffffff");
+    packed[4 + i].copy(slabColour(tiers[i]?.color));
   }
   uniforms.uSlabN.value = tiers.length;
   uniforms.uSlabTaper.value = geometry.slab?.taper ?? 1;
@@ -977,7 +980,7 @@ function writeSlab(
  * the drawn-symbol palette, as uniforms. Every one of them is nullable, so an
  * absent field writes the "off" flag and costs one branch in the fragment.
  */
-function lineWorkUniforms(material: Material): Record<string, THREE.IUniform> {
+function lineWorkUniforms(material: Material): Record<string, IUniform> {
   const streaks = material.streaks;
   const creases = material.creases;
   const tone = material.screentone;
@@ -1027,7 +1030,7 @@ function lineWorkUniforms(material: Material): Record<string, THREE.IUniform> {
 
 /** The same fields, re-read from the LIVE material every frame. */
 function writeLineWork(
-  uniforms: Record<string, THREE.IUniform>,
+  uniforms: Record<string, IUniform>,
   material: Material,
   /** The layer's own 0..1 progress; the hot core's alpha track runs on it. */
   u: number,
@@ -1105,7 +1108,7 @@ function rampBlendUniforms(material: Material) {
 }
 
 function writeRampBlend(
-  uniforms: Record<string, THREE.IUniform>,
+  uniforms: Record<string, IUniform>,
   material: Material,
 ) {
   const blend = material.ramp.blend;
@@ -1171,8 +1174,10 @@ function rimUniforms(material: Material, geometry: GeometryV2 | undefined) {
     },
     uFlowOn: { value: flow ? 1 : 0 },
     uFlowN: { value: flowLayers.length },
+    // Layers in 0..3, their mix weights in 4..7: one array, one uniform buffer.
     uFlowLayer: {
-      value: Array.from({ length: 4 }, (_, i) => {
+      value: Array.from({ length: 8 }, (_, i) => {
+        if (i >= 4) return new THREE.Vector4(flow?.mix[i - 4] ?? 0, 0, 0, 0);
         const l = flowLayers[i];
         return new THREE.Vector4(
           l?.scale ?? 1,
@@ -1181,9 +1186,6 @@ function rimUniforms(material: Material, geometry: GeometryV2 | undefined) {
           l?.rotate ?? 0,
         );
       }),
-    },
-    uFlowMix: {
-      value: Array.from({ length: 4 }, (_, i) => flow?.mix[i] ?? 0),
     },
     uFlowCut: {
       value: new THREE.Vector3(
@@ -1222,7 +1224,7 @@ function rimUniforms(material: Material, geometry: GeometryV2 | undefined) {
 
 /** Re-reads every rim/flow/swirl field off the LIVE material each frame. */
 function writeRim(
-  uniforms: Record<string, THREE.IUniform>,
+  uniforms: Record<string, IUniform>,
   material: Material,
   geometry: GeometryV2 | undefined,
   u: number,
@@ -1246,10 +1248,9 @@ function writeRim(
     );
   if (material.flow) {
     const packed = uniforms.uFlowLayer.value as THREE.Vector4[];
-    const mix = uniforms.uFlowMix.value as number[];
     material.flow.layers.forEach((l, i) => {
       packed[i].set(l.scale, l.pan[0], l.pan[1], l.rotate);
-      mix[i] = material.flow!.mix[i] ?? 0;
+      packed[4 + i].set(material.flow!.mix[i] ?? 0, 0, 0, 0);
     });
     uniforms.uFlowN.value = material.flow.layers.length;
     (uniforms.uFlowCut.value as THREE.Vector3).set(
@@ -1301,7 +1302,7 @@ function emitterCoreUniforms(
   P: string,
   emitter: Emitter,
   duration: number,
-): Record<string, THREE.IUniform> {
+): Record<string, IUniform> {
   const period = spawnPeriod(emitter, duration);
   const speed = emitter.velocity.speedCurve ?? FLAT_CURVE;
   const keys: THREE.Vector2[] = [];
@@ -1309,7 +1310,7 @@ function emitterCoreUniforms(
     const key = speed.keys[Math.min(i, speed.keys.length - 1)];
     keys.push(new THREE.Vector2(key[0], key[1]));
   }
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     [`u${P}Period`]: { value: period },
     [`u${P}SpawnWindow`]: { value: spawnWindowOf(emitter, period) },
     [`u${P}SpawnDuration`]: {
@@ -1340,18 +1341,24 @@ function emitterCoreUniforms(
       value: new THREE.Vector2().fromArray(emitter.velocity.speed),
     },
     [`u${P}SpeedKey`]: { value: keys },
-    [`u${P}SpeedN`]: { value: emitter.velocity.speedCurve ? speed.keys.length : 0 },
+    [`u${P}SpeedN`]: {
+      value: emitter.velocity.speedCurve ? speed.keys.length : 0,
+    },
     [`u${P}Life`]: { value: new THREE.Vector2().fromArray(emitter.life) },
     [`u${P}Gravity`]: {
       value: new THREE.Vector3().fromArray(emitter.forces.gravity),
     },
     [`u${P}Drag`]: { value: emitter.forces.drag },
-    [`u${P}Wind`]: { value: new THREE.Vector3().fromArray(emitter.forces.wind) },
+    [`u${P}Wind`]: {
+      value: new THREE.Vector3().fromArray(emitter.forces.wind),
+    },
     [`u${P}Curl`]: { value: emitter.forces.curl?.strength ?? 0 },
     [`u${P}CurlFreq`]: { value: emitter.forces.curl?.frequency ?? 1 },
     [`u${P}CurlSpeed`]: { value: emitter.forces.curl?.speed ?? 1 },
     [`u${P}VortexAxis`]: {
-      value: new THREE.Vector3().fromArray(emitter.forces.vortex?.axis ?? [0, 1, 0]),
+      value: new THREE.Vector3().fromArray(
+        emitter.forces.vortex?.axis ?? [0, 1, 0],
+      ),
     },
     [`u${P}VortexW`]: { value: emitter.forces.vortex?.strength ?? 0 },
     [`u${P}VortexFalloff`]: { value: emitter.forces.vortex?.falloff ?? 0 },
@@ -1423,6 +1430,50 @@ function trailStripGeometry(segments: number) {
 }
 
 /**
+ * WebGPU binds at most eight vertex buffers per pipeline, and a particle draw
+ * needs more per-instance fields than that once spawn sites, resolved events
+ * and a sub-emitter's parent attributes are all in play. Every instance field
+ * shares one interleaved buffer, so the draw costs one vertex buffer whatever
+ * the emitter uses. The shader still sees ordinary named attributes.
+ */
+function instanceAttributes(
+  count: number,
+  fields: { name: string; items: number; data?: Float32Array }[],
+  /** Instance i of the result reads source instance `source(i)`. */
+  source: (index: number) => number = (index) => index,
+) {
+  const stride = fields.reduce((total, field) => total + field.items, 0);
+  const array = new Float32Array(count * stride);
+  const buffer = new THREE.InstancedInterleavedBuffer(array, stride, 1);
+  const attributes: Record<string, THREE.InterleavedBufferAttribute> = {};
+  const placed: { items: number; offset: number; data?: Float32Array }[] = [];
+  let offset = 0;
+  for (const field of fields) {
+    placed.push({ items: field.items, offset, data: field.data });
+    attributes[field.name] = new THREE.InterleavedBufferAttribute(
+      buffer,
+      field.items,
+      offset,
+    );
+    offset += field.items;
+  }
+  /** Fill instance `i` from source instance `order(i)`. */
+  const write = (order: (index: number) => number) => {
+    for (const field of placed) {
+      if (!field.data) continue;
+      for (let i = 0; i < count; i++) {
+        const from = order(i) * field.items;
+        for (let k = 0; k < field.items; k++)
+          array[i * stride + field.offset + k] = field.data[from + k] ?? 0;
+      }
+    }
+    buffer.needsUpdate = true;
+  };
+  write(source);
+  return { buffer, attributes, write };
+}
+
+/**
  * Spawn sites borrowed from another layer's generator, for
  * `emitter.shape.type:"layerInstances"`. Returns null for every other shape.
  *
@@ -1484,7 +1535,9 @@ function createParticleLayer(
   // The schema already rejects a non-particles parent; the runtime refuses to
   // bind one anyway rather than reading an absent emitter.
   const parentEmitter =
-    parentLayer && parentLayer.kind === "particles" ? parentLayer.emitter! : null;
+    parentLayer && parentLayer.kind === "particles"
+      ? parentLayer.emitter!
+      : null;
   const parentAttrs = parentEmitter
     ? makeAttributes(
         Math.max(1, Math.round(parentEmitter.count * density)),
@@ -1511,42 +1564,12 @@ function createParticleLayer(
     geometry.setAttribute("uv", new THREE.BufferAttribute(strip.uvs, 2));
     geometry.setIndex(strip.indices);
   }
-  const seedAttr = new THREE.InstancedBufferAttribute(
-    Float32Array.from(attrs.seed),
-    4,
-  );
-  const extraAttr = new THREE.InstancedBufferAttribute(
-    Float32Array.from(attrs.extra),
-    4,
-  );
-  const extra2Attr = new THREE.InstancedBufferAttribute(
-    Float32Array.from(attrs.extra2),
-    4,
-  );
-  const indexAttr = new THREE.InstancedBufferAttribute(
-    Float32Array.from(attrs.index),
-    1,
-  );
-  geometry.setAttribute("aSeed", seedAttr);
-  geometry.setAttribute("aExtra", extraAttr);
-  geometry.setAttribute("aExtra2", extra2Attr);
-  geometry.setAttribute("aIndex", indexAttr);
   // emitter.shape "layerInstances": the spawn sites come from the SOURCE
   // layer's own generator hash, computed once here and uploaded as instance
   // attributes. That keeps the burst closed form — nothing is read back out of
   // the source layer at draw time, so the two layers cannot disagree however
   // they are ordered.
   const sites = borrowedSites(doc, layer, count);
-  if (sites) {
-    geometry.setAttribute(
-      "aSrcPos",
-      new THREE.InstancedBufferAttribute(sites.positions, 3),
-    );
-    geometry.setAttribute(
-      "aSrcDir",
-      new THREE.InstancedBufferAttribute(sites.axes, 3),
-    );
-  }
   // emitter.spawn.mode "event": the moment and the origin of the impact this
   // instance belongs to, resolved once from the paths (see events-v2.ts) and
   // uploaded as one attribute. Instance i takes event i % events.length, so a
@@ -1555,48 +1578,63 @@ function createParticleLayer(
     emitter.spawn.originsFromPath && emitter.spawn.mode === "event"
       ? pathEvents(doc, emitter.shape.pathId)
       : [];
-  if (events.length) {
-    const packed = new Float32Array(count * 4);
-    for (let i = 0; i < count; i++) {
-      const event = events[i % events.length];
-      packed[i * 4] = event.position[0];
-      packed[i * 4 + 1] = event.position[1];
-      packed[i * 4 + 2] = event.position[2];
-      // Layer-LOCAL seconds, the domain every birth in the shader is in.
-      packed[i * 4 + 3] = event.time - layer.start;
-    }
-    geometry.setAttribute("aEvent", new THREE.InstancedBufferAttribute(packed, 4));
+  const packedEvents = new Float32Array(count * 4);
+  for (let i = 0; events.length && i < count; i++) {
+    const event = events[i % events.length];
+    packedEvents[i * 4] = event.position[0];
+    packedEvents[i * 4 + 1] = event.position[1];
+    packedEvents[i * 4 + 2] = event.position[2];
+    // Layer-LOCAL seconds, the domain every birth in the shader is in.
+    packedEvents[i * 4 + 3] = event.time - layer.start;
   }
   // The CPU mirror runs in the same LAYER-LOCAL seconds the shader does.
   const localEvents = events.map((event) => ({
     position: event.position,
     time: event.time - layer.start,
   }));
-  const parentAttributes: THREE.InstancedBufferAttribute[] = [];
+  // One particle program covers every emitter: the branches that read the
+  // optional fields are gated on uniforms, so they are always bound and simply
+  // hold zeros when the layer borrows no sites and resolves no events.
+  // aSub identifies which secondary bit an instance is (render.mode "sliver");
+  // the primary draw is all zeros.
+  const instanceFields = [
+    { name: "aSeed", items: 4, data: Float32Array.from(attrs.seed) },
+    { name: "aExtra", items: 4, data: Float32Array.from(attrs.extra) },
+    { name: "aExtra2", items: 4, data: Float32Array.from(attrs.extra2) },
+    { name: "aIndex", items: 1, data: Float32Array.from(attrs.index) },
+    { name: "aSub", items: 1 },
+    {
+      name: "aSrcPos",
+      items: 3,
+      data: sites ? sites.positions : new Float32Array(count * 3),
+    },
+    {
+      name: "aSrcDir",
+      items: 3,
+      data: sites ? sites.axes : new Float32Array(count * 3),
+    },
+    { name: "aEvent", items: 4, data: packedEvents },
+  ];
   if (parentAttrs) {
-    const pick = (source: Float32Array) => {
+    // A child instance inherits its parent's hashes, cycling if there are fewer
+    // parents than children.
+    const wrap = (data: Float32Array) => {
       const out = new Float32Array(count * 4);
       for (let i = 0; i < count; i++) {
         const from = (i % parentAttrs.count) * 4;
-        for (let k = 0; k < 4; k++) out[i * 4 + k] = source[from + k];
+        for (let k = 0; k < 4; k++) out[i * 4 + k] = data[from + k];
       }
-      return new THREE.InstancedBufferAttribute(out, 4);
+      return out;
     };
-    const names = ["aPSeed", "aPExtra", "aPExtra2"] as const;
-    const sources = [parentAttrs.seed, parentAttrs.extra, parentAttrs.extra2];
-    names.forEach((name, i) => {
-      const attribute = pick(sources[i]);
-      geometry.setAttribute(name, attribute);
-      parentAttributes.push(attribute);
-    });
-  }
-  // render.mode "sliver": aSub identifies which secondary bit an instance is;
-  // the primary draw is all zeros.
-  if (needle)
-    geometry.setAttribute(
-      "aSub",
-      new THREE.InstancedBufferAttribute(new Float32Array(count), 1),
+    instanceFields.push(
+      { name: "aPSeed", items: 4, data: wrap(parentAttrs.seed) },
+      { name: "aPExtra", items: 4, data: wrap(parentAttrs.extra) },
+      { name: "aPExtra2", items: 4, data: wrap(parentAttrs.extra2) },
     );
+  }
+  const instances = instanceAttributes(count, instanceFields);
+  for (const [name, attribute] of Object.entries(instances.attributes))
+    geometry.setAttribute(name, attribute);
   geometry.instanceCount = count;
   plane?.dispose();
 
@@ -1640,7 +1678,7 @@ function createParticleLayer(
   const path = findPath(doc, emitter.shape.pathId);
   const span = Math.max(layer.end - layer.start, 1e-6);
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     uSpan: { value: span },
     uTwinkleFreq: { value: emitter.render.twinkle?.frequency ?? 1 },
@@ -1669,14 +1707,19 @@ function createParticleLayer(
     uPathT0: { value: 0 },
     uPathDt: {
       value: parentLayer
-        ? Math.max(1e-3, (parentLayer.end - parentLayer.start) / (CURVE_KEYS - 1))
+        ? Math.max(
+            1e-3,
+            (parentLayer.end - parentLayer.start) / (CURVE_KEYS - 1),
+          )
         : 1,
     },
     uRenderMode: { value: RENDER_INDEX[emitter.render.mode] ?? 0 },
     uStretch: { value: emitter.render.stretch },
     uMotionBlur: { value: doc.post.motionBlur },
     uSize: { value: new THREE.Vector2().fromArray(emitter.render.size) },
-    uRot: { value: new THREE.Vector2().fromArray(emitter.render.rotation.speed) },
+    uRot: {
+      value: new THREE.Vector2().fromArray(emitter.render.rotation.speed),
+    },
     uRotInit: {
       value: material.mask.randomRotation
         ? new THREE.Vector2().fromArray(emitter.render.rotation.initial)
@@ -1774,6 +1817,7 @@ function createParticleLayer(
     },
     uFrontStart: { value: frontSource ? frontSource.start - layer.start : 0 },
     ...curveUniforms("T", frontSpec?.window.tail ?? null),
+    ...stripeUniforms(material),
     ...lineWorkUniforms(material),
     // material.flicker, and the flatStrip lick's own flipbook parameters.
     uFlicker: { value: 1 },
@@ -1804,25 +1848,18 @@ function createParticleLayer(
     },
   };
 
-  const shaderMaterial = new THREE.ShaderMaterial({
+  const shaderMaterial = createV2NodeMaterial(
+    cel ? "strip" : needle ? "sliver" : parentEmitter ? "subParticle" : "particle",
     uniforms,
-    vertexShader: cel
-      ? stripVertexSource(!!sites, events.length > 0)
-      : needle
-        ? sliverVertexSource(!!sites, events.length > 0)
-        : particleVertexSource(!!parentEmitter, !!sites, events.length > 0),
-    fragmentShader: cel
-      ? stripFragmentV2
-      : needle
-        ? sliverFragmentV2
-        : particleFragmentV2,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    // Velocity-aligned quads flip winding; both faces must draw.
-    side: THREE.DoubleSide,
-    ...blendingFor(material.blend),
-  });
+    {
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      // Velocity-aligned quads flip winding; both faces must draw.
+      side: THREE.DoubleSide,
+      ...blendingFor(material.blend),
+    },
+  );
 
   const mesh = new THREE.Mesh(geometry, shaderMaterial);
   mesh.name = layer.id;
@@ -1835,9 +1872,9 @@ function createParticleLayer(
   const group = new THREE.Group();
   group.name = layer.id;
   group.add(mesh);
-  let trailMaterial: THREE.ShaderMaterial | null = null;
+  let trailMaterial: V2NodeMaterial | null = null;
   let trailGeometry: THREE.InstancedBufferGeometry | null = null;
-  let trailUniforms: Record<string, THREE.IUniform> | null = null;
+  let trailUniforms: Record<string, IUniform> | null = null;
   if (trail) {
     const strip = trailStripGeometry(trail.segments);
     trailGeometry = new THREE.InstancedBufferGeometry();
@@ -1846,19 +1883,10 @@ function createParticleLayer(
       new THREE.BufferAttribute(strip.positions, 3),
     );
     trailGeometry.setIndex(strip.indices);
-    trailGeometry.setAttribute("aSeed", seedAttr);
-    trailGeometry.setAttribute("aExtra", extraAttr);
-    trailGeometry.setAttribute("aExtra2", extra2Attr);
-    trailGeometry.setAttribute("aIndex", indexAttr);
-    if (sites) {
-      trailGeometry.setAttribute("aSrcPos", geometry.getAttribute("aSrcPos"));
-      trailGeometry.setAttribute("aSrcDir", geometry.getAttribute("aSrcDir"));
-    }
-    if (parentAttributes.length) {
-      trailGeometry.setAttribute("aPSeed", parentAttributes[0]);
-      trailGeometry.setAttribute("aPExtra", parentAttributes[1]);
-      trailGeometry.setAttribute("aPExtra2", parentAttributes[2]);
-    }
+    // The ribbon walks the very same instances as the sprite draw, so it shares
+    // the one interleaved buffer rather than uploading a second copy.
+    for (const [name, attribute] of Object.entries(instances.attributes))
+      trailGeometry.setAttribute(name, attribute);
     trailGeometry.instanceCount = count;
     // The ribbon shares every uniform OBJECT with the sprite draw — one write
     // per frame moves both — except its ramp, which is its own so a trail can
@@ -1868,16 +1896,17 @@ function createParticleLayer(
       ...rampUniforms(trail.ramp ?? material.ramp),
       uTrailRampMode: { value: trail.ramp?.space === "along" ? 1 : 0 },
     };
-    trailMaterial = new THREE.ShaderMaterial({
-      uniforms: trailUniforms,
-      vertexShader: trailVertexSource(!!parentEmitter, !!sites, events.length > 0),
-      fragmentShader: trailFragmentV2,
-      transparent: true,
-      depthWrite: false,
-      depthTest: true,
-      side: THREE.DoubleSide,
-      ...blendingFor(material.blend),
-    });
+    trailMaterial = createV2NodeMaterial(
+      parentEmitter ? "subTrail" : "trail",
+      trailUniforms,
+      {
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        side: THREE.DoubleSide,
+        ...blendingFor(material.blend),
+      },
+    );
     const ribbon = new THREE.Mesh(trailGeometry, trailMaterial);
     ribbon.name = `${layer.id}-trail`;
     ribbon.frustumCulled = false;
@@ -1890,7 +1919,7 @@ function createParticleLayer(
   // copy which bit it is. One layer, so a bit can never drift off the ray it
   // belongs to — it re-derives that ray from the very same hashes.
   let secondaryGeometry: THREE.InstancedBufferGeometry | null = null;
-  let secondaryMaterial: THREE.ShaderMaterial | null = null;
+  let secondaryMaterial: V2NodeMaterial | null = null;
   const secondary = needle ? emitter.render.secondary : null;
   if (secondary && secondary.perInstance > 0) {
     const per = secondary.perInstance;
@@ -1899,50 +1928,41 @@ function createParticleLayer(
     secondaryGeometry.index = geometry.index;
     secondaryGeometry.attributes.position = geometry.attributes.position;
     secondaryGeometry.attributes.uv = geometry.attributes.uv;
-    const repeat4 = (source: Float32Array) => {
-      const out = new Float32Array(total * 4);
-      for (let i = 0; i < total; i++) {
-        const from = Math.floor(i / per) * 4;
-        for (let k = 0; k < 4; k++) out[i * 4 + k] = source[from + k];
-      }
-      return new THREE.InstancedBufferAttribute(out, 4);
-    };
-    const indices = new Float32Array(total);
+    // Each secondary bit reads the same instance as the needle it belongs to,
+    // plus its own aSub, out of one interleaved buffer of its own.
     const subs = new Float32Array(total);
-    for (let i = 0; i < total; i++) {
-      indices[i] = attrs.index[Math.floor(i / per)];
-      subs[i] = (i % per) + 1;
-    }
-    secondaryGeometry.setAttribute("aSeed", repeat4(attrs.seed));
-    secondaryGeometry.setAttribute("aExtra", repeat4(attrs.extra));
-    secondaryGeometry.setAttribute("aExtra2", repeat4(attrs.extra2));
-    secondaryGeometry.setAttribute(
-      "aIndex",
-      new THREE.InstancedBufferAttribute(indices, 1),
+    for (let i = 0; i < total; i++) subs[i] = (i % per) + 1;
+    const secondaryInstances = instanceAttributes(
+      total,
+      instanceFields.map((field) =>
+        field.name === "aSub" ? { ...field, data: subs } : field,
+      ),
+      (index) => Math.floor(index / per),
     );
-    secondaryGeometry.setAttribute(
-      "aSub",
-      new THREE.InstancedBufferAttribute(subs, 1),
-    );
-    if (sites) {
-      secondaryGeometry.setAttribute("aSrcPos", geometry.getAttribute("aSrcPos"));
-      secondaryGeometry.setAttribute("aSrcDir", geometry.getAttribute("aSrcDir"));
-    }
-    if (events.length)
-      secondaryGeometry.setAttribute("aEvent", geometry.getAttribute("aEvent"));
+    // aSub is per copy, not per needle, so it is written straight through.
+    for (let i = 0; i < total; i++)
+      (secondaryInstances.attributes.aSub as THREE.InterleavedBufferAttribute).setX(
+        i,
+        subs[i],
+      );
+    for (const [name, attribute] of Object.entries(
+      secondaryInstances.attributes,
+    ))
+      secondaryGeometry.setAttribute(name, attribute);
     secondaryGeometry.instanceCount = total;
     // A shallow copy: every IUniform object is shared, so the per-frame writes
     // reach both draws and only uSecondary differs.
-    secondaryMaterial = new THREE.ShaderMaterial({
-      uniforms: { ...uniforms, uSecondary: { value: 1 } },
-      vertexShader: sliverVertexSource(!!sites, events.length > 0),
-      fragmentShader: sliverFragmentV2,
+    secondaryMaterial = createV2NodeMaterial(
+      "sliver",
+      { ...uniforms, uSecondary: { value: 1 } },
+      {
       transparent: true,
       depthWrite: false,
       depthTest: true,
       side: THREE.DoubleSide,
       ...blendingFor(material.blend),
-    });
+      },
+    );
     const bits = new THREE.Mesh(secondaryGeometry, secondaryMaterial);
     bits.name = `${layer.id}-secondary`;
     bits.frustumCulled = false;
@@ -2035,7 +2055,7 @@ function createParticleLayer(
           const at = evaluateLayerV2(parentLayer, parentLayer.start + local);
           table[i]
             .fromArray(at.layer.transform.position)
-            .sub(new THREE.Vector3().fromArray(live.transform.position));
+            .sub(group.position);
         }
       }
 
@@ -2102,6 +2122,7 @@ function createParticleLayer(
       uniforms.uTwinkleFreq.value = e.render.twinkle?.frequency ?? 1;
       uniforms.uTwinkleDepth.value = e.render.twinkle?.depth ?? 0;
       uniforms.uFlicker.value = flickerAt(m, age);
+      writeStripes(uniforms, m);
       writeLineWork(uniforms, m, clamp01(age / span));
       if (e.render.strip) {
         uniforms.uStripStep.value = e.render.strip.stepRate;
@@ -2171,25 +2192,10 @@ function createParticleLayer(
           : -Infinity;
       }
       order.sort((a, b) => depths[a] - depths[b]);
-      const s = seedAttr.array as Float32Array;
-      const x = extraAttr.array as Float32Array;
-      const x2 = extra2Attr.array as Float32Array;
-      const ix = indexAttr.array as Float32Array;
-      for (let i = 0; i < count; i++) {
-        const from = order[i] * 4;
-        for (let k = 0; k < 4; k++) {
-          s[i * 4 + k] = attrs.seed[from + k];
-          x[i * 4 + k] = attrs.extra[from + k];
-          x2[i * 4 + k] = attrs.extra2[from + k];
-        }
-        // aIndex rides the same permutation: it identifies the instance, so a
-        // sorted draw that left it behind would tear a path emitter apart.
-        ix[i] = attrs.index[order[i]];
-      }
-      seedAttr.needsUpdate = true;
-      extraAttr.needsUpdate = true;
-      extra2Attr.needsUpdate = true;
-      indexAttr.needsUpdate = true;
+      // Every instance field rides the same permutation — the spawn site and
+      // the resolved event identify the instance as much as its seed does, so a
+      // sorted draw that left them behind would tear the emitter apart.
+      instances.write((index) => order[index]);
     },
     bounds(time, push) {
       const { layer: live, visible, age } = evaluateLayerV2(layer, time);
@@ -2319,7 +2325,8 @@ function curveAt(curve: Curve | null | undefined, u: number) {
   if (x <= keys[0][0]) return keys[0][1];
   for (let i = 1; i < keys.length; i++)
     if (x <= keys[i][0]) {
-      let f = (x - keys[i - 1][0]) / Math.max(keys[i][0] - keys[i - 1][0], 1e-5);
+      let f =
+        (x - keys[i - 1][0]) / Math.max(keys[i][0] - keys[i - 1][0], 1e-5);
       if (curve.ease === "smooth") f = f * f * (3 - 2 * f);
       return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * f;
     }
@@ -2345,10 +2352,14 @@ function unitBarGeometry(
   const indices: number[] = [];
   const sheets: [number, number][][] = tube
     ? [
-        Array.from({ length: Math.max(3, Math.min(48, radialSegments)) + 1 }, (_, j) => {
-          const a = (j / Math.max(3, Math.min(48, radialSegments))) * Math.PI * 2;
-          return [Math.cos(a), Math.sin(a)] as [number, number];
-        }),
+        Array.from(
+          { length: Math.max(3, Math.min(48, radialSegments)) + 1 },
+          (_, j) => {
+            const a =
+              (j / Math.max(3, Math.min(48, radialSegments))) * Math.PI * 2;
+            return [Math.cos(a), Math.sin(a)] as [number, number];
+          },
+        ),
       ]
     : [
         [
@@ -2370,7 +2381,14 @@ function unitBarGeometry(
         uvs.push(ring.length > 2 ? j / (ring.length - 1) : j, t);
         if (i < rows && j < ring.length - 1) {
           const k = base + i * ring.length + j;
-          indices.push(k, k + 1, k + ring.length, k + 1, k + ring.length + 1, k + ring.length);
+          indices.push(
+            k,
+            k + 1,
+            k + ring.length,
+            k + 1,
+            k + ring.length + 1,
+            k + ring.length,
+          );
         }
       }
     }
@@ -2477,7 +2495,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
     // A square of half-size `radius`; scaled per frame and turned to face the
     // camera in the vertex shader.
     return new THREE.PlaneGeometry(2, 2);
-  if (layer.kind === "decal" && (geometry.type === "plane" || geometry.type === "auto"))
+  if (
+    layer.kind === "decal" &&
+    (geometry.type === "plane" || geometry.type === "auto")
+  )
     // Flat dressing in local XY, scaled per frame to radius x length/2.
     return new THREE.PlaneGeometry(2, 2);
   // Flat carriers are unit-sized and scaled per frame, so a track on
@@ -2568,7 +2589,7 @@ function createMeshLayer(
     : null;
   const ripples = material.ripples ?? [];
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     uLayerU: { value: 0 },
     uRampKeyMode: { value: rampSpace },
@@ -2673,9 +2694,9 @@ function createMeshLayer(
     },
     // material.ripples: up to four expanding great circles.
     uRippleN: { value: ripples.length },
-    uRipple: { value: rippleOrigins(ripples, doc.seed) },
-    uRippleP: {
-      value: rippleParams(ripples),
+    // Origins in 0..3, their (speed, width, decay) in 4..7.
+    uRipple: {
+      value: [...rippleOrigins(ripples, doc.seed), ...rippleParams(ripples)],
     },
     uBand: { value: geometry.type === "band" && geometry.band ? 1 : 0 },
     uBandStripes: { value: geometry.band?.stripes ?? 1 },
@@ -2701,17 +2722,15 @@ function createMeshLayer(
   const isBand = geometry.type === "band" && !!geometry.band;
   const isSlab = geometry.type === "slab" && !!geometry.slab;
   const isFrame = geometry.type === "frame";
-  const shaderMaterial = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: surfaceVertexV2,
-    fragmentShader: surfaceFragmentV2,
+  const shaderMaterial = createV2NodeMaterial("surface", uniforms, {
     transparent: true,
     depthWrite: isBand && material.blend === "alpha",
     side: THREE.DoubleSide,
     ...blendingFor(material.blend),
   });
   const boltSeed = hashSeed(doc.seed, layer.id);
-  const bolt = geometry.type === "lightning" && geometry.lightning ? geometry : null;
+  const bolt =
+    geometry.type === "lightning" && geometry.lightning ? geometry : null;
   /**
    * The factor that turns the unit mesh into the authored size, read off the
    * *live* geometry every frame so a track on geometry.length or
@@ -2719,7 +2738,9 @@ function createMeshLayer(
    */
   const ribbon = isArcRibbon(layer);
   const flatCard =
-    geometry.type === "plane" || geometry.type === "auto" || geometry.type === "disc";
+    geometry.type === "plane" ||
+    geometry.type === "auto" ||
+    geometry.type === "disc";
   const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
     // The arc ribbon, the analytic shell, the bolt and the band build themselves
     // at their own radius, so only transform.scale applies on top of them.
@@ -2781,17 +2802,18 @@ function createMeshLayer(
     for (const channel of [0, 2]) {
       const copy = new THREE.Mesh(
         mesh.geometry,
-        new THREE.ShaderMaterial({
-          // Same uniform OBJECTS as the base draw, so every per-frame write
-          // reaches all three copies; only uChannel is its own.
-          uniforms: { ...uniforms, uChannel: { value: channel } },
-          vertexShader: surfaceVertexV2,
-          fragmentShader: surfaceFragmentV2,
-          transparent: true,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          ...blendingFor(material.blend),
-        }),
+        // Same uniform OBJECTS as the base draw, so every per-frame write
+        // reaches all three copies; only uChannel is its own.
+        createV2NodeMaterial(
+          "surface",
+          { ...uniforms, uChannel: { value: channel } },
+          {
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            ...blendingFor(material.blend),
+          },
+        ),
       );
       copy.name = `${layer.id}-ch${channel}`;
       copy.frustumCulled = false;
@@ -2940,11 +2962,10 @@ function createMeshLayer(
       }
       if (m.ripples) {
         uniforms.uRippleN.value = m.ripples.length;
+        const origins = rippleOrigins(m.ripples, doc.seed);
+        const params = rippleParams(m.ripples);
         (uniforms.uRipple.value as THREE.Vector4[]).forEach((v, i) =>
-          v.copy(rippleOrigins(m.ripples!, doc.seed)[i]),
-        );
-        (uniforms.uRippleP.value as THREE.Vector4[]).forEach((v, i) =>
-          v.copy(rippleParams(m.ripples!)[i]),
+          v.copy(i < 4 ? origins[i] : params[i - 4]),
         );
       }
       // geometry.band.spin adds to the layer's own Y rotation, so a belt turns
@@ -2972,7 +2993,8 @@ function createMeshLayer(
       const point = new THREE.Vector3();
       if (bolt) {
         // Strike-independent: the envelope every strike of this bolt fits in.
-        for (const p of lightningBounds(g, boltSeed)) push(p.applyMatrix4(matrix));
+        for (const p of lightningBounds(g, boltSeed))
+          push(p.applyMatrix4(matrix));
         return;
       }
       if (isFrame) {
@@ -3089,7 +3111,8 @@ function createMeshLayer(
           // gated the same way the vertex shader gates it.
           const radius = r + 0.55 * amplitude * envelope * radius_ * 2.4;
           const gate = Math.min(1, Math.max(0, (a - 0.35) / 0.45));
-          const lick = radius_ * amplitude * 6.2 * 0.6 * gate * gate * (3 - 2 * gate);
+          const lick =
+            radius_ * amplitude * 6.2 * 0.6 * gate * gate * (3 - 2 * gate);
           const lift = length_ * 0.236 * a ** 2.3 + lick;
           const center = head
             .clone()
@@ -3132,7 +3155,7 @@ function createMeshLayer(
       mesh.geometry.dispose();
       shaderMaterial.dispose();
       for (const copy of splitCopies)
-        (copy.material as THREE.ShaderMaterial).dispose();
+        (copy.material as THREE.Material).dispose();
     },
   };
 }
@@ -3236,20 +3259,16 @@ function createBlobLayer(
     const fillUniforms = makeUniforms(lobe, false);
     const hullUniforms = makeUniforms(lobe, true);
     const common = {
-      vertexShader: blobVertexV2,
-      fragmentShader: blobFragmentV2,
       transparent: false,
       depthWrite: true,
       depthTest: true,
     };
-    const fill = new THREE.ShaderMaterial({
+    const fill = createV2NodeMaterial("blob", fillUniforms, {
       ...common,
-      uniforms: fillUniforms,
       side: THREE.FrontSide,
     });
-    const hull = new THREE.ShaderMaterial({
+    const hull = createV2NodeMaterial("blob", hullUniforms, {
       ...common,
-      uniforms: hullUniforms,
       side: THREE.BackSide,
     });
     const fillMesh = new THREE.Mesh(geometry, fill);
@@ -3351,8 +3370,16 @@ function createBlobLayer(
           [part.fill, part.fillUniforms],
           [part.hull, part.hullUniforms],
         ] as const) {
-          mat.transparent = state.fading || alpha < 1;
-          mat.depthWrite = !mat.transparent;
+          // The blend state is part of the pipeline, and a lobe that turns
+          // transparent mid-playback has to rebuild it in the same frame: left
+          // to Three's own lazy rebuild, the first sample at a new time draws
+          // with the previous frame's blending.
+          const transparent = state.fading || alpha < 1;
+          if (mat.transparent !== transparent) {
+            mat.transparent = transparent;
+            mat.depthWrite = !transparent;
+            mat.needsUpdate = true;
+          }
           uniforms.uOpacity.value = alpha;
           uniforms.uTime.value = age;
           uniforms.uLayerU.value = u;
@@ -3363,7 +3390,7 @@ function createBlobLayer(
             : 0;
           uniforms.uNoiseSpeed.value = blob.bump.speed;
           uniforms.uRampKeyMode.value = rampKeyMode(m);
-          writeRampBlend(uniforms as Record<string, THREE.IUniform>, m);
+          writeRampBlend(uniforms as Record<string, IUniform>, m);
           uniforms.uHeightSpan.value = m.ramp.heightSpan;
           uniforms.uGroundY.value = doc.environment.groundY;
           uniforms.uUseToon.value = m.toon ? 1 : 0;
@@ -3371,7 +3398,7 @@ function createBlobLayer(
           uniforms.uLightOn.value = lightFrom ? 1 : 0;
           uniforms.uLightFall.value = lightFrom?.falloff ?? 0;
           (uniforms.uLightPos.value as THREE.Vector3).copy(lightPoint);
-          writeRamp(uniforms as Record<string, THREE.IUniform>, m.ramp);
+          writeRamp(uniforms as Record<string, IUniform>, m.ramp);
         }
         if (m.toon) {
           (part.fillUniforms.uShadow.value as THREE.Color).set(m.toon.shadow);
@@ -3482,7 +3509,7 @@ function createCrystalsLayer(
     return g;
   };
 
-  const makeUniforms = (hull: boolean): Record<string, THREE.IUniform> => ({
+  const makeUniforms = (hull: boolean): Record<string, IUniform> => ({
     uTime: { value: 0 },
     uSpan: { value: span },
     uGrowDur: { value: spec.growth.duration },
@@ -3512,10 +3539,7 @@ function createCrystalsLayer(
   const opaque = material.blend === "alpha";
   const build = (hull: boolean) => {
     const uniforms = makeUniforms(hull);
-    const shader = new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: crystalVertexV2,
-      fragmentShader: crystalFragmentV2,
+    const shader = createV2NodeMaterial("crystal", uniforms, {
       transparent: !opaque,
       depthWrite: true,
       depthTest: true,
@@ -3618,7 +3642,7 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
   const parts = slivers.map((sliver) => {
     const geometry = sliverGeometry(sliver, spec.jaggedness);
     const make = (color: string, dark: string, order: number, scale: number) => {
-      const uniforms: Record<string, THREE.IUniform> = {
+      const uniforms: Record<string, IUniform> = {
         uCol: { value: new THREE.Color(color) },
         uDark: { value: new THREE.Color(dark) },
         uOpacity: { value: 1 },
@@ -3627,10 +3651,7 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
         uSliverOffset: { value: new THREE.Vector3() },
         uSliverRoll: { value: 0 },
       };
-      const shader = new THREE.ShaderMaterial({
-        uniforms,
-        vertexShader: splashVertexV2,
-        fragmentShader: splashFragmentV2,
+      const shader = createV2NodeMaterial("splash", uniforms, {
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -3740,7 +3761,7 @@ function createRibbonLayer(
   const morphPath = findPath(doc, spec.morph?.pathId ?? null);
   const geometry = buildRibbonGeometry(spec);
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     uHead: { value: 0 },
     uTail: { value: spec.window.tail },
@@ -3762,10 +3783,7 @@ function createRibbonLayer(
     ...rampUniforms(material.ramp),
   };
 
-  const shaderMaterial = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: ribbonVertexV2,
-    fragmentShader: ribbonFragmentV2,
+  const shaderMaterial = createV2NodeMaterial("ribbon", uniforms, {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -3851,7 +3869,7 @@ function createWireBurstLayer(layer: LayerV2, index: number): LayerObject {
   const split = material.rgbSplit;
 
   const draws = (split ? [0, 1, 2] : [-1]).map((channel) => {
-    const uniforms: Record<string, THREE.IUniform> = {
+    const uniforms: Record<string, IUniform> = {
       uTime: { value: 0 },
       uLayerU: { value: 0 },
       uTravel: { value: spec.travel },
@@ -3864,10 +3882,7 @@ function createWireBurstLayer(layer: LayerV2, index: number): LayerObject {
       ...rampUniforms(material.ramp),
       ...curveUniforms("A", spec.scale),
     };
-    const shader = new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: wireBurstVertexV2,
-      fragmentShader: wireBurstFragmentV2,
+    const shader = createV2NodeMaterial("wireBurst", uniforms, {
       transparent: true,
       depthWrite: false,
       ...blendingFor(material.blend),
@@ -3947,7 +3962,7 @@ function createArcsLayer(layer: LayerV2, index: number): LayerObject {
   const spec = layer.arcs!;
   const geometry = buildArcsGeometry(spec);
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     uHeight: { value: 1 },
     uWidthK: { value: 1 },
@@ -3971,10 +3986,7 @@ function createArcsLayer(layer: LayerV2, index: number): LayerObject {
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
   };
 
-  const shaderMaterial = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: arcVertexV2,
-    fragmentShader: arcFragmentV2,
+  const shaderMaterial = createV2NodeMaterial("arc", uniforms, {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -4055,7 +4067,7 @@ function createStreakBurstLayer(layer: LayerV2, index: number): LayerObject {
   const spec = layer.streakBurst!;
   const geometry = buildStreakGeometry(spec);
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uGrow: { value: 0 },
     uCurvature: { value: spec.curvature },
     uUpBias: { value: spec.upBias },
@@ -4072,10 +4084,7 @@ function createStreakBurstLayer(layer: LayerV2, index: number): LayerObject {
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
   };
 
-  const shaderMaterial = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: streakVertexV2,
-    fragmentShader: streakFragmentV2,
+  const shaderMaterial = createV2NodeMaterial("streak", uniforms, {
     transparent: true,
     depthWrite: false,
     // The fan reads through whatever it crosses; a depth test against the body
@@ -4231,10 +4240,7 @@ function spawnBoundsV2(
       );
     }
     if (axis.lengthSq() > 1e-10) {
-      const reach = axis
-        .clone()
-        .normalize()
-        .multiplyScalar(shape.length);
+      const reach = axis.clone().normalize().multiplyScalar(shape.length);
       // A frame's own length is its HEIGHT across the axis, not a reach along
       // it: the strip stands in the plane the ring and the disc lie in.
       if (shape.type === "frame") {
@@ -4328,7 +4334,7 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
 
   const parts = sheets.map((sheet) => {
     const geometry = sheetGeometry(sheet, spec);
-    const uniforms: Record<string, THREE.IUniform> = {
+    const uniforms: Record<string, IUniform> = {
       uShadow: { value: new THREE.Color(material.toon!.shadow) },
       uBody: { value: new THREE.Color(material.toon!.body) },
       uHigh: { value: new THREE.Color(material.toon!.highlight) },
@@ -4345,10 +4351,7 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
       uSeed: { value: sheet.hash },
       uBlendMode: { value: blend },
     };
-    const shader = new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: sheetVertexV2,
-      fragmentShader: sheetFragmentV2,
+    const shader = createV2NodeMaterial("sheet", uniforms, {
       transparent: material.blend !== "alpha",
       // Opaque and depth-writing: sheets intersect each other for real, which
       // is the whole reason a water tail is mesh and not particles.
@@ -4479,7 +4482,7 @@ function createCrescentLayer(layer: LayerV2, index: number): LayerObject {
   const copies = spec.tonal.map((tonal, order) => {
     const stops = tonal.ramp;
     const at = (i: number) => stops[Math.min(i, stops.length - 1)];
-    const uniforms: Record<string, THREE.IUniform> = {
+    const uniforms: Record<string, IUniform> = {
       uEx: { value: frame.ex.clone() },
       uEy: { value: frame.ey.clone() },
       uN: { value: frame.normal.clone() },
@@ -4528,10 +4531,7 @@ function createCrescentLayer(layer: LayerV2, index: number): LayerObject {
       uFrontWidth: { value: spec.erosionFront.width },
       uBlendMode: { value: BLEND_INDEX[tonal.blend] ?? 1 },
     };
-    const shader = new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: crescentVertexV2,
-      fragmentShader: crescentFragmentV2,
+    const shader = createV2NodeMaterial("crescent", uniforms, {
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -4669,7 +4669,7 @@ function createLicksLayer(
   const source = doc.layers.find((l) => l.id === spec.anchor.sourceLayerId);
   const span = Math.max(layer.end - layer.start, 1e-6);
 
-  const uniforms: Record<string, THREE.IUniform> = {
+  const uniforms: Record<string, IUniform> = {
     uAnchor: { value: new THREE.Vector3() },
     uTangent: { value: new THREE.Vector3(1, 0, 0) },
     uNormal: { value: new THREE.Vector3(0, 0, 1) },
@@ -4687,10 +4687,7 @@ function createLicksLayer(
     uOpacity: { value: material.opacity },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
   };
-  const shader = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: lickVertexV2,
-    fragmentShader: lickFragmentV2,
+  const shader = createV2NodeMaterial("lick", uniforms, {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -4822,7 +4819,7 @@ function createReflectionLayer(
   const mesh = object.object as THREE.Object3D;
   const groundY = doc.environment.groundY;
   const write = (node: THREE.Object3D) => {
-    const material = (node as THREE.Mesh).material as THREE.ShaderMaterial;
+    const material = (node as THREE.Mesh).material as V2NodeMaterial;
     if (!material?.uniforms?.uReflect) return;
     material.uniforms.uReflect.value = 1;
     (material.uniforms.uReflectTint.value as THREE.Color).set(spec.tint);
@@ -4878,8 +4875,13 @@ function createLightLayer(layer: LayerV2): LayerObject {
     trim: false,
     update(time, flags) {
       const { layer: live, visible, u } = evaluateLayerV2(layer, time);
-      light.visible = visible && flags.light;
-      if (!light.visible) return;
+      // Keep the light layout stable across timeline edges. Removing a light
+      // invalidates Three's render-object shader caches, including unlit VFX.
+      light.visible = true;
+      if (!visible || !flags.light) {
+        light.intensity = 0;
+        return;
+      }
       const l = live.light!;
       light.position.fromArray(live.transform.position);
       light.color.set(l.color);
@@ -4905,12 +4907,53 @@ function createLightLayer(layer: LayerV2): LayerObject {
   };
 }
 
+/** The one place a layer kind chooses its factory, so document installs and the
+ * per-layer resource cache cannot disagree about what a kind builds. */
+function buildLayerObject(
+  doc: VfxDocumentV2,
+  layer: LayerV2,
+  index: number,
+  textures: TextureCacheV2,
+  depth: THREE.DepthTexture,
+): LayerObject {
+  switch (layer.kind) {
+    case "light":
+      return createLightLayer(layer);
+    case "particles":
+      return createParticleLayer(doc, layer, index, textures, depth);
+    case "blob":
+      return createBlobLayer(doc, layer, index);
+    case "crystals":
+      return createCrystalsLayer(doc, layer, index);
+    case "splash":
+      return createSplashLayer(layer, index);
+    case "ribbon":
+      return createRibbonLayer(doc, layer, index);
+    case "wireBurst":
+      return createWireBurstLayer(layer, index);
+    case "arcs":
+      return createArcsLayer(layer, index);
+    case "streakBurst":
+      return createStreakBurstLayer(layer, index);
+    case "sheets":
+      return createSheetsLayer(layer, index);
+    case "crescent":
+      return createCrescentLayer(layer, index);
+    case "licks":
+      return createLicksLayer(doc, layer, index);
+    case "reflection":
+      return createReflectionLayer(doc, layer, index, textures);
+    default:
+      return createMeshLayer(doc, layer, index, textures);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Runtime
 // ---------------------------------------------------------------------------
 
 export class VfxRuntimeV2 {
-  readonly renderer: THREE.WebGLRenderer;
+  readonly renderer: THREE.WebGPURenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(
     32,
@@ -4930,26 +4973,77 @@ export class VfxRuntimeV2 {
   private interactive = true;
   private readonly environment: EnvironmentV2;
   private post: PostStackV2;
+  private postSamples = 4;
   private readonly textures = new TextureCacheV2();
-  private readonly depthTarget: THREE.WebGLRenderTarget;
+  private readonly depthTarget: THREE.RenderTarget;
   private readonly group = new THREE.Group();
   private objects: LayerObject[] = [];
+  private objectKeys = new Map<string, string>();
   private doc?: VfxDocumentV2;
   private flags: FeatureFlagsV2 = { ...DEFAULT_FLAGS };
   private frame = { center: new THREE.Vector3(), distance: 6 };
   /** Seeds the camera-shake noise; set from the document. */
   private shakeSeed = 1;
   private disposed = false;
+  private initialized = false;
+  private initialization: Promise<void>;
+  private preparedPreviewDocument?: VfxDocumentV2;
+  private lastPreviewRequest = { time: 0, solo: undefined as string | undefined };
+  private deviceError: Error | null = null;
+  private removeDeviceErrorListener?: () => void;
+  private previewSample: { time: number; solo?: string; diagnostic: boolean } | null = null;
   private width = 1280;
   private height = 720;
 
-  constructor(readonly host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({
+  constructor(readonly host: HTMLElement, private readonly options: { preview?: boolean } = {}) {
+    this.renderer = new THREE.WebGPURenderer({
       antialias: false,
       alpha: false,
-      preserveDrawingBuffer: true,
       powerPreference: "high-performance",
     });
+    // No silent WebGL fallback: evaluation must use the same WebGPU backend.
+    this.initialization = Promise.resolve().then(async () => {
+      if (!globalThis.navigator?.gpu)
+        throw new Error(
+          "WebGPU is unavailable. Use a supported browser in a secure context.",
+        );
+      await this.renderer.init();
+      this.initialized = true;
+      if (
+        !(this.renderer.backend as unknown as { isWebGPUBackend?: boolean })
+          .isWebGPUBackend
+      ) {
+        this.renderer.dispose();
+        this.initialized = false;
+        throw new Error(
+          "WebGPU is unavailable. Use a WebGPU-capable browser with hardware acceleration.",
+        );
+      }
+      if (this.disposed) {
+        this.renderer.dispose();
+        return;
+      }
+      // WebGPU validation errors are asynchronous and do not throw from render().
+      // Surface them through the preview's existing error/retry state instead of
+      // continuing to present a black canvas when a particle pipeline is rejected.
+      const device = (this.renderer.backend as unknown as { device: GPUDevice }).device;
+      const onGpuError = (event: GPUUncapturedErrorEvent) => {
+        if (!this.disposed)
+          this.deviceError = new Error(`WebGPU rendering failed: ${event.error.message}`);
+      };
+      device.addEventListener("uncapturederror", onGpuError);
+      this.removeDeviceErrorListener = () => device.removeEventListener("uncapturederror", onGpuError);
+    });
+    // Report through whenReady()/render(), including callers that mount then unmount.
+    void this.initialization.catch((error) => {
+      this.deviceError =
+        error instanceof Error ? error : new Error(String(error));
+    });
+    this.renderer.onDeviceLost = () => {
+      this.deviceError = new Error(
+        "The WebGPU device disconnected. Reload the scene.",
+      );
+    };
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.setPixelRatio(
@@ -4962,7 +5056,10 @@ export class VfxRuntimeV2 {
     // out of the bottom-right of the host. `webgpu-canvas` (the class the v1
     // runtime uses) pins it to width/height 100% of the host.
     this.renderer.domElement.className = "webgpu-canvas";
-    this.renderer.domElement.setAttribute("aria-label", "Generated VFX preview");
+    this.renderer.domElement.setAttribute(
+      "aria-label",
+      "Generated VFX preview",
+    );
     host.appendChild(this.renderer.domElement);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -4971,7 +5068,7 @@ export class VfxRuntimeV2 {
     this.controls.maxDistance = 60;
     this.scene.add(this.group);
     this.environment = createEnvironment(this.scene);
-    this.depthTarget = new THREE.WebGLRenderTarget(1, 1, {
+    this.depthTarget = new THREE.RenderTarget(1, 1, {
       depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
       depthBuffer: true,
     });
@@ -4979,54 +5076,75 @@ export class VfxRuntimeV2 {
       this.renderer,
       this.scene,
       this.camera,
-      this.width,
-      this.height,
     );
     this.resize();
   }
 
   setFeatureFlags(flags: Partial<FeatureFlagsV2>) {
+    this.previewSample = null;
     const aa = this.flags.aa;
     this.flags = { ...this.flags, ...flags };
-    if (this.doc) this.environment.apply(this.doc, this.scene, this.flags.ground);
+    if (this.doc)
+      this.environment.apply(this.doc, this.scene, this.flags.ground);
     if (aa !== this.flags.aa) this.rebuildPost();
   }
 
   /** Accepts a v2 document, or a v1 document which is upgraded on the way in. */
-  setDocument(input: VfxDocumentV2 | VfxDocument) {
+  setDocument(input: VfxDocumentV2 | VfxDocument, options: { preserveCamera?: boolean } = {}) {
+    if (this.disposed) return;
+    this.previewSample = null;
     const doc = isV2(input)
-      ? validateDocumentV2(input)
+      ? (this.options.preview ? validateWorkspaceDocumentV2(input) : validateDocumentV2(input))
       : upgradeDocument(input as VfxDocument);
-    this.disposeObjects();
     // layer.window: a layer whose start is an event on a path is moved onto
     // that moment ONCE, here, so the renderer, the framing pass and the capture
     // path all read the same times.
-    this.doc = resolveEventWindows(applyStyle(doc));
-    const depth = this.depthTarget.depthTexture!;
-    this.objects = this.doc.layers
-      .filter((layer) => layer.enabled)
-      .map((layer, index) => {
-        if (layer.kind === "light") return createLightLayer(layer);
-        if (layer.kind === "particles")
-          return createParticleLayer(this.doc!, layer, index, this.textures, depth);
-        if (layer.kind === "blob") return createBlobLayer(this.doc!, layer, index);
-        if (layer.kind === "crystals")
-          return createCrystalsLayer(this.doc!, layer, index);
-        if (layer.kind === "splash") return createSplashLayer(layer, index);
-        if (layer.kind === "ribbon")
-          return createRibbonLayer(this.doc!, layer, index);
-        if (layer.kind === "wireBurst") return createWireBurstLayer(layer, index);
-        if (layer.kind === "arcs") return createArcsLayer(layer, index);
-        if (layer.kind === "streakBurst")
-          return createStreakBurstLayer(layer, index);
-        if (layer.kind === "sheets") return createSheetsLayer(layer, index);
-        if (layer.kind === "crescent") return createCrescentLayer(layer, index);
-        if (layer.kind === "licks")
-          return createLicksLayer(this.doc!, layer, index);
-        if (layer.kind === "reflection")
-          return createReflectionLayer(this.doc!, layer, index, this.textures);
-        return createMeshLayer(this.doc!, layer, index, this.textures);
+    const nextDoc = resolveEventWindows(applyStyle(doc));
+    const preserveCamera = options.preserveCamera && this.doc !== undefined;
+    const previous = new Map(this.objects.map(object => [object.id, object]));
+    // Validation returns fresh objects. Compare content once per edit, including
+    // every document value captured by layer factories and sub-emitter parents.
+    const sharedKey = JSON.stringify([nextDoc.seed, nextDoc.duration,
+      nextDoc.quality.particleDensity, nextDoc.post.motionBlur, nextDoc.textures]);
+    const keys = new Map<string, string>();
+    const created: LayerObject[] = [];
+    let nextObjects: LayerObject[];
+    try {
+      nextObjects = nextDoc.layers.filter(layer => layer.enabled).map((layer, index) => {
+        const parent = layer.emitter?.sub
+          ? nextDoc.layers.find(item => item.id === layer.emitter!.sub!.parentLayerId) : null;
+        const key = JSON.stringify([sharedKey, index, layerBuildKey(layer), parent]);
+        keys.set(layer.id, key);
+        const existing = previous.get(layer.id);
+        if (existing && this.objectKeys.get(layer.id) === key) return existing;
+        const object = buildLayerObject(
+          nextDoc,
+          layer,
+          index,
+          this.textures,
+          this.depthTarget.depthTexture!,
+        );
+        created.push(object);
+        return object;
       });
+    } catch (error) {
+      for (const object of created) object.dispose();
+      throw error;
+    }
+    const retained = new Set(nextObjects);
+    for (const object of this.objects) {
+      object.object.removeFromParent();
+      if (!retained.has(object)) object.dispose();
+    }
+    // Factories close over source; keep that object identity and replace its live values.
+    for (const object of nextObjects) {
+      const updated = nextDoc.layers.find(layer => layer.id === object.id)!;
+      Object.assign(object.source, updated);
+    }
+    this.objects = nextObjects;
+    this.objectKeys = keys;
+    this.doc = nextDoc;
+    if (preserveCamera && created.length === 0) this.preparedPreviewDocument = nextDoc;
     const lights = this.objects
       .filter((o) => o.source.kind === "light")
       .sort(
@@ -5035,7 +5153,10 @@ export class VfxRuntimeV2 {
           Math.max(...a.source.light!.intensity.keys.map((k) => k[1])),
       );
     for (const object of this.objects) {
-      if (object.source.kind === "light" && lights.indexOf(object) >= MAX_LIGHTS)
+      if (
+        object.source.kind === "light" &&
+        lights.indexOf(object) >= MAX_LIGHTS
+      )
         continue;
       this.group.add(object.object);
     }
@@ -5044,28 +5165,69 @@ export class VfxRuntimeV2 {
     this.shakeSeed = hashSeed(this.doc.seed, "camera-shake");
     this.camera.fov = this.doc.camera.fov;
     this.rebuildPost();
-    this.computeFraming();
-    this.resetCamera();
+    // Existing edits keep the authored view and avoid whole-duration bounds
+    // sampling. Focus/resize recomputes bounds when framing is actually needed.
+    if (!preserveCamera) this.resize(this.width, this.height);
+    else {
+      this.camera.updateProjectionMatrix();
+      this.updateResolutionUniforms();
+    }
   }
 
-  /** Resolves once every texture the current document needs has loaded. */
-  whenReady() {
-    return this.textures.whenReady();
+  /** Previews prepare delayed emitters before playback reaches their bars. */
+  async whenReady() {
+    await Promise.all([this.initialization, this.textures.whenReady()]);
+    if (this.disposed) return;
+    if (this.deviceError) throw this.deviceError;
+    if (this.options.preview && this.doc && this.preparedPreviewDocument !== this.doc) {
+      this.warmPreview();
+      this.preparedPreviewDocument = this.doc;
+    }
+    this.previewSample = null;
+  }
+
+  private warmPreview() {
+    this.advanceFrame();
+    const size = this.renderer.getSize(new THREE.Vector2());
+    const target = this.renderer.getRenderTarget();
+    try {
+      // r186 compileAsync uses a top-level render context; the nested scene
+      // pass has a different cache key. Warm the actual graph at a small size
+      // so every delayed emitter is prepared in playback's render context.
+      this.renderer.setSize(64, 64, false);
+      for (const object of this.objects) {
+        const layer = object.source;
+        object.update(layer.start + (layer.end - layer.start) * 0.5, this.flags, this.camera);
+        object.object.visible = layer.kind === "light";
+      }
+      if (this.flags.softParticles && this.objects.some(object => object.soft)) {
+        this.renderer.setRenderTarget(this.depthTarget);
+        this.renderer.clear();
+        this.renderer.render(this.scene, this.camera);
+      }
+      this.renderer.setRenderTarget(null);
+      for (const object of this.objects) object.object.visible = true;
+      if (this.flags.post) this.post.render();
+      else this.renderer.render(this.scene, this.camera);
+    } finally {
+      this.renderer.setSize(size.x, size.y, false);
+      this.renderer.setRenderTarget(target);
+      this.previewSample = null;
+      // Restore the requested image in the same task, before the browser can
+      // present the temporary all-emitter frame. No timeline time is advanced.
+      this.renderPreview(this.lastPreviewRequest.time, this.lastPreviewRequest.solo);
+    }
   }
 
   private rebuildPost() {
     const doc = this.doc;
     const samples = doc && doc.quality.aa !== "none" && this.flags.aa ? 4 : 0;
-    this.post.dispose();
-    this.post = createPostStack(
-      this.renderer,
-      this.scene,
-      this.camera,
-      this.width,
-      this.height,
-      samples,
-    );
-    if (doc) this.post.apply(doc, { post: this.flags.post, aa: this.flags.aa });
+    if (samples !== this.postSamples) {
+      this.postSamples = samples;
+      this.post.dispose();
+      this.post = createPostStack(this.renderer, this.scene, this.camera, samples);
+    }
+    if (doc) this.post.apply(doc, { post: this.flags.post, aa: this.flags.aa && !this.options.preview });
   }
 
   /**
@@ -5164,7 +5326,9 @@ export class VfxRuntimeV2 {
       this.frame = { center: new THREE.Vector3(0, 0.75, 0), distance: 6 };
       return;
     }
-    const size = box.getSize(new THREE.Vector3()).max(new THREE.Vector3(1e-3, 1e-3, 1e-3));
+    const size = box
+      .getSize(new THREE.Vector3())
+      .max(new THREE.Vector3(1e-3, 1e-3, 1e-3));
     const center = box.getCenter(new THREE.Vector3());
     const tan = Math.tan(THREE.MathUtils.degToRad(doc.camera.fov / 2));
     const framing = Math.max(0.1, doc.camera.framing);
@@ -5199,7 +5363,44 @@ export class VfxRuntimeV2 {
     this.controls.enabled = on;
   }
 
+  /** Fit the complete sampled effect into a CSS-pixel safe rectangle. The
+   * asymmetric projection keeps orbit centered on the effect, not the UI gap.
+   */
+  focus(area: { left: number; top: number; width: number; height: number }, solo?: string) {
+    if (!this.doc) return;
+    const box = new THREE.Box3();
+    for (const object of this.objects) {
+      const layer = object.source;
+      if (!layer.enabled || layer.kind === "light" || (solo && layer.id !== solo)) continue;
+      for (let i = 0; i <= 48; i++)
+        object.bounds(layer.start + (layer.end - layer.start) * i / 48, point => box.expandByPoint(point));
+    }
+    if (box.isEmpty()) box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const vertical = THREE.MathUtils.degToRad(this.doc.camera.fov) / 2;
+    const horizontal = Math.atan(Math.tan(vertical) * area.width / area.height);
+    const distance = Math.max(1, sphere.radius * 1.12 / Math.sin(Math.min(vertical, horizontal)));
+    const direction = this.camera.position.clone().sub(this.controls.target).normalize();
+    if (!direction.lengthSq()) direction.copy(directionOf(this.doc.camera.azimuth, this.doc.camera.elevation));
+    // Flush pending damping before taking ownership of the new pose.
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.target.copy(sphere.center);
+    this.controls.maxDistance = Math.max(60, distance * 2);
+    this.camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    this.camera.fov = this.doc.camera.fov;
+    this.camera.far = Math.max(this.camera.far, distance + sphere.radius * 2);
+    this.camera.setViewOffset(area.width, area.height, -area.left, -area.top, this.width, this.height);
+    this.controls.update();
+    this.controls.enableDamping = damping;
+    this.previewSample = null;
+  }
+
   resetCamera() {
+    this.camera.clearViewOffset();
+    this.camera.aspect = this.width / this.height;
+    this.previewSample = null;
     const doc = this.doc;
     if (!doc) return;
     const dir = directionOf(doc.camera.azimuth, doc.camera.elevation);
@@ -5217,30 +5418,41 @@ export class VfxRuntimeV2 {
     if (this.interactive) this.controls.update();
   }
 
-  resize(width = this.host.clientWidth || 1280, height = this.host.clientHeight) {
+  resize(
+    width = this.host.clientWidth || 1280,
+    height = this.host.clientHeight,
+  ) {
+    this.previewSample = null;
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height || Math.round((w * 9) / 16)));
     this.width = w;
     this.height = h;
+    // Interactive previews retain MSAA but cap raster work at one megapixel.
+    // Offscreen evaluation/export keeps the document AA and requested resolution.
+    if (this.options.preview)
+      this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5, Math.sqrt(1_000_000 / (w * h))));
     this.renderer.setSize(w, h, false);
-    this.post.setSize(w, h);
     const pixelWidth = this.renderer.domElement.width;
     const pixelHeight = this.renderer.domElement.height;
     this.depthTarget.setSize(pixelWidth, pixelHeight);
-    for (const object of this.objects)
-      object.object.traverse((node) => {
-        const material = (node as THREE.Mesh).material as
-          | THREE.ShaderMaterial
-          | undefined;
-        const resolution = material?.uniforms?.uResolution?.value as
-          | THREE.Vector2
-          | undefined;
-        resolution?.set(pixelWidth, pixelHeight);
-      });
+    this.updateResolutionUniforms();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.computeFraming();
     this.resetCamera();
+  }
+
+  private updateResolutionUniforms() {
+    const pixelWidth = this.renderer.domElement.width;
+    const pixelHeight = this.renderer.domElement.height;
+    for (const object of this.objects)
+      object.object.traverse((node) => {
+        const material = (node as THREE.Mesh).material as
+          V2NodeMaterial | undefined;
+        const resolution = material?.uniforms?.uResolution?.value as
+          THREE.Vector2 | undefined;
+        resolution?.set(pixelWidth, pixelHeight);
+      });
   }
 
   /**
@@ -5291,7 +5503,9 @@ export class VfxRuntimeV2 {
           nz * strength * swing * 0.6,
           "XYZ",
         );
-        this.camera.quaternion.multiply(new THREE.Quaternion().setFromEuler(euler));
+        this.camera.quaternion.multiply(
+          new THREE.Quaternion().setFromEuler(euler),
+        );
         this.camera.position.addScaledVector(
           new THREE.Vector3(nx, ny, nz),
           strength * 0.35,
@@ -5303,16 +5517,55 @@ export class VfxRuntimeV2 {
   }
 
   render(time: number, solo?: string, diagnostic = false) {
+    this.renderSample(time, solo, diagnostic, false);
+  }
+
+  /** Paused previews draw only for edits, resize, seeking, or orbit damping.
+   * Explicit capture render() always submits a fresh frame for canvas readback.
+   */
+  renderPreview(time: number, solo?: string) {
+    this.lastPreviewRequest = { time, solo };
+    this.renderSample(time, solo, false, true);
+  }
+
+  private advanceFrame() {
+    // Each explicit time sample is a complete frame, including multiple captures
+    // in one browser task. r186 advances NodeFrame only from its own RAF loop;
+    // without this seam FRAME-cached post nodes silently reuse the first sample.
+    // Keep this version-specific access here and cover it with seek/solo tests.
+    const nodes = (
+      this.renderer as unknown as { _nodes: { nodeFrame: { frameId: number } } }
+    )._nodes;
+    nodes.nodeFrame.frameId++;
+  }
+
+  private renderSample(time: number, solo: string | undefined, diagnostic: boolean, skipUnchanged: boolean) {
     if (this.disposed || !this.doc) return;
-    // Advances damping toward whatever orbit/pan/zoom the user has done since
-    // the last frame. Skipped entirely in the deterministic capture path
-    // (setInteractive(false)) so captures never depend on controls state.
-    if (this.interactive) this.controls.update();
+    if (this.deviceError) throw this.deviceError;
+    if (!this.initialized)
+      throw new Error("Await whenReady() before rendering a V2 document.");
+    const cameraChanged = this.interactive && this.controls.update();
+    // No emitter/light is alive and the camera has no authored motion: all
+    // times in this interval produce the same environment image.
+    const sampleTime = skipUnchanged && !this.doc.camera.shake && !this.doc.camera.pushIn &&
+      !this.doc.layers.some(layer => layer.enabled && (!solo || layer.id === solo) && time >= layer.start && time < layer.end)
+      ? -Infinity : time;
+    if (skipUnchanged && !cameraChanged && this.previewSample?.time === sampleTime &&
+        this.previewSample.solo === solo && this.previewSample.diagnostic === diagnostic) return;
+    this.advanceFrame();
     const move = this.applyCameraMove(time);
     const doc = this.doc;
     for (const object of this.objects) {
+      if (object.source.kind === "light") {
+        object.update(time, this.flags, this.camera);
+        if (solo && object.id !== solo) (object.object as THREE.PointLight).intensity = 0;
+        continue;
+      }
+      if ((solo && object.id !== solo) || time < object.source.start || time >= object.source.end) {
+        object.object.visible = false;
+        continue;
+      }
       object.update(time, this.flags, this.camera);
-      if (solo && object.id !== solo) object.object.visible = false;
     }
     this.environment.apply(doc, this.scene, this.flags.ground);
     // environment.groundPool: a pool that follows a layer reads that layer's
@@ -5341,11 +5594,14 @@ export class VfxRuntimeV2 {
     this.renderer.toneMappingExposure = doc.post.exposure;
     this.post.apply(
       doc,
-      { post: this.flags.post && !diagnostic, aa: this.flags.aa },
+      {
+        post: this.flags.post && !diagnostic,
+        aa: this.flags.aa && !this.options.preview,
+      },
       time,
     );
 
-    if (this.flags.softParticles && this.objects.some((o) => o.soft)) {
+    if (this.flags.softParticles && this.objects.some((o) => o.soft && o.object.visible)) {
       // Depth pre-pass: opaque receivers only (ground + any depth-writing mesh).
       const hidden: THREE.Object3D[] = [];
       for (const object of this.objects)
@@ -5360,9 +5616,10 @@ export class VfxRuntimeV2 {
       for (const object of hidden) object.visible = true;
     }
 
-    if (this.flags.post && !diagnostic) this.post.composer.render(0);
+    if (this.flags.post && !diagnostic) this.post.render();
     else this.renderer.render(this.scene, this.camera);
 
+    this.previewSample = { time: sampleTime, solo, diagnostic };
     if (move) {
       this.camera.position.copy(move.position);
       this.camera.quaternion.copy(move.quaternion);
@@ -5376,11 +5633,13 @@ export class VfxRuntimeV2 {
       object.dispose();
     }
     this.objects = [];
+    this.objectKeys.clear();
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.removeDeviceErrorListener?.();
     this.controls.dispose();
     this.disposeObjects();
     this.environment.dispose();
@@ -5388,7 +5647,7 @@ export class VfxRuntimeV2 {
     this.textures.dispose();
     this.depthTarget.depthTexture?.dispose();
     this.depthTarget.dispose();
-    this.renderer.dispose();
+    if (this.initialized) this.renderer.dispose();
     this.renderer.domElement.remove();
   }
 }

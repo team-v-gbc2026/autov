@@ -1,6 +1,7 @@
+import { webgpuBrowserOptions } from "./browser-options.mjs";
 // Headless captureV2 harness.
 //
-// captureV2 needs a DOM, a WebGL context and the v2 texture library, so it
+// captureV2 needs a DOM, a WebGPU device and the v2 texture library, so it
 // cannot run under the node test runner. This module bundles it once, serves
 // frontend/public plus a local texture directory beside it (see
 // scripts/vfx-assets.mjs — VFX_ASSET_DIR / VFX_ASSET_BASE), opens the page in
@@ -106,14 +107,7 @@ ${assetBaseScript(textures.base)}
 
   process.env.PLAYWRIGHT_BROWSERS_PATH =
     process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
-  const browser = await chromium.launch({
-    args: [
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--enable-unsafe-swiftshader",
-      "--ignore-gpu-blocklist",
-    ],
-  });
+  const browser = await chromium.launch(webgpuBrowserOptions());
   const problems = [];
   try {
     const page = await browser.newPage({

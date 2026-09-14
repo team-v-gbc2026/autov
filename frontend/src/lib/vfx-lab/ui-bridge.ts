@@ -58,7 +58,7 @@ import {
   defaultCurve,
   defaultEmitter,
   defaultMaterial,
-  validateDocumentV2,
+  validateWorkspaceDocumentV2,
   type LayerV2,
   type VfxDocumentV2,
 } from "./schema-v2";
@@ -475,8 +475,18 @@ function retime(layer: LayerV2, start: number, end: number) {
   const newSpan = Math.max(end - start, 1e-6);
   layer.start = start;
   layer.end = end;
-  if (newSpan >= oldSpan) return;
+  if (Math.abs(newSpan - oldSpan) < 1e-9) return;
   const factor = newSpan / oldSpan;
+  if (layer.emitter) {
+    const { emitter } = layer;
+    emitter.life = emitter.life.map(value => clamp(value * factor, 0.02, 12)) as [number, number];
+    emitter.spawn.window = clamp(emitter.spawn.window * factor, 0, 12);
+    emitter.spawn.duration = clamp(emitter.spawn.duration * factor, 0, 12);
+    emitter.spawn.bursts = emitter.spawn.bursts.map(burst => ({
+      ...burst,
+      t: clamp(burst.t * factor, 0, 12),
+    }));
+  }
   for (const track of layer.tracks)
     track.keys = track.keys.map(([t, v]) => [t * factor, v] as [number, number]);
   if (layer.motion)
@@ -511,7 +521,7 @@ function fitToDuration(layer: LayerV2, duration: number) {
  */
 function commit(next: VfxDocumentV2, previous: VfxDocumentV2): VfxDocumentV2 {
   try {
-    const valid = validateDocumentV2(next);
+    const valid = validateWorkspaceDocumentV2(next);
     // A documented no-op keeps the previous object identity, so the preview
     // does not reinstall a document that did not actually change.
     return JSON.stringify(valid) === JSON.stringify(previous) ? previous : valid;
@@ -545,13 +555,23 @@ export function applyLayerPatch(
     retime(layer, start, end);
   }
   if (patch.enabled !== undefined) layer.enabled = patch.enabled;
-  if (patch.color !== undefined) {
-    if (layer.light) layer.light.color = patch.color;
-    else if (layer.material) layer.material.ramp.stops[0].color = patch.color;
-  }
-  if (patch.secondaryColor !== undefined && layer.material) {
+  if (patch.color !== undefined && layer.light) layer.light.color = patch.color;
+  if (layer.material && ((patch.color !== undefined && patch.color !== layer.material.ramp.stops[0].color) ||
+    (patch.secondaryColor !== undefined && patch.secondaryColor !== layer.material.ramp.stops[layer.material.ramp.stops.length - 1].color))) {
     const stops = layer.material.ramp.stops;
-    stops[stops.length - 1].color = patch.secondaryColor;
+    const first = stops[0], last = stops[stops.length - 1];
+    const primary = patch.color ?? first.color;
+    const secondary = patch.secondaryColor ?? last.color;
+    const channels = (hex: string) => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
+    const from = channels(primary), to = channels(secondary);
+    // The two UI colors describe the whole ramp, including authored interior stops.
+    // Keep sampling positions and HDR intensity so editing hue preserves timing/brightness.
+    for (const stop of stops) {
+      const t = last.t === first.t ? 0 : (stop.t - first.t) / (last.t - first.t);
+      stop.color = `#${from.map((value, index) => Math.round(value + (to[index] - value) * t).toString(16).padStart(2, "0")).join("")}`;
+    }
+    first.color = primary;
+    last.color = stops.length === 1 ? (patch.color ?? patch.secondaryColor ?? primary) : secondary;
   }
   if (patch.blend !== undefined && layer.material) {
     const current = layer.material.blend;
@@ -656,9 +676,7 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
 }
 
 /**
- * A one-emitter v2 document, for "Add emitter" on an empty timeline. The
- * contract requires at least one layer, so there is no layerless document to
- * start from.
+ * A one-emitter document satisfying the generation contract.
  */
 export function createDocument(name = "Untitled effect"): VfxDocumentV2 {
   const shell = defaultDocumentShell(documentName(name));
@@ -671,3 +689,9 @@ export function documentName(name: string) {
   return trimmed || "Untitled effect";
 }
 
+/** The workspace exists before its first emitter. Validation returns a detached
+ * document so renderer/evaluation mutations cannot alias editor state.
+ */
+export function createWorkspaceDocument(name = "Untitled effect"): VfxDocumentV2 {
+  return validateWorkspaceDocumentV2({ ...defaultDocumentShell(documentName(name)), layers: [] });
+}

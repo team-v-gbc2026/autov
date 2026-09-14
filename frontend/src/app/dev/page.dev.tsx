@@ -17,6 +17,11 @@ const cardStyle = {
 
 const cards = [
   {
+    href: "/dev/chat",
+    title: "Agent chat preview",
+    body: "Message formatting and simulated streaming with Send/Stop controls.",
+  },
+  {
     href: "/dev/vfx-ui-review",
     title: "VFX UI review",
     body: "Preview the studio layout, emitter controls, and timeline with fixture data.",

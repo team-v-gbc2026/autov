@@ -33,7 +33,10 @@ import {
 } from "../src/lib/vfx-lab/crystals-v2";
 import { latticeSites } from "../src/lib/vfx-lab/lattice-v2";
 import { bandGeometry, flickerAt } from "../src/lib/vfx-lab/runtime-v2";
-import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
+import {
+  evaluateLayerV2,
+  evaluateLayerV2Readonly,
+} from "../src/lib/vfx-lab/evaluate-v2";
 import {
   sheetBirthAt,
   sheetInstances,
@@ -246,6 +249,32 @@ test("every recipe example still validates with the Phase B fields in place", ()
     column.layers.some((l) => l.kind === "streakBurst" && l.streakBurst),
     "energy-column carries a streak fan",
   );
+});
+
+test("the read-only evaluator never writes into the document it reads", () => {
+  // layer.collapse, jitter and transform.squash all run after the tracks and
+  // write geometry and transform values. The read-only evaluator only clones
+  // the branches a stage will touch, so a branch it forgot would be shared with
+  // the document and multiplied down on every frame until it hit its floor —
+  // the energy column's body vanished exactly that way.
+  const column = createPresetV2("energy-column");
+  const before = structuredClone(column);
+  for (const layer of column.layers)
+    for (const time of [0, 0.5, 1.2, 1.73, 2.4, 3.9, 4.9])
+      evaluateLayerV2Readonly(layer, time);
+  assert.deepEqual(column, before, "evaluation mutated the source document");
+
+  // The same sample twice has to agree, whichever evaluator asks for it.
+  for (const layer of column.layers.filter((l) => l.collapse)) {
+    const first = evaluateLayerV2Readonly(layer, 1.73).layer;
+    const again = evaluateLayerV2Readonly(layer, 1.73).layer;
+    assert.deepEqual(again.geometry, first.geometry, layer.id);
+    assert.deepEqual(
+      first.geometry,
+      evaluateLayerV2(layer, 1.73).layer.geometry,
+      layer.id,
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------

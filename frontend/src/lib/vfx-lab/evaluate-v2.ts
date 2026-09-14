@@ -115,7 +115,47 @@ export interface EvaluatedLayerV2 {
  * the source document is never mutated.
  */
 export function evaluateLayerV2(layer: LayerV2, time: number): EvaluatedLayerV2 {
-  const next = structuredClone(layer) as LayerV2;
+  return evaluateResolvedLayer(layer, time, structuredClone(layer));
+}
+
+/** Runtime-only view: unchanged branches share the installed document. Callers
+ * must treat the result as read-only. Clone just the branches animation writes.
+ */
+/** Every branch `evaluateResolvedLayer` may write for this layer at this time.
+ * Anything not listed here is shared with the document, so a stage that wrote
+ * to it would corrupt the source — layer.collapse multiplies its geometry down
+ * on every frame, and a shared geometry reaches the 0.01 floor within a second.
+ */
+function writtenBranches(layer: LayerV2, time: number): Set<string> {
+  const branches = new Set<string>();
+  for (const track of layer.tracks)
+    branches.add(String(parseTargetPath(track.target)[0]));
+  for (const override of layer.overrides)
+    if (windowWeight(override, time) !== 0)
+      branches.add(String(parseTargetPath(override.target)[0]));
+  if (layer.motion) branches.add("transform");
+  if (layer.jitter && layer.jitter.amplitude > 0) branches.add("transform");
+  if (layer.transform.squash) branches.add("transform");
+  if (layer.collapse) {
+    branches.add("transform");
+    branches.add("geometry");
+    branches.add("arcs");
+  }
+  return branches;
+}
+
+export function evaluateLayerV2Readonly(layer: LayerV2, time: number): EvaluatedLayerV2 {
+  const branches = writtenBranches(layer, time);
+  if (!branches.size) return evaluateResolvedLayer(layer, time, layer);
+  const next = { ...layer };
+  const source = layer as unknown as Record<string, unknown>;
+  const target = next as unknown as Record<string, unknown>;
+  for (const branch of branches)
+    if (Object.hasOwn(source, branch)) target[branch] = structuredClone(source[branch]);
+  return evaluateResolvedLayer(layer, time, next);
+}
+
+function evaluateResolvedLayer(layer: LayerV2, time: number, next: LayerV2): EvaluatedLayerV2 {
   const age = time - layer.start;
   const span = Math.max(layer.end - layer.start, 1e-6);
 

@@ -1,10 +1,29 @@
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
+import {
+  uniform,
+  positionWorld,
+  positionGeometry,
+  vec2,
+  vec4,
+  abs,
+  exp,
+  pow,
+  fract,
+  fwidth,
+  length,
+  max,
+  min,
+  mix,
+  smoothstep,
+  uv as meshUV,
+} from "three/tsl";
 import { GROUND_POOL_BUDGET_V2, type VfxDocumentV2 } from "./schema-v2";
 
 // ---------------------------------------------------------------------------
-// Scene dressing for the v2 renderer: background, fog, ground plane (with a
-// procedural grid patched into MeshStandardMaterial) and the hemisphere fill
-// that keeps the grid readable while the effect's own lights flicker.
+// Scene dressing for the v2 renderer: background, fog, node-based ground plane
+// (derivative-filtered grid plus analytic light pools), the screen-space
+// backdrop card, and the hemisphere fill that keeps the grid readable while the
+// effect's own lights flicker.
 // ---------------------------------------------------------------------------
 
 /**
@@ -13,11 +32,11 @@ import { GROUND_POOL_BUDGET_V2, type VfxDocumentV2 } from "./schema-v2";
  */
 const HEMISPHERE_INTENSITY = 5;
 const GROUND_SIZE = 60;
-/** Pools the ground shader compiles slots for; see environment.groundPool. */
+/** Pools the ground graph carries slots for; see environment.groundPool. */
 const POOLS = GROUND_POOL_BUDGET_V2;
 
 export interface EnvironmentV2 {
-  ground: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
+  ground: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardNodeMaterial>;
   fill: THREE.HemisphereLight;
   /** environment.backdrop: the screen-space card behind everything. */
   backdrop: THREE.Mesh;
@@ -53,68 +72,65 @@ export function sampleCurveAt(
 }
 
 export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
-  const gridColor = { value: new THREE.Color("#9a9cab") };
-  const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color("#4a4952"),
+  // WebGPU caches fog nodes by object identity. Replacing FogExp2 on every
+  // playback/orbit frame invalidates the ground's node graph and pipeline.
+  const background = new THREE.Color();
+  const environmentFog = new THREE.FogExp2("#000000", 0);
+  const gridColor = uniform(new THREE.Color("#737779"));
+  const groundColor = uniform(new THREE.Color("#484b4e"));
+  const gridOn = uniform(1);
+  // (centre.xz, radius, anisotropy) and (colour.rgb, intensity) per pool, plus
+  // whether each one is a rectangle rather than a disc. Every slot is evaluated;
+  // an unused pool carries intensity 0, so no loop bound enters the graph and a
+  // document that adds a pool does not rebuild the ground pipeline.
+  const poolArea = Array.from(
+    { length: POOLS },
+    () => new THREE.Vector4(0, 0, 1, 1),
+  );
+  const poolColor = Array.from(
+    { length: POOLS },
+    () => new THREE.Vector4(0, 0, 0, 0),
+  );
+  const poolRect = Array.from({ length: POOLS }, () => 0);
+  // One uniform per slot rather than a uniform array: the graph unrolls every
+  // slot anyway, and individual uniforms keep the node types exact.
+  const poolAreaNode = poolArea.map((value) => uniform(value));
+  const poolColorNode = poolColor.map((value) => uniform(value));
+  const poolRectNode = poolRect.map((value) => uniform(value));
+  let poolCount = 0;
+  const material = new THREE.MeshStandardNodeMaterial({
     roughness: 0.9,
     metalness: 0,
   });
-  const gridOn = { value: 1 };
-  // (centre.xz, radius, anisotropy) and (colour.rgb, intensity) per pool, plus
-  // whether each one is a rectangle rather than a disc.
-  const poolA = {
-    value: Array.from({ length: POOLS }, () => new THREE.Vector4(0, 0, 1, 1)),
+  const grid = (scale: number) => {
+    const p = positionWorld.xz.mul(scale);
+    const g = abs(fract(p.sub(0.5)).sub(0.5)).div(max(fwidth(p), 1e-5));
+    return min(min(g.x, g.y), 1).oneMinus();
   };
-  const poolC = {
-    value: Array.from({ length: POOLS }, () => new THREE.Vector4(0, 0, 0, 0)),
-  };
-  const poolRect = { value: Array.from({ length: POOLS }, () => 0) };
-  const poolN = { value: 0 };
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uGrid = gridColor;
-    shader.uniforms.uGridOn = gridOn;
-    shader.uniforms.uPoolA = poolA;
-    shader.uniforms.uPoolC = poolC;
-    shader.uniforms.uPoolRect = poolRect;
-    shader.uniforms.uPoolN = poolN;
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vWp;")
-      .replace(
-        "#include <worldpos_vertex>",
-        "#include <worldpos_vertex>\nvWp=(modelMatrix*vec4(transformed,1.)).xyz;",
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-        uniform vec3 uGrid; uniform float uGridOn; varying vec3 vWp;
-        uniform vec4 uPoolA[${POOLS}]; uniform vec4 uPoolC[${POOLS}];
-        uniform float uPoolRect[${POOLS}]; uniform int uPoolN;`,
-      )
-      .replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-        vec2 g=abs(fract(vWp.xz*1.0-0.5)-0.5)/max(fwidth(vWp.xz*1.0),vec2(1e-5));
-        float line=1.-min(min(g.x,g.y),1.);
-        vec2 g2=abs(fract(vWp.xz*4.0-0.5)-0.5)/max(fwidth(vWp.xz*4.0),vec2(1e-5));
-        float line2=1.-min(min(g2.x,g2.y),1.);
-        diffuseColor.rgb=mix(diffuseColor.rgb, uGrid, (line*0.30+line2*0.07)*uGridOn);
-        // environment.groundPool: one gaussian per pool, round or rectangular.
-        // A rectangle measures from the EDGE of its footprint, which is what
-        // makes a doorway throw a bar of light rather than a disc.
-        for(int i=0;i<${POOLS};i++){
-          if(i>=uPoolN) break;
-          vec2 d=vWp.xz-uPoolA[i].xy;
-          float r=max(uPoolA[i].z,1e-3);
-          float across=max(abs(d.x)-r*uPoolA[i].w, 0.0);
-          float along=abs(d.y);
-          float g = uPoolRect[i]>0.5
-            ? exp(-pow(across/r,2.0))*exp(-pow(along/r,2.0))
-            : exp(-pow(length(d)/r,2.0));
-          diffuseColor.rgb+=uPoolC[i].rgb*uPoolC[i].a*g;
-        }`,
-      );
-  };
+  const base = mix(
+    groundColor,
+    gridColor,
+    grid(1).mul(0.32).add(grid(4).mul(0.06)).mul(gridOn),
+  );
+  // environment.groundPool: one gaussian per pool, round or rectangular. A
+  // rectangle measures from the EDGE of its footprint, which is what makes a
+  // doorway throw a bar of light rather than a disc.
+  // One expression rather than an accumulator: these graphs are assembled
+  // outside any Fn, where TSL has no statement stack to assign into.
+  const pools = poolAreaNode.map((area, i) => {
+    const colour = poolColorNode[i];
+    const d = positionWorld.xz.sub(area.xy);
+    const r = max(area.z, 1e-3);
+    const across = max(abs(d.x).sub(r.mul(area.w)), 0);
+    const along = abs(d.y);
+    const round = exp(pow(length(d).div(r), 2).negate());
+    const rect = exp(pow(across.div(r), 2).negate()).mul(
+      exp(pow(along.div(r), 2).negate()),
+    );
+    const falloff = mix(round, rect, poolRectNode[i]);
+    return colour.rgb.mul(colour.a).mul(falloff);
+  });
+  material.colorNode = pools.reduce((sum, term) => sum.add(term), base);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
     material,
@@ -127,34 +143,30 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
   // anything else with depth off. It is not lit and it is not fogged; it is the
   // paper the effect is drawn on, which is exactly what a cartoon impact needs
   // instead of a flat background colour.
-  const backdropUniforms = {
-    uHot: { value: new THREE.Color("#3d8ada") },
-    uCold: { value: new THREE.Color("#0c2a55") },
-    uCentre: { value: new THREE.Vector2(0.5, 0.46) },
-    uAspect: { value: 1.1 },
-    uTop: { value: 0.4 },
-  };
+  const backdropHot = uniform(new THREE.Color("#3d8ada"));
+  const backdropCold = uniform(new THREE.Color("#0c2a55"));
+  const backdropCentre = uniform(new THREE.Vector2(0.5, 0.46));
+  const backdropAspect = uniform(1.1);
+  const backdropTop = uniform(0.4);
+  const backdropMaterial = new THREE.NodeMaterial();
+  backdropMaterial.depthTest = false;
+  backdropMaterial.depthWrite = false;
+  backdropMaterial.fog = false;
+  backdropMaterial.vertexNode = vec4(positionGeometry.xy, 1, 1);
+  {
+    const card = meshUV();
+    const d = card.sub(backdropCentre).mul(vec2(backdropAspect, 1));
+    // Wide, so the hot centre reaches the frame edges instead of ending in a
+    // visible disc.
+    const v = smoothstep(0.02, 1.35, length(d)).oneMinus();
+    const c = mix(backdropCold, backdropHot, pow(max(v, 1e-4), 1.15))
+      .mul(smoothstep(0.5, 1, card.y).mul(backdropTop).oneMinus())
+      .mul(smoothstep(0.3, 0, card.y).mul(backdropTop.mul(0.55)).oneMinus());
+    backdropMaterial.fragmentNode = vec4(c, 1);
+  }
   const backdrop = new THREE.Mesh(
     new THREE.PlaneGeometry(2, 2),
-    new THREE.ShaderMaterial({
-      depthTest: false,
-      depthWrite: false,
-      uniforms: backdropUniforms,
-      vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,1.,1.); }`,
-      fragmentShader: /* glsl */ `
-        precision highp float; varying vec2 vUv;
-        uniform vec3 uHot,uCold; uniform vec2 uCentre; uniform float uAspect,uTop;
-        void main(){
-          vec2 d=(vUv-uCentre)*vec2(uAspect,1.);
-          // Wide, so the hot centre reaches the frame edges instead of ending
-          // in a visible disc.
-          float v=1.-smoothstep(.02,1.35,length(d));
-          vec3 c=mix(uCold,uHot,pow(max(v,1e-4),1.15));
-          c*=1.-uTop*smoothstep(.50,1.,vUv.y);
-          c*=1.-uTop*.55*smoothstep(.30,0.,vUv.y);
-          gl_FragColor=vec4(c,1.);
-        }`,
-    }),
+    backdropMaterial,
   );
   backdrop.frustumCulled = false;
   backdrop.renderOrder = -100;
@@ -162,63 +174,73 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
   scene.add(backdrop);
 
   const fill = new THREE.HemisphereLight(
-    new THREE.Color("#8a8894"),
-    new THREE.Color("#3a3840"),
+    new THREE.Color("#909090"),
+    new THREE.Color("#383838"),
     HEMISPHERE_INTENSITY,
   );
   scene.add(fill);
 
+  const poolColour = new THREE.Color();
   return {
     ground,
     fill,
     backdrop,
     apply(doc, target, showGround) {
-      target.background = new THREE.Color(doc.environment.background);
+      background.set(doc.environment.background);
+      target.background = background;
       const card = doc.environment.backdrop;
       backdrop.visible = !!card;
       if (card) {
-        backdropUniforms.uHot.value.set(card.hot);
-        backdropUniforms.uCold.value.set(card.cold);
-        backdropUniforms.uCentre.value.fromArray(card.center);
-        backdropUniforms.uAspect.value = card.aspect;
-        backdropUniforms.uTop.value = card.topFalloff;
+        backdropHot.value.set(card.hot);
+        backdropCold.value.set(card.cold);
+        backdropCentre.value.fromArray(card.center);
+        backdropAspect.value = card.aspect;
+        backdropTop.value = card.topFalloff;
       }
       const fog = doc.environment.fog;
-      target.fog =
-        fog.density > 0
-          ? new THREE.FogExp2(new THREE.Color(fog.color).getHex(), fog.density)
-          : null;
+      environmentFog.color.set(fog.color);
+      environmentFog.density = fog.density;
+      target.fog = fog.density > 0 ? environmentFog : null;
       gridOn.value = doc.environment.ground === "grid" ? 1 : 0;
-      material.color.set(doc.environment.groundColor);
+      groundColor.value.set(doc.environment.groundColor);
       ground.position.y = doc.environment.groundY;
       ground.visible = showGround && doc.environment.ground !== "none";
       fill.intensity = HEMISPHERE_INTENSITY * doc.environment.ambient;
       fill.visible = showGround;
-      const pools = doc.environment.groundPool ?? [];
-      poolN.value = Math.min(pools.length, POOLS);
-      pools.slice(0, POOLS).forEach((pool, i) => {
-        poolA.value[i].set(
+      const spec = doc.environment.groundPool ?? [];
+      poolCount = Math.min(spec.length, POOLS);
+      for (let i = 0; i < POOLS; i++) {
+        const pool = i < poolCount ? spec[i] : null;
+        if (!pool) {
+          poolColor[i].set(0, 0, 0, 0);
+          continue;
+        }
+        poolArea[i].set(
           pool.position[0],
           pool.position[2],
           pool.radius,
           pool.anisotropy,
         );
-        const colour = new THREE.Color(pool.color);
-        poolC.value[i].set(colour.r, colour.g, colour.b, 0);
-        poolRect.value[i] = pool.shape === "rect" ? 1 : 0;
-      });
+        poolColour.set(pool.color);
+        poolColor[i].set(poolColour.r, poolColour.g, poolColour.b, 0);
+        poolRectNode[i].value = pool.shape === "rect" ? 1 : 0;
+      }
     },
     writePools(live) {
-      poolN.value = Math.min(live.length, POOLS);
-      live.slice(0, POOLS).forEach((entry, i) => {
-        poolA.value[i].x = entry.centre.x;
-        poolA.value[i].y = entry.centre.z;
-        poolC.value[i].w = Math.max(0, entry.intensity);
-      });
+      for (let i = 0; i < POOLS; i++) {
+        const entry = i < poolCount ? live[i] : undefined;
+        if (!entry) {
+          poolColor[i].w = 0;
+          continue;
+        }
+        poolArea[i].x = entry.centre.x;
+        poolArea[i].y = entry.centre.z;
+        poolColor[i].w = Math.max(0, entry.intensity);
+      }
     },
     dispose() {
       backdrop.geometry.dispose();
-      (backdrop.material as THREE.Material).dispose();
+      backdropMaterial.dispose();
       backdrop.removeFromParent();
       ground.geometry.dispose();
       material.dispose();

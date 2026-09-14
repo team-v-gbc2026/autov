@@ -1,5 +1,6 @@
-import * as THREE from "three";
-import type { Curve, Ramp } from "./schema-v2";
+// Migration reference used only by scripts/webgpu/port-shaders.mts.
+// The production renderer imports static TSL from shaders-v2-nodes.js.
+import { RADIAL_CUTOFF } from "./uniforms-v2";
 import { glslPath } from "./paths-v2";
 import { SPOKE_REACH } from "./wire-burst-v2";
 import { LATTICE_SCAN, LATTICE_TEXTURE_WIDTH } from "./lattice-v2";
@@ -20,7 +21,6 @@ import { LATTICE_SCAN, LATTICE_TEXTURE_WIDTH } from "./lattice-v2";
  * the card's own rectangle from ever showing, and the framing pass reads the
  * same constant so it claims the LIT extent rather than the whole card.
  */
-export const RADIAL_CUTOFF = 0.62;
 
 /** Curves carry at most 8 keys, ramps at most 6 stops (schema-v2 bounds). */
 export const CURVE_KEYS = 8;
@@ -560,8 +560,9 @@ float beadTerm(float u, float t){
  */
 export const glslFlow = /* glsl */ `
 uniform int uFlowOn,uFlowN;
-uniform vec4 uFlowLayer[4];   // (scale, pan.x, pan.y, rotate)
-uniform float uFlowMix[4];
+// 0..3 are (scale, pan.x, pan.y, rotate); 4..7 carry the mix weight in .x.
+// One array rather than two: WebGPU allows twelve uniform buffers per stage.
+uniform vec4 uFlowLayer[8];
 uniform vec3 uFlowCut;        // (threshold, softness, parallax)
 float flowNoise(vec2 p){
   vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
@@ -581,8 +582,8 @@ float flowField(vec2 q, float t, vec2 parallax){
     // Only the FIRST (slowest) layer takes the view offset: parallax on the
     // fine octaves reads as the whole card sliding, not as depth.
     vec2 off = i==0 ? parallax*uFlowCut.z : vec2(0.);
-    acc+=flowNoise((r+off)*L.x + L.yz*t)*uFlowMix[i];
-    weight+=uFlowMix[i];
+    acc+=flowNoise((r+off)*L.x + L.yz*t)*uFlowLayer[4+i].x;
+    weight+=uFlowLayer[4+i].x;
   }
   return acc/max(weight,1e-4);
 }
@@ -724,7 +725,7 @@ vec3 frontTangent(float sArc){
 float ${p}Life(vec4 s){ return mix(u${P}Life.x,u${P}Life.y,s.y); }
 
 /** Birth time in layer-local seconds, or 1e9 when the instance never spawns. */
-float ${p}Birth(vec4 s, float t){
+float ${p}Birth(vec4 s, float t, vec4 ev, float idx){
   float instance=s.x;
   float birth=instance*u${P}SpawnWindow;
   if(u${P}SpawnMode==1){
@@ -747,7 +748,7 @@ ${
     // that path. The moment and the origin are one instance attribute, computed
     // on the CPU from whichever layer drives the path (see events-v2.ts), so a
     // single layer can carry the debris of every impact in the document.
-    return aEvent.w+fract(instance*7.13+.37)*u${P}SpawnWindow;
+    return ev.w+fract(instance*7.13+.37)*u${P}SpawnWindow;
   }
 `
     : ""
@@ -764,14 +765,14 @@ ${
     // pathAnchored: instance i owns u = i/(count-1) and is born the moment the
     // head curve passes it. The head curve's domain is the layer's own 0..1
     // progress, so the inverse is scaled back into layer seconds.
-    return curveHInverse(aIndex)*uSpan;
+    return curveHInverse(idx)*uSpan;
   }
 `
     : ""
 }  return birth;
 }
 
-vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
+vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2, vec3 srcPos, vec4 ev, float idx){
   float ca=e.x*6.2831853, cz=e.y*2.-1., cr=sqrt(max(0.,1.-cz*cz));
   vec3 unit=vec3(cr*cos(ca),cz,cr*sin(ca));
   float fill=u${P}SurfaceOnly==1?1.:safePow(e.z,.5);
@@ -820,7 +821,7 @@ vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
     // slot is what keeps a burst from clumping, and angleBias both compresses
     // the fan (a full even ring reads as a clock face) and leans it.
     float bias=clamp(u${P}AngleBias,-1.,1.);
-    float ang=aIndex*6.2831853*(1.-.25*abs(bias))
+    float ang=idx*6.2831853*(1.-.25*abs(bias))
              +bias*1.5707963
              +(e.x-.5)*u${P}AngleJitter;
     return (a1*cos(ang)+a2*sin(ang))*u${P}ShapeRadius;
@@ -841,8 +842,8 @@ ${
     // path: the instance sits ON the document path at its own u, scattered
     // across the path frame by shape.radius so the row reads as a dotted band
     // rather than a string of beads. Paths are in DOCUMENT space.
-    vec3 tg,sd,upn; pathFrameE(aIndex,tg,sd,upn);
-    return pathPointE(aIndex)
+    vec3 tg=pathTangentE(idx),sd=pathSideE(idx),upn=pathUpE(idx);
+    return pathPointE(idx)
       + sd*(e.x-.5)*2.*u${P}ShapeRadius
       + upn*(e.y-.5)*1.5*u${P}ShapeRadius;
   }
@@ -855,7 +856,7 @@ ${
     // not at i/(count-1), and spread across the path frame by shape.radius —
     // residue lying along a line rather than an ordered row of beads.
     float pu=fract(s.z*7.31+s.w*3.17);
-    vec3 tg,sd,upn; pathFrameE(pu,tg,sd,upn);
+    vec3 tg=pathTangentE(pu),sd=pathSideE(pu),upn=pathUpE(pu);
     return pathPointE(pu)
       + sd*(e.x-.5)*2.*u${P}ShapeRadius
       + upn*(e.y-.5)*2.*u${P}ShapeRadius
@@ -865,7 +866,7 @@ ${
     : ""
 }${
   events
-    ? /* glsl */ `  if(u${P}SpawnMode==4) return aEvent.xyz+sph*u${P}ShapeRadius;
+    ? /* glsl */ `  if(u${P}SpawnMode==4) return ev.xyz+sph*u${P}ShapeRadius;
 `
     : ""
 }${
@@ -874,14 +875,14 @@ ${
     // layerInstances: the site was generated from the SOURCE layer's own hash
     // (crystals-v2 / blob-v2) and rides in as an instance attribute, so it is
     // closed form and independent of how either layer is drawn.
-    return aSrcPos + sph*u${P}ShapeRadius;
+    return srcPos + sph*u${P}ShapeRadius;
   }
 `
     : ""
 }  return axis*(u${P}ShapeLength*e.w)+sph*u${P}ShapeRadius;
 }
 
-vec3 ${p}Dir(vec4 s, vec4 e, vec4 e2, vec3 origin){
+vec3 ${p}Dir(vec4 s, vec4 e, vec4 e2, vec3 origin, vec3 srcDir){
   vec3 axis=safeDir(u${P}Axis,vec3(0,1,0));
   vec3 base=safeDir(u${P}Dir,vec3(0,1,0));
   vec3 radial=safeDir(origin,axis);
@@ -890,7 +891,7 @@ ${
     ? /* glsl */ `  // A layer-instance spawn is thrown along the instance's OWN axis, which is
   // what makes a shatter follow the spikes it broke off rather than the
   // cluster's centre. Every other velocity mode behaves as usual.
-  if(u${P}ShapeType==9 && u${P}VelMode==0) return safeDir(aSrcDir,base);
+  if(u${P}ShapeType==9 && u${P}VelMode==0) return safeDir(srcDir,base);
 `
     : ""
 }${
@@ -941,9 +942,9 @@ float ${p}SpeedI(float u){
   return acc;
 }
 
-void ${p}Traj(vec4 s, vec4 e, vec4 e2, float age, float life, float t, out vec3 pos, out vec3 vel){
-  vec3 origin=${p}Origin(s,e,e2);
-  vec3 dir=${p}Dir(s,e,e2,origin);
+void ${p}Traj(vec4 s, vec4 e, vec4 e2, vec3 srcPos, vec3 srcDir, vec4 ev, float idx, float age, float life, float t, out vec3 pos, out vec3 vel){
+  vec3 origin=${p}Origin(s,e,e2,srcPos,ev,idx);
+  vec3 dir=${p}Dir(s,e,e2,origin,srcDir);
   float a=max(age,0.);
   float u=clamp(a/max(life,1e-4),0.,1.);
 ${
@@ -1069,15 +1070,15 @@ ${
             : mix(uSubOffset.x,uSubOffset.y,fract(aSeed.x*3.0));
   off=clamp(off,0.,pLife);
   float pNow=uTime+uParentTimeShift;
-  float pBirth=parentBirth(aPSeed,pNow-off);
+  float pBirth=parentBirth(aPSeed,pNow-off,aEvent,aIndex);
   vec3 ppos,pvel;
-  parentTraj(aPSeed,aPExtra,aPExtra2,off,pLife,pBirth+off,ppos,pvel);
+  parentTraj(aPSeed,aPExtra,aPExtra2,aSrcPos,aSrcDir,aEvent,aIndex,off,pLife,pBirth+off,ppos,pvel);
   birth=pBirth+off-uParentTimeShift;
   subOrigin=ppos+parentPathAt(pBirth+off);
   subVel=pvel*uInherit;
   if(pBirth>1e8) dead=true;
 `
-    : `  birth=selfBirth(aSeed,uTime);
+    : `  birth=selfBirth(aSeed,uTime,aEvent,aIndex);
   if(birth>1e8) dead=true;
 `
 }
@@ -1125,7 +1126,7 @@ ${glslResolveBirth(sub)}
   vU=u;
 
   vec3 pos,vel;
-  selfTraj(aSeed,aExtra,aExtra2,age,life,uTime,pos,vel);
+  selfTraj(aSeed,aExtra,aExtra2,aSrcPos,aSrcDir,aEvent,aIndex,age,life,uTime,pos,vel);
   pos+=subOrigin+subVel*age;
   vel+=subVel;
   vWp=pos;
@@ -1251,7 +1252,7 @@ ${glslResolveBirth(false)}
   vU=u;
 
   vec3 pos,vel;
-  selfTraj(aSeed,aExtra,aExtra2,age,life,uTime,pos,vel);
+  selfTraj(aSeed,aExtra,aExtra2,aSrcPos,aSrcDir,aEvent,aIndex,age,life,uTime,pos,vel);
   vWp=pos;
 
   // The flipbook step: everything about the lick's SHAPE is hashed off k, so it
@@ -1349,7 +1350,7 @@ ${glslResolveBirth(false)}
   vU=u;
 
   vec3 pos,vel;
-  selfTraj(aSeed,aExtra,aExtra2,age,life,uTime,pos,vel);
+  selfTraj(aSeed,aExtra,aExtra2,aSrcPos,aSrcDir,aEvent,aIndex,age,life,uTime,pos,vel);
   vWp=pos;
 
   float hs=aSeed.z*7.3+aSub*2.17;
@@ -1488,7 +1489,7 @@ ${glslResolveBirth(sub)}
 
   float ageK=max(age-k*uSpacing,0.);
   vec3 pos,vel;
-  selfTraj(aSeed,aExtra,aExtra2,ageK,life,uTime,pos,vel);
+  selfTraj(aSeed,aExtra,aExtra2,aSrcPos,aSrcDir,aEvent,aIndex,ageK,life,uTime,pos,vel);
   pos+=subOrigin+subVel*ageK;
   vel+=subVel;
   vWp=pos;
@@ -1589,19 +1590,23 @@ void main(){
   float rot=vRot+uMaskRot;
   vec2 p=vUv-.5; float c=cos(rot), s=sin(rot); p=mat2(c,-s,s,c)*p; vec2 uvp=p+.5;
   float n=.5;
-  if(uHasNoise==1){
+  // Plain discs and un-eroded masks do not consume noise. Avoid evaluating
+  // three simplex octaves per fragment unless a feature actually uses them.
+  bool needsNoise=uUseErosion==1 || abs(uDistort)>0. ||
+    (uHasMask==0 && (uProcedural==1 || uProcedural==2));
+  if(needsNoise && uHasNoise==1){
     vec2 nuv=uvp*uNoiseScale+uNoisePan*uTime+vSeed.xy*7.;
     float n1=texture2D(uNoise,nuv).r;
     float n2=texture2D(uNoise,nuv*1.7+vec2(.3,.1)-uNoisePan*uTime*.6).r;
     n=n1*.65+n2*.35;
-  } else {
+  } else if(needsNoise) {
     n=.5+.5*fbm3(vec3(uvp*uNoiseScale*2.+uNoisePan*uTime, vSeed.x*17.));
   }
   // noise.distortionPan scrolls the field that drives the distortion (never the
   // mask lookup itself, which would slide the sprite out of its own UV range).
   float nd=n;
   vec2 dp=uDistortPan*uTime;
-  if(dot(dp,dp)>0.){
+  if(abs(uDistort)>0. && dot(dp,dp)>0.){
     if(uHasNoise==1) nd=texture2D(uNoise, uvp*uNoiseScale+uNoisePan*uTime+dp+vSeed.xy*7.).r;
     else nd=.5+.5*fbm3(vec3(uvp*uNoiseScale*2.+uNoisePan*uTime+dp, vSeed.x*17.));
   }
@@ -1858,13 +1863,14 @@ uniform float uDisStart,uDisStagger,uDisSoft;
 uniform float uRevealFrom,uRevealTo,uRevealWidth;
 uniform float uPlaneDist,uPlaneI,uBandStripes;
 uniform vec3 uTileCol,uLatEdgeCol,uPlaneCol;
-uniform vec4 uRipple[4],uRippleP[4];
+// 0..3 are the great-circle origins, 4..7 their (speed, width, decay).
+uniform vec4 uRipple[8];
 // geometry.slab: the tiered billboard bar, and material.flicker's per-step
 // multiplier (computed on the CPU from floor(layerTime * rate), so the mesh and
 // every other kind that carries it step together).
 uniform int uSlab,uSlabN;
-uniform vec4 uSlabTier[4];
-uniform vec3 uSlabCol[4];
+// 0..3 are (height, intensity); 4..7 carry the tier colour in .rgb.
+uniform vec4 uSlabTier[8];
 uniform float uFlicker;
 // kind "reflection": the same draw, mirrored under the ground plane, washed
 // toward uReflectTint and faded with depth below it.
@@ -1926,7 +1932,7 @@ void main(){
       float h=max(uSlabTier[i].x,1e-4);
       float e=h*.08;                           // the 8% edge
       float w=1.-smoothstep(h-e,h+e,y);
-      c=mix(c,uSlabCol[i],w);
+      c=mix(c,uSlabTier[4+i].rgb,w);
       a+=w*uSlabTier[i].y;
     }
     // A faint gaussian seat under the tiers, so the bar is not pasted on.
@@ -2173,8 +2179,8 @@ void main(){
       float age=uTime-uRipple[i].w;
       if(age<0.) continue;
       float gc=acos(clamp(dot(objN,uRipple[i].xyz),-1.,1.));
-      float r=age*uRippleP[i].x;
-      rip+=(1.-smoothstep(0.,max(uRippleP[i].y,1e-3),abs(gc-r)))*exp(-age*uRippleP[i].z);
+      float r=age*uRipple[4+i].x;
+      rip+=(1.-smoothstep(0.,max(uRipple[4+i].y,1e-3),abs(gc-r)))*exp(-age*uRipple[4+i].z);
     }
     float gap=smoothstep(uLatGap,uLatEdge,edge);
     float line=smoothstep(uLatEdge*1.7,uLatEdge,edge)*gap;
@@ -3084,70 +3090,4 @@ void main(){
 // Uniform builders
 // ---------------------------------------------------------------------------
 
-/**
- * Only the stops are read, so a trail's own ramp (its space is "along", and it
- * has no displacement shift or height span) fills the same uniform block.
- */
-export function rampUniforms(ramp: Pick<Ramp, "stops">) {
-  const colors: THREE.Vector4[] = [];
-  const stops: number[] = [];
-  for (let i = 0; i < RAMP_STOPS; i++) {
-    const stop = ramp.stops[Math.min(i, ramp.stops.length - 1)];
-    // `new THREE.Color(hex)` already converts sRGB -> linear; converting again
-    // washes the whole palette out.
-    const color = new THREE.Color(stop.color);
-    colors.push(new THREE.Vector4(color.r, color.g, color.b, stop.intensity));
-    stops.push(stop.t);
-  }
-  return {
-    uRamp: { value: colors },
-    uRampT: { value: stops },
-    uRampN: { value: ramp.stops.length },
-  };
-}
-
-export function writeRamp(
-  uniforms: Record<string, THREE.IUniform>,
-  ramp: Pick<Ramp, "stops">,
-) {
-  const colors = uniforms.uRamp.value as THREE.Vector4[];
-  const stops = uniforms.uRampT.value as number[];
-  for (let i = 0; i < RAMP_STOPS; i++) {
-    const stop = ramp.stops[Math.min(i, ramp.stops.length - 1)];
-    const color = new THREE.Color(stop.color);
-    colors[i].set(color.r, color.g, color.b, stop.intensity);
-    stops[i] = stop.t;
-  }
-  uniforms.uRampN.value = ramp.stops.length;
-}
-
-const FALLBACK_CURVE: Curve = { keys: [[0, 1] as [number, number], [1, 1]], ease: "linear" };
-
-export function curveUniforms(name: string, curve: Curve | null) {
-  const source = curve ?? FALLBACK_CURVE;
-  const keys: THREE.Vector2[] = [];
-  for (let i = 0; i < CURVE_KEYS; i++) {
-    const key = source.keys[Math.min(i, source.keys.length - 1)];
-    keys.push(new THREE.Vector2(key[0], key[1]));
-  }
-  return {
-    [`uCurve${name}`]: { value: keys },
-    [`uCurve${name}N`]: { value: source.keys.length },
-    [`uCurve${name}Ease`]: { value: source.ease === "smooth" ? 1 : 0 },
-  };
-}
-
-export function writeCurve(
-  uniforms: Record<string, THREE.IUniform>,
-  name: string,
-  curve: Curve | null,
-) {
-  const source = curve ?? FALLBACK_CURVE;
-  const keys = uniforms[`uCurve${name}`].value as THREE.Vector2[];
-  for (let i = 0; i < CURVE_KEYS; i++) {
-    const key = source.keys[Math.min(i, source.keys.length - 1)];
-    keys[i].set(key[0], key[1]);
-  }
-  uniforms[`uCurve${name}N`].value = source.keys.length;
-  uniforms[`uCurve${name}Ease`].value = source.ease === "smooth" ? 1 : 0;
-}
+export { rampUniforms, writeRamp, curveUniforms, writeCurve } from "./uniforms-v2";

@@ -1,31 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
+import type { PlaybackClock } from "./playback-clock";
+import { createWorkspaceDocument } from "@/lib/vfx-lab/ui-bridge";
 import type { VfxRuntimeV2 } from "@/lib/vfx-lab/runtime-v2";
 
 /** Slider drags fire many times a frame; coalesce document installs. */
 const INSTALL_DEBOUNCE_MS = 50;
 
 /**
- * The product preview: the real autov.lab/2 renderer, mounted into the same
- * host element and CSS classes `ParticleScene` uses so `.lab-preview-stage`
- * lays it out identically. Orbit controls come from the runtime itself.
+ * Persistent workspace canvas. Document edits update the existing scene;
+ * orbit controls and rendering are owned by the runtime.
  */
-export default function V2Scene({
-  doc,
-  time,
+export default function WorkspaceScene({
+  doc: effect,
+  clock,
   solo,
+  focusRequest = 0,
 }: {
   doc: VfxDocumentV2;
-  time: number;
+  clock: PlaybackClock;
   solo?: string;
+  focusRequest?: number;
 }) {
+  // The studio stage stays visible even when an effect authors a black backdrop.
+  const doc = useMemo(() => ({ ...effect, environment: createWorkspaceDocument().environment }), [effect]);
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<VfxRuntimeV2 | null>(null);
   // The rAF loop and the async mount read the latest props through refs, so a
-  // new time, solo or document never tears the renderer down.
-  const latest = useRef({ time, solo });
+  // new clock, solo or document never tears the renderer down.
+  const latest = useRef({ clock, solo });
   const pending = useRef(doc);
   const installed = useRef<VfxDocumentV2 | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -33,7 +38,7 @@ export default function V2Scene({
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    latest.current = { time, solo };
+    latest.current = { clock, solo };
     pending.current = doc;
   });
 
@@ -52,7 +57,7 @@ export default function V2Scene({
     import("@/lib/vfx-lab/runtime-v2")
       .then(async ({ VfxRuntimeV2 }) => {
         if (cancelled) return;
-        instance = new VfxRuntimeV2(element);
+        instance = new VfxRuntimeV2(element, { preview: true });
         runtime.current = instance;
         instance.setDocument(pending.current);
         installed.current = pending.current;
@@ -67,7 +72,7 @@ export default function V2Scene({
         const draw = () => {
           if (cancelled) return;
           try {
-            instance!.render(latest.current.time, latest.current.solo);
+            instance!.renderPreview(latest.current.clock.getSnapshot().time, latest.current.solo);
           } catch (problem) {
             fail(
               problem instanceof Error ? problem.message : "Preview failed.",
@@ -82,7 +87,7 @@ export default function V2Scene({
         fail(
           problem instanceof Error
             ? problem.message
-            : "WebGL2 is unavailable. Enable browser hardware acceleration.",
+            : "WebGPU is unavailable. Use a supported browser with hardware acceleration.",
         ),
       );
     return () => {
@@ -101,18 +106,13 @@ export default function V2Scene({
       // The mount installs whatever is pending; only later changes come here.
       if (!instance || installed.current === doc) return;
       try {
-        // setDocument reframes and resets the camera; an edit should not throw
-        // away the orbit the author set up, so restore it afterwards.
-        const eye = instance.camera.position.clone();
-        const target = instance.controls.target.clone();
-        instance.setDocument(doc);
+        instance.setDocument(doc, { preserveCamera: true });
         installed.current = doc;
-        instance.camera.position.copy(eye);
-        instance.controls.target.copy(target);
-        instance.camera.lookAt(target);
-        instance.camera.updateProjectionMatrix();
-        instance.controls.update();
-        void instance.whenReady();
+        void instance.whenReady().catch(problem => {
+          if (runtime.current !== instance || installed.current !== doc) return;
+          setError(problem instanceof Error ? problem.message : "Could not prepare the scene.");
+          setStatus("error");
+        });
       } catch (problem) {
         setError(problem instanceof Error ? problem.message : "Invalid effect.");
         setStatus("error");
@@ -121,12 +121,32 @@ export default function V2Scene({
     return () => window.clearTimeout(timer);
   }, [doc]);
 
+  useEffect(() => {
+    if (!focusRequest || !runtime.current || !host.current) return;
+    const canvas = host.current.getBoundingClientRect();
+    const studio = host.current.closest(".studio");
+    if (!studio) return;
+    let left = 0, right = canvas.width, top = 0, bottom = canvas.height;
+    let occupied = false;
+    for (const panel of studio.querySelectorAll<HTMLElement>("aside, #playback-timeline")) {
+      if (!panel.getClientRects().length) continue;
+      const rect = panel.getBoundingClientRect();
+      occupied = true;
+      if (panel.id === "playback-timeline") bottom = Math.min(bottom, rect.top - canvas.top - 16);
+      else if (panel.classList.contains("chat-panel")) right = Math.min(right, rect.left - canvas.left - 16);
+      else left = Math.max(left, rect.right - canvas.left + 16);
+    }
+    if (occupied) {
+      const strip = studio.querySelector(".lab-environment-strip")?.getBoundingClientRect();
+      top = strip ? strip.bottom - canvas.top + 16 : 0;
+    }
+    if (right - left < 32 || bottom - top < 32) return;
+    runtime.current.focus({ left, top, width: right - left, height: bottom - top }, solo);
+  }, [focusRequest, solo]);
+
   return (
     <div className="scene-container scene-interactive">
       <div ref={host} className="scene-host" />
-      <div className="scene-navigation-hint">
-        DRAG TO ORBIT <span>·</span> SCROLL TO ZOOM
-      </div>
       {status === "loading" && (
         <div className="scene-status" role="status">
           <span className="scene-loader" /> Preparing the scene

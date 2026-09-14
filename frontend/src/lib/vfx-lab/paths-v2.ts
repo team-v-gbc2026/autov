@@ -208,11 +208,14 @@ vec3 pathTangent${suffix}(float u){
   float l=length(d);
   return l>1e-6 ? d/l : vec3(0.,0.,1.);
 }
-/* Frame at u: side is horizontal (tangent x world up), up completes it. */
-void pathFrame${suffix}(float u, out vec3 tangent, out vec3 side, out vec3 up){
-  tangent=pathTangent${suffix}(u);
-  side=normalize(cross(tangent, vec3(0.,1.,0.))+vec3(1e-5,0.,0.));
-  up=normalize(cross(side,tangent));
+/* Frame at u: side is horizontal (tangent x world up), up completes it. Three
+ * plain functions rather than one with out parameters, so each stays a real
+ * WGSL function instead of being inlined at every call site. */
+vec3 pathSide${suffix}(float u){
+  return normalize(cross(pathTangent${suffix}(u), vec3(0.,1.,0.))+vec3(1e-5,0.,0.));
+}
+vec3 pathUp${suffix}(float u){
+  return normalize(cross(pathSide${suffix}(u), pathTangent${suffix}(u)));
 }
 `;
 }

@@ -140,7 +140,7 @@ they never enter a build or a deployment.
   tests and harnesses; `fixtures-server.ts` fetches the bucket copy first (short timeout) and
   falls back to the local file, so the dev gallery, `/dev/vfx-studio-v2` and `/dev/vfx-ui-review`
   work offline.
-- Upload: `npm run upload:vfx-assets` (service role key in `frontend/.env.local`,
+- Upload: `npm run upload:vfx-assets` (secret key in `frontend/.env.local`,
   `--dry-run` / `--verify` / `--textures <dir>`).
 - Headless harnesses serve local PNGs from `$VFX_ASSET_DIR`, `public/textures/v2`,
   `.vfx-textures/v2` or `../textures-codex/library`, so CI needs no network.
@@ -219,7 +219,17 @@ Live runs (gpt-6-astra, fast mode, `--no-video`): `v2-techniques-3/4` (fx12, qua
   of the cost until the improvement loop can act on `smallInFrame` and timing.
 - Two silent renderer faults surfaced only through live runs: the splash fragment shader referenced an
   undeclared uniform (every splash layer had been skipped), and `pathAnchored` fell through to burst on
-  the GPU. `npm run verify:shaders` now renders every exemplar and fails on any shader error.
+  the GPU. Every exemplar is now rendered and checked for shader faults on every verification run.
+
+Merged with main / WebGPU: `main` moved the V2 runtime to WebGPU with static TSL node materials, and
+this branch's vocabulary was ported onto it. Every layer kind draws through `createV2NodeMaterial`;
+there is no runtime GLSL and no WebGL fallback left. `shaders-v2.ts` is the migration reference only —
+`npm run generate:v2-nodes` turns it into the checked-in `shaders-v2-nodes.js`, which is what the
+browser loads. `post.flash`/`post.glitch` and `environment.groundPool`/`backdrop` are node graphs now.
+The WebGL-only `npm run verify:shaders` is gone: `npm run verify:webgpu` renders all fifteen exemplars
+plus the workspace emitter and fails on any GPU error or blank frame, which is a superset of what the
+shader-link check caught. See `WEBGPU_PORT.md` for the programs, the converter extensions and the two
+device limits (eight vertex buffers, twelve uniform buffers per stage) that shaped the contract.
 
 Budget: the OpenAI project cap is $80 (raised 2026-09-14). The local ledger (`budget.ts`) caps at $60
 by code and stood at $56.7 after `v2-fast-dev`; the validation cases (fx06, fx08, fx15) and the holdout

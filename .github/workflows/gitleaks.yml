@@ -1,10 +1,13 @@
 name: secret-scan
+
 on:
   pull_request:
   push:
     branches: [main]
+
 permissions:
   contents: read
+
 jobs:
   gitleaks:
     runs-on: ubuntu-latest
@@ -12,19 +15,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
-      # The upstream CLI is MIT-licensed; its separate Action requires an organization license.
-      - name: Install verified Gitleaks CLI
-        shell: bash
+
+      # gitleaks-action@v2 needs a licence key for org-owned repos, so it never ran.
+      # The gitleaks CLI itself is MIT-licensed and free, so we run that directly.
+      - name: Install gitleaks
         run: |
-          set -euo pipefail
-          scan_bin="$RUNNER_TEMP/gitleaks-8.30.1"
-          mkdir -p "$scan_bin"
-          curl --fail --location --silent --show-error \
-            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
-            --output "$scan_bin/release.tar.gz"
-          printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$scan_bin/release.tar.gz" | sha256sum --check --strict
-          tar -xzf "$scan_bin/release.tar.gz" -C "$scan_bin" gitleaks
-      - name: Scan complete Git history
-        shell: bash
-        run: '"$RUNNER_TEMP/gitleaks-8.30.1/gitleaks" git --redact --no-banner --log-opts="--all" .'
+          url=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | grep -oE '"browser_download_url": *"[^"]*linux_(x64|amd64)\.tar\.gz"' \
+            | head -1 | cut -d'"' -f4)
+          test -n "$url" || { echo "could not resolve gitleaks download url"; exit 1; }
+          echo "downloading $url"
+          curl -sSfL "$url" -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Scans the working tree and the branch history. Findings are redacted in the
+      # log, so a failing check never prints a live secret into a public build log.
+      - name: Scan for secrets
+        run: gitleaks git . --redact --no-banner

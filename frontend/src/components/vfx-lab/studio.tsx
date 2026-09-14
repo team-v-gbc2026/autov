@@ -17,7 +17,7 @@ import EmitterTimeline from "./emitter-timeline";
 import ChatEmptyState from "@/components/studio/chat-empty-state";
 import PanelToggle from "@/components/studio/panel-toggle";
 import PlaybackPanel from "@/components/studio/playback-panel";
-import { usePlayback } from "@/components/studio/use-playback";
+import { usePlayback } from "@/components/studio/playback-clock";
 import { iconButton as button } from "@/components/studio/icon-button";
 import Viewport from "./viewport";
 import { createPreset, RECIPES, type RecipeId } from "@/lib/vfx-lab/recipes";
@@ -902,6 +902,8 @@ export default function VfxStudio() {
       </div>
       <PlaybackPanel
         playback={playback}
+        effectName={doc.name}
+        onEffectNameChange={name => commit({ ...doc, name })}
         duration={doc.duration}
         minDuration={Math.max(0.01, ...doc.layers.map((l) => l.end))}
         onDurationChange={(duration) => {

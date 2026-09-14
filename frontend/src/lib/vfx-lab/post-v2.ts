@@ -1,162 +1,44 @@
-import * as THREE from "three";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import * as THREE from "three/webgpu";
+import {
+  pass,
+  uniform,
+  vec2,
+  vec3,
+  vec4,
+  float,
+  dot,
+  mix,
+  max,
+  fract,
+  floor,
+  step,
+  abs,
+  clamp,
+  smoothstep,
+  convertToTexture,
+  uv as screenUV,
+} from "three/tsl";
+import { bloom } from "three/addons/tsl/display/BloomNode.js";
+import { smaa } from "three/addons/tsl/display/SMAANode.js";
 import type { VfxDocumentV2 } from "./schema-v2";
 import { sampleCurve } from "./ribbon-v2";
 
-// ---------------------------------------------------------------------------
-// Post stack: HalfFloat (MSAA x4) target -> render -> bloom -> grade ->
-// vignette + chromatic aberration -> output (tone map + sRGB) -> SMAA.
-//
-// The grade and vignette/chromatic passes run before OutputPass so they operate
-// on linear HDR; SMAA runs last, on the already display-referred image.
-// ---------------------------------------------------------------------------
-
-const MSAA_SAMPLES = 4;
-
-/** Contrast / saturation / tint / lift, on linear HDR, after bloom. */
-const GradeShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uContrast: { value: 1 },
-    uSaturation: { value: 1 },
-    uTint: { value: new THREE.Color(1, 1, 1) },
-    uLift: { value: 0 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uContrast,uSaturation,uLift; uniform vec3 uTint;
-    varying vec2 vUv;
-    void main(){
-      vec4 src=texture2D(tDiffuse,vUv);
-      vec3 c=max(src.rgb,0.);
-      // Contrast pivots around mid grey in linear light.
-      c=max((c-0.18)*uContrast+0.18,0.);
-      float l=dot(c,vec3(.2126,.7152,.0722));
-      c=max(mix(vec3(l),c,uSaturation),0.);
-      c*=uTint;
-      c=max(c+uLift,0.);
-      gl_FragColor=vec4(c,src.a);
-    }`,
-};
-
-const VignetteShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uVignette: { value: 0.35 },
-    uChromatic: { value: 0.0025 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uVignette,uChromatic; varying vec2 vUv;
-    void main(){
-      vec2 d=(vUv-.5);
-      vec3 c;
-      c.r=texture2D(tDiffuse,vUv+d*uChromatic).r;
-      c.g=texture2D(tDiffuse,vUv).g;
-      c.b=texture2D(tDiffuse,vUv-d*uChromatic).b;
-      float v=1.-uVignette*smoothstep(.35,1.05,length(d)*1.6);
-      gl_FragColor=vec4(c*v,1.);
-    }`,
-};
-
-/**
- * post.glitch: horizontal band displacement, per-channel split and block
- * dropout, every one of them keyed on hash(floor(t * GLITCH_HZ)) so a seek
- * lands on exactly the frame playback would have drawn. Runs right after bloom,
- * on linear HDR, so a displaced band carries its own glow with it.
- */
+/** post.glitch quantises on hash(floor(t * GLITCH_HZ)), so a seek lands on
+ * exactly the frame playback would have drawn. */
 const GLITCH_HZ = 20;
 
-const GlitchShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uTime: { value: 0 },
-    uI: { value: 0 },
-    uBands: { value: 15 },
-    uBlocks: { value: new THREE.Vector2(54, 34) },
-    uSplit: { value: 0.008 },
-    uEdgeBias: { value: 1 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uTime,uI,uBands,uSplit,uEdgeBias;
-    uniform vec2 uBlocks; varying vec2 vUv;
-    float gHash(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }
-    void main(){
-      vec2 uv=vUv;
-      float blk=floor(uTime*${GLITCH_HZ}.);
-      // The frame edges break harder than its centre, which is what keeps the
-      // subject readable through the worst frames.
-      float edge=1.+uEdgeBias*(1.15*smoothstep(.30,.5,abs(uv.x-.5))
-                              +.75*smoothstep(.36,.5,abs(uv.y-.5)));
-      float k=uI*clamp(edge,0.,2.4);
-      float band=floor(uv.y*uBands);
-      float shift=step(.58,gHash(band*7.3+blk*13.7))
-                 *(gHash(band*3.1+blk*5.9)-.5)*.14*k;
-      vec2 uv2=vec2(fract(uv.x+shift),uv.y);
-      float d=uSplit*k;
-      float r=texture2D(tDiffuse,uv2+vec2(d,0.)).r;
-      vec4 g=texture2D(tDiffuse,uv2);
-      float b=texture2D(tDiffuse,uv2-vec2(d,0.)).b;
-      vec3 col=vec3(r,g.g,b);
-      vec2 bc=floor(uv*uBlocks);
-      float h=gHash(bc.x*1.7+bc.y*31.3+blk*77.1);
-      // A few blocks swap channels, a few drop to near black.
-      if(h>1.-.085*k) col=col.bgr*1.1;
-      if(h<.05*k) col*=.35;
-      gl_FragColor=vec4(col,g.a);
-    }`,
-};
-
-/**
- * post.flash: a full-screen ADDITIVE wash, right after bloom so the wash is not
- * itself bloomed into a smear. `curve` is the strength over the document's own
- * 0..1 progress; the pass is disabled outright at zero, so it costs nothing off
- * its window. The vignette darkens it toward the frame edges, which is what
- * leaves the flash a centre instead of a flat white card.
- */
-const FlashShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uA: { value: 0 },
-    uColor: { value: new THREE.Color(1, 1, 1) },
-    uVignette: { value: 0.6 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float uA,uVignette; uniform vec3 uColor;
-    varying vec2 vUv;
-    void main(){
-      vec4 src=texture2D(tDiffuse,vUv);
-      vec2 q=(vUv-.5)*2.;
-      float v=1.-uVignette*smoothstep(.10,1.10,length(q*vec2(1.,.62)));
-      gl_FragColor=vec4(src.rgb+uColor*uA*max(v,0.),src.a);
-    }`,
-};
+/** Same 1D hash the migration reference used, so the pattern is unchanged. It
+ * is inlined into the graph rather than declared as a WGSL function: three
+ * call sites, all in one pass. */
+function glitchHash(seed: ReturnType<typeof float>) {
+  const a = fract(seed.mul(0.1031));
+  const b = a.mul(a.add(33.33));
+  return fract(b.mul(b.add(b)));
+}
 
 export interface PostStackV2 {
-  composer: EffectComposer;
-  bloom: UnrealBloomPass;
-  smaa: SMAAPass;
-  vignette: ShaderPass;
-  grade: ShaderPass;
-  glitch: ShaderPass;
-  flash: ShaderPass;
-  setSize(width: number, height: number): void;
-  /** `time` is DOCUMENT seconds; only post.glitch reads it. */
+  render(): void;
+  /** `time` is DOCUMENT seconds; only post.glitch and post.flash read it. */
   apply(
     doc: VfxDocumentV2,
     flags: { post: boolean; aa: boolean },
@@ -165,102 +47,211 @@ export interface PostStackV2 {
   dispose(): void;
 }
 
+/** Scene-linear HDR -> bloom -> glitch -> flash -> grade -> chromatic/vignette
+ * -> output -> SMAA. RenderPipeline owns the sole tone-map and output
+ * conversion (inside SMAA when enabled). PassNode tracks renderer size/DPR; no
+ * second resize owner.
+ *
+ * post.glitch displaces bands, so it has to read neighbouring pixels: it needs
+ * its own resolved texture, and the graph that carries it is built only for
+ * documents that declare a glitch. post.flash is a per-pixel additive wash and
+ * stays in every graph; it is exactly neutral at zero strength.
+ */
 export function createPostStack(
-  renderer: THREE.WebGLRenderer,
+  renderer: THREE.WebGPURenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
-  width: number,
-  height: number,
-  samples = MSAA_SAMPLES,
+  samples = 4,
 ): PostStackV2 {
-  const target = new THREE.WebGLRenderTarget(Math.max(1, width), Math.max(1, height), {
-    type: THREE.HalfFloatType,
-    samples,
-  });
-  const composer = new EffectComposer(renderer, target);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(
-    new THREE.Vector2(Math.max(1, width), Math.max(1, height)),
-    0.45,
-    0.4,
-    1.3,
-  );
-  composer.addPass(bloom);
-  const glitch = new ShaderPass(GlitchShader);
-  composer.addPass(glitch);
-  const flash = new ShaderPass(FlashShader);
-  composer.addPass(flash);
-  const grade = new ShaderPass(GradeShader);
-  composer.addPass(grade);
-  const vignette = new ShaderPass(VignetteShader);
-  composer.addPass(vignette);
-  composer.addPass(new OutputPass());
-  const smaa = new SMAAPass();
-  composer.addPass(smaa);
+  const scenePass = pass(scene, camera, { samples });
+  const src = scenePass.getTextureNode();
+  const glow = bloom(src, 0.45, 0.4, 1.3);
+  const contrast = uniform(1),
+    saturation = uniform(1),
+    lift = uniform(0);
+  const tint = uniform(new THREE.Color("#ffffff"));
+  const vignette = uniform(0.35),
+    chromatic = uniform(0.0025);
+  const glitchTime = uniform(0),
+    glitchStrength = uniform(0),
+    glitchBands = uniform(15),
+    glitchSplit = uniform(0.008),
+    glitchEdgeBias = uniform(1);
+  const glitchBlocks = uniform(new THREE.Vector2(54, 34));
+  const flashStrength = uniform(0),
+    flashVignette = uniform(0.6);
+  const flashColor = uniform(new THREE.Color("#ffffff"));
 
+  const uv = screenUV();
+  const bloomed = vec4(max(src.rgb.add(glow.rgb), 0), src.a);
+
+  // Lazily built so a document without post.glitch never allocates the extra
+  // resolved texture, and so a toggle is a structural rebuild rather than a
+  // per-frame branch.
+  let glitchTexture: ReturnType<typeof convertToTexture> | null = null;
+  const withGlitch = () => {
+    glitchTexture ??= convertToTexture(bloomed);
+    const source = glitchTexture;
+    const block = floor(glitchTime.mul(GLITCH_HZ));
+    // The frame edges break harder than its centre, which is what keeps the
+    // subject readable through the worst frames.
+    const edge = float(1).add(
+      glitchEdgeBias.mul(
+        smoothstep(0.3, 0.5, abs(uv.x.sub(0.5)))
+          .mul(1.15)
+          .add(smoothstep(0.36, 0.5, abs(uv.y.sub(0.5))).mul(0.75)),
+      ),
+    );
+    const k = glitchStrength.mul(clamp(edge, 0, 2.4));
+    const band = floor(uv.y.mul(glitchBands));
+    const shift = step(0.58, glitchHash(float(band.mul(7.3).add(block.mul(13.7)))))
+      .mul(glitchHash(float(band.mul(3.1).add(block.mul(5.9)))).sub(0.5))
+      .mul(0.14)
+      .mul(k);
+    const shifted = vec2(fract(uv.x.add(shift)), uv.y);
+    const d = glitchSplit.mul(k);
+    const centre = source.sample(shifted);
+    const colour = vec3(
+      source.sample(shifted.add(vec2(d, 0))).r,
+      centre.g,
+      source.sample(shifted.sub(vec2(d, 0))).b,
+    );
+    const cell = floor(uv.mul(glitchBlocks));
+    const h = glitchHash(
+      float(cell.x.mul(1.7).add(cell.y.mul(31.3)).add(block.mul(77.1))),
+    );
+    // A few blocks swap channels, a few drop to near black.
+    const swapped = mix(
+      colour,
+      colour.bgr.mul(1.1),
+      step(float(1).sub(k.mul(0.085)), h),
+    );
+    const dropped = mix(swapped, swapped.mul(0.35), step(h, k.mul(0.05)));
+    return vec4(dropped, centre.a);
+  };
+
+  /** post.flash: a full-screen ADDITIVE wash, after bloom so the wash is not
+   * itself bloomed into a smear. The vignette darkens it toward the frame
+   * edges, which is what leaves the flash a centre instead of a flat card. */
+  const withFlash = (base: ReturnType<typeof vec4>) => {
+    const q = uv.sub(0.5).mul(2);
+    const v = max(
+      smoothstep(0.1, 1.1, q.mul(vec2(1, 0.62)).length())
+        .mul(flashVignette)
+        .oneMinus(),
+      0,
+    );
+    return vec4(base.rgb.add(flashColor.mul(flashStrength).mul(v)), base.a);
+  };
+
+  const gradeTextures: ReturnType<typeof convertToTexture>[] = [];
+  const buildFinal = (glitching: boolean) => {
+    const lit = withFlash(glitching ? withGlitch() : bloomed);
+    const c = lit.rgb.sub(0.18).mul(contrast).add(0.18).max(0);
+    const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    const graded = max(mix(vec3(l), c, saturation), 0)
+      .mul(tint)
+      .add(lift)
+      .max(0);
+    const gradeTexture = convertToTexture(vec4(graded, lit.a));
+    gradeTextures.push(gradeTexture);
+    const d = uv.sub(0.5);
+    const split = vec3(
+      gradeTexture.sample(uv.add(d.mul(chromatic))).r,
+      gradeTexture.sample(uv).g,
+      gradeTexture.sample(uv.sub(d.mul(chromatic))).b,
+    );
+    return vec4(
+      split.mul(
+        smoothstep(0.35, 1.05, d.length().mul(1.6)).mul(vignette).oneMinus(),
+      ),
+      1,
+    );
+  };
+
+  const finals = new Map<boolean, ReturnType<typeof buildFinal>>();
+  const finalFor = (glitching: boolean) => {
+    let node = finals.get(glitching);
+    if (!node) finals.set(glitching, (node = buildFinal(glitching)));
+    return node;
+  };
+  // SMAA operates on display-referred pixels, after the single output transform.
+  const aaInputs: ReturnType<typeof convertToTexture>[] = [];
+  const aaNodes = new Map<boolean, ReturnType<typeof smaa>>();
+  const aaFor = (glitching: boolean) => {
+    let node = aaNodes.get(glitching);
+    if (!node) {
+      const input = convertToTexture(
+        finalFor(glitching).renderOutput(
+          renderer.toneMapping,
+          renderer.outputColorSpace,
+        ),
+      );
+      aaInputs.push(input);
+      aaNodes.set(glitching, (node = smaa(input)));
+    }
+    return node;
+  };
+
+  const pipeline = new THREE.RenderPipeline(renderer, finalFor(false));
+  let usingAA = false;
+  let usingGlitch = false;
   return {
-    composer,
-    bloom,
-    smaa,
-    vignette,
-    grade,
-    glitch,
-    flash,
-    setSize(w, h) {
-      composer.setSize(Math.max(1, w), Math.max(1, h));
+    render() {
+      pipeline.render();
     },
     apply(doc, flags, time = 0) {
-      bloom.enabled = flags.post;
-      bloom.strength = doc.post.bloom.strength;
-      bloom.radius = doc.post.bloom.radius;
-      bloom.threshold = doc.post.bloom.threshold;
-      const g = doc.post.grade;
-      const neutral =
-        g.contrast === 1 && g.saturation === 1 && g.lift === 0 && g.tint === "#ffffff";
-      grade.enabled = flags.post && !neutral;
-      grade.uniforms.uContrast.value = g.contrast;
-      grade.uniforms.uSaturation.value = g.saturation;
-      grade.uniforms.uLift.value = g.lift;
-      (grade.uniforms.uTint.value as THREE.Color).set(g.tint);
-      vignette.enabled = flags.post;
-      vignette.uniforms.uVignette.value = doc.post.vignette;
-      vignette.uniforms.uChromatic.value = doc.post.chromatic;
-      const spec = doc.post.glitch;
-      // Strength is the curve over the document's own 0..1 progress; a pass at
-      // zero strength is disabled outright so it costs nothing off its window.
-      const strength = spec
-        ? Math.max(0, sampleCurve(spec.curve, time / Math.max(doc.duration, 1e-4)))
-        : 0;
-      glitch.enabled = flags.post && strength > 0.002;
-      if (spec) {
-        glitch.uniforms.uTime.value = time;
-        glitch.uniforms.uI.value = strength;
-        glitch.uniforms.uBands.value = spec.bands;
-        (glitch.uniforms.uBlocks.value as THREE.Vector2).fromArray(spec.blockGrid);
-        glitch.uniforms.uSplit.value = spec.split;
-        glitch.uniforms.uEdgeBias.value = spec.edgeBias;
+      // UnrealBloomPass r186 multiplies its composite by 3; BloomNode does not.
+      glow.strength.value = flags.post ? doc.post.bloom.strength * 3 : 0;
+      glow.radius.value = doc.post.bloom.radius;
+      glow.threshold.value = doc.post.bloom.threshold;
+      contrast.value = doc.post.grade.contrast;
+      saturation.value = doc.post.grade.saturation;
+      lift.value = doc.post.grade.lift;
+      tint.value.set(doc.post.grade.tint);
+      vignette.value = doc.post.vignette;
+      chromatic.value = doc.post.chromatic;
+      const progress = time / Math.max(doc.duration, 1e-4);
+      // Strength is the curve over the document's own 0..1 progress, so a seek
+      // lands on exactly the frame playback would have drawn.
+      const glitch = doc.post.glitch;
+      glitchTime.value = time;
+      glitchStrength.value =
+        glitch && flags.post
+          ? Math.max(0, sampleCurve(glitch.curve, progress))
+          : 0;
+      if (glitch) {
+        glitchBands.value = glitch.bands;
+        glitchBlocks.value.fromArray(glitch.blockGrid);
+        glitchSplit.value = glitch.split;
+        glitchEdgeBias.value = glitch.edgeBias;
       }
-      // post.flash: the same domain post.glitch uses — the document's own 0..1
-      // progress — so a seek lands on exactly the frame playback would draw.
-      const flashSpec = doc.post.flash;
-      const amount = flashSpec
-        ? Math.max(
-            0,
-            sampleCurve(flashSpec.curve, time / Math.max(doc.duration, 1e-4)),
-          )
-        : 0;
-      flash.enabled = flags.post && amount > 0.002;
-      if (flashSpec) {
-        flash.uniforms.uA.value = amount;
-        (flash.uniforms.uColor.value as THREE.Color).set(flashSpec.color);
-        flash.uniforms.uVignette.value = flashSpec.vignette;
+      const flash = doc.post.flash;
+      flashStrength.value =
+        flash && flags.post ? Math.max(0, sampleCurve(flash.curve, progress)) : 0;
+      if (flash) {
+        flashColor.value.set(flash.color);
+        flashVignette.value = flash.vignette;
       }
-      smaa.enabled = flags.aa && doc.quality.aa === "msaa+smaa";
+      // Structural, so crossing a glitch window mid-playback never rebuilds.
+      const nextGlitch = Boolean(glitch) && flags.post;
+      const nextAA = flags.aa && doc.quality.aa === "msaa+smaa";
+      if (nextAA !== usingAA || nextGlitch !== usingGlitch) {
+        usingAA = nextAA;
+        usingGlitch = nextGlitch;
+        pipeline.outputNode = nextAA ? aaFor(nextGlitch) : finalFor(nextGlitch);
+        pipeline.outputColorTransform = !nextAA;
+        pipeline.needsUpdate = true;
+      }
     },
     dispose() {
-      for (const pass of composer.passes) pass.dispose?.();
-      composer.dispose();
-      target.dispose();
+      pipeline.dispose();
+      for (const node of aaNodes.values()) node.dispose();
+      for (const input of aaInputs) input.dispose();
+      glow.dispose();
+      scenePass.dispose();
+      glitchTexture?.dispose();
+      for (const texture of gradeTextures) texture.dispose();
     },
   };
 }

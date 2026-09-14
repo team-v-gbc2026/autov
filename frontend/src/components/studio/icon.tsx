@@ -6,7 +6,10 @@ export default function Icon({
   size?: number;
 }) {
   const paths: Record<string, React.ReactNode> = {
+    focus: <><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5" /><circle cx="12" cy="12" r="3" /></>,
+    environment: <><path d="M3 16h18M5 20h14M7 12a5 5 0 0 1 10 0M12 2v2M4.9 4.9l1.4 1.4M19.1 4.9l-1.4 1.4M2 11h2M20 11h2" /></>,
     edit: <path d="m16 3 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-4-4L5 15l-1 5Z" />,
+    trash: <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></>,
     tag: <path d="M10 3 8 21M16 3l-2 18M4 9h16M3 15h16" />,
     plus: <path d="M12 5v14M5 12h14" />,
     eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>,

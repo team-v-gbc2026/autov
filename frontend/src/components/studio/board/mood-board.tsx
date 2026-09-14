@@ -12,7 +12,8 @@ import IconButton from "../icon-button";
 import Tooltip from "@/components/ui/tooltip";
 import styles from "./board.module.css";
 
-export default function MoodBoard({ projectId, state, onMention, onCollapse, locked }: {
+export default function MoodBoard({ projectId, state, onMention, onCollapse, locked, focusRequest }: {
+  focusRequest?: { id: string; sequence: number };
   projectId: string; state: ReferenceState; onMention: (reference: Reference) => void; onCollapse: () => void; locked: boolean;
 }) {
   const { layout, update, persist } = useBoardLayout(projectId);
@@ -47,6 +48,17 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
     return { x, y };
   });
   const preview = refs.find(item => item.id === previewId);
+  useEffect(() => {
+    if (!focusRequest) return;
+    const index = refs.findIndex(item => item.id === focusRequest.id);
+    const api = transform.current, host = viewport.current;
+    if (index < 0 || !api || !host) return;
+    const point = positions[index], size = sizes[focusRequest.id];
+    const zoom = Math.min(1.5, (host.clientWidth - 32) / size.width, (host.clientHeight - 32) / size.height);
+    api.setTransform(host.clientWidth / 2 - (point.x + size.width / 2) * zoom, host.clientHeight / 2 - (point.y + size.height / 2) * zoom, zoom, 0);
+    // This request intentionally runs only when a new focus command arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
   const reportPersistence = () => { if (!persist()) state.setError("Board arrangement could not be saved in this browser."); };
 
   useEffect(() => {
@@ -125,15 +137,15 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
       onDragLeave={() => setDrop(false)} onDrop={event => { event.preventDefault(); setDrop(false); if (!locked) void state.addFiles(event.dataTransfer.files); }}>
       <TransformWrapper ref={transform} minScale={.001} maxScale={2.5} limitToBounds={false} centerZoomedOut={false} panning={{ excluded: ["board-card"], velocityDisabled: true }} wheel={{ step: 0.005, activationKeys: keys => keys.includes("Control") || keys.includes("Meta") }} doubleClick={{ disabled: true }} onTransform={(_api, view) => setScale(view.scale)}>
         <TransformComponent wrapperStyle={{ width: "100%", height: "100%" }} contentStyle={{ width: "100%", height: "100%" }}>
-          <div className={styles.plane}>{refs.map((reference, index) => <BoardCard key={reference.id} reference={reference} position={positions[index]} size={sizes[reference.id] || { width: 160, height: 116 }} onSize={size => setNativeSizes(current => current[reference.id]?.width === size.width && current[reference.id]?.height === size.height ? current : { ...current, [reference.id]: size })} scale={scale} onResize={(size, corner) => update(reference.id, { ...positions[index], ...size, x: positions[index].x + (corner.endsWith("left") ? sizes[reference.id].width - size.width : 0), y: positions[index].y + (corner.startsWith("top") ? sizes[reference.id].height - size.height : 0) })} onMove={position => update(reference.id, position)} onStop={reportPersistence} onRename={name => { update(reference.id, { ...positions[index], name }); reportPersistence(); }} onPreview={() => setPreviewId(reference.id)} onMention={() => { onMention(reference); setExpanded(false); }} onError={() => state.setError("Image unavailable. Reopen this project to refresh image links.")} disabled={locked} />)}{notes.map(note => <BoardNote key={note.id} note={note} scale={scale} autoFocus={activeNote === note.id} disabled={locked} onChange={patch => { if (!changeNotes(current => current.map(item => item.id === note.id ? { ...item, ...patch } : item))) state.setError("Notes could not be saved in this browser."); }} onRemove={() => { if (!changeNotes(current => current.filter(item => item.id !== note.id))) state.setError("Notes could not be saved in this browser."); }} />)}</div>
+          <div className={styles.plane}>{refs.map((reference, index) => <BoardCard key={reference.id} reference={reference} position={positions[index]} size={sizes[reference.id] || { width: 160, height: 116 }} onSize={size => setNativeSizes(current => current[reference.id]?.width === size.width && current[reference.id]?.height === size.height ? current : { ...current, [reference.id]: size })} scale={scale} onResize={(size, corner) => update(reference.id, { ...positions[index], ...size, x: positions[index].x + (corner.endsWith("left") ? sizes[reference.id].width - size.width : 0), y: positions[index].y + (corner.startsWith("top") ? sizes[reference.id].height - size.height : 0) })} onMove={position => update(reference.id, position)} onStop={reportPersistence} onRename={name => { update(reference.id, { ...positions[index], name }); reportPersistence(); }} onRemove={() => { void state.removeReference(reference.id); }} onPreview={() => setPreviewId(reference.id)} onMention={() => { onMention(reference); setExpanded(false); }} onError={() => state.setError("Image unavailable. Reopen this project to refresh image links.")} disabled={locked || state.busy} />)}{notes.map(note => <BoardNote key={note.id} note={note} scale={scale} autoFocus={activeNote === note.id} disabled={locked} onChange={patch => { if (!changeNotes(current => current.map(item => item.id === note.id ? { ...item, ...patch } : item))) state.setError("Notes could not be saved in this browser."); }} onRemove={() => { if (!changeNotes(current => current.filter(item => item.id !== note.id))) state.setError("Notes could not be saved in this browser."); }} />)}</div>
         </TransformComponent>
       </TransformWrapper>
       {!refs.length && !notes.length && <button className={styles.empty} disabled={state.busy || locked} onClick={() => input.current?.click()}><span>+</span>Add images<small>Drop images or browse</small></button>}
     </div>
     <div className={styles.toolbar}><Tooltip content="Fit board" side="top"><button className={styles.smallButton} onClick={fitAll} aria-label="Fit board"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5" /><rect x="8" y="8" width="8" height="8" rx="1" /></svg></button></Tooltip><div><button aria-label="Zoom out" onClick={() => transform.current?.zoomOut(0.04)}>−</button><span>{Math.round(scale * 100)}%</span><button aria-label="Zoom in" onClick={() => transform.current?.zoomIn(0.04)}>+</button></div></div>
     {(state.busy || state.error) && <div className={styles.notice} role={state.error ? "alert" : "status"}>{state.error || "Uploading..."}</div>}
-    {generating && <ReferencePreview reference={null} disabled={locked} onClose={() => setGenerating(false)} onRename={() => {}} onMention={() => {}} onRemove={() => {}} />}
-    {preview && <ReferencePreview key={preview.id} reference={preview} disabled={state.busy || locked} onClose={() => setPreviewId(null)} onRename={name => {
+    {generating && <ReferencePreview reference={null} onEdit={state.generateImage} disabled={state.busy || locked} onClose={() => setGenerating(false)} onRename={() => {}} onMention={() => {}} onRemove={() => {}} />}
+    {preview && <ReferencePreview key={preview.id} reference={preview} onEdit={state.editImage ? prompt => state.editImage!(preview.id, prompt) : undefined} disabled={state.busy || locked} onClose={() => setPreviewId(null)} onRename={name => {
       const position = positions[refs.findIndex(ref => ref.id === preview.id)] || defaultPosition(0);
       update(preview.id, { ...position, name }); reportPersistence();
     }} onMention={() => { onMention(preview); setPreviewId(null); setExpanded(false); }} onRemove={() => { void state.removeReference(preview.id); setPreviewId(null); }} />}

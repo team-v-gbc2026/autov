@@ -2981,8 +2981,19 @@ export function validateOverrideV2(
   return o;
 }
 
-export function validateDocumentV2(input: unknown): VfxDocumentV2 {
-  const doc = DocumentV2Schema.parse(input);
+const WorkspaceDocumentV2Schema = DocumentV2Schema.extend({
+  layers: z.array(LayerV2Schema).max(24),
+});
+
+/** Editor state may be empty or have every emitter hidden. Generation still
+ * uses validateDocumentV2 and its stricter nonempty-effect contract.
+ */
+export function validateWorkspaceDocumentV2(input: unknown): VfxDocumentV2 {
+  return validateDocumentV2(input, { workspace: true });
+}
+
+export function validateDocumentV2(input: unknown, options: { workspace?: boolean } = {}): VfxDocumentV2 {
+  const doc = (options.workspace ? WorkspaceDocumentV2Schema : DocumentV2Schema).parse(input);
   if (doc.impact >= doc.duration)
     throw new Error("Impact must be before the end.");
 
@@ -3349,7 +3360,7 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     throw new Error(
       `Particle budget exceeded (${PARTICLE_BUDGET_V2.toLocaleString("en-US")}).`,
     );
-  if (!doc.layers.some((l) => l.enabled))
+  if (!options.workspace && !doc.layers.some((l) => l.enabled))
     throw new Error("At least one layer must be enabled.");
   return doc;
 }
@@ -4038,12 +4049,12 @@ export function defaultDocumentShell(
     },
     environment: {
       ground: "grid",
-      groundColor: "#4a4952",
+      groundColor: "#484b4e",
       groundReflect: 0,
       ambient: 1,
       groundY: 0,
-      fog: { color: "#1b1a1f", density: 0.03 },
-      background: "#1b1a1f",
+      fog: { color: "#282a2c", density: 0.045 },
+      background: "#282a2c",
       groundPool: null,
       backdrop: null,
     },
