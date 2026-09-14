@@ -305,14 +305,14 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
   }));
   return <>
     {toolFailure && <p className={`${styles.notice} ${styles.error}`} role="alert">{toolFailure}</p>}
-    {agent.data.messages.map(message => <ChatMessage key={message.id} role={message.role}
+    {agent.data.messages.filter(message => message.role !== "assistant" || message.parts.some(part => part.type === "text" && part.text.trim() || part.type === "file")).map(message => <ChatMessage key={message.id} role={message.role}
       text={message.parts.filter(part => part.type === "text").map(part => part.text).join("\n\n")}
       files={message.parts.filter(part => part.type === "file").map(part => part.filename || "Reference image")}
       streaming={message.metadata?.status === "streaming"}
       caption={message.role === "user" ? message.metadata?.status === "failed" ? "Not confirmed · draft restored" : message.metadata?.optimistic ? "Sending…" : undefined : undefined}
     />)}
     {resuming && <div className={styles.reconnecting} role="status"><svg className={styles.spinner} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity=".2" /><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg><span>Reconnecting</span></div>}
-    {active && <ToolHint key={Object.values(toolActivity).join(",")} tools={Object.values(toolActivity)} submitting={agent.status === "submitted"} />}
+    {active && <div className={styles.activityRow}><span className={styles.activityBrand}><span className={styles.mark} aria-hidden="true">✦</span> AutoV</span><ToolHint key={Object.values(toolActivity).join(",")} projectId={projectId} generationCallId={Object.entries(toolActivity).find(([, name]) => name === "generate_vfx")?.[0]} tools={Object.values(toolActivity)} submitting={agent.status === "submitted"} /></div>}
     {(sendError || agent.error) && <p className={`${styles.notice} ${styles.error}`} role="alert">{sendError || "The assistant is unavailable. Reconnect to check the conversation before retrying."}
       <button type="button" onClick={reconnect}>Reconnect</button>
     </p>}
@@ -323,7 +323,7 @@ const generationHints = ["Building your VFX…", "Making your idea real…", "Wa
 const editingHints = ["Shaping your effect…", "Fine-tuning the particles…", "Working on the details…"];
 const referenceHints = ["Looking at your references…", "Exploring the details…", "Taking a closer look…"];
 const previewHints = ["Preparing your preview…", "Framing your effect…", "Capturing the moment…"];
-function ToolHint({ tools, submitting }: { tools: string[]; submitting: boolean }) {
+function ToolHint({ tools, submitting, projectId, generationCallId }: { tools: string[]; submitting: boolean; projectId: string; generationCallId?: string }) {
   const hints = tools.includes("generate_vfx") ? generationHints
     : tools.includes("preview_vfx") ? previewHints
     : tools.some(tool => tool.includes("reference")) ? referenceHints
@@ -336,8 +336,52 @@ function ToolHint({ tools, submitting }: { tools: string[]; submitting: boolean 
     const timer = setInterval(() => setIndex(value => value + 1), 3500);
     return () => clearInterval(timer);
   }, [hints.length]);
+  const hint = hints[index % hints.length];
+  if (generationCallId) return <GenerationProgress projectId={projectId} callId={generationCallId} hint={hint} />;
   return <div className={styles.toolHint} role="status" aria-live="polite">
-    <span className={styles.dots} aria-hidden="true"><i /><i /><i /></span>
-    <span>{hints[index % hints.length]}</span>
+    <svg className={`${styles.stageRing} ${styles.pendingRing}`} width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" opacity=".18" />
+      <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="12 38" />
+    </svg>
+    <span>{hint}</span>
+  </div>;
+}
+
+function GenerationProgress({ projectId, callId, hint }: { projectId: string; callId: string; hint: string }) {
+  const [progress, setProgress] = useState<{ stage: number; startedAt: string; status: string; error?: string } | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    let pending = false;
+    const poll = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const response = await fetch(`/api/studio/progress?callId=${encodeURIComponent(callId)}`, { headers: await agentHeaders(projectId), signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Progress unavailable");
+        const next = await response.json();
+        if (!controller.signal.aborted) { setProgress(next); setUnavailable(false); }
+      } catch { if (!controller.signal.aborted) setUnavailable(true); }
+      finally { pending = false; }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 3000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [projectId, callId]);
+  useEffect(() => {
+    if (!progress) return;
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - Date.parse(progress.startedAt)) / 1000)));
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [progress]);
+  const failed = progress && ["failed", "cancelled", "expired"].includes(progress.status);
+  return <div className={styles.generationProgress}>
+    <svg className={styles.stageRing} width="18" height="18" viewBox="0 0 20 20" role="progressbar" aria-label="Generation stages completed" aria-valuemin={0} aria-valuemax={5} aria-valuenow={progress?.stage ?? 0}>
+      <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" opacity=".18" />
+      <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - (progress?.stage ?? 0) * 20} transform="rotate(-90 10 10)" />
+    </svg>
+    <div className={styles.generationLabel} role="status"><span className={styles.generationHintText}>{unavailable ? "Progress temporarily unavailable" : failed ? progress.error || "Generation stopped" : hint}</span><span className={styles.generationElapsed}>{elapsed}s</span></div>
+
   </div>;
 }

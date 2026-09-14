@@ -43,4 +43,18 @@
 .mentionChip:disabled { opacity: .55; cursor: default; }
 .mentionChip:focus-visible { outline: 2px solid #dbc695; outline-offset: 2px; }
 
-.toolHint { display: flex; align-items: center; gap: 8px; padding: 8px 0; color: #929d96; font-size: 11px; line-height: 1.5; }
+.toolHint { display: flex; align-items: center; gap: 5px; padding: 0; color: #929d96; font-size: 11px; line-height: 1.5; }
+
+.generationProgress { display: flex; align-items: center; gap: 5px; padding: 0; font-size: 11px; color: #929d96; }
+.generationLabel { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; flex: 1; justify-content: space-between; gap: 6px; min-width: 0; }
+.generationElapsed { margin-left: auto; flex: 0 0 auto; white-space: nowrap; color: #7f8c83; font-variant-numeric: tabular-nums; }
+.stageRing { flex-shrink: 0; color: #9eb6a6; }
+@media (prefers-reduced-motion: no-preference) { .stageRing circle { transition: stroke-dashoffset .4s ease; } }
+
+@keyframes pendingRingSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: no-preference) { .pendingRing { animation: pendingRingSpin 1.2s linear infinite; } }
+
+.activityRow { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.activityBrand { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: #b6c0be; font-size: 10px; }
+.activityRow > .toolHint, .activityRow > .generationProgress { flex: 1; min-width: 0; }
+.generationHintText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
