@@ -43,6 +43,16 @@ Curve = {keys:[[0..1 normalized domain, value],...] strictly ascending, ease lin
 Tracks animate dotted paths into the layer, e.g. "material.ramp.stops[0].intensity", "geometry.length", "emitter.velocity.speed[1]", "transform.position[1]", "light.radius". Track keys are LOCAL seconds since layer.start, strictly increasing, and must fit end-start. One track per target.
 Units are meters, seconds and radians. Every axis/direction must be a unit vector. Total particles across all layers stay under 60000.`;
 
+export const PATH_AUTHORING_GUIDE_V2 = `Editable spatial paths (not animation Curve keys):
+Always include document.paths (empty [] for effects without paths) and layer.path (null when unattached).
+Prefer a shared editable path for beams, slashes, directional fire and lightning, including straight effects. Do not attach radial shields, explosions, ice bursts or smoke puffs merely to use this feature. Keep ground decals, contact lights and radial accents unattached.
+Path = {id,points:[[x,y,z],...]}. Connected cubic Bezier segments use 1+3n points: start, handle, handle, end; each further segment adds two handles and an end. 4..49 points, each coordinate -100..100; maximum 8 paths. Nonzero length required. Paths use the effect REFERENCE frame (placement is separate), not old authored layer coordinates. Start the semantic source at [0,0,0], initial tangent +Z; lightning starts at the impact and extends away along +Z. A straight 6m path is {"id":"main-path","points":[[0,0,0],[0,0,2],[0,0,4],[0,0,6]]}. Change handles to bend it; no generated shaders or dense sampled point arrays.
+Attachment = {pathId,mode:"shape"|"emit"|"follow",range:[0,1],offset:[0,0],roll:0}. Range is an increasing fraction of path distance, offset is lateral meters (-10..10), roll is radians (-2pi..2pi). Co-located core/glow/body layers share a path and range. Width/material/timing remain layer controls; path length determines spatial extent.
+shape: beam/trail bars, slash ribbons, shell auto|sphere|teardrop, or beam/trail geometry lightning with a non-null procedural lightning specification. Preserve bolt branches/jitter. Use static rigid transforms: scale [1,1,1], motion null, no transform tracks or overrides. Prefer identity transform for new attached layers. Geometry length can still animate growth; do not animate path points through layer tracks.
+emit: particles spawn at a point on the path then move freely. follow: particles advance by distance along it, with directional velocity [0,0,1], angle 0. Only point/line emitter shapes supported; line axis must be [0,0,1]. Use line to distribute births along the path, point to start at its origin. Gravity/wind remain layer-local and drag is supported. Set curl, vortex, floor and sub to null; do not use an attached layer as a sub-emitter parent. Fire body and guided flames share a path; smoke/embers can emit then drift freely. Do not silently keep incompatible forces.
+Edits and structural repairs must preserve path IDs, control points and attachments unless the requested change concerns their shape or fixes an invalid combination. Color, timing and width changes do not require replacing paths. New layers reference existing paths where appropriate. The editor exposes these points to users for Apply-based reshaping.
+For path-attached lightning, the path supplies the centerline and impact anchor; the legacy center-at-length/2 placement rule below applies only to unattached lightning.`;
+
 const CRAFT_RULES = `Construction order — follow it and do not reorder: (1) silhouette and timing, (2) ramp and bloom, (3) texture and erosion, (4) secondary layers, (5) turbulence and camera.
 Rules, all mandatory unless stated:
 - Particle lifetimes vary: emitter.life max/min must be at least 1.35, so the population never dies in one visible wave.
@@ -78,6 +88,7 @@ export const TECHNICAL_GUIDE_V2 = `You are autoV's senior real-time VFX artist. 
 The renderer is a fixed Three.js runtime driven entirely by the autov.lab/2 document below. state = f(document, time, seed): there is no simulation state, seeking equals playing.
 ${VOCABULARY}
 ${CRAFT_RULES}
+${PATH_AUTHORING_GUIDE_V2}
 Texture library (id / kind / tags / suggested use) — these IDs are always available: ${JSON.stringify(TEXTURE_MANIFEST_PROMPT)}`;
 
 // ---------------------------------------------------------------------------

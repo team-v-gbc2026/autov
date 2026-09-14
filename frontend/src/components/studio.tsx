@@ -21,6 +21,9 @@ import type {
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
 import EmitterControls from "./vfx-studio/emitter-controls";
+import CurveEditControls from "./studio/curve-edit-controls";
+import type { CurveEditController } from "@/lib/vfx-lab/curve-edit-controller";
+import { EMPTY_CURVE_EDIT, type CurveEditSnapshot } from "@/lib/vfx-lab/curve-edit-state";
 import WorkspaceScene from "./studio/workspace-scene";
 import StudioBackdrop from "./studio/studio-backdrop";
 import { DEFAULT_BACKDROP_SETTINGS, type BackdropController, type BackdropSnapshot } from "@/lib/vfx-lab/backdrop-controller";
@@ -94,6 +97,8 @@ export default function Studio({
   const [backdropOpen, setBackdropOpen] = useState(false);
   const [backdropController, setBackdropController] = useState<BackdropController | null>(null);
   const [backdropSnapshot, setBackdropSnapshot] = useState<BackdropSnapshot>({ state: "empty", settings: DEFAULT_BACKDROP_SETTINGS, error: null, numSplats: null });
+  const [curveController, setCurveController] = useState<CurveEditController | null>(null);
+  const [curveSnapshot, setCurveSnapshot] = useState<CurveEditSnapshot>(EMPTY_CURVE_EDIT);
   const [placementController, setPlacementController] = useState<PlacementController | null>(null);
   const [placementSnapshot, setPlacementSnapshot] = useState<PlacementSnapshot>({
     placement: IDENTITY_PLACEMENT,
@@ -126,6 +131,7 @@ export default function Studio({
       document.removeEventListener("keydown", escape);
     };
   }, [environmentOpen]);
+  const [showCurveGuides, setShowCurveGuides] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
   const [left, setLeft] = useState(true);
   const [right, setRight] = useState(true);
@@ -195,6 +201,7 @@ export default function Studio({
   };
   /** A generated or imported v2 document becomes the new source of truth. */
   const openDocument = (next: VfxDocumentV2) => {
+    curveController?.cancel();
     placementController?.cancelOriginEdit();
     setUiImport(null);
     setDoc(validateWorkspaceDocumentV2(next));
@@ -220,6 +227,10 @@ export default function Studio({
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEnvironmentOpen(false);
       }}
     >
+      {!uiImport && !!doc.paths?.length && <label title="Cyan: endpoints and curve. Amber: control points and handles. Select a point to edit a draft.">
+        <input type="checkbox" checked={showCurveGuides} onChange={event => setShowCurveGuides(event.target.checked)} /> Show curve guides
+      </label>}
+      {!uiImport && showCurveGuides && !!doc.paths?.length && <CurveEditControls paths={doc.paths} controller={curveController} snapshot={curveSnapshot} />}
       <IconButton name="focus" label="Focus" onClick={() => setFocusRequest(value => value + 1)} />
       <button
         ref={environmentTrigger}
@@ -269,7 +280,7 @@ export default function Studio({
       <button type="button" className="icon-button" aria-haspopup="dialog" aria-controls="studio-backdrop" aria-expanded={backdropOpen} onClick={() => { setEnvironmentOpen(false); setBackdropOpen(true); }}>Backdrop</button>
       {/* Placement moves the whole effect in the workspace. It is viewer state:
           dragging never edits or regenerates the effect document. */}
-      <div className="lab-placement-controls" role="group" aria-label="Effect placement">
+      <fieldset className="lab-placement-controls" aria-label="Effect placement" disabled={curveSnapshot.active} style={{border:0,padding:0,margin:0}}>
         <button type="button" className="icon-button"
           disabled={!placementController || placementSnapshot.dragging}
           aria-pressed={placementSnapshot.editingOrigin}
@@ -339,7 +350,7 @@ export default function Studio({
           label="Reset placement"
           onClick={() => placementController?.reset()}
         />
-      </div>
+      </fieldset>
       <div className="lab-scene-export">
         <IconButton
           name="upload"
@@ -367,7 +378,7 @@ export default function Studio({
     >
       <div className="viewport-grid" />
       <div className="lab-preview-stage">
-        <WorkspaceScene focusRequest={focusRequest} doc={doc} clock={clock} solo={soloLayerId}
+        <WorkspaceScene onCurveReady={setCurveController} onCurveChange={setCurveSnapshot} onCurveApply={setDoc} showCurveGuides={!uiImport && showCurveGuides} focusRequest={focusRequest} doc={doc} clock={clock} solo={soloLayerId}
           backdropStorageKey={`${workspaceStorageKey}.backdrop.v1`} onBackdropReady={setBackdropController} onBackdropChange={setBackdropSnapshot}
           placementStorageKey={`${workspaceStorageKey}.placement.v1`} onPlacementReady={setPlacementController} onPlacementChange={setPlacementSnapshot} />
       </div>

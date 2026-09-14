@@ -63,6 +63,7 @@ export class PlacementController {
   private mode: PlacementMode = "translate";
   private space: PlacementSpace = "world";
   private visible = false;
+  private suspended = false;
   private dragging = false;
   private disposed = false;
   private editingOrigin = false;
@@ -110,6 +111,7 @@ export class PlacementController {
   /** Orbiting is a drag, selecting is a click: only a pointer that barely moved
    * counts, or every orbit would toggle the handle. */
   private onPointerDown = (event: PointerEvent) => {
+    if(this.suspended)return;
     this.pointerDownAt = { x: event.clientX, y: event.clientY };
   };
 
@@ -117,7 +119,7 @@ export class PlacementController {
     const down = this.pointerDownAt;
     this.pointerDownAt = null;
     // The gizmo owns the pointer during its own drags.
-    if (!down || this.dragging || this.gizmo.dragging || this.editingOrigin) return;
+    if (this.suspended || !down || this.dragging || this.gizmo.dragging || this.editingOrigin) return;
     if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return;
 
     const rect = this.domElement.getBoundingClientRect();
@@ -272,13 +274,24 @@ export class PlacementController {
     this.requestRender();
   }
 
+  /** A different editor owns the pointer/gizmo without changing saved visibility. */
+  setSuspended(suspended: boolean) {
+    if(this.suspended===suspended)return;
+    this.suspended=suspended;
+    if(suspended){this.cancelOriginEdit();this.gizmo.dragging=false;this.dragging=false;this.pointerDownAt=null;}
+    this.handle.visible=this.visible&&!suspended;
+    this.gizmoHelper.visible=this.visible&&!suspended;
+    this.gizmo.enabled=this.visible&&!suspended;
+    this.requestRender();
+  }
+
   /** Selecting the origin is what reveals the gizmo; nothing is shown until then. */
   setVisible(visible: boolean) {
     if (visible === this.visible) return;
     this.visible = visible;
-    this.handle.visible = visible;
-    this.gizmoHelper.visible = visible;
-    this.gizmo.enabled = visible;
+    this.handle.visible = visible && !this.suspended;
+    this.gizmoHelper.visible = visible && !this.suspended;
+    this.gizmo.enabled = visible && !this.suspended;
     if (!visible && this.dragging) {
       this.dragging = false;
       this.orbit.enabled = true;
@@ -289,7 +302,7 @@ export class PlacementController {
 
   /** Freeze the effect and position the marker at its semantic emission point. */
   beginOriginEdit() {
-    if (this.disposed || this.dragging || this.editingOrigin) return;
+    if (this.disposed || this.suspended || this.dragging || this.editingOrigin) return;
     this.effectRoot.updateWorldMatrix(true, false);
     this.authoringToWorld.copy(this.effectRoot.matrixWorld);
     this.editingOrigin = true;

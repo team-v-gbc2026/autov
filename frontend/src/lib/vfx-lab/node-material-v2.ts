@@ -50,7 +50,7 @@ export function createV2NodeMaterial(
           originalUpdate(frame);
         });
         bindings[name] = node;
-      } else if (/^u(?:Curve[A-Z]N|RampN|(?:Parent)?SpeedN|(?:Parent)?BurstN|Procedural|RenderMode)$/.test(name)) {
+      } else if (/^u(?:Curve[A-Z]N|RampN|(?:Parent)?SpeedN|(?:Parent)?BurstN|EffectPathMode|EffectPathSpread|Procedural|RenderMode)$/.test(name)) {
         // These values are structural within an installed document. Baking them
         // lets the GPU unroll short curve/ramp loops and discard unused shapes.
         // Edits install new materials; animated keys preserve the same lengths.

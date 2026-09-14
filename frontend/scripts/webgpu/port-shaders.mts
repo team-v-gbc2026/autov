@@ -130,9 +130,15 @@ for (const [name, original] of Object.entries(sources)) {
   code = code.replace(/(\w+)\[\s*(\d+)\s*\]/g, "$1.element($2)");
   code = code.replace(/\b(false|true)\.toVar\(\)/g, "TSL.bool($1).toVar()");
   // out parameters must retain the caller's variable, rather than copying it.
-  code = code
-    .replace(/const (pos|vel) = \1_immutable.toVar\(\);/g, "")
-    .replace(/\b(pos|vel)_immutable\b/g, "$1");
+  // Discover output arguments from GLSL instead of hardcoding trajectory
+  // variable names. Output names must be distinct from input arguments in
+  // other helpers because the generated factory contains all helpers.
+  const outputs = [...original.matchAll(/\bout\s+\w+\s+(\w+)/g)].map(match => match[1]);
+  for (const output of new Set(outputs)) {
+    code = code
+      .replace(new RegExp(`^[ \t]*const ${output} = ${output}_immutable\\.toVar\\(\\);`, "gm"), "")
+      .replace(new RegExp(`\\b${output}_immutable\\b`, "g"), output);
+  }
   code = code.replace(
     /const \{ ([^}]+) \} = TSL;/,
     (_, names) =>

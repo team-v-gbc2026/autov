@@ -1,3 +1,5 @@
+import { validateEffectPaths } from "./effect-path-validation";
+import { EffectPathSchema, PathAttachmentSchema } from "./effect-path";
 import { z } from "zod";
 import {
   MotionSchema,
@@ -443,6 +445,7 @@ export const LayerV2Schema = z
     start: localTime,
     end: localTime,
     enabled: z.boolean(),
+    path: PathAttachmentSchema.optional(),
     transform: TransformSchema,
     motion: MotionSchema.nullable(),
     material: MaterialSchema.optional(),
@@ -546,6 +549,7 @@ export const DocumentV2Schema = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION_V2),
     authoringFrame: AuthoringFrameSchema.optional(),
+    paths: z.array(EffectPathSchema).max(8).optional(),
     name: z.string().min(1).max(100),
     description: z.string().max(1500),
     seed: integer(0, 2147483647),
@@ -792,6 +796,7 @@ export function validateDocumentV2(input: unknown, options: { workspace?: boolea
     assets.has(id) || BUILTIN_TEXTURE_IDS.has(id);
 
   const ids = new Set<string>();
+  validateEffectPaths(doc);
   const particleLayers = new Set<string>();
   let particles = 0;
   for (const layer of doc.layers) {
@@ -1302,7 +1307,21 @@ export const GeometryV2WireSchema = GeometryV2Schema.extend({
     widthCurve: CurveWireSchema,
   }).nullable(),
 });
+// Wire arrays avoid tuple prefixItems; runtime validation enforces exact sizes
+// and connected-segment semantics after decoding.
+export const EffectPathWireSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
+  points: z.array(num3).min(4).max(49),
+}).strict();
+export const PathAttachmentWireSchema = z.object({
+  pathId: z.string(),
+  mode: z.enum(["shape", "emit", "follow"]),
+  range: num2,
+  offset: num2,
+  roll: z.number().min(-Math.PI * 2).max(Math.PI * 2),
+}).strict();
 export const LayerV2WireSchema = LayerV2Schema.extend({
+  path: PathAttachmentWireSchema.nullable(),
   transform: TransformSchema.extend({
     position: num3,
     rotation: num3,
@@ -1332,6 +1351,7 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
   // Structured Outputs needs every property required, so the wire copy drops
   // the default and asks the model for the value.
   authoringFrame: z.object({ position: num3, rotation: num3 }).strict(),
+  paths: z.array(EffectPathWireSchema).max(8),
   environment: EnvironmentSchema.extend({ ambient: scalar(0, 3) }),
   layers: z.array(LayerV2WireSchema).min(1).max(24),
 });
@@ -1349,7 +1369,7 @@ export function fromWireV2(
   const wire = DocumentV2WireSchema.parse(input);
   const layers = wire.layers.map((layer) => {
     const next: Record<string, unknown> = { ...layer };
-    for (const slot of ["material", "emitter", "geometry", "light"])
+    for (const slot of ["material", "emitter", "geometry", "light", "path"])
       if (next[slot] === null) delete next[slot];
     return next;
   });

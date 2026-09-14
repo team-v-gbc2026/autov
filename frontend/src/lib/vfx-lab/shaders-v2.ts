@@ -1,3 +1,4 @@
+import { effectPathGLSL } from "./effect-path-glsl";
 // Migration reference used only by scripts/webgpu/port-shaders.mts.
 // The production renderer imports static TSL from shaders-v2-nodes.js.
 
@@ -298,8 +299,23 @@ void ${p}Traj(vec4 s, vec4 e, vec4 e2, float age, float life, float t, out vec3 
   } else {
     d=u${P}Drag<.001?a:(1.-exp(-u${P}Drag*a))/u${P}Drag; scale=exp(-u${P}Drag*a);
   }
-  pos=origin+dir*v0*d+.5*u${P}Gravity*a*a+u${P}Wind*a;
-  vel=dir*v0*scale+u${P}Gravity*a+u${P}Wind;
+  pos=origin+dir*v0*d;
+  vel=dir*v0*scale;
+  ${P === "" ? `if(uEffectPathMode>1){
+    float birth=uEffectPathSpread==1?e.w*uEffectPathLength:0.;
+    vec3 pp,nn,tt;
+    effectPathFrame(birth+(uEffectPathMode==3?v0*d:0.),pp,nn,tt);
+    pos=pp+effectPathVector(vec3(origin.xy,0.),nn,tt);
+    if(uEffectPathMode==2) pos+=effectPathVector(dir,nn,tt)*v0*d;
+    vel=effectPathVector(dir,nn,tt)*v0*scale;
+    if(uEffectPathMode==3){
+      vec3 nextP,nextN,nextT;
+      effectPathFrame(birth+v0*d+.01,nextP,nextN,nextT);
+      vel=(nextP+effectPathVector(vec3(origin.xy,0.),nextN,nextT)-pos)*100.*v0*scale;
+    }
+  }` : ""}
+  pos+=.5*u${P}Gravity*a*a+u${P}Wind*a;
+  vel+=u${P}Gravity*a+u${P}Wind;
   if(abs(u${P}VortexW)>1e-5){
     // Rotate the radial part of the displacement about the vortex axis by
     // omega*age, with omega falling off with distance from that axis.
@@ -397,6 +413,7 @@ ${glslCurve("A")}
 ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
+${effectPathGLSL}
 ${glslParticleCore("", "self", "curveE(u)")}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
@@ -489,6 +506,7 @@ ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("G")}
+${effectPathGLSL}
 ${glslParticleCore("", "self", "curveE(u)")}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
@@ -624,11 +642,23 @@ uniform vec3 uVertexBias;
 varying vec3 vN,vWp; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslCurve("F")}
+${effectPathGLSL}
 vec3 orthoOf(vec3 a){ return safeDir(abs(a.y)<.9?cross(a,vec3(0,1,0)):cross(a,vec3(1,0,0)), vec3(1,0,0)); }
 void main(){
   vUv=uv; vLobe=0.; vRing=uv.x;
   vec3 worldPos, worldNormal;
-  if(uRibbon==1){
+  if(uEffectPathMode==1 && uShell==0){
+    float along=uRibbon==1?clamp(position.x,0.,1.):clamp(position.z,0.,1.);
+    vec3 pp,nn,tt; effectPathFrame(along*uEffectPathLength*uLength/max(uEffectPathBaseLength,1e-5),pp,nn,tt);
+    vec2 crossSection=position.xy*uRadius;
+    if(uRibbon==1) crossSection=vec2(position.y*uThickness*safePow(max(0.,sin(3.14159265*along)),.6),0.);
+    vec3 local=pp+effectPathVector(vec3(crossSection,0.),nn,tt);
+    if(uHasVertexNoise==1) local+=nn*fbm3(vec3(crossSection*uVertexFreq,along*uVertexFreq-uTime*uVertexSpeed))*uVertexAmp*curveF(along);
+    worldPos=(modelMatrix*vec4(local,1.)).xyz;
+    vec3 localNormal=uRibbon==1?cross(tt,nn):effectPathVector(normal,nn,tt);
+    worldNormal=safeDir((modelMatrix*vec4(localNormal,0.)).xyz,vec3(0.,1.,0.));
+    vAlong=along;
+  } else if(uRibbon==1){
     // A tapered arc sweep in the local XY plane (the swoosh of a slash):
     // geometry.radius is the arc radius, geometry.length the angle it sweeps
     // (uArc, radians) and geometry.thickness its half-width at the fattest
@@ -668,16 +698,25 @@ void main(){
     vec3 head=(modelMatrix*vec4(0.,0.,0.,1.)).xyz;
     vec3 axis=safeDir((modelMatrix*vec4(0.,0.,1.,0.)).xyz, vec3(0.,0.,1.));
     vec3 t1=orthoOf(axis), t2=cross(axis,t1);
+    if(uEffectPathMode==1){
+      vec3 pathP,pathN,pathT;
+      effectPathFrame(len/max(uEffectPathBaseLength,1e-5)*uEffectPathLength,pathP,pathN,pathT);
+      head=(modelMatrix*vec4(pathP,1.)).xyz;
+      axis=safeDir((modelMatrix*vec4(pathT,0.)).xyz,vec3(0.,0.,1.));
+      t1=safeDir((modelMatrix*vec4(pathN,0.)).xyz,vec3(1.,0.,0.));
+      t2=cross(axis,t1);
+    }
     vec2 ring=normalize(position.xy+vec2(1e-5));
     vRing=atan(ring.y,ring.x)*.15915494+.5;
     vec3 radial=t1*ring.x+t2*ring.y;
-    vec3 base=head+axis*len+radial*r;
+    vec3 base=head+axis*(uEffectPathMode==1?0.:len)+radial*r;
     float amp=uHasVertexNoise==1?uVertexAmp:0.;
     float nz=fbm3(vec3(ring*uVertexFreq+vec2(along*3.5,0.), along*4.-uTime*uVertexSpeed)+vec3(0.,0.,along*3.));
     float disp=nz*amp*curveF(along)*radius*2.4*tailCap;
     // Low-frequency lobes on one side of the tube only: a few big licks lift
     // off the tail along the bias direction, so the body silhouette stays thin.
     vec3 bias=safeDir(uVertexBias,vec3(0.,1.,0.));
+    if(uEffectPathMode==1) bias=safeDir(t1*uVertexBias.x+t2*uVertexBias.y+axis*uVertexBias.z,t2);
     float lobe=snoise(vec3(ring*(uVertexFreq*.36)+vec2(along*1.4,0.), along*2.2-uTime*(uVertexSpeed*.75)));
     float up=smoothstep(.2,.95,ring.y)*smoothstep(.35,.8,along);
     vLobe=max(0.,lobe)*up*step(1e-4,amp);

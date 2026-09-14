@@ -40,6 +40,11 @@ const uCurveDEase = bindings.uCurveDEase;
 const uCurveE = bindings.uCurveE;
 const uCurveEN = bindings.uCurveEN;
 const uCurveEEase = bindings.uCurveEEase;
+const uEffectPathMode = bindings.uEffectPathMode;
+const uEffectPathSpread = bindings.uEffectPathSpread;
+const uEffectPathLength = bindings.uEffectPathLength;
+const uEffectPathBaseLength = bindings.uEffectPathBaseLength;
+const uEffectPathData = bindings.uEffectPathData;
 const uPeriod = bindings.uPeriod;
 const uSpawnWindow = bindings.uSpawnWindow;
 const uSpawnDuration = bindings.uSpawnDuration;
@@ -79,7 +84,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep, mod } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, int, normalize, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep, mod } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -295,6 +300,29 @@ const uv = TSL.uv();
 
 	} );
 
+	// One buffer keeps trail materials within WebGPU per-stage binding limits.
+
+	const effectPathFrame = /*@__PURE__*/ Fn( ( [ d, pathPositionOut, pathNormalOut, pathTangentOut ] ) => {
+
+
+
+
+		const x = clamp( d.div( uEffectPathLength ), 0., 1. ).mul( float( 64 ) ).toVar();
+		const i = int( min( floor( x ), float( 63 ) ) ).toVar();
+		const f = x.sub( float( i ) ).toVar();
+		pathTangentOut.assign( normalize( mix( uEffectPathData.element( i.mul( 3 ).add( 2 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 2 ) ), f ) ) );
+		pathNormalOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 1 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 1 ) ), f ) );
+		pathNormalOut.assign( normalize( pathNormalOut.sub( pathTangentOut.mul( dot( pathNormalOut, pathTangentOut ) ) ) ) );
+		pathPositionOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 0 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 0 ) ), f ).add( pathTangentOut.mul( d.sub( clamp( d, 0., uEffectPathLength ) ) ) ) );
+
+	}, 'void' );
+
+	const effectPathVector = /*@__PURE__*/ Fn( ( [ v, n, t ] ) => {
+
+		return n.mul( v.x ).add( cross( t, n ).mul( v.y ) ).add( t.mul( v.z ) );
+
+	} );
+
 	const selfLife = /*@__PURE__*/ Fn( ( [ s ] ) => {
 
 		return mix( uLife.x, uLife.y, s.y );
@@ -488,8 +516,8 @@ const uv = TSL.uv();
 
 	const selfTraj = /*@__PURE__*/ Fn( ( [ s, e, e2, age, life, t, pos, vel ] ) => {
 
-		
-		
+
+
 		const origin = selfOrigin( s, e, e2 ).toVar();
 		const dir = selfDir( s, e, e2, origin ).toVar();
 		const a = max( age, 0. ).toVar();
@@ -511,8 +539,36 @@ const uv = TSL.uv();
 
 		} );
 
-		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ).add( mul( .5, uGravity ).mul( a ).mul( a ) ).add( uWind.mul( a ) ) );
-		vel.assign( dir.mul( v0 ).mul( scale ).add( uGravity.mul( a ) ).add( uWind ) );
+		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ) );
+		vel.assign( dir.mul( v0 ).mul( scale ) );
+
+		If( uEffectPathMode.greaterThan( 1 ), () => {
+
+			const birth = select( uEffectPathSpread.equal( 1 ), e.w.mul( uEffectPathLength ), 0. ).toVar();
+			const pp = property( 'vec3' ), nn = property( 'vec3' ), tt = property( 'vec3' );
+			effectPathFrame( birth.add( select( uEffectPathMode.equal( 3 ), v0.mul( d ), 0. ) ), pp, nn, tt );
+			pos.assign( pp.add( effectPathVector( vec3( origin.xy, 0. ), nn, tt ) ) );
+
+			If( uEffectPathMode.equal( 2 ), () => {
+
+				pos.addAssign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( d ) );
+
+			} );
+
+			vel.assign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( scale ) );
+
+			If( uEffectPathMode.equal( 3 ), () => {
+
+				const nextP = property( 'vec3' ), nextN = property( 'vec3' ), nextT = property( 'vec3' );
+				effectPathFrame( birth.add( v0.mul( d ) ).add( .01 ), nextP, nextN, nextT );
+				vel.assign( nextP.add( effectPathVector( vec3( origin.xy, 0. ), nextN, nextT ) ).sub( pos ).mul( 100. ).mul( v0 ).mul( scale ) );
+
+			} );
+
+		} );
+
+		pos.addAssign( mul( .5, uGravity ).mul( a ).mul( a ).add( uWind.mul( a ) ) );
+		vel.addAssign( uGravity.mul( a ).add( uWind ) );
 
 		If( abs( uVortexW ).greaterThan( 1e-5 ), () => {
 
@@ -697,7 +753,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const particleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"}};
+export const particleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uEffectPathMode":{"type":"int","kind":"uniform"},"uEffectPathSpread":{"type":"int","kind":"uniform"},"uEffectPathLength":{"type":"float","kind":"uniform"},"uEffectPathBaseLength":{"type":"float","kind":"uniform"},"uEffectPathData":{"type":"vec3","size":195,"kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -741,6 +797,11 @@ const uCurveDEase = bindings.uCurveDEase;
 const uCurveE = bindings.uCurveE;
 const uCurveEN = bindings.uCurveEN;
 const uCurveEEase = bindings.uCurveEEase;
+const uEffectPathMode = bindings.uEffectPathMode;
+const uEffectPathSpread = bindings.uEffectPathSpread;
+const uEffectPathLength = bindings.uEffectPathLength;
+const uEffectPathBaseLength = bindings.uEffectPathBaseLength;
+const uEffectPathData = bindings.uEffectPathData;
 const uPeriod = bindings.uPeriod;
 const uSpawnWindow = bindings.uSpawnWindow;
 const uSpawnDuration = bindings.uSpawnDuration;
@@ -822,7 +883,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep, mod } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, int, normalize, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep, mod } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -1038,6 +1099,29 @@ const uv = TSL.uv();
 
 	} );
 
+	// One buffer keeps trail materials within WebGPU per-stage binding limits.
+
+	const effectPathFrame = /*@__PURE__*/ Fn( ( [ d, pathPositionOut, pathNormalOut, pathTangentOut ] ) => {
+
+
+
+
+		const x = clamp( d.div( uEffectPathLength ), 0., 1. ).mul( float( 64 ) ).toVar();
+		const i = int( min( floor( x ), float( 63 ) ) ).toVar();
+		const f = x.sub( float( i ) ).toVar();
+		pathTangentOut.assign( normalize( mix( uEffectPathData.element( i.mul( 3 ).add( 2 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 2 ) ), f ) ) );
+		pathNormalOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 1 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 1 ) ), f ) );
+		pathNormalOut.assign( normalize( pathNormalOut.sub( pathTangentOut.mul( dot( pathNormalOut, pathTangentOut ) ) ) ) );
+		pathPositionOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 0 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 0 ) ), f ).add( pathTangentOut.mul( d.sub( clamp( d, 0., uEffectPathLength ) ) ) ) );
+
+	}, 'void' );
+
+	const effectPathVector = /*@__PURE__*/ Fn( ( [ v, n, t ] ) => {
+
+		return n.mul( v.x ).add( cross( t, n ).mul( v.y ) ).add( t.mul( v.z ) );
+
+	} );
+
 	const selfLife = /*@__PURE__*/ Fn( ( [ s ] ) => {
 
 		return mix( uLife.x, uLife.y, s.y );
@@ -1231,8 +1315,8 @@ const uv = TSL.uv();
 
 	const selfTraj = /*@__PURE__*/ Fn( ( [ s, e, e2, age, life, t, pos, vel ] ) => {
 
-		
-		
+
+
 		const origin = selfOrigin( s, e, e2 ).toVar();
 		const dir = selfDir( s, e, e2, origin ).toVar();
 		const a = max( age, 0. ).toVar();
@@ -1254,8 +1338,36 @@ const uv = TSL.uv();
 
 		} );
 
-		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ).add( mul( .5, uGravity ).mul( a ).mul( a ) ).add( uWind.mul( a ) ) );
-		vel.assign( dir.mul( v0 ).mul( scale ).add( uGravity.mul( a ) ).add( uWind ) );
+		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ) );
+		vel.assign( dir.mul( v0 ).mul( scale ) );
+
+		If( uEffectPathMode.greaterThan( 1 ), () => {
+
+			const birth = select( uEffectPathSpread.equal( 1 ), e.w.mul( uEffectPathLength ), 0. ).toVar();
+			const pp = property( 'vec3' ), nn = property( 'vec3' ), tt = property( 'vec3' );
+			effectPathFrame( birth.add( select( uEffectPathMode.equal( 3 ), v0.mul( d ), 0. ) ), pp, nn, tt );
+			pos.assign( pp.add( effectPathVector( vec3( origin.xy, 0. ), nn, tt ) ) );
+
+			If( uEffectPathMode.equal( 2 ), () => {
+
+				pos.addAssign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( d ) );
+
+			} );
+
+			vel.assign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( scale ) );
+
+			If( uEffectPathMode.equal( 3 ), () => {
+
+				const nextP = property( 'vec3' ), nextN = property( 'vec3' ), nextT = property( 'vec3' );
+				effectPathFrame( birth.add( v0.mul( d ) ).add( .01 ), nextP, nextN, nextT );
+				vel.assign( nextP.add( effectPathVector( vec3( origin.xy, 0. ), nextN, nextT ) ).sub( pos ).mul( 100. ).mul( v0 ).mul( scale ) );
+
+			} );
+
+		} );
+
+		pos.addAssign( mul( .5, uGravity ).mul( a ).mul( a ).add( uWind.mul( a ) ) );
+		vel.addAssign( uGravity.mul( a ).add( uWind ) );
 
 		If( abs( uVortexW ).greaterThan( 1e-5 ), () => {
 
@@ -1487,8 +1599,8 @@ const uv = TSL.uv();
 
 	const parentTraj = /*@__PURE__*/ Fn( ( [ s, e, e2, age, life, t, pos, vel ] ) => {
 
-		
-		
+
+
 		const origin = parentOrigin( s, e, e2 ).toVar();
 		const dir = parentDir( s, e, e2, origin ).toVar();
 		const a = max( age, 0. ).toVar();
@@ -1510,8 +1622,10 @@ const uv = TSL.uv();
 
 		} );
 
-		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ).add( mul( .5, uParentGravity ).mul( a ).mul( a ) ).add( uParentWind.mul( a ) ) );
-		vel.assign( dir.mul( v0 ).mul( scale ).add( uParentGravity.mul( a ) ).add( uParentWind ) );
+		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ) );
+		vel.assign( dir.mul( v0 ).mul( scale ) );
+		pos.addAssign( mul( .5, uParentGravity ).mul( a ).mul( a ).add( uParentWind.mul( a ) ) );
+		vel.addAssign( uParentGravity.mul( a ).add( uParentWind ) );
 
 		If( abs( uParentVortexW ).greaterThan( 1e-5 ), () => {
 
@@ -1730,7 +1844,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const subParticleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
+export const subParticleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uEffectPathMode":{"type":"int","kind":"uniform"},"uEffectPathSpread":{"type":"int","kind":"uniform"},"uEffectPathLength":{"type":"float","kind":"uniform"},"uEffectPathBaseLength":{"type":"float","kind":"uniform"},"uEffectPathData":{"type":"vec3","size":195,"kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -1764,6 +1878,11 @@ const uCurveEEase = bindings.uCurveEEase;
 const uCurveG = bindings.uCurveG;
 const uCurveGN = bindings.uCurveGN;
 const uCurveGEase = bindings.uCurveGEase;
+const uEffectPathMode = bindings.uEffectPathMode;
+const uEffectPathSpread = bindings.uEffectPathSpread;
+const uEffectPathLength = bindings.uEffectPathLength;
+const uEffectPathBaseLength = bindings.uEffectPathBaseLength;
+const uEffectPathData = bindings.uEffectPathData;
 const uPeriod = bindings.uPeriod;
 const uSpawnWindow = bindings.uSpawnWindow;
 const uSpawnDuration = bindings.uSpawnDuration;
@@ -1803,7 +1922,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, int, normalize, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -2044,6 +2163,29 @@ const uv = TSL.uv();
 
 	} );
 
+	// One buffer keeps trail materials within WebGPU per-stage binding limits.
+
+	const effectPathFrame = /*@__PURE__*/ Fn( ( [ d, pathPositionOut, pathNormalOut, pathTangentOut ] ) => {
+
+
+
+
+		const x = clamp( d.div( uEffectPathLength ), 0., 1. ).mul( float( 64 ) ).toVar();
+		const i = int( min( floor( x ), float( 63 ) ) ).toVar();
+		const f = x.sub( float( i ) ).toVar();
+		pathTangentOut.assign( normalize( mix( uEffectPathData.element( i.mul( 3 ).add( 2 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 2 ) ), f ) ) );
+		pathNormalOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 1 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 1 ) ), f ) );
+		pathNormalOut.assign( normalize( pathNormalOut.sub( pathTangentOut.mul( dot( pathNormalOut, pathTangentOut ) ) ) ) );
+		pathPositionOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 0 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 0 ) ), f ).add( pathTangentOut.mul( d.sub( clamp( d, 0., uEffectPathLength ) ) ) ) );
+
+	}, 'void' );
+
+	const effectPathVector = /*@__PURE__*/ Fn( ( [ v, n, t ] ) => {
+
+		return n.mul( v.x ).add( cross( t, n ).mul( v.y ) ).add( t.mul( v.z ) );
+
+	} );
+
 	const selfLife = /*@__PURE__*/ Fn( ( [ s ] ) => {
 
 		return mix( uLife.x, uLife.y, s.y );
@@ -2237,8 +2379,8 @@ const uv = TSL.uv();
 
 	const selfTraj = /*@__PURE__*/ Fn( ( [ s, e, e2, age, life, t, pos, vel ] ) => {
 
-		
-		
+
+
 		const origin = selfOrigin( s, e, e2 ).toVar();
 		const dir = selfDir( s, e, e2, origin ).toVar();
 		const a = max( age, 0. ).toVar();
@@ -2260,8 +2402,36 @@ const uv = TSL.uv();
 
 		} );
 
-		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ).add( mul( .5, uGravity ).mul( a ).mul( a ) ).add( uWind.mul( a ) ) );
-		vel.assign( dir.mul( v0 ).mul( scale ).add( uGravity.mul( a ) ).add( uWind ) );
+		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ) );
+		vel.assign( dir.mul( v0 ).mul( scale ) );
+
+		If( uEffectPathMode.greaterThan( 1 ), () => {
+
+			const birth = select( uEffectPathSpread.equal( 1 ), e.w.mul( uEffectPathLength ), 0. ).toVar();
+			const pp = property( 'vec3' ), nn = property( 'vec3' ), tt = property( 'vec3' );
+			effectPathFrame( birth.add( select( uEffectPathMode.equal( 3 ), v0.mul( d ), 0. ) ), pp, nn, tt );
+			pos.assign( pp.add( effectPathVector( vec3( origin.xy, 0. ), nn, tt ) ) );
+
+			If( uEffectPathMode.equal( 2 ), () => {
+
+				pos.addAssign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( d ) );
+
+			} );
+
+			vel.assign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( scale ) );
+
+			If( uEffectPathMode.equal( 3 ), () => {
+
+				const nextP = property( 'vec3' ), nextN = property( 'vec3' ), nextT = property( 'vec3' );
+				effectPathFrame( birth.add( v0.mul( d ) ).add( .01 ), nextP, nextN, nextT );
+				vel.assign( nextP.add( effectPathVector( vec3( origin.xy, 0. ), nextN, nextT ) ).sub( pos ).mul( 100. ).mul( v0 ).mul( scale ) );
+
+			} );
+
+		} );
+
+		pos.addAssign( mul( .5, uGravity ).mul( a ).mul( a ).add( uWind.mul( a ) ) );
+		vel.addAssign( uGravity.mul( a ).add( uWind ) );
 
 		If( abs( uVortexW ).greaterThan( 1e-5 ), () => {
 
@@ -2379,7 +2549,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const trailVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSegments":{"type":"float","kind":"uniform"},"uSpacing":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveG":{"type":"vec2","size":8,"kind":"uniform"},"uCurveGN":{"type":"int","kind":"uniform"},"uCurveGEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"}};
+export const trailVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSegments":{"type":"float","kind":"uniform"},"uSpacing":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveG":{"type":"vec2","size":8,"kind":"uniform"},"uCurveGN":{"type":"int","kind":"uniform"},"uCurveGEase":{"type":"float","kind":"uniform"},"uEffectPathMode":{"type":"int","kind":"uniform"},"uEffectPathSpread":{"type":"int","kind":"uniform"},"uEffectPathLength":{"type":"float","kind":"uniform"},"uEffectPathBaseLength":{"type":"float","kind":"uniform"},"uEffectPathData":{"type":"vec3","size":195,"kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -2416,6 +2586,11 @@ const uCurveEEase = bindings.uCurveEEase;
 const uCurveG = bindings.uCurveG;
 const uCurveGN = bindings.uCurveGN;
 const uCurveGEase = bindings.uCurveGEase;
+const uEffectPathMode = bindings.uEffectPathMode;
+const uEffectPathSpread = bindings.uEffectPathSpread;
+const uEffectPathLength = bindings.uEffectPathLength;
+const uEffectPathBaseLength = bindings.uEffectPathBaseLength;
+const uEffectPathData = bindings.uEffectPathData;
 const uPeriod = bindings.uPeriod;
 const uSpawnWindow = bindings.uSpawnWindow;
 const uSpawnDuration = bindings.uSpawnDuration;
@@ -2497,7 +2672,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, int, normalize, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -2738,6 +2913,29 @@ const uv = TSL.uv();
 
 	} );
 
+	// One buffer keeps trail materials within WebGPU per-stage binding limits.
+
+	const effectPathFrame = /*@__PURE__*/ Fn( ( [ d, pathPositionOut, pathNormalOut, pathTangentOut ] ) => {
+
+
+
+
+		const x = clamp( d.div( uEffectPathLength ), 0., 1. ).mul( float( 64 ) ).toVar();
+		const i = int( min( floor( x ), float( 63 ) ) ).toVar();
+		const f = x.sub( float( i ) ).toVar();
+		pathTangentOut.assign( normalize( mix( uEffectPathData.element( i.mul( 3 ).add( 2 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 2 ) ), f ) ) );
+		pathNormalOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 1 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 1 ) ), f ) );
+		pathNormalOut.assign( normalize( pathNormalOut.sub( pathTangentOut.mul( dot( pathNormalOut, pathTangentOut ) ) ) ) );
+		pathPositionOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 0 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 0 ) ), f ).add( pathTangentOut.mul( d.sub( clamp( d, 0., uEffectPathLength ) ) ) ) );
+
+	}, 'void' );
+
+	const effectPathVector = /*@__PURE__*/ Fn( ( [ v, n, t ] ) => {
+
+		return n.mul( v.x ).add( cross( t, n ).mul( v.y ) ).add( t.mul( v.z ) );
+
+	} );
+
 	const selfLife = /*@__PURE__*/ Fn( ( [ s ] ) => {
 
 		return mix( uLife.x, uLife.y, s.y );
@@ -2931,8 +3129,8 @@ const uv = TSL.uv();
 
 	const selfTraj = /*@__PURE__*/ Fn( ( [ s, e, e2, age, life, t, pos, vel ] ) => {
 
-		
-		
+
+
 		const origin = selfOrigin( s, e, e2 ).toVar();
 		const dir = selfDir( s, e, e2, origin ).toVar();
 		const a = max( age, 0. ).toVar();
@@ -2954,8 +3152,36 @@ const uv = TSL.uv();
 
 		} );
 
-		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ).add( mul( .5, uGravity ).mul( a ).mul( a ) ).add( uWind.mul( a ) ) );
-		vel.assign( dir.mul( v0 ).mul( scale ).add( uGravity.mul( a ) ).add( uWind ) );
+		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ) );
+		vel.assign( dir.mul( v0 ).mul( scale ) );
+
+		If( uEffectPathMode.greaterThan( 1 ), () => {
+
+			const birth = select( uEffectPathSpread.equal( 1 ), e.w.mul( uEffectPathLength ), 0. ).toVar();
+			const pp = property( 'vec3' ), nn = property( 'vec3' ), tt = property( 'vec3' );
+			effectPathFrame( birth.add( select( uEffectPathMode.equal( 3 ), v0.mul( d ), 0. ) ), pp, nn, tt );
+			pos.assign( pp.add( effectPathVector( vec3( origin.xy, 0. ), nn, tt ) ) );
+
+			If( uEffectPathMode.equal( 2 ), () => {
+
+				pos.addAssign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( d ) );
+
+			} );
+
+			vel.assign( effectPathVector( dir, nn, tt ).mul( v0 ).mul( scale ) );
+
+			If( uEffectPathMode.equal( 3 ), () => {
+
+				const nextP = property( 'vec3' ), nextN = property( 'vec3' ), nextT = property( 'vec3' );
+				effectPathFrame( birth.add( v0.mul( d ) ).add( .01 ), nextP, nextN, nextT );
+				vel.assign( nextP.add( effectPathVector( vec3( origin.xy, 0. ), nextN, nextT ) ).sub( pos ).mul( 100. ).mul( v0 ).mul( scale ) );
+
+			} );
+
+		} );
+
+		pos.addAssign( mul( .5, uGravity ).mul( a ).mul( a ).add( uWind.mul( a ) ) );
+		vel.addAssign( uGravity.mul( a ).add( uWind ) );
 
 		If( abs( uVortexW ).greaterThan( 1e-5 ), () => {
 
@@ -3187,8 +3413,8 @@ const uv = TSL.uv();
 
 	const parentTraj = /*@__PURE__*/ Fn( ( [ s, e, e2, age, life, t, pos, vel ] ) => {
 
-		
-		
+
+
 		const origin = parentOrigin( s, e, e2 ).toVar();
 		const dir = parentDir( s, e, e2, origin ).toVar();
 		const a = max( age, 0. ).toVar();
@@ -3210,8 +3436,10 @@ const uv = TSL.uv();
 
 		} );
 
-		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ).add( mul( .5, uParentGravity ).mul( a ).mul( a ) ).add( uParentWind.mul( a ) ) );
-		vel.assign( dir.mul( v0 ).mul( scale ).add( uParentGravity.mul( a ) ).add( uParentWind ) );
+		pos.assign( origin.add( dir.mul( v0 ).mul( d ) ) );
+		vel.assign( dir.mul( v0 ).mul( scale ) );
+		pos.addAssign( mul( .5, uParentGravity ).mul( a ).mul( a ).add( uParentWind.mul( a ) ) );
+		vel.addAssign( uParentGravity.mul( a ).add( uParentWind ) );
 
 		If( abs( uParentVortexW ).greaterThan( 1e-5 ), () => {
 
@@ -3363,7 +3591,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const subTrailVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSegments":{"type":"float","kind":"uniform"},"uSpacing":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveG":{"type":"vec2","size":8,"kind":"uniform"},"uCurveGN":{"type":"int","kind":"uniform"},"uCurveGEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
+export const subTrailVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSegments":{"type":"float","kind":"uniform"},"uSpacing":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveG":{"type":"vec2","size":8,"kind":"uniform"},"uCurveGN":{"type":"int","kind":"uniform"},"uCurveGEase":{"type":"float","kind":"uniform"},"uEffectPathMode":{"type":"int","kind":"uniform"},"uEffectPathSpread":{"type":"int","kind":"uniform"},"uEffectPathLength":{"type":"float","kind":"uniform"},"uEffectPathBaseLength":{"type":"float","kind":"uniform"},"uEffectPathData":{"type":"vec3","size":195,"kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -3962,11 +4190,16 @@ const vUv = bindings.vUv;
 const uCurveF = bindings.uCurveF;
 const uCurveFN = bindings.uCurveFN;
 const uCurveFEase = bindings.uCurveFEase;
+const uEffectPathMode = bindings.uEffectPathMode;
+const uEffectPathSpread = bindings.uEffectPathSpread;
+const uEffectPathLength = bindings.uEffectPathLength;
+const uEffectPathBaseLength = bindings.uEffectPathBaseLength;
+const uEffectPathData = bindings.uEffectPathData;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate } = TSL;
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, mix, Loop, cross, sin, cos, smoothstep, sqrt, add, normalize, atan } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, mix, Loop, int, normalize, cross, sin, cos, smoothstep, sqrt, add, atan } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -4101,6 +4334,29 @@ const uv = TSL.uv();
 
 	} );
 
+	// One buffer keeps trail materials within WebGPU per-stage binding limits.
+
+	const effectPathFrame = /*@__PURE__*/ Fn( ( [ d, pathPositionOut, pathNormalOut, pathTangentOut ] ) => {
+
+
+
+
+		const x = clamp( d.div( uEffectPathLength ), 0., 1. ).mul( float( 64 ) ).toVar();
+		const i = int( min( floor( x ), float( 63 ) ) ).toVar();
+		const f = x.sub( float( i ) ).toVar();
+		pathTangentOut.assign( normalize( mix( uEffectPathData.element( i.mul( 3 ).add( 2 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 2 ) ), f ) ) );
+		pathNormalOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 1 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 1 ) ), f ) );
+		pathNormalOut.assign( normalize( pathNormalOut.sub( pathTangentOut.mul( dot( pathNormalOut, pathTangentOut ) ) ) ) );
+		pathPositionOut.assign( mix( uEffectPathData.element( i.mul( 3 ).add( 0 ) ), uEffectPathData.element( i.add( 1 ).mul( 3 ).add( 0 ) ), f ).add( pathTangentOut.mul( d.sub( clamp( d, 0., uEffectPathLength ) ) ) ) );
+
+	}, 'void' );
+
+	const effectPathVector = /*@__PURE__*/ Fn( ( [ v, n, t ] ) => {
+
+		return n.mul( v.x ).add( cross( t, n ).mul( v.y ) ).add( t.mul( v.z ) );
+
+	} );
+
 	const orthoOf = /*@__PURE__*/ Fn( ( [ a ] ) => {
 
 		return safeDir( select( abs( a.y ).lessThan( .9 ), cross( a, vec3( 0, 1, 0 ) ), cross( a, vec3( 1, 0, 0 ) ) ), vec3( 1, 0, 0 ) );
@@ -4114,7 +4370,33 @@ const uv = TSL.uv();
 		vRing.assign( uv.x );
 		const worldPos = property( 'vec3' ), worldNormal = property( 'vec3' );
 
-		If( uRibbon.equal( 1 ), () => {
+		If( uEffectPathMode.equal( 1 ).and( uShell.equal( 0 ) ), () => {
+
+			const along = select( uRibbon.equal( 1 ), clamp( position.x, 0., 1. ), clamp( position.z, 0., 1. ) ).toVar();
+			const pp = property( 'vec3' ), nn = property( 'vec3' ), tt = property( 'vec3' );
+			effectPathFrame( along.mul( uEffectPathLength ).mul( uLength ).div( max( uEffectPathBaseLength, 1e-5 ) ), pp, nn, tt );
+			const crossSection = position.xy.mul( uRadius ).toVar();
+
+			If( uRibbon.equal( 1 ), () => {
+
+				crossSection.assign( vec2( position.y.mul( uThickness ).mul( safePow( max( 0., sin( mul( 3.14159265, along ) ) ), .6 ) ), 0. ) );
+
+			} );
+
+			const local = pp.add( effectPathVector( vec3( crossSection, 0. ), nn, tt ) ).toVar();
+
+			If( uHasVertexNoise.equal( 1 ), () => {
+
+				local.addAssign( nn.mul( fbm3( vec3( crossSection.mul( uVertexFreq ), along.mul( uVertexFreq ).sub( uTime.mul( uVertexSpeed ) ) ) ) ).mul( uVertexAmp ).mul( curveF( along ) ) );
+
+			} );
+
+			worldPos.assign( modelMatrix.mul( vec4( local, 1. ) ).xyz );
+			const localNormal = select( uRibbon.equal( 1 ), cross( tt, nn ), effectPathVector( normal, nn, tt ) ).toVar();
+			worldNormal.assign( safeDir( modelMatrix.mul( vec4( localNormal, 0. ) ).xyz, vec3( 0., 1., 0. ) ) );
+			vAlong.assign( along );
+
+		} ).ElseIf( uRibbon.equal( 1 ), () => {
 
 			// A tapered arc sweep in the local XY plane (the swoosh of a slash):
 			// geometry.radius is the arc radius, geometry.length the angle it sweeps
@@ -4171,10 +4453,22 @@ const uv = TSL.uv();
 			const head = modelMatrix.mul( vec4( 0., 0., 0., 1. ) ).xyz.toVar();
 			const axis = safeDir( modelMatrix.mul( vec4( 0., 0., 1., 0. ) ).xyz, vec3( 0., 0., 1. ) ).toVar();
 			const t1 = orthoOf( axis ).toVar(), t2 = cross( axis, t1 ).toVar();
+
+			If( uEffectPathMode.equal( 1 ), () => {
+
+				const pathP = property( 'vec3' ), pathN = property( 'vec3' ), pathT = property( 'vec3' );
+				effectPathFrame( len.div( max( uEffectPathBaseLength, 1e-5 ) ).mul( uEffectPathLength ), pathP, pathN, pathT );
+				head.assign( modelMatrix.mul( vec4( pathP, 1. ) ).xyz );
+				axis.assign( safeDir( modelMatrix.mul( vec4( pathT, 0. ) ).xyz, vec3( 0., 0., 1. ) ) );
+				t1.assign( safeDir( modelMatrix.mul( vec4( pathN, 0. ) ).xyz, vec3( 1., 0., 0. ) ) );
+				t2.assign( cross( axis, t1 ) );
+
+			} );
+
 			const ring = normalize( position.xy.add( vec2( 1e-5 ) ) ).toVar();
 			vRing.assign( atan( ring.y, ring.x ).mul( .15915494 ).add( .5 ) );
 			const radial = t1.mul( ring.x ).add( t2.mul( ring.y ) ).toVar();
-			const base = head.add( axis.mul( len ) ).add( radial.mul( r ) ).toVar();
+			const base = head.add( axis.mul( select( uEffectPathMode.equal( 1 ), 0., len ) ) ).add( radial.mul( r ) ).toVar();
 			const amp = select( uHasVertexNoise.equal( 1 ), uVertexAmp, 0. ).toVar();
 			const nz = fbm3( vec3( ring.mul( uVertexFreq ).add( vec2( along.mul( 3.5 ), 0. ) ), along.mul( 4. ).sub( uTime.mul( uVertexSpeed ) ) ).add( vec3( 0., 0., along.mul( 3. ) ) ) ).toVar();
 			const disp = nz.mul( amp ).mul( curveF( along ) ).mul( radius ).mul( 2.4 ).mul( tailCap ).toVar();
@@ -4183,6 +4477,13 @@ const uv = TSL.uv();
 			// off the tail along the bias direction, so the body silhouette stays thin.
 
 			const bias = safeDir( uVertexBias, vec3( 0., 1., 0. ) ).toVar();
+
+			If( uEffectPathMode.equal( 1 ), () => {
+
+				bias.assign( safeDir( t1.mul( uVertexBias.x ).add( t2.mul( uVertexBias.y ) ).add( axis.mul( uVertexBias.z ) ), t2 ) );
+
+			} );
+
 			const lobe = snoise( vec3( ring.mul( uVertexFreq.mul( .36 ) ).add( vec2( along.mul( 1.4 ), 0. ) ), along.mul( 2.2 ).sub( uTime.mul( uVertexSpeed.mul( .75 ) ) ) ) ).toVar();
 			const up = smoothstep( .2, .95, ring.y ).mul( smoothstep( .35, .8, along ) ).toVar();
 			vLobe.assign( max( 0., lobe ).mul( up ).mul( step( 1e-4, amp ) ) );
@@ -4242,7 +4543,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const surfaceVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uArc":{"type":"float","kind":"uniform"},"uVertexAmp":{"type":"float","kind":"uniform"},"uVertexFreq":{"type":"float","kind":"uniform"},"uVertexSpeed":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uRoll":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasVertexNoise":{"type":"int","kind":"uniform"},"uBillboard":{"type":"int","kind":"uniform"},"uRibbon":{"type":"int","kind":"uniform"},"uUseLocalZ":{"type":"int","kind":"uniform"},"uZRange":{"type":"vec2","kind":"uniform"},"uVertexBias":{"type":"vec3","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uCurveF":{"type":"vec2","size":8,"kind":"uniform"},"uCurveFN":{"type":"int","kind":"uniform"},"uCurveFEase":{"type":"float","kind":"uniform"}};
+export const surfaceVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uArc":{"type":"float","kind":"uniform"},"uVertexAmp":{"type":"float","kind":"uniform"},"uVertexFreq":{"type":"float","kind":"uniform"},"uVertexSpeed":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uRoll":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasVertexNoise":{"type":"int","kind":"uniform"},"uBillboard":{"type":"int","kind":"uniform"},"uRibbon":{"type":"int","kind":"uniform"},"uUseLocalZ":{"type":"int","kind":"uniform"},"uZRange":{"type":"vec2","kind":"uniform"},"uVertexBias":{"type":"vec3","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uCurveF":{"type":"vec2","size":8,"kind":"uniform"},"uCurveFN":{"type":"int","kind":"uniform"},"uCurveFEase":{"type":"float","kind":"uniform"},"uEffectPathMode":{"type":"int","kind":"uniform"},"uEffectPathSpread":{"type":"int","kind":"uniform"},"uEffectPathLength":{"type":"float","kind":"uniform"},"uEffectPathBaseLength":{"type":"float","kind":"uniform"},"uEffectPathData":{"type":"vec3","size":195,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 

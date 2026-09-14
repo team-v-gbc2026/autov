@@ -1,3 +1,6 @@
+import { buildCurvedLightningGeometry, curvedShellBounds } from "./effect-path-surfaces";
+import { pathFrameAt, PATH_SAMPLES } from "./effect-path";
+import { layerPath, pathUniforms, pathParticlePosition, type LayerPath } from "./effect-path-adapter";
 import type { IUniform } from "three";
 import * as THREE from "three/webgpu";
 import { releaseWebGPURenderer } from "./release-webgpu-renderer";
@@ -350,6 +353,7 @@ function particlePositionV2(
   period: number,
   spawnWindow: number,
   out: THREE.Vector3,
+  path?: LayerPath,
 ): boolean {
   const i4 = index * 4;
   const s0 = attrs.seed[i4],
@@ -496,6 +500,11 @@ function particlePositionV2(
       0.5 * age * age,
     )
     .addScaledVector(particleScratch.force.fromArray(emitter.forces.wind), age);
+  if (path) {
+    pathParticlePosition(path, e3, origin, dir, v0 * d, out);
+    out.addScaledVector(particleScratch.force.fromArray(emitter.forces.gravity), .5 * age * age)
+      .addScaledVector(particleScratch.force.fromArray(emitter.forces.wind), age);
+  }
   const floor = emitter.forces.floor;
   if (floor) {
     const dy = out.y - floor.y;
@@ -674,6 +683,7 @@ function createParticleLayer(
   textures: TextureCacheV2,
   depth: THREE.DepthTexture,
 ): LayerObject {
+  const path = layerPath(doc, layer);
   const emitter = layer.emitter!;
   const material = layer.material!;
   const density = doc.quality.particleDensity;
@@ -838,6 +848,7 @@ function createParticleLayer(
     uNear: { value: CAMERA_NEAR },
     uFar: { value: CAMERA_FAR },
     uSoft: { value: material.softParticle },
+    ...pathUniforms(path),
     ...rampUniforms(material.ramp),
     ...curveUniforms("A", emitter.render.sizeCurve),
     ...curveUniforms("B", emitter.render.alphaCurve),
@@ -1025,6 +1036,7 @@ function createParticleLayer(
           period,
           spawnWindowOf(e, period),
           point,
+          path,
         )
           ? point.dot(view)
           : -Infinity;
@@ -1062,7 +1074,7 @@ function createParticleLayer(
       const point = new THREE.Vector3();
       const stride = Math.max(1, Math.floor(count / 96));
       for (let i = 0; i < count; i += stride) {
-        if (!particlePositionV2(e, attrs, i, age, period, window, point))
+        if (!particlePositionV2(e, attrs, i, age, period, window, point, path))
           continue;
         point.applyMatrix4(matrix);
         push(point.clone().addScalar(margin));
@@ -1330,6 +1342,7 @@ function createMeshLayer(
   index: number,
   textures: TextureCacheV2,
 ): LayerObject {
+  const path = layerPath(doc, layer);
   const material = layer.material!;
   const geometry = layer.geometry!;
   const shell = isShellSurface(layer);
@@ -1403,6 +1416,7 @@ function createMeshLayer(
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
     uProcedural: { value: proceduralIndex(material) },
     uCam: { value: new THREE.Vector3() },
+    ...pathUniforms(geometry.type === "lightning" ? undefined : path),
     ...rampUniforms(material.ramp),
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
@@ -1430,7 +1444,7 @@ function createMeshLayer(
   const sizeOf = (g: typeof geometry, out: THREE.Vector3) => {
     // The arc ribbon, the analytic shell and the bolt build themselves from the
     // live uniforms, so only transform.scale applies on top of them.
-    if (ribbon || shell || bolt) return out.set(1, 1, 1);
+    if (path || ribbon || shell || bolt) return out.set(1, 1, 1);
     if (BAR_KINDS.has(layer.kind)) return out.set(g.radius, g.radius, g.length);
     if (layer.kind === "sprite") return out.set(g.radius, g.radius, 1);
     if (g.type === "disc") return out.set(g.radius, g.radius, 1);
@@ -1462,6 +1476,7 @@ function createMeshLayer(
   // The bolt re-shapes STRIKE_HZ times a second. The strike index is a pure
   // function of layer time, so rebuilding on a change keeps seek == play.
   let strike = 0;
+  let pathBoltKey = "";
 
   return {
     id: layer.id,
@@ -1501,10 +1516,12 @@ function createMeshLayer(
       }
       if (bolt && g.lightning) {
         const next = Math.max(0, Math.floor(age * STRIKE_HZ));
-        if (next !== strike || mesh.geometry.userData.bolt !== true) {
+        const nextPathBoltKey = path ? JSON.stringify(g) : "";
+        if (next !== strike || mesh.geometry.userData.bolt !== true || nextPathBoltKey !== pathBoltKey) {
           strike = next;
+          pathBoltKey = nextPathBoltKey;
           mesh.geometry.dispose();
-          mesh.geometry = buildLightningGeometry(g, boltSeed, strike);
+          mesh.geometry = path ? buildCurvedLightningGeometry(g, boltSeed, strike, path) : buildLightningGeometry(g, boltSeed, strike);
           mesh.geometry.userData.bolt = true;
         }
       }
@@ -1568,6 +1585,28 @@ function createMeshLayer(
           .clone(),
       );
       const point = new THREE.Vector3();
+      if (path && bolt) {
+        const age=Math.max(0,time-layer.start);
+        const built=buildCurvedLightningGeometry(g,boltSeed,Math.floor(age*STRIKE_HZ),path);
+        const box=built.boundingBox!.clone();
+        if(g.vertexNoise) box.expandByScalar(g.vertexNoise.amplitude * Math.max(1,...g.vertexNoise.alongCurve.keys.map(key=>Math.abs(key[1]))));
+        for(const x of [box.min.x,box.max.x]) for(const y of [box.min.y,box.max.y]) for(const z of [box.min.z,box.max.z]) push(new THREE.Vector3(x,y,z).applyMatrix4(matrix));
+        built.dispose();
+        return;
+      }
+      if(path && shell) {
+        for(const point of curvedShellBounds(g,path)) push(point.applyMatrix4(matrix));
+        return;
+      }
+      if (path) {
+        const radius = (ribbon ? g.thickness : g.radius) + (g.vertexNoise?.amplitude ?? 0);
+        for (let i=0;i<PATH_SAMPLES;i++) {
+          const frame=pathFrameAt(path.path,path.path.length * g.length / Math.max(path.baseLength,1e-5) * i/(PATH_SAMPLES-1));
+          for(const x of [-radius,radius]) for(const y of [-radius,radius]) for(const z of [-radius,radius])
+            push(frame.position.clone().add(new THREE.Vector3(x,y,z)).applyMatrix4(matrix));
+        }
+        return;
+      }
       if (bolt) {
         // Strike-independent: the envelope every strike of this bolt fits in.
         for (const p of lightningBounds(g, boltSeed))
@@ -1707,11 +1746,20 @@ function spawnBoundsV2(
   layer: LayerV2,
   time: number,
   push: (p: THREE.Vector3) => void,
+  path?: LayerPath,
 ) {
   const { layer: live, visible } = evaluateLayerV2(layer, time);
   if (!visible) return;
   const emitter = live.emitter!;
   const shape = emitter.shape;
+  if (path) {
+    const matrix=new THREE.Matrix4().compose(new THREE.Vector3(...live.transform.position),new THREE.Quaternion().setFromEuler(new THREE.Euler(...live.transform.rotation)),new THREE.Vector3(1,1,1));
+    const margin=emitter.render.size[1]*.5+shape.radius;
+    const frames=path.spread?path.path.frames:path.path.frames.slice(0,1);
+    for(const frame of frames) for(const x of [-margin,margin]) for(const y of [-margin,margin]) for(const z of [-margin,margin])
+      push(frame.position.clone().add(new THREE.Vector3(x,y,z)).applyMatrix4(matrix));
+    return;
+  }
   const extent = new THREE.Vector3();
   // A "line" spawns from the origin *along* +axis for `length`, never behind
   // it, so its box is one-sided; `lean` carries that asymmetry.
@@ -1971,7 +2019,7 @@ export class VfxRuntimeV2 {
     // Validation returns fresh objects. Compare content once per edit, including
     // every document value captured by layer factories and sub-emitter parents.
     const sharedKey = JSON.stringify([nextDoc.seed, nextDoc.duration,
-      nextDoc.quality.particleDensity, nextDoc.post.motionBlur, nextDoc.textures]);
+      nextDoc.quality.particleDensity, nextDoc.post.motionBlur, nextDoc.textures, nextDoc.paths, nextDoc.authoringFrame]);
     const keys = new Map<string, string>();
     const created: LayerObject[] = [];
     let nextObjects: LayerObject[];
@@ -2196,8 +2244,9 @@ export class VfxRuntimeV2 {
       const kind = object.source.kind;
       if (kind === "light") continue;
       if (kind === "particles") {
+        const path=layerPath(doc,object.source);
         const spawn = boxOf(
-          (time, push) => spawnBoundsV2(object.source, time, push),
+          (time, push) => spawnBoundsV2(object.source, time, push, path),
           0,
         );
         if (spawn) {

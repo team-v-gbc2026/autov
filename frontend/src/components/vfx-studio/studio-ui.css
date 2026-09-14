@@ -100,3 +100,11 @@
 
 /* Origin instructions float below the toolbar instead of widening it. */
 .lab .lab-origin-hint { position: absolute; top: calc(100% + 8px); left: 0; max-width: min(380px, 100%); padding: 10px 12px; border: 1px solid #ffffff25; border-radius: 6px; background: var(--panel); color: #d4e4e8; font-size: 12px; line-height: 1.5; }
+
+/* Apply-based curve drafts live below the compact scene toolbar. */
+.lab .lab-curve-edit-controls { position: absolute; top: calc(100% + 6px); left: 0; right: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid #ffffff19; border-radius: 8px; background: var(--panel); backdrop-filter: blur(22px); font-size: 11px; }
+.lab .lab-curve-edit-controls label { display: flex; align-items: center; gap: 8px; flex: 1 1 240px; }
+.lab .lab-curve-edit-controls select { width: auto; flex: 1; }
+.lab .lab-curve-edit-controls .icon-button { width: auto; padding: 0 10px; white-space: nowrap; }
+.lab .lab-curve-edit-controls [role="status"] { flex-basis: 100%; color: #a6afb1; }
+.lab .lab-placement-controls:disabled { opacity: .45; }

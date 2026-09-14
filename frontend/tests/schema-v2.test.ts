@@ -249,18 +249,20 @@ test("wire round-trip: homogeneous arrays parse back into the runtime contract",
   const doc = validateDocumentV2(load());
   const wire = {
     ...structuredClone(doc),
+    paths: doc.paths ?? [],
     layers: doc.layers.map((layer) => ({
       ...structuredClone(layer),
       material: layer.material ?? null,
       emitter: layer.emitter ?? null,
       geometry: layer.geometry ?? null,
       light: layer.light ?? null,
+      path: layer.path ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
   DocumentV2WireSchema.parse(wire);
   const back = fromWireV2(wire);
-  assert.deepEqual(back, { ...doc, textures: [] });
+  assert.deepEqual(back, { ...doc, paths: doc.paths ?? [], textures: [] });
 });
 
 test("the wire schema publishes no tuple types", () => {

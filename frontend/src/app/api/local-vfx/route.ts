@@ -1,3 +1,4 @@
+import { generationExampleV2 } from "@/lib/vfx-lab/generation-examples-v2";
 import {
   MAX_PROMPT_CHARACTERS,
   MAX_PROMPT_REFERENCES,
@@ -32,7 +33,6 @@ import {
 } from "@/lib/vfx-lab/protocol";
 import { createPreset, RECIPES, type RecipeId } from "@/lib/vfx-lab/recipes";
 import {
-  createPresetV2,
   exampleScaleSummary,
   RECIPES_V2,
   recipeV2For,
@@ -465,7 +465,7 @@ export async function POST(request: Request) {
           plan: run.plan,
           family,
           recipe: RECIPES_V2[family].knowledge,
-          example: createPresetV2(family),
+          example: generationExampleV2(family),
         }),
         run.references,
         request.signal,
@@ -503,7 +503,7 @@ export async function POST(request: Request) {
           JSON.stringify({
             problems,
             candidate: doc ?? result.value,
-            reference: createPresetV2(family),
+            reference: generationExampleV2(family),
             prompt: run.prompt,
             plan: run.plan,
           }),
