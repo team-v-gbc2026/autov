@@ -11500,16 +11500,13 @@ const vClipPosition = bindings.vClipPosition;
 const vN = bindings.vN;
 const vV = bindings.vV;
 const vWp = bindings.vWp;
+const vLobe = bindings.vLobe;
 const uTime = bindings.uTime;
-const uSeed = bindings.uSeed;
-const uAmp = bindings.uAmp;
-const uFreq = bindings.uFreq;
 const uNoiseSpeed = bindings.uNoiseSpeed;
-const uSquash = bindings.uSquash;
-const uCurl = bindings.uCurl;
-const uTaper = bindings.uTaper;
-const uRot = bindings.uRot;
-const uInflate = bindings.uInflate;
+const aLobeA = bindings.aLobeA;
+const aLobeB = bindings.aLobeB;
+const aLobeC = bindings.aLobeC;
+const aLobeP = bindings.aLobeP;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate, frontFacing: gl_FrontFacing } = TSL;
 const uv = TSL.uv();
 
@@ -11626,13 +11623,13 @@ const uv = TSL.uv();
 
 	const lobeR = /*@__PURE__*/ Fn( ( [ n ] ) => {
 
-		const q = n.mul( uFreq ).add( vec3( uSeed.mul( 7.3 ), uSeed.mul( 3.1 ).sub( uTime.mul( uNoiseSpeed ) ), uSeed.mul( 11.7 ) ) ).toVar();
+		const q = n.mul( aLobeA.z ).add( vec3( aLobeA.x.mul( 7.3 ), aLobeA.x.mul( 3.1 ).sub( uTime.mul( uNoiseSpeed ) ), aLobeA.x.mul( 11.7 ) ) ).toVar();
 		const f = mul( .6, snoise( q ) ).add( mul( .3, snoise( q.mul( 2.1 ).add( 5. ) ) ) ).add( mul( .15, snoise( q.mul( 4.3 ).add( 11. ) ) ) ).toVar();
 
 		// Positive bias: bumps push OUT of the sphere, they never dent it inward.
 
 
-		return add( 1., uAmp.mul( mul( .45, f ).add( mul( .55, abs( f ) ) ) ) );
+		return add( 1., aLobeA.y.mul( mul( .45, f ).add( mul( .55, abs( f ) ) ) ) );
 
 	} );
 
@@ -11640,11 +11637,11 @@ const uv = TSL.uv();
 
 		const p = n.mul( lobeR( n ) ).toVar();
 		const s = clamp( p.y.mul( .5 ).add( .5 ), 0., 1. ).toVar();
-		p.xz.mulAssign( mix( 1., sub( 1., uTaper ), smoothstep( .2, 1., s ) ) );
-		const a = uCurl.mul( p.y ).toVar();
+		p.xz.mulAssign( mix( 1., sub( 1., aLobeB.y ), smoothstep( .2, 1., s ) ) );
+		const a = aLobeB.x.mul( p.y ).toVar();
 		p.xy.assign( mat2( cos( a ), sin( a ).negate(), sin( a ), cos( a ) ).mul( p.xy ) );
-		p.xy.assign( mat2( cos( uRot ), sin( uRot ).negate(), sin( uRot ), cos( uRot ) ).mul( p.xy ) );
-		p.y.mulAssign( uSquash );
+		p.xy.assign( mat2( cos( aLobeB.z ), sin( aLobeB.z ).negate(), sin( aLobeB.z ), cos( aLobeB.z ) ).mul( p.xy ) );
+		p.y.mulAssign( aLobeA.w );
 
 		return p;
 
@@ -11652,6 +11649,7 @@ const uv = TSL.uv();
 
 	const main = /*@__PURE__*/ Fn( () => {
 
+		vLobe.assign( aLobeC.xyz );
 		const n = safeDir( position, vec3( 0., 1., 0. ) ).toVar();
 		const p = lobeP( n ).toVar();
 
@@ -11669,7 +11667,13 @@ const uv = TSL.uv();
 
 		} );
 
-		p.addAssign( nrm.mul( uInflate ) );
+		// aLobeB.w inflates the outline hull in the lobe's own unit space.
+
+		p.addAssign( nrm.mul( aLobeB.w ) );
+
+		// The lobe's own placement, uniform in scale so the normal survives it.
+
+		p.assign( p.mul( aLobeP.w ).add( aLobeP.xyz ) );
 		const wp = modelMatrix.mul( vec4( p, 1. ) ).toVar();
 		vWp.assign( wp.xyz );
 		vN.assign( safeDir( mat3( modelMatrix ).mul( nrm ), vec3( 0., 1., 0. ) ) );
@@ -11683,7 +11687,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const blobVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"vN":{"type":"vec3","kind":"varying"},"vV":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uSeed":{"type":"float","kind":"uniform"},"uAmp":{"type":"float","kind":"uniform"},"uFreq":{"type":"float","kind":"uniform"},"uNoiseSpeed":{"type":"float","kind":"uniform"},"uSquash":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uTaper":{"type":"float","kind":"uniform"},"uRot":{"type":"float","kind":"uniform"},"uInflate":{"type":"float","kind":"uniform"}};
+export const blobVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"vN":{"type":"vec3","kind":"varying"},"vV":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vLobe":{"type":"vec3","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uNoiseSpeed":{"type":"float","kind":"uniform"},"aLobeA":{"type":"vec4","kind":"attribute"},"aLobeB":{"type":"vec4","kind":"attribute"},"aLobeC":{"type":"vec4","kind":"attribute"},"aLobeP":{"type":"vec4","kind":"attribute"}};
 
 // Three.js Transpiler r186
 
@@ -11691,6 +11695,7 @@ export function blobFragment( bindings ) {
 const vN = bindings.vN;
 const vV = bindings.vV;
 const vWp = bindings.vWp;
+const vLobe = bindings.vLobe;
 const uShadow = bindings.uShadow;
 const uBody = bindings.uBody;
 const uHigh = bindings.uHigh;
@@ -11699,13 +11704,11 @@ const uLight = bindings.uLight;
 const uBands = bindings.uBands;
 const uBandA = bindings.uBandA;
 const uBandB = bindings.uBandB;
-const uOpacity = bindings.uOpacity;
 const uRimPow = bindings.uRimPow;
 const uRimAmt = bindings.uRimAmt;
 const uFlat = bindings.uFlat;
 const uRampKeyMode = bindings.uRampKeyMode;
 const uLayerU = bindings.uLayerU;
-const uLobeU = bindings.uLobeU;
 const uGroundY = bindings.uGroundY;
 const uHeightSpan = bindings.uHeightSpan;
 const uUseToon = bindings.uUseToon;
@@ -11716,7 +11719,6 @@ const uRampBlendMode = bindings.uRampBlendMode;
 const uRampBlendWeight = bindings.uRampBlendWeight;
 const uLightOn = bindings.uLightOn;
 const uLightFall = bindings.uLightFall;
-const uShade = bindings.uShade;
 const uLightPos = bindings.uLightPos;
 const uBlendMode = bindings.uBlendMode;
 const uRamp = bindings.uRamp;
@@ -11780,7 +11782,7 @@ const uv = TSL.uv();
 
 	const lobeRampKey = /*@__PURE__*/ Fn( ( [ mode ] ) => {
 
-		return select( mode.greaterThan( 2.5 ), clamp( vWp.y.sub( uGroundY ).div( max( uHeightSpan, 1e-3 ) ), 0., 1. ), select( mode.greaterThan( 0.5 ).and( mode.lessThan( 1.5 ) ), clamp( uLayerU, 0., 1. ), clamp( uLobeU, 0., 1. ) ) );
+		return select( mode.greaterThan( 2.5 ), clamp( vWp.y.sub( uGroundY ).div( max( uHeightSpan, 1e-3 ) ), 0., 1. ), select( mode.greaterThan( 0.5 ).and( mode.lessThan( 1.5 ) ), clamp( uLayerU, 0., 1. ), clamp( vLobe.x, 0., 1. ) ) );
 
 	} );
 
@@ -11804,7 +11806,7 @@ const uv = TSL.uv();
 
 		If( uFlat.greaterThan( .5 ), () => {
 
-			gl_FragColor.assign( vec4( uShadow.mul( uShade ).mul( uOpacity ), uOpacity ) );
+			gl_FragColor.assign( vec4( uShadow.mul( vLobe.y ).mul( vLobe.z ), vLobe.z ) );
 
 		} ).Else( () => {
 
@@ -11860,15 +11862,15 @@ const uv = TSL.uv();
 
 			} );
 
-			c.mulAssign( uShade );
+			c.mulAssign( vLobe.y );
 
 			If( uBlendMode.equal( 1 ), () => {
 
-				gl_FragColor.assign( vec4( c, uOpacity ) );
+				gl_FragColor.assign( vec4( c, vLobe.z ) );
 
 			} ).Else( () => {
 
-				gl_FragColor.assign( vec4( c.mul( uOpacity ), uOpacity ) );
+				gl_FragColor.assign( vec4( c.mul( vLobe.z ), vLobe.z ) );
 
 			} );
 
@@ -11880,7 +11882,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const blobFragmentBindings = {"vN":{"type":"vec3","kind":"varying"},"vV":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uShadow":{"type":"vec3","kind":"uniform"},"uBody":{"type":"vec3","kind":"uniform"},"uHigh":{"type":"vec3","kind":"uniform"},"uRimCol":{"type":"vec3","kind":"uniform"},"uLight":{"type":"vec3","kind":"uniform"},"uBands":{"type":"float","kind":"uniform"},"uBandA":{"type":"float","kind":"uniform"},"uBandB":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uRimPow":{"type":"float","kind":"uniform"},"uRimAmt":{"type":"float","kind":"uniform"},"uFlat":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uLobeU":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uUseToon":{"type":"float","kind":"uniform"},"uToonRamp":{"type":"float","kind":"uniform"},"uToonShadowScale":{"type":"float","kind":"uniform"},"uToonHighMix":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uLightOn":{"type":"float","kind":"uniform"},"uLightFall":{"type":"float","kind":"uniform"},"uShade":{"type":"float","kind":"uniform"},"uLightPos":{"type":"vec3","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"}};
+export const blobFragmentBindings = {"vN":{"type":"vec3","kind":"varying"},"vV":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vLobe":{"type":"vec3","kind":"varying"},"uShadow":{"type":"vec3","kind":"uniform"},"uBody":{"type":"vec3","kind":"uniform"},"uHigh":{"type":"vec3","kind":"uniform"},"uRimCol":{"type":"vec3","kind":"uniform"},"uLight":{"type":"vec3","kind":"uniform"},"uBands":{"type":"float","kind":"uniform"},"uBandA":{"type":"float","kind":"uniform"},"uBandB":{"type":"float","kind":"uniform"},"uRimPow":{"type":"float","kind":"uniform"},"uRimAmt":{"type":"float","kind":"uniform"},"uFlat":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uUseToon":{"type":"float","kind":"uniform"},"uToonRamp":{"type":"float","kind":"uniform"},"uToonShadowScale":{"type":"float","kind":"uniform"},"uToonHighMix":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uLightOn":{"type":"float","kind":"uniform"},"uLightFall":{"type":"float","kind":"uniform"},"uLightPos":{"type":"vec3","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"}};
 
 // Three.js Transpiler r186
 

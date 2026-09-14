@@ -19,6 +19,7 @@
     "upload:vfx-assets": "node scripts/upload-vfx-assets.mjs",
     "generate:v2-nodes": "node --import tsx scripts/webgpu/port-shaders.mts",
     "verify:webgpu": "node scripts/webgpu/verify-port.mjs",
+    "verify:studio": "node scripts/webgpu/verify-studio.mjs",
     "build:agent": "eve build",
     "test:agent": "node --import tsx --test tests/agent/*.test.ts"
   },

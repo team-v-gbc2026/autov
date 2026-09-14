@@ -198,16 +198,25 @@ try {
           }
           const t = workspace ? 0.51 : sampleTime;
           read(runtime, 0);
-          // Three r186's SMAA pass settles on its second draw at a given time:
-          // its first output can differ by a pixel along one edge. Discard that
-          // draw rather than compare it; every check below is still exact.
-          read(runtime, t);
+          // Three r186's SMAA pass settles a draw or two after arriving at a
+          // new time: its first output can differ along a single edge pixel.
+          // Draw until two consecutive samples agree, then measure. Every check
+          // below still compares exactly.
+          const settle = (time) => {
+            let previous = read(runtime, time);
+            for (let attempt = 0; attempt < 4; attempt++) {
+              const next = read(runtime, time);
+              if (previous.pixels.every((v, i) => v === next.pixels[i])) return next;
+              previous = next;
+            }
+            throw new Error(`Sampling ${time}s never settled`);
+          };
           console.log("CHECK first frame");
-          const first = read(runtime, t);
+          const first = settle(t);
           // Live previews render on separate animation frames, unlike captures.
           const live = await new Promise((resolve, reject) =>
             requestAnimationFrame(() => {
-              try { resolve(read(runtime, t)); } catch (error) { reject(error); }
+              try { resolve(settle(t)); } catch (error) { reject(error); }
             }),
           );
           if (!first.pixels.every((v, i) => v === live.pixels[i]))
@@ -216,7 +225,7 @@ try {
           const timeChanges = first.pixels.some(
             (v, i) => v !== later.pixels[i],
           );
-          const repeat = read(runtime, t);
+          const repeat = settle(t);
           const deterministic = first.pixels.every(
             (v, i) => v === repeat.pixels[i],
           );

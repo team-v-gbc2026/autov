@@ -2572,31 +2572,42 @@ void main(){
 // ---------------------------------------------------------------------------
 
 /** Shared by the fill pass and the inverted hull: the lobe's own shape. */
+/* Every lobe of a layer is one instance of a shared draw: the lobe's own shape,
+ * placement and shading ride as instance attributes, so a cluster of ninety
+ * lobes costs one program and two draws rather than ninety materials.
+ *   aLobeA (seed, amplitude, frequency, squash)
+ *   aLobeB (curl, taper, rotation, unused)
+ *   aLobeC (lobe age, shade, alpha, unused)   -- read by the fragment too
+ *   aLobeP (centre in layer space, radius)
+ */
 const glslLobeShape = /* glsl */ `
-uniform float uTime,uSeed,uAmp,uFreq,uNoiseSpeed,uSquash,uCurl,uTaper,uRot,uInflate;
+uniform float uTime,uNoiseSpeed;
+attribute vec4 aLobeA, aLobeB, aLobeC, aLobeP;
 float lobeR(vec3 n){
-  vec3 q=n*uFreq+vec3(uSeed*7.3,uSeed*3.1-uTime*uNoiseSpeed,uSeed*11.7);
+  vec3 q=n*aLobeA.z+vec3(aLobeA.x*7.3,aLobeA.x*3.1-uTime*uNoiseSpeed,aLobeA.x*11.7);
   float f=.6*snoise(q)+.3*snoise(q*2.1+5.)+.15*snoise(q*4.3+11.);
   // Positive bias: bumps push OUT of the sphere, they never dent it inward.
-  return 1.+uAmp*(.45*f+.55*abs(f));
+  return 1.+aLobeA.y*(.45*f+.55*abs(f));
 }
 vec3 lobeP(vec3 n){
   vec3 p=n*lobeR(n);
   float s=clamp(p.y*.5+.5,0.,1.);
-  p.xz*=mix(1.,1.-uTaper,smoothstep(.2,1.,s));
-  float a=uCurl*p.y;
+  p.xz*=mix(1.,1.-aLobeB.y,smoothstep(.2,1.,s));
+  float a=aLobeB.x*p.y;
   p.xy=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xy;
-  p.xy=mat2(cos(uRot),-sin(uRot),sin(uRot),cos(uRot))*p.xy;
-  p.y*=uSquash;
+  p.xy=mat2(cos(aLobeB.z),-sin(aLobeB.z),sin(aLobeB.z),cos(aLobeB.z))*p.xy;
+  p.y*=aLobeA.w;
   return p;
 }
 `;
 
 export const blobVertexV2 = /* glsl */ `
 varying vec3 vN,vV,vWp;
+varying vec3 vLobe;
 ${glslNoise}
 ${glslLobeShape}
 void main(){
+  vLobe=aLobeC.xyz;
   vec3 n=safeDir(position, vec3(0.,1.,0.));
   vec3 p=lobeP(n);
   // Finite-difference normal in the tangent plane of the unit sphere.
@@ -2606,7 +2617,10 @@ void main(){
   float e=.055;
   vec3 nrm=safeDir(cross(lobeP(safeDir(n+t1*e,n))-p, lobeP(safeDir(n+t2*e,n))-p), n);
   if(dot(nrm,n)<0.) nrm=-nrm;
-  p+=nrm*uInflate;
+  // aLobeB.w inflates the outline hull in the lobe's own unit space.
+  p+=nrm*aLobeB.w;
+  // The lobe's own placement, uniform in scale so the normal survives it.
+  p=p*aLobeP.w+aLobeP.xyz;
   vec4 wp=modelMatrix*vec4(p,1.);
   vWp=wp.xyz;
   vN=safeDir(mat3(modelMatrix)*nrm, vec3(0.,1.,0.));
@@ -2618,9 +2632,10 @@ void main(){
 export const blobFragmentV2 = /* glsl */ `
 precision highp float;
 varying vec3 vN,vV,vWp;
+varying vec3 vLobe;
 uniform vec3 uShadow,uBody,uHigh,uRimCol,uLight;
-uniform float uBands,uBandA,uBandB,uOpacity,uRimPow,uRimAmt,uFlat;
-uniform float uRampKeyMode,uLayerU,uLobeU,uGroundY,uHeightSpan,uUseToon;
+uniform float uBands,uBandA,uBandB,uRimPow,uRimAmt,uFlat;
+uniform float uRampKeyMode,uLayerU,uGroundY,uHeightSpan,uUseToon;
 // material.toon.colorSource "ramp": the BODY band's colour comes from
 // material.ramp evaluated in the ramp's own space, and the other two bands are
 // derived from it, so the cluster still posterises while its base colour grades.
@@ -2628,7 +2643,7 @@ uniform float uToonRamp,uToonShadowScale,uToonHighMix,uRampBlendMode,uRampBlendW
 // blob.lightFrom: a fake POINT light the lobes are shaded toward instead of the
 // parallel world light material.toon carries, plus the far/near brightness bias
 // an "orbit" ring applies to whichever half is currently behind the centre.
-uniform float uLightOn,uLightFall,uShade;
+uniform float uLightOn,uLightFall;
 uniform vec3 uLightPos;
 uniform int uBlendMode;
 ${glslRamp}
@@ -2642,7 +2657,7 @@ vec3 safeDirLocal(vec3 v){ float l=length(v); return l>1e-5 ? v/l : vec3(0.,1.,0
 float lobeRampKey(float mode){
   return mode>2.5
     ? clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.)
-    : (mode>0.5 && mode<1.5 ? clamp(uLayerU,0.,1.) : clamp(uLobeU,0.,1.));
+    : (mode>0.5 && mode<1.5 ? clamp(uLayerU,0.,1.) : clamp(vLobe.x,0.,1.));
 }
 float lobeRampKeyBlended(){
   float key=lobeRampKey(uRampKeyMode);
@@ -2651,7 +2666,7 @@ float lobeRampKeyBlended(){
 }
 void main(){
   // The outline hull draws flat and unlit whatever else is set.
-  if(uFlat>.5){ gl_FragColor=vec4(uShadow*uShade*uOpacity,uOpacity); return; }
+  if(uFlat>.5){ gl_FragColor=vec4(uShadow*vLobe.y*vLobe.z,vLobe.z); return; }
   vec3 c;
   if(uUseToon>.5){
     vec3 N=safeDirLocal(vN);
@@ -2687,9 +2702,9 @@ void main(){
     // No toon: the ramp is the colour source, keyed the usual way.
     c=rampColor(lobeRampKeyBlended());
   }
-  c*=uShade;
-  if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
-  else gl_FragColor=vec4(c*uOpacity,uOpacity);
+  c*=vLobe.y;
+  if(uBlendMode==1) gl_FragColor=vec4(c,vLobe.z);
+  else gl_FragColor=vec4(c*vLobe.z,vLobe.z);
 }
 `;
 

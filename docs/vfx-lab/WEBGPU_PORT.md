@@ -137,13 +137,55 @@ Two WebGPU limits bind at this size and shaped the contract:
 
 `npm run verify:webgpu` covers every exemplar under `fixtures/v2` — all fifteen
 — plus the workspace's own Add emitter document and the synthetic sub-emitter
-case, each at an authored active timestamp. It is also the only shader-link
+case, each at an authored active timestamp.
+
+`npm run verify:studio` covers the other path: a preview runtime at the studio's
+size, its warm pass, and animated preview frames. It asserts no console or GPU
+error, a non-blank frame, and that no draw needs more than WebGPU's eight vertex
+buffers. That limit is not theoretical — a crystals layer needed nine and broke
+every studio page while the capture check stayed green, because the capture
+samples one authored timestamp and the preview warms every emitter at once. It is also the only shader-link
 check the renderer needs: a program that fails to build is a GPU error and a
 blank frame, and both fail the run. The WebGL-era `scripts/verify-shader-links.mjs`
 and its test are gone.
 
 Hardware runs use the full Chromium build (`channel: "chromium"`). Playwright's
 default headless shell reports `navigator.gpu` and then hands out no adapter.
+
+### One draw per cluster, not one per lobe
+
+A blob layer built a material per lobe, and a material is a program: `smoke-burst`
+(85 lobes) and `meteor-rain` (290 lobes) asked the device for 557 and 673 render
+pipelines, stalled for seconds compiling them, and then paid for 192 and 591
+draw calls on every frame. Every lobe of a layer is now one instance of a single
+draw — one for the fill, one for the outline hull — with the lobe's own shape,
+placement and shading in an interleaved instance buffer:
+
+| | | |
+| --- | --- | --- |
+| `aLobeA` | seed, amplitude, frequency, squash | shape |
+| `aLobeB` | curl, taper, rotation, hull inflation | shape |
+| `aLobeC` | lobe age, shade, alpha | read by the fragment through one varying |
+| `aLobeP` | centre in layer space, radius | placement |
+
+Instances are written far-to-near each frame, which is what the per-lobe
+`renderOrder` used to do and what a cluster of translucent lobes needs anyway;
+the orbit ring's near/far bias and shade ride in the same buffer. The blend
+state now switches once per layer instead of once per lobe.
+
+| | Meshes | GPU frame at studio size | Pipelines at install |
+| --- | ---: | ---: | ---: |
+| smoke-burst before | 192 | 11.8 ms | 557 |
+| smoke-burst after | 36 | 2.7 ms | — |
+| meteor-rain before | 591 | — | 673 |
+| meteor-rain after | 31 | 2.7 ms | — |
+
+The same fan-out is why two materials of the same kind never shared a compiled
+program: their generated WGSL differs only in the node ids Three bakes into
+identifier names (`fn12` vs `fn1776`, `NodeBuffer_1718` vs `NodeBuffer_19760`),
+and Three's stage cache is keyed by the shader text. Fewer materials is the
+lever that works today; making the text identical would mean one node graph per
+kind with every per-material value resolved through the render context.
 
 ### What the merged renderer looks like next to the pre-merge branch
 
@@ -178,12 +220,13 @@ branch a stage writes — collapse, jitter and `transform.squash` as well as
 tracks, motion and active overrides — and `tests/seek-v2.test.ts` asserts that
 evaluating never mutates the document.
 
-One draw at the sampled time is discarded before the comparisons: Three r186's
-SMAA pass settles on its second draw at a given time and its first output can
-differ along a single edge pixel (about two channel values out of 230,400 in the
-meteor-rain fixture). Everything the suite then asserts — identical pixels after
-seeking back, live animation-frame output equal to the capture, the AA, solo,
-post and time checks — is exact.
+The suite draws until two consecutive samples at the measured time agree before
+it starts comparing: Three r186's SMAA pass settles a draw or two after arriving
+at a new time, and its first output can differ along a single edge pixel (one or
+two channel values out of 230,400 in the meteor-rain and smoke-burst fixtures).
+It fails if a time never settles. Everything the suite then asserts — identical
+pixels after seeking back, live animation-frame output equal to the capture, the
+AA, solo, post and time checks — is exact.
 
 ## Frame and resource ownership
 

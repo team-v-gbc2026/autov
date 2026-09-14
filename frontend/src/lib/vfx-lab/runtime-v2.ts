@@ -45,7 +45,6 @@ import {
   blobLobes,
   blobBounds,
   lobeStateAt,
-  type Lobe,
 } from "./blob-v2";
 import {
   crystalBounds,
@@ -1470,7 +1469,7 @@ function instanceAttributes(
     buffer.needsUpdate = true;
   };
   write(source);
-  return { buffer, attributes, write };
+  return { buffer, attributes, write, array, stride };
 }
 
 /**
@@ -3202,17 +3201,9 @@ function createBlobLayer(
   const group = new THREE.Group();
   group.name = layer.id;
 
-  const makeUniforms = (lobe: Lobe, hull: boolean) => ({
+  const makeUniforms = (hull: boolean) => ({
     uTime: { value: 0 },
-    uSeed: { value: lobe.seed },
-    uAmp: { value: lobe.amplitude },
-    uFreq: { value: lobe.frequency },
     uNoiseSpeed: { value: spec.bump.speed },
-    uSquash: { value: lobe.squash },
-    uCurl: { value: lobe.curl },
-    uTaper: { value: lobe.taper },
-    uRot: { value: lobe.rot },
-    uInflate: { value: 0 },
     uShadow: {
       value: new THREE.Color(
         hull
@@ -3238,9 +3229,7 @@ function createBlobLayer(
     uToonRamp: { value: material.toon?.colorSource === "ramp" ? 1 : 0 },
     uToonShadowScale: { value: material.toon?.shadowScale ?? 0.55 },
     uToonHighMix: { value: material.toon?.highlightMix ?? 0.35 },
-    uOpacity: { value: 1 },
     uLayerU: { value: 0 },
-    uLobeU: { value: 0 },
     uRampKeyMode: { value: rampKeyMode(material) },
     ...rampBlendUniforms(material),
     uGroundY: { value: doc.environment.groundY },
@@ -3251,43 +3240,59 @@ function createBlobLayer(
       value: new THREE.Vector3().fromArray(spec.lightFrom?.position ?? [0, 0, 0]),
     },
     uLightFall: { value: spec.lightFrom?.falloff ?? 0 },
-    uShade: { value: 1 },
     ...rampUniforms(material.ramp),
   });
 
-  const parts = lobes.map((lobe) => {
-    const fillUniforms = makeUniforms(lobe, false);
-    const hullUniforms = makeUniforms(lobe, true);
-    const common = {
-      transparent: false,
-      depthWrite: true,
-      depthTest: true,
-    };
-    const fill = createV2NodeMaterial("blob", fillUniforms, {
-      ...common,
-      side: THREE.FrontSide,
-    });
-    const hull = createV2NodeMaterial("blob", hullUniforms, {
-      ...common,
-      side: THREE.BackSide,
-    });
-    const fillMesh = new THREE.Mesh(geometry, fill);
-    const hullMesh = new THREE.Mesh(geometry, hull);
-    fillMesh.frustumCulled = false;
-    hullMesh.frustumCulled = false;
-    // The smooth filler lobes of a column sit behind the pairs; the hull of a
-    // lobe always sits behind its own fill.
-    const order = index * 8 + lobe.depth * 2;
-    hullMesh.renderOrder = order;
-    fillMesh.renderOrder = order + 1;
-    group.add(hullMesh);
-    group.add(fillMesh);
-    return { lobe, fill, hull, fillMesh, hullMesh, fillUniforms, hullUniforms };
-  });
+  // Every lobe is an instance of one draw. A cluster of ninety lobes used to be
+  // ninety materials, and a material is a program: the document spent seconds
+  // compiling the same shader over and over, and paid for the draw calls again
+  // on every frame.
+  const LOBE_FIELDS = [
+    { name: "aLobeA", items: 4 },   // seed, amplitude, frequency, squash
+    { name: "aLobeB", items: 4 },   // curl, taper, rotation, hull inflation
+    { name: "aLobeC", items: 4 },   // lobe age, shade, alpha, unused
+    { name: "aLobeP", items: 4 },   // centre in layer space, radius
+  ];
+  const build = (hull: boolean) => {
+    const instances = instanceAttributes(lobes.length, LOBE_FIELDS);
+    const instanced = new THREE.InstancedBufferGeometry();
+    instanced.index = geometry.index;
+    instanced.setAttribute("position", geometry.getAttribute("position"));
+    for (const [name, attribute] of Object.entries(instances.attributes))
+      instanced.setAttribute(name, attribute);
+    instanced.instanceCount = 0;
+    const uniforms = makeUniforms(hull);
+    // Both blend states are built up front and the draw swaps between them. The
+    // state is part of the pipeline, so switching it on a live material rebuilt
+    // that pipeline at every loop boundary; two materials over one uniform
+    // record are warmed together and cost nothing to swap.
+    const state = (transparent: boolean) =>
+      createV2NodeMaterial("blob", uniforms, {
+        transparent,
+        depthWrite: !transparent,
+        depthTest: true,
+        side: hull ? THREE.BackSide : THREE.FrontSide,
+      });
+    const opaque = state(false);
+    const material = state(true);
+    const mesh = new THREE.Mesh(instanced, opaque);
+    mesh.frustumCulled = false;
+    // The hull of a lobe always sits behind its own fill.
+    mesh.renderOrder = index * 8 + (hull ? 0 : 1);
+    group.add(mesh);
+    return { instanced, instances, uniforms, opaque, material, mesh };
+  };
+  const hullDraw = build(true);
+  const fillDraw = build(false);
+  const parts = [hullDraw, fillDraw];
+  const stride = LOBE_FIELDS.reduce((total, field) => total + field.items, 0);
+  const drawOrder: number[] = [];
+  const drawDepth: number[] = [];
 
   const span = Math.max(layer.end - layer.start, 1e-6);
   const lightPoint = new THREE.Vector3();
   const scratchLobe = new THREE.Vector3();
+  const lobeStates: ReturnType<typeof lobeStateAt>[] = [];
   return {
     id: layer.id,
     source: layer,
@@ -3329,101 +3334,122 @@ function createBlobLayer(
             .applyMatrix4(camera.matrixWorldInverse).z
         : 0;
       const outline = m.outline;
-      for (const part of parts) {
-        const state = lobeStateAt(
-          part.lobe,
-          blob,
-          age,
-          span,
-          m.opaqueUntil,
-          blobPath,
-        );
-        part.fillMesh.visible = state.alive;
-        part.hullMesh.visible = state.alive && !!outline && flags.textures;
+      const hullVisible = !!outline && flags.textures;
+      hullDraw.mesh.visible = hullVisible;
+      // Alive lobes only, ordered far to near: a cluster of translucent lobes
+      // has to blend back to front, and the far half of an orbit ring has to
+      // draw first whatever its authored order was.
+      drawOrder.length = 0;
+      drawDepth.length = 0;
+      // The blend state is part of the pipeline, so it has to be a function of
+      // the layer, not of whichever lobe happens to be mid-fade: taking it from
+      // the lobes made it flicker frame to frame and rebuilt the pipeline about
+      // a hundred times in five seconds of steady playback. material.opaqueUntil
+      // is the authored switch, so the layer makes it once, on the layer's own
+      // progress, and a layer that never claims to be opaque never writes
+      // depth. The live opacity is not part of it: a track that crosses 1.0
+      // would otherwise flip the pipeline with it.
+      // Purely a function of the layer: material.opaqueUntil is the authored
+      // switch from a solid body to a fading one, and taking it from whichever
+      // lobe happened to be mid-fade made it flicker frame to frame.
+      const fading = m.opaqueUntil === null || u >= m.opaqueUntil;
+      for (let i = 0; i < lobes.length; i++) {
+        const state = lobeStateAt(lobes[i], blob, age, span, m.opaqueUntil, blobPath);
         if (!state.alive) continue;
-        // The far half of an orbit ring is drawn first, smaller and dimmer: a
-        // ring whose two halves draw the same size reads as a flat annulus.
+        const depth = scratchLobe
+          .fromArray(state.position)
+          .applyMatrix4(group.matrixWorld)
+          .applyMatrix4(camera.matrixWorldInverse).z;
+        drawOrder.push(i);
+        drawDepth[i] = depth;
+        lobeStates[i] = state;
+      }
+      drawOrder.sort((a, b) => drawDepth[a] - drawDepth[b]);
+      const fillArray = fillDraw.instances.array;
+      const hullArray = hullDraw.instances.array;
+      for (let slot = 0; slot < drawOrder.length; slot++) {
+        const index = drawOrder[slot];
+        const lobe = lobes[index];
+        const state = lobeStates[index];
+        // The far half of an orbit ring draws smaller and dimmer: a ring whose
+        // two halves draw the same size reads as a flat annulus.
         let bias = 1;
         let shade = 1;
         if (orbiting) {
-          const depth = scratchLobe
-            .fromArray(state.position)
-            .applyMatrix4(group.matrixWorld)
-            .applyMatrix4(camera.matrixWorldInverse).z;
-          const far = depth < centreDepth;
+          const far = drawDepth[index] < centreDepth;
           bias = far ? 0.88 : 1.06;
           shade = far ? 0.58 : 1.02;
-          const order = index * 8 + (far ? 0 : 4);
-          part.hullMesh.renderOrder = order;
-          part.fillMesh.renderOrder = order + 1;
         }
         const radius = state.radius * bias;
-        part.fillMesh.position.fromArray(state.position);
-        part.fillMesh.scale.setScalar(radius);
-        part.hullMesh.position.fromArray(state.position);
-        part.hullMesh.scale.setScalar(radius);
         const alpha = state.alpha * m.opacity;
-        // Opaque and depth-writing until the lobe starts fading; after that it
-        // joins the transparent pass, which three.js draws last and sorts by
-        // depth on its own.
-        for (const [mat, uniforms] of [
-          [part.fill, part.fillUniforms],
-          [part.hull, part.hullUniforms],
-        ] as const) {
-          // The blend state is part of the pipeline, and a lobe that turns
-          // transparent mid-playback has to rebuild it in the same frame: left
-          // to Three's own lazy rebuild, the first sample at a new time draws
-          // with the previous frame's blending.
-          const transparent = state.fading || alpha < 1;
-          if (mat.transparent !== transparent) {
-            mat.transparent = transparent;
-            mat.depthWrite = !transparent;
-            mat.needsUpdate = true;
-          }
-          uniforms.uOpacity.value = alpha;
-          uniforms.uTime.value = age;
-          uniforms.uLayerU.value = u;
-          uniforms.uLobeU.value = state.age;
-          uniforms.uSquash.value = part.lobe.squash * (blob.squash / (spec.squash || 1));
-          uniforms.uAmp.value = flags.textures
-            ? part.lobe.amplitude * (blob.bump.amplitude / (spec.bump.amplitude || 1))
-            : 0;
-          uniforms.uNoiseSpeed.value = blob.bump.speed;
-          uniforms.uRampKeyMode.value = rampKeyMode(m);
-          writeRampBlend(uniforms as Record<string, IUniform>, m);
-          uniforms.uHeightSpan.value = m.ramp.heightSpan;
-          uniforms.uGroundY.value = doc.environment.groundY;
-          uniforms.uUseToon.value = m.toon ? 1 : 0;
-          uniforms.uShade.value = shade;
-          uniforms.uLightOn.value = lightFrom ? 1 : 0;
-          uniforms.uLightFall.value = lightFrom?.falloff ?? 0;
-          (uniforms.uLightPos.value as THREE.Vector3).copy(lightPoint);
-          writeRamp(uniforms as Record<string, IUniform>, m.ramp);
+        const at = slot * stride;
+        const amplitude = flags.textures
+          ? lobe.amplitude * (blob.bump.amplitude / (spec.bump.amplitude || 1))
+          : 0;
+        for (const array of [fillArray, hullArray]) {
+          array[at] = lobe.seed;
+          array[at + 1] = amplitude;
+          array[at + 2] = lobe.frequency;
+          array[at + 3] = lobe.squash * (blob.squash / (spec.squash || 1));
+          array[at + 4] = lobe.curl;
+          array[at + 5] = lobe.taper;
+          array[at + 6] = lobe.rot;
+          array[at + 8] = state.age;
+          array[at + 9] = shade;
+          array[at + 10] = alpha;
+          array[at + 12] = state.position[0];
+          array[at + 13] = state.position[1];
+          array[at + 14] = state.position[2];
+          array[at + 15] = radius;
         }
-        if (m.toon) {
-          (part.fillUniforms.uShadow.value as THREE.Color).set(m.toon.shadow);
-          (part.fillUniforms.uBody.value as THREE.Color).set(m.toon.body);
-          (part.fillUniforms.uHigh.value as THREE.Color).set(m.toon.highlight);
-          (part.fillUniforms.uRimCol.value as THREE.Color).set(m.toon.highlight);
-          (part.fillUniforms.uLight.value as THREE.Vector3).fromArray(m.toon.light);
-          part.fillUniforms.uBandA.value = m.toon.thresholds[0];
-          part.fillUniforms.uBandB.value = m.toon.thresholds[1];
-          part.fillUniforms.uBands.value = m.toon.bands;
-          part.fillUniforms.uRimPow.value = m.toon.rim.power;
-          part.fillUniforms.uRimAmt.value = m.toon.rim.amount;
-          part.fillUniforms.uToonRamp.value =
-            m.toon.colorSource === "ramp" ? 1 : 0;
-          part.fillUniforms.uToonShadowScale.value = m.toon.shadowScale;
-          part.fillUniforms.uToonHighMix.value = m.toon.highlightMix;
-        }
-        if (outline) {
-          (part.hullUniforms.uShadow.value as THREE.Color).set(outline.color);
-          // A constant world-space line: the hull is inflated in the lobe's own
-          // unit space, so the push has to be divided by the live radius.
-          part.hullUniforms.uInflate.value =
-            outline.width / Math.max(radius, 0.12);
-        }
+        fillArray[at + 7] = 0;
+        // A constant world-space line: the hull is inflated in the lobe's own
+        // unit space, so the push has to be divided by the live radius.
+        hullArray[at + 7] = outline ? outline.width / Math.max(radius, 0.12) : 0;
       }
+      for (const draw of parts) {
+        draw.instanced.instanceCount = drawOrder.length;
+        draw.instances.buffer.needsUpdate = true;
+      }
+      // The blend state is part of the pipeline, so it switches once per layer
+      // rather than once per lobe — and only when it actually changes. Forcing
+      // the rebuild here instead of letting Three do it lazily made a lobe that
+      // crosses the fade threshold recompile the pipeline on almost every
+      // frame: a hundred pipelines in five seconds of steady playback.
+      for (const draw of parts) {
+        draw.mesh.material = fading ? draw.material : draw.opaque;
+        const uniforms = draw.uniforms;
+        uniforms.uTime.value = age;
+        uniforms.uLayerU.value = u;
+        uniforms.uNoiseSpeed.value = blob.bump.speed;
+        uniforms.uRampKeyMode.value = rampKeyMode(m);
+        writeRampBlend(uniforms as Record<string, IUniform>, m);
+        uniforms.uHeightSpan.value = m.ramp.heightSpan;
+        uniforms.uGroundY.value = doc.environment.groundY;
+        uniforms.uUseToon.value = m.toon ? 1 : 0;
+        uniforms.uLightOn.value = lightFrom ? 1 : 0;
+        uniforms.uLightFall.value = lightFrom?.falloff ?? 0;
+        (uniforms.uLightPos.value as THREE.Vector3).copy(lightPoint);
+        writeRamp(uniforms as Record<string, IUniform>, m.ramp);
+      }
+      if (m.toon) {
+        const uniforms = fillDraw.uniforms;
+        (uniforms.uShadow.value as THREE.Color).set(m.toon.shadow);
+        (uniforms.uBody.value as THREE.Color).set(m.toon.body);
+        (uniforms.uHigh.value as THREE.Color).set(m.toon.highlight);
+        (uniforms.uRimCol.value as THREE.Color).set(m.toon.highlight);
+        (uniforms.uLight.value as THREE.Vector3).fromArray(m.toon.light);
+        uniforms.uBandA.value = m.toon.thresholds[0];
+        uniforms.uBandB.value = m.toon.thresholds[1];
+        uniforms.uBands.value = m.toon.bands;
+        uniforms.uRimPow.value = m.toon.rim.power;
+        uniforms.uRimAmt.value = m.toon.rim.amount;
+        uniforms.uToonRamp.value = m.toon.colorSource === "ramp" ? 1 : 0;
+        uniforms.uToonShadowScale.value = m.toon.shadowScale;
+        uniforms.uToonHighMix.value = m.toon.highlightMix;
+      }
+      if (outline)
+        (hullDraw.uniforms.uShadow.value as THREE.Color).set(outline.color);
     },
     bounds(time, push) {
       const { layer: live, visible } = evaluateLayerV2(layer, time);
@@ -3443,9 +3469,10 @@ function createBlobLayer(
     },
     dispose() {
       geometry.dispose();
-      for (const part of parts) {
-        part.fill.dispose();
-        part.hull.dispose();
+      for (const draw of parts) {
+        draw.instanced.dispose();
+        draw.material.dispose();
+        draw.opaque.dispose();
       }
     },
   };
@@ -3499,12 +3526,18 @@ function createCrystalsLayer(
       start[i] = spike.start;
       seed[i] = spike.seed;
     });
-    g.setAttribute("aDir", new THREE.InstancedBufferAttribute(direction, 3));
-    g.setAttribute("aOrg", new THREE.InstancedBufferAttribute(origin, 3));
-    g.setAttribute("aLen", new THREE.InstancedBufferAttribute(length, 1));
-    g.setAttribute("aWid", new THREE.InstancedBufferAttribute(width, 1));
-    g.setAttribute("aT0", new THREE.InstancedBufferAttribute(start, 1));
-    g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+    // Six separate instance buffers plus position, normal and aAlong is nine,
+    // one past WebGPU's limit. They share one interleaved buffer instead.
+    const spikes = instanceAttributes(table.length, [
+      { name: "aDir", items: 3, data: direction },
+      { name: "aOrg", items: 3, data: origin },
+      { name: "aLen", items: 1, data: length },
+      { name: "aWid", items: 1, data: width },
+      { name: "aT0", items: 1, data: start },
+      { name: "aSeed", items: 1, data: seed },
+    ]);
+    for (const [name, attribute] of Object.entries(spikes.attributes))
+      g.setAttribute(name, attribute);
     g.instanceCount = table.length;
     return g;
   };
@@ -5194,6 +5227,12 @@ export class VfxRuntimeV2 {
       // r186 compileAsync uses a top-level render context; the nested scene
       // pass has a different cache key. Warm the actual graph at a small size
       // so every delayed emitter is prepared in playback's render context.
+      //
+      // One sample at each layer's midpoint, not several across its life:
+      // sampling three points and forcing every child mesh visible measured
+      // worse on both counts, because it compiles pipelines for lobes that
+      // never draw. The cost here is dominated by the number of distinct
+      // materials, not by how many states each one is warmed in.
       this.renderer.setSize(64, 64, false);
       for (const object of this.objects) {
         const layer = object.source;
