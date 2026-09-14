@@ -37,7 +37,7 @@ they never enter a build or a deployment.
   tests and harnesses; `fixtures-server.ts` fetches the bucket copy first (short timeout) and
   falls back to the local file, so the dev gallery, `/dev/vfx-studio-v2` and `/dev/vfx-ui-review`
   work offline.
-- Upload: `npm run upload:vfx-assets` (service role key in `frontend/.env.local`,
+- Upload: `npm run upload:vfx-assets` (secret key in `frontend/.env.local`,
   `--dry-run` / `--verify` / `--textures <dir>`).
 - Headless harnesses serve local PNGs from `$VFX_ASSET_DIR`, `public/textures/v2`,
   `.vfx-textures/v2` or `../textures-codex/library`, so CI needs no network.

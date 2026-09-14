@@ -90,7 +90,7 @@ test("forging the database pointer cannot grant access to another eve session", 
 test("an idle owned session accepts a follow-up and preserves Eve delivery metadata", async () => {
   mockDatabase();
   process.env.AI_GATEWAY_API_KEY = "test-key";
-  process.env.SUPABASE_SERVICE_ROLE_KEY = "service-test";
+  process.env.SUPABASE_SECRET_KEY = "service-test";
   const databaseFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));

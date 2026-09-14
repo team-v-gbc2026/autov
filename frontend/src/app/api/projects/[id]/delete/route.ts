@@ -17,8 +17,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (userError || !user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
 
   const { url, key } = supabaseConfig();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const admin = serviceRoleKey ? createAdminClient(url, serviceRoleKey) : null;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  const admin = secretKey ? createAdminClient(url, secretKey) : null;
 
   const db = admin ?? supabase;
   const useServiceRole = !!admin;
