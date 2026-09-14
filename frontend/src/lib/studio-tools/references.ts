@@ -1,7 +1,10 @@
 import sharp from "sharp";
+import { createHash } from "node:crypto";
+import { TextureAssetSchema, type TextureAsset } from "../vfx-lab/schema";
 import { type Identity, verifyIdentity, type Operation } from "./server";
 import { OperationError } from "./operations";
 import { referenceParts } from "../../../agent/lib/references";
+import { productionBoardAssets } from "./board-assets";
 export async function listReferences(
   identity: Identity,
   attached: string[] = [],
@@ -15,7 +18,7 @@ export async function listReferences(
     .order("created_at");
   if (error)
     throw new OperationError("UNAVAILABLE", "Could not read reference board.");
-  return data.map((asset) => ({
+  return (await productionBoardAssets(data)).map((asset) => ({
     id: asset.id,
     name: asset.name,
     mediaType: asset.mime_type,
@@ -34,6 +37,72 @@ export async function inspectReferences(identity: Identity, ids: string[]) {
     identity.projectId,
     ids,
   );
+}
+
+/** Stable board identity for an immutable, operation-created runtime texture. */
+export async function registerEffectTexture(
+  identity: Identity,
+  operation: Operation,
+  input: TextureAsset,
+  role: string,
+) {
+  const asset = TextureAssetSchema.parse(input);
+  const bytes = Buffer.from(asset.data.split(",")[1], "base64");
+  if (createHash("sha256").update(bytes).digest("hex") !== asset.sha256)
+    throw new OperationError("INVALID_INPUT", "Texture content hash mismatch.");
+  const digest = createHash("sha256")
+    .update(
+      `${identity.projectId}/${asset.model === "reusable-v2-library" ? "library" : operation.id}/${asset.id}/${asset.sha256}`,
+    )
+    .digest("hex");
+  const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const client = await verifyIdentity(identity);
+  const path = `${identity.userId}/${identity.projectId}/${id}`;
+  const { error: uploadError } = await client.storage
+    .from("references")
+    .upload(path, bytes, { contentType: "image/png", upsert: true });
+  if (uploadError)
+    throw new OperationError(
+      "UNAVAILABLE",
+      "Could not save effect texture to the reference board.",
+    );
+  const name = `Effect texture · ${role.replace(/[\[\]\r\n]/g, " ").slice(0, 60)}`;
+  const { error } = await client.from("assets").upsert(
+    {
+      id,
+      project_id: identity.projectId,
+      name,
+      storage_path: path,
+      mime_type: "image/png",
+      size_bytes: bytes.length,
+    },
+    { onConflict: "id", ignoreDuplicates: true },
+  );
+  if (error)
+    throw new OperationError(
+      "UNAVAILABLE",
+      "Could not register effect texture on the board.",
+    );
+  const { error: provenanceError } = await client
+    .from("studio_reference_provenance")
+    .upsert({
+      asset_id: id,
+      operation_id: operation.id,
+      source_revision: operation.expected_revision,
+      timestamps: [],
+    });
+  if (provenanceError)
+    throw new OperationError(
+      "UNAVAILABLE",
+      "Could not record effect texture provenance.",
+    );
+  return {
+    referenceId: id,
+    textureId: asset.id,
+    role,
+    sha256: asset.sha256,
+    tag: `@[${name}](reference:${id})`,
+  };
 }
 /** Shared asset-registration boundary. IDs are operation-derived for replay safety. */
 export async function registerCapture(
@@ -62,19 +131,17 @@ export async function registerCapture(
       "UNAVAILABLE",
       "Could not save preview to the board.",
     );
-  const { error } = await client
-    .from("assets")
-    .upsert(
-      {
-        id,
-        project_id: identity.projectId,
-        name: `Preview · revision ${operation.expected_revision}`,
-        storage_path: path,
-        mime_type: "image/png",
-        size_bytes: png.length,
-      },
-      { onConflict: "id", ignoreDuplicates: true },
-    );
+  const { error } = await client.from("assets").upsert(
+    {
+      id,
+      project_id: identity.projectId,
+      name: `Preview · revision ${operation.expected_revision}`,
+      storage_path: path,
+      mime_type: "image/png",
+      size_bytes: png.length,
+    },
+    { onConflict: "id", ignoreDuplicates: true },
+  );
   if (error)
     throw new OperationError(
       "UNAVAILABLE",

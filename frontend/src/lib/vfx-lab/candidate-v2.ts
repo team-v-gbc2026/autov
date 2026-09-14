@@ -15,11 +15,9 @@ import { techniqueBrief } from "./techniques-v2";
 import { lintDocumentV2, type VfxDocumentV2 } from "./schema-v2";
 
 /**
- * The candidate stage is shared by the dev pipeline (`/api/local-vfx`) and the
- * product path (`studio-tools/generation`). Both send the same instruction and
- * the same payload keys, so an improvement to one cannot silently miss the
- * other; only the per-candidate variation sentence differs, and only the dev
- * path has three candidates to vary.
+ * The local benchmark pipeline uses exemplar-anchored candidate generation.
+ * Studio uses Eve's explicit art direction through author-candidate.ts and
+ * shares the schema, technique source, renderer and GPU repair below.
  */
 export const CANDIDATE_V2_SYSTEM = `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete autov.lab/2 document. The example is the scale reference: match its particle counts, sizes, light intensity and silhouette extent, and change the shapes, colors and timing to fit the plan.`;
 
@@ -66,7 +64,7 @@ export function candidatePayloadV2(input: {
  * are not repaired: the only way to use fewer is to make layers share a palette
  * or a procedural, which changes the look, so that one is reported instead.
  */
-function fitGpuBudget(doc: VfxDocumentV2): string[] {
+export function fitGpuBudget(doc: VfxDocumentV2): string[] {
   const changes: string[] = [];
   const scaleCounts = (factor: number, reason: string) => {
     for (const layer of doc.layers) {

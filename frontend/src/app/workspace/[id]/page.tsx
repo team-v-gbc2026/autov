@@ -1,3 +1,4 @@
+import { productionBoardAssets } from "@/lib/studio-tools/board-assets";
 import { notFound } from "next/navigation";
 import Studio from "@/components/studio";
 import { requireUser } from "@/lib/supabase/session";
@@ -15,7 +16,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     supabase.from("effect_versions").select("id,schema_version,created_at").eq("project_id", id).order("created_at", { ascending: false }),
   ]);
   if (assets.error || generations.error || versions.error) throw new Error("Could not load project history. Please retry.");
-  const references = await Promise.all((assets.data || []).map(async asset => {
+  const references = await Promise.all((await productionBoardAssets(assets.data || [])).map(async asset => {
     const { data, error } = await supabase.storage.from("references").createSignedUrl(asset.storage_path, 3600);
     if (error || !data) throw new Error("Could not load a reference image. Please retry.");
     return { id: asset.id, name: asset.name, type: asset.mime_type, url: data.signedUrl };

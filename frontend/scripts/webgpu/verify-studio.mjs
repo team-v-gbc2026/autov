@@ -50,11 +50,16 @@ const browser = await chromium.launch(webgpuBrowserOptions());
 const results = [];
 try {
   for (const id of ids) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 800 },
+    });
     const errors = [];
     page.on("pageerror", (error) => errors.push("pageerror: " + error.message));
     page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
+      if (message.type() === "error") {
+        errors.push(message.text());
+        console.error(message.text());
+      }
     });
     await page.goto("http://127.0.0.1:" + server.address().port);
     await page.addScriptTag({ url: "/probe.js" });
@@ -63,58 +68,72 @@ try {
         ? null
         : JSON.parse(await readFile(`fixtures/v2/${id}/document.json`, "utf8"));
     console.log("Checking", id);
-    const result = await page.evaluate(async ({ doc }) => {
-      const host = document.getElementById("host");
-      const runtime = new Probe.VfxRuntimeV2(host, { preview: true });
-      try {
-        runtime.setInteractive(false);
-        const document_ = doc ?? Probe.createDocument("Workspace emitter");
-        runtime.setDocument(document_);
-        runtime.resize(1264, 790);
-        // whenReady runs the warm pass, which is where a preview-only draw is
-        // built for the first time.
-        await runtime.whenReady();
-        const device = runtime.renderer.backend.device;
-        device.addEventListener("uncapturederror", (event) =>
-          console.error("GPU " + event.error.message),
-        );
-        // WebGPU binds at most eight vertex buffers per pipeline.
-        const draws = [];
-        runtime.scene.traverse((object) => {
-          if (!object.geometry || !object.material) return;
-          const buffers = new Set();
-          for (const attribute of Object.values(object.geometry.attributes))
-            buffers.add(attribute.isInterleavedBufferAttribute ? attribute.data : attribute);
-          draws.push({ name: object.name || object.parent?.name || object.type, buffers: buffers.size });
-        });
-        const started = performance.now();
-        const frames = 24;
-        for (let i = 0; i < frames; i++)
-          runtime.render((document_.duration * i) / (frames - 1));
-        await device.queue.onSubmittedWorkDone();
-        const frameMs = (performance.now() - started) / frames;
-        const scratch = document.createElement("canvas");
-        scratch.width = 320;
-        scratch.height = 180;
-        const context = scratch.getContext("2d", { willReadFrequently: true });
-        runtime.render(document_.duration * 0.5);
-        context.drawImage(runtime.renderer.domElement, 0, 0, 320, 180);
-        const pixels = context.getImageData(0, 0, 320, 180).data;
-        let lit = 0;
-        for (let i = 0; i < pixels.length; i += 4)
-          if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 24) lit++;
-        return {
-          draws: draws.length,
-          worstBuffers: Math.max(...draws.map((draw) => draw.buffers)),
-          over: draws.filter((draw) => draw.buffers > 8).map((draw) => draw.name),
-          frameMs: Math.round(frameMs * 10) / 10,
-          lit,
-          png: scratch.toDataURL("image/png"),
-        };
-      } finally {
-        runtime.dispose();
-      }
-    }, { doc });
+    const result = await page.evaluate(
+      async ({ doc }) => {
+        const host = document.getElementById("host");
+        const runtime = new Probe.VfxRuntimeV2(host, { preview: true });
+        try {
+          runtime.setInteractive(false);
+          const document_ = doc ?? Probe.createDocument("Workspace emitter");
+          runtime.setDocument(document_);
+          runtime.resize(1264, 790);
+          // whenReady runs the warm pass, which is where a preview-only draw is
+          // built for the first time.
+          await runtime.whenReady();
+          const device = runtime.renderer.backend.device;
+          device.addEventListener("uncapturederror", (event) =>
+            console.error("GPU " + event.error.message),
+          );
+          // WebGPU binds at most eight vertex buffers per pipeline.
+          const draws = [];
+          runtime.scene.traverse((object) => {
+            if (!object.geometry || !object.material) return;
+            const buffers = new Set();
+            for (const attribute of Object.values(object.geometry.attributes))
+              buffers.add(
+                attribute.isInterleavedBufferAttribute
+                  ? attribute.data
+                  : attribute,
+              );
+            draws.push({
+              name: object.name || object.parent?.name || object.type,
+              buffers: buffers.size,
+            });
+          });
+          const started = performance.now();
+          const frames = 24;
+          for (let i = 0; i < frames; i++)
+            runtime.render((document_.duration * i) / (frames - 1));
+          await device.queue.onSubmittedWorkDone();
+          const frameMs = (performance.now() - started) / frames;
+          const scratch = document.createElement("canvas");
+          scratch.width = 320;
+          scratch.height = 180;
+          const context = scratch.getContext("2d", {
+            willReadFrequently: true,
+          });
+          runtime.render(document_.duration * 0.5);
+          context.drawImage(runtime.renderer.domElement, 0, 0, 320, 180);
+          const pixels = context.getImageData(0, 0, 320, 180).data;
+          let lit = 0;
+          for (let i = 0; i < pixels.length; i += 4)
+            if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 24) lit++;
+          return {
+            draws: draws.length,
+            worstBuffers: Math.max(...draws.map((draw) => draw.buffers)),
+            over: draws
+              .filter((draw) => draw.buffers > 8)
+              .map((draw) => draw.name),
+            frameMs: Math.round(frameMs * 10) / 10,
+            lit,
+            png: scratch.toDataURL("image/png"),
+          };
+        } finally {
+          await runtime.dispose();
+        }
+      },
+      { doc },
+    );
     await writeFile(
       path.join(output, `${id}-studio.png`),
       Buffer.from(result.png.split(",")[1], "base64"),
@@ -135,7 +154,9 @@ try {
     path.join(output, "report.json"),
     JSON.stringify({ browser: browser.version(), results }, null, 2),
   );
-  console.log(`Verified ${results.length} studio previews. Evidence: ${output}`);
+  console.log(
+    `Verified ${results.length} studio previews. Evidence: ${output}`,
+  );
 } finally {
   await browser.close();
   server.close();

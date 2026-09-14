@@ -353,8 +353,26 @@ export const LICK_BUDGET_V2 = 24;
 
 // Normalized domain 0..1; the meaning of the domain depends on the field
 // (particle life, layer time, distance along a mesh axis, ...).
+// Declarative, bounded formulas. They compile exactly to the existing piecewise
+// curve evaluator, so CPU integration and GPU playback share one representation.
+export const CurveFormulaSchema = z.object({
+  kind: z.enum(["constant", "ramp", "smooth", "envelope"]),
+  start: scalar(-20, 20),
+  end: scalar(-20, 20),
+  peak: scalar(-20, 20),
+  attack: scalar(0.001, 0.499),
+  release: scalar(0.501, 0.999),
+}).strict();
+export type CurveFormula = z.infer<typeof CurveFormulaSchema>;
+export function compileCurveFormula(f: CurveFormula): { keys: [number, number][]; ease: "linear" | "smooth" } {
+  if (f.kind === "constant") return { keys: [[0, f.start], [1, f.start]], ease: "linear" };
+  if (f.kind === "envelope") return { keys: [[0, f.start], [f.attack, f.peak], [f.release, f.peak], [1, f.end]], ease: "smooth" };
+  return { keys: [[0, f.start], [1, f.end]], ease: f.kind === "smooth" ? "smooth" : "linear" };
+}
+
 export const CurveSchema = z
   .object({
+    formula: CurveFormulaSchema.nullable().optional(),
     keys: z
       .array(z.tuple([scalar(0, 1), scalar(-20, 20)]))
       .min(2)
@@ -888,9 +906,11 @@ export const SymbolSchema = z
       .nullable(),
   })
   .strict();
+export const SHADING_MODES_V2 = ["unlit", "litSmoke"] as const;
 
 export const MaterialSchema = z
   .object({
+    shading: z.enum(SHADING_MODES_V2).default("unlit"),
     blend: z.enum(BLEND_MODES_V2),
     ramp: RampSchema,
     opacity: scalar(0, 1),
@@ -2666,6 +2686,7 @@ export function isV2(doc: unknown): doc is VfxDocumentV2 {
 }
 
 function checkCurve(curve: Curve, label: string) {
+  if (curve.formula) Object.assign(curve, compileCurveFormula(curve.formula));
   for (let i = 1; i < curve.keys.length; i++)
     if (curve.keys[i][0] <= curve.keys[i - 1][0])
       throw new Error(`Curve keys must ascend in time: ${label}`);
@@ -3076,6 +3097,9 @@ export function validateDocumentV2(input: unknown, options: { workspace?: boolea
       if (layer.light)
         throw new Error(`Only light layers carry light: ${label}`);
       if (!layer.material) throw new Error(`Layer needs a material: ${label}`);
+      if (layer.material.shading === "litSmoke" && layer.kind !== "particles" &&
+          !(MESH_KINDS_V2 as readonly string[]).includes(layer.kind))
+        throw new Error(`litSmoke is supported on particles and mesh kinds only: ${label}`);
       materialCurves(layer.material, label);
       for (const id of [
         layer.material.mask.textureId,
@@ -3687,6 +3711,7 @@ export function defaultCurve(from = 0, to = 1): Curve {
 
 export function defaultMaterial(): Material {
   return {
+    shading: "unlit",
     blend: "additive",
     ramp: {
       space: "life",
@@ -4288,6 +4313,7 @@ export const ErosionWireSchema = ErosionSchema.extend({
 });
 export const MaterialWireSchema = MaterialSchema.extend({
   ramp: RampWireSchema,
+  shading: z.enum(SHADING_MODES_V2),
   mask: MaskWireSchema,
   noise: NoiseWireSchema.nullable(),
   erosion: ErosionWireSchema.nullable(),

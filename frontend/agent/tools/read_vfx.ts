@@ -14,9 +14,7 @@ export default defineTool({
       ...(await readEffect(await toolIdentity(ctx), input.layerIds)),
       selectedEmitterId:
         ctx.session.auth.current?.attributes?.selectedEmitterId ?? null,
-      ...(input.layerIds.length
-        ? { authoringGuide: VFX_AUTHORING_GUIDE_V2 }
-        : {}),
+      authoringGuide: VFX_AUTHORING_GUIDE_V2,
     };
   },
 });

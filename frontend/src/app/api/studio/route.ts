@@ -1,3 +1,4 @@
+import { productionBoardAssets } from "@/lib/studio-tools/board-assets";
 import { z } from "zod";
 import { authorizeProject } from "../../../../agent/lib/database";
 import { ChatError, responseError } from "../../../../agent/lib/contracts";
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
       revision: Number(documentResult.data.revision),
       document: validateWorkspaceDocumentV2(documentResult.data.document),
     };
-    const operations = operationResult.data, assets = assetResult.data;
+    const operations = operationResult.data, assets = await productionBoardAssets(assetResult.data);
     return Response.json(
       { ...state, operations, assets },
       { headers: { "Cache-Control": "no-store" } },

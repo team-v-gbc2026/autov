@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useImperativeHandle, type Ref } from "react";
+import IterationOffer from "./iteration-offer";
 import ChatMessage, { ChatTargets } from "./chat-message";
 import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
@@ -311,8 +312,19 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
       streaming={message.metadata?.status === "streaming"}
       caption={message.role === "user" ? message.metadata?.status === "failed" ? "Not confirmed · draft restored" : message.metadata?.optimistic ? "Sending…" : undefined : undefined}
     />)}
+    <IterationOffer projectId={projectId} busy={active || resuming || agent.status === "error"} onContinue={async offer => {
+      if (sending.current || active || resuming) return false;
+      sending.current = true;
+      try {
+        await vfx?.beforeSend?.();
+        await agent.send(`Continue iterating on the displayed effect at revision ${offer.revision}. Use refine_vfx to review and improve this effect.`, {
+          clientContext: { referenceIds: [], refineOperationId: offer.operationId, selectedEmitterId: vfx?.selectedEmitterId ?? null },
+        });
+        return true;
+      } finally { sending.current = false; }
+    }} />
     {resuming && <div className={styles.reconnecting} role="status"><svg className={styles.spinner} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity=".2" /><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg><span>Reconnecting</span></div>}
-    {active && <div className={styles.activityRow}><span className={styles.activityBrand}><span className={styles.mark} aria-hidden="true">✦</span> AutoV</span><ToolHint key={Object.values(toolActivity).join(",")} projectId={projectId} generationCallId={Object.entries(toolActivity).find(([, name]) => name === "generate_vfx")?.[0]} tools={Object.values(toolActivity)} submitting={agent.status === "submitted"} /></div>}
+    {active && <div className={styles.activityRow}><span className={styles.activityBrand}><span className={styles.mark} aria-hidden="true">✦</span> AutoV</span><ToolHint key={Object.values(toolActivity).join(",")} projectId={projectId} generationCallId={Object.entries(toolActivity).find(([, name]) => (name === "generate_vfx" || name === "refine_vfx"))?.[0]} tools={Object.values(toolActivity)} submitting={agent.status === "submitted"} /></div>}
     {(sendError || agent.error) && <p className={`${styles.notice} ${styles.error}`} role="alert">{sendError || "The assistant is unavailable. Reconnect to check the conversation before retrying."}
       <button type="button" onClick={reconnect}>Reconnect</button>
     </p>}
@@ -325,6 +337,7 @@ const referenceHints = ["Looking at your references…", "Exploring the details�
 const previewHints = ["Preparing your preview…", "Framing your effect…", "Capturing the moment…"];
 function ToolHint({ tools, submitting, projectId, generationCallId }: { tools: string[]; submitting: boolean; projectId: string; generationCallId?: string }) {
   const hints = tools.includes("generate_reference_image") ? ["Creating your image…", "Bringing your reference to life…", "Working on the details…"]
+    : tools.includes("refine_vfx") ? ["Reviewing and iterating on your effect…"]
     : tools.includes("generate_vfx") ? generationHints
     : tools.includes("preview_vfx") ? previewHints
     : tools.some(tool => tool.includes("reference")) ? referenceHints

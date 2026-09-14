@@ -150,7 +150,7 @@ export default function Studio({
     if (["preview", "capture_candidate"].includes(operation.kind)) {
       const { captureV2 } = await import("@/lib/vfx-lab/capture-v2");
       const captureDoc = operation.kind === "capture_candidate" ? validateWorkspaceDocumentV2(operation.input.document) : currentDocument;
-      const evidence = await captureV2(captureDoc, { solo: typeof operation.input.layerId === "string" ? operation.input.layerId : undefined, times: operation.input.times as number[] | undefined });
+      const evidence = await captureV2(captureDoc, { motionEvidence: false, solo: typeof operation.input.layerId === "string" ? operation.input.layerId : undefined, times: operation.input.times as number[] | undefined });
       return { sheet: evidence.sheet, times: evidence.times, renderedPixels: evidence.renderedPixels || 0 };
     }
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));

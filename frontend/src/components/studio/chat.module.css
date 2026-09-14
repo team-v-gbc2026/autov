@@ -58,3 +58,10 @@
 .activityBrand { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; color: #b6c0be; font-size: 10px; }
 .activityRow > .toolHint, .activityRow > .generationProgress { flex: 1; min-width: 0; }
 .generationHintText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.iterationOffer { padding: 12px 0; font-size: 13px; color: var(--text-secondary, #aaa); }
+.iterationOffer p { margin: 0 0 10px; }
+.iterationOffer button { border: 1px solid currentColor; border-radius: 999px; padding: 7px 16px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+.iterationOffer button:hover { color: var(--text-primary, #fff); }
+.iterationOffer button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.iterationOffer button:disabled { opacity: .5; cursor: default; }

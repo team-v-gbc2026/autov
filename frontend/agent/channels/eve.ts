@@ -12,13 +12,14 @@ import { configurationError } from "../lib/config";
 const base = eveChannel({
   auth: async request => {
     const { userId, project } = await authorizeProject(request);
-    let referenceIds: string[] = [], selectedEmitterId = "";
+    let referenceIds: string[] = [], selectedEmitterId = "", refineOperationId = "";
     if (request.method === "POST") {
       const body = await request.clone().json().catch(() => ({}));
       referenceIds = Array.isArray(body.clientContext?.referenceIds) ? body.clientContext.referenceIds.filter((id: unknown) => typeof id === "string").slice(0, 8) : [];
+      refineOperationId = typeof body.clientContext?.studio?.refineOperationId === "string" ? body.clientContext.studio.refineOperationId : "";
       selectedEmitterId = typeof body.clientContext?.studio?.selectedEmitterId === "string" ? body.clientContext.studio.selectedEmitterId : "";
     }
-    return { authenticator: "supabase", principalType: "user", principalId: userId, attributes: { projectId: project.id, referenceIds, selectedEmitterId } };
+    return { authenticator: "supabase", principalType: "user", principalId: userId, attributes: { projectId: project.id, referenceIds, selectedEmitterId, refineOperationId } };
   },
   turnPolicy: "queue",
   uploadPolicy: { allowedMediaTypes: ["image/jpeg"], maxBytes: 20 * 1024 * 1024 },
@@ -126,7 +127,7 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
         if (prepareError) throw new ChatError("CONVERSATION_UNAVAILABLE", "Could not prepare the conversation.", 503);
         stage = "create_session";
         const session = await args.from(address).send(message, {
-          auth: { authenticator: "supabase", principalType: "user", principalId: access.userId, attributes: { projectId: authorizedProjectId, referenceIds: turn.referenceIds, selectedEmitterId: typeof turn.context.selectedEmitterId === "string" ? turn.context.selectedEmitterId : "" } },
+          auth: { authenticator: "supabase", principalType: "user", principalId: access.userId, attributes: { projectId: authorizedProjectId, referenceIds: turn.referenceIds, refineOperationId: turn.context.refineOperationId ?? "", selectedEmitterId: typeof turn.context.selectedEmitterId === "string" ? turn.context.selectedEmitterId : "" } },
           context: [`Untrusted studio context: ${JSON.stringify(clientContext)}`],
           turnPolicy: "queue",
         });

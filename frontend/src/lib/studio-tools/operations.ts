@@ -47,6 +47,9 @@ export const GenerationSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
     prompt: z.string().trim().min(1).max(10000),
+    requirements: z.array(z.string().trim().min(1).max(200)).max(5).default([]),
+    avoid: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+    textureIds: z.array(z.string().max(48)).max(4).default([]),
     referenceIds: z.array(z.string().uuid()).max(8),
     mode: z.enum(["replace", "add"]),
   })
@@ -146,6 +149,18 @@ export function appendGenerated(
   const ratio = base.duration / generated.duration;
   const ids = new Set(base.layers.map((layer) => layer.id));
   const layers = structuredClone(generated.layers);
+  const paths = structuredClone(generated.paths ?? []);
+  const pathIds = new Set((base.paths ?? []).map(path => path.id));
+  const renamedPaths = new Map<string, string>();
+  for (const path of paths) {
+    const stem = path.id.slice(0, 26);
+    let id = stem;
+    let suffix = 2;
+    while (pathIds.has(id)) id = `${stem}-${suffix++}`;
+    renamedPaths.set(path.id, id);
+    path.id = id;
+    pathIds.add(id);
+  }
   const generatedIds = new Map<string, string>();
   for (const layer of layers) {
     const stem = layer.id.slice(0, 40);
@@ -157,10 +172,19 @@ export function appendGenerated(
     ids.add(id);
   }
   // Resolve references after allocating every ID, including parents listed after children.
+  function remapReferences(value: unknown) {
+    if (Array.isArray(value)) { value.forEach(remapReferences); return; }
+    if (!record(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (typeof child === "string" && key === "pathId")
+        value[key] = renamedPaths.get(child) ?? child;
+      else if (typeof child === "string" && ["sourceLayerId", "parentLayerId", "followsLayerId"].includes(key))
+        value[key] = generatedIds.get(child) ?? child;
+      else remapReferences(child);
+    }
+  }
   for (const layer of layers) {
-    const sub = layer.emitter?.sub;
-    if (sub)
-      sub.parentLayerId = generatedIds.get(sub.parentLayerId) ?? sub.parentLayerId;
+    remapReferences(layer);
     layer.start *= ratio;
     layer.end *= ratio;
     if (layer.motion)
@@ -177,6 +201,7 @@ export function appendGenerated(
       value.end *= ratio;
     });
     if (layer.emitter) {
+      layer.emitter.spawn.rate /= ratio;
       layer.emitter.spawn.window *= ratio;
       layer.emitter.spawn.duration *= ratio;
       layer.emitter.spawn.bursts.forEach((burst) => {
@@ -186,10 +211,34 @@ export function appendGenerated(
         number,
         number,
       ];
+      if (layer.emitter.trail) layer.emitter.trail.spacing *= ratio;
+      if (layer.emitter.sub) layer.emitter.sub.offset = layer.emitter.sub.offset.map(value => value * ratio) as [number, number];
     }
+    if (layer.collapse) { layer.collapse.start *= ratio; layer.collapse.duration *= ratio; }
+    if (layer.sheets) for (const group of layer.sheets.classes) { group.life *= ratio; group.period *= ratio; }
+    if (layer.arcs) {
+      layer.arcs.blink.period = layer.arcs.blink.period.map(value => value * ratio) as [number, number];
+      layer.arcs.blink.onTime = layer.arcs.blink.onTime.map(value => value * ratio) as [number, number];
+    }
+  }
+  const textures = new Map(
+    (base.textures ?? []).map((asset) => [asset.id, asset]),
+  );
+  for (const asset of generated.textures ?? []) {
+    if (
+      textures.has(asset.id) &&
+      textures.get(asset.id)!.sha256 !== asset.sha256
+    )
+      throw new OperationError(
+        "INVALID_INPUT",
+        "Generated texture conflicts with an existing asset.",
+      );
+    textures.set(asset.id, asset);
   }
   return validateWorkspaceDocumentV2({
     ...structuredClone(base),
+    textures: [...textures.values()],
+    paths: [...(base.paths ?? []), ...paths],
     layers: [...base.layers, ...layers],
   });
 }
@@ -199,11 +248,15 @@ export function summarize(document: VfxDocumentV2, layerIds: string[] = []) {
       throw new OperationError("NOT_FOUND", `Layer ${id} is unavailable.`);
   return {
     name: document.name,
+    textures: (document.textures ?? []).map(
+      ({ data: _data, ...metadata }) => metadata,
+    ),
     duration: document.duration,
     impact: document.impact,
     camera: document.camera,
     environment: document.environment,
     post: document.post,
+    paths: document.paths,
     layers: document.layers.map((layer) =>
       layerIds.includes(layer.id)
         ? layer

@@ -224,7 +224,7 @@ try {
             warmMs: Math.round(warmMs * 10) / 10,
           };
         } finally {
-          runtime.dispose();
+          await runtime.dispose();
         }
       },
       { doc, scaleToCeiling },
@@ -299,7 +299,7 @@ try {
           size: shaderA.vertexShader.length + shaderA.fragmentShader.length,
         };
       } finally {
-        runtime.dispose();
+        await runtime.dispose();
       }
     }, { doc, first: sample.layer.id, secondId });
     if (diff.skipped) {

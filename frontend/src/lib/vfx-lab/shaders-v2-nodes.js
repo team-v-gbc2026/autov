@@ -112,6 +112,44 @@ const orthoOf = /*@__PURE__*/ Fn( ( [ a ] ) => {
 
 }, { a: 'vec3', return: 'vec3' } );
 
+const flipFrame = /*@__PURE__*/ Fn( ( [ life, age, tiles, mode, fps ] ) => {
+
+	const frame = float( 0. ).toVar();
+
+	If( mode.equal( 1 ), () => {
+
+		frame.assign( clamp( life, 0., 1. ).mul( max( tiles.sub( 1. ), 0. ) ) );
+
+	} ).ElseIf( mode.equal( 2 ), () => {
+
+		frame.assign( mod( max( age, 0. ).mul( fps ), tiles ) );
+
+	} );
+
+	return frame;
+
+}, { life: 'float', age: 'float', tiles: 'float', mode: 'int', fps: 'float', return: 'float' } );
+
+const nextFlipFrame = /*@__PURE__*/ Fn( ( [ frame, tiles, mode ] ) => {
+
+	const next = min( floor( frame ).add( 1. ), tiles.sub( 1. ) ).toVar();
+
+	If( mode.equal( 2 ), () => {
+
+		next.assign( mod( floor( frame ).add( 1. ), tiles ) );
+
+	} );
+
+	return next;
+
+}, { frame: 'float', tiles: 'float', mode: 'int', return: 'float' } );
+
+const tileOffset = /*@__PURE__*/ Fn( ( [ frame, cols, rows ] ) => {
+
+	return vec2( mod( floor( frame ), cols ).div( cols ), floor( floor( frame ).div( cols ) ).div( rows ) );
+
+}, { frame: 'float', cols: 'float', rows: 'float', return: 'vec2' } );
+
 const stripHash = /*@__PURE__*/ Fn( ( [ p_arg ] ) => {
 
 	const p = p_arg.toVar();
@@ -475,6 +513,8 @@ const vAlpha = bindings.vAlpha;
 const vRot = bindings.vRot;
 const vSeed = bindings.vSeed;
 const vTile = bindings.vTile;
+const vNextTile = bindings.vNextTile;
+const vFrameMix = bindings.vFrameMix;
 const vWp = bindings.vWp;
 const uEPathType = bindings.uEPathType;
 const uEPathA = bindings.uEPathA;
@@ -552,7 +592,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, asin, fract, sqrt, tan, add, exp, mat2, smoothstep, mod } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, mod, asin, fract, sqrt, tan, add, exp, mat2, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -716,6 +756,9 @@ const uv = TSL.uv();
 		return v;
 
 	} );
+
+
+
 
 	const curveH = /*@__PURE__*/ Fn( ( [ u_arg ] ) => {
 
@@ -1504,18 +1547,24 @@ const uv = TSL.uv();
 			// uFlipMode: 0 = random atlas tile, 1 = flipbook over life, 2 = flipbook at fps.
 
 			const ti = floor( aExtra.z.mul( tiles ).mul( .9999 ) ).toVar();
+			const frame = ti.toVar();
 
-			If( uFlipMode.equal( 1 ), () => {
+			If( uFlipMode.greaterThan( 0 ), () => {
 
-				ti.assign( floor( clamp( u, 0., .9999 ).mul( tiles ) ) );
-
-			} ).ElseIf( uFlipMode.equal( 2 ), () => {
-
-				ti.assign( floor( mod( max( age, 0. ).mul( uFlipFps ), tiles ) ) );
+				frame.assign( flipFrame( u, age, tiles, uFlipMode, uFlipFps ) );
 
 			} );
 
-			vTile.assign( vec2( mod( ti, cols ).div( cols ), floor( ti.div( cols ) ).div( rows ) ) );
+			vTile.assign( tileOffset( frame, cols, rows ) );
+			vNextTile.assign( vTile );
+			vFrameMix.assign( 0. );
+
+			If( uFlipMode.greaterThan( 0 ), () => {
+
+				vNextTile.assign( tileOffset( nextFlipFrame( frame, tiles, uFlipMode ), cols, rows ) );
+				vFrameMix.assign( fract( frame ) );
+
+			} );
 
 		} );
 
@@ -1562,6 +1611,8 @@ const vAlpha = bindings.vAlpha;
 const vRot = bindings.vRot;
 const vSeed = bindings.vSeed;
 const vTile = bindings.vTile;
+const vNextTile = bindings.vNextTile;
+const vFrameMix = bindings.vFrameMix;
 const vWp = bindings.vWp;
 const uEPathType = bindings.uEPathType;
 const uEPathA = bindings.uEPathA;
@@ -1685,7 +1736,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, asin, fract, sqrt, tan, add, exp, mat2, smoothstep, mod } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, mod, asin, fract, sqrt, tan, add, exp, mat2, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -1849,6 +1900,9 @@ const uv = TSL.uv();
 		return v;
 
 	} );
+
+
+
 
 	const curveH = /*@__PURE__*/ Fn( ( [ u_arg ] ) => {
 
@@ -3071,18 +3125,24 @@ const uv = TSL.uv();
 			// uFlipMode: 0 = random atlas tile, 1 = flipbook over life, 2 = flipbook at fps.
 
 			const ti = floor( aExtra.z.mul( tiles ).mul( .9999 ) ).toVar();
+			const frame = ti.toVar();
 
-			If( uFlipMode.equal( 1 ), () => {
+			If( uFlipMode.greaterThan( 0 ), () => {
 
-				ti.assign( floor( clamp( u, 0., .9999 ).mul( tiles ) ) );
-
-			} ).ElseIf( uFlipMode.equal( 2 ), () => {
-
-				ti.assign( floor( mod( max( age, 0. ).mul( uFlipFps ), tiles ) ) );
+				frame.assign( flipFrame( u, age, tiles, uFlipMode, uFlipFps ) );
 
 			} );
 
-			vTile.assign( vec2( mod( ti, cols ).div( cols ), floor( ti.div( cols ) ).div( rows ) ) );
+			vTile.assign( tileOffset( frame, cols, rows ) );
+			vNextTile.assign( vTile );
+			vFrameMix.assign( 0. );
+
+			If( uFlipMode.greaterThan( 0 ), () => {
+
+				vNextTile.assign( tileOffset( nextFlipFrame( frame, tiles, uFlipMode ), cols, rows ) );
+				vFrameMix.assign( fract( frame ) );
+
+			} );
 
 		} );
 
@@ -3195,7 +3255,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, asin, fract, sqrt, tan, add, exp, smoothstep } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, mod, asin, fract, sqrt, tan, add, exp, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -3384,6 +3444,9 @@ const uv = TSL.uv();
 		return v;
 
 	} );
+
+
+
 
 	const curveH = /*@__PURE__*/ Fn( ( [ u_arg ] ) => {
 
@@ -4262,7 +4325,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, asin, fract, sqrt, tan, add, exp, smoothstep } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, sin, cos, If, normalize, clamp, Break, mix, Loop, mod, asin, fract, sqrt, tan, add, exp, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -4451,6 +4514,9 @@ const uv = TSL.uv();
 		return v;
 
 	} );
+
+
+
 
 	const curveH = /*@__PURE__*/ Fn( ( [ u_arg ] ) => {
 
@@ -7727,6 +7793,8 @@ const vAlpha = bindings.vAlpha;
 const vRot = bindings.vRot;
 const vSeed = bindings.vSeed;
 const vTile = bindings.vTile;
+const vNextTile = bindings.vNextTile;
+const vFrameMix = bindings.vFrameMix;
 const vWp = bindings.vWp;
 const uRamp = bindings.uRamp;
 const uRampT = bindings.uRampT;
@@ -7754,11 +7822,18 @@ const uScreenPitch = bindings.uScreenPitch;
 const uScreenOn = bindings.uScreenOn;
 const uScreenWorld = bindings.uScreenWorld;
 const uScreenCol = bindings.uScreenCol;
+const uSmokeLit = bindings.uSmokeLit;
+const uSmokeCard = bindings.uSmokeCard;
+const uSmokeAmbient = bindings.uSmokeAmbient;
+const uSmokeRight = bindings.uSmokeRight;
+const uSmokeUp = bindings.uSmokeUp;
+const uSmokeForward = bindings.uSmokeForward;
+const uSmokeLights = bindings.uSmokeLights;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate, frontFacing: gl_FrontFacing } = TSL;
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, fract, atan, div, mod, cos, sin, add, exp, sign, sqrt, fwidth, Discard, mat2 } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, fract, atan, div, mod, cos, sin, add, exp, sign, sqrt, fwidth, normalize, Discard, mat2 } = TSL;
 
 	const gl_FragColor = property( 'vec4' );
 
@@ -8407,6 +8482,35 @@ const uv = TSL.uv();
 
 	} );
 
+	const smokeNormal = /*@__PURE__*/ Fn( ( [ uv ] ) => {
+
+		const xy = uv.mul( 2. ).sub( 1. ).toVar();
+		const z = sqrt( max( 0., sub( 1., dot( xy, xy ) ) ) ).toVar();
+
+		return normalize( uSmokeRight.mul( xy.x ).add( uSmokeUp.mul( xy.y ) ).add( uSmokeForward.mul( max( z, .01 ) ) ) );
+
+	} );
+
+	const smokeLighting = /*@__PURE__*/ Fn( ( [ normal, world ] ) => {
+
+		const light = vec3( uSmokeAmbient ).toVar();
+
+		Loop( 4, ( { i } ) => {
+
+			const delta = uSmokeLights.element( i ).xyz.sub( world ).toVar();
+			const d = length( delta ).toVar();
+			const direction = delta.div( max( d, .001 ) ).toVar();
+			const wrap = clamp( dot( normal, direction ).add( .5 ).div( 1.5 ), 0., 1. ).toVar();
+			const rangeFade = sub( 1., smoothstep( uSmokeLights.element( i ).w.mul( .75 ), uSmokeLights.element( i ).w, d ) ).toVar();
+			const attenuation = rangeFade.div( max( pow( max( d, .25 ), uSmokeLights.element( i.add( 4 ) ).w ), 1. ) ).toVar();
+			light.addAssign( uSmokeLights.element( i.add( 4 ) ).rgb.mul( wrap ).mul( attenuation ) );
+
+		} );
+
+		return light;
+
+	} );
+
 	const main = /*@__PURE__*/ Fn( () => {
 
 		If( vAlpha.lessThanEqual( 0. ), () => {
@@ -8511,6 +8615,13 @@ const uv = TSL.uv();
 				const m = uMask.sample( auv ).toVar();
 				shape.assign( m.a.mul( max( m.r, max( m.g, m.b ) ) ) );
 
+				If( vFrameMix.greaterThan( 0. ), () => {
+
+					const next = uMask.sample( auv.sub( vTile ).add( vNextTile ) ).toVar();
+					shape.assign( mix( shape, next.a.mul( max( next.r, max( next.g, next.b ) ) ), vFrameMix ) );
+
+				} );
+
 			} ).Else( () => {
 
 				shape.assign( proceduralShape( p, uvp, n, uTime, 0., uMaskScale, vec3( 1., 1., .1 ), uProcedural ) );
@@ -8544,6 +8655,13 @@ const uv = TSL.uv();
 			} );
 
 			const col = rampColor( key ).toVar();
+
+			If( uSmokeLit.equal( 1 ), () => {
+
+				col.mulAssign( smokeLighting( smokeNormal( vUv ), vWp ) );
+
+			} );
+
 			col.addAssign( uEdgeCol.mul( uEdgeI ).mul( edge ).mul( shape ) );
 
 			// material.flicker: the hashed per-step multiplier, computed on the CPU from
@@ -9158,6 +9276,7 @@ const uv = TSL.uv();
 // Three.js Transpiler r186
 
 export function surfaceFragment( bindings ) {
+const vClipPosition = bindings.vClipPosition;
 const uTime = bindings.uTime;
 const uOpacity = bindings.uOpacity;
 const uErodeSoft = bindings.uErodeSoft;
@@ -9245,6 +9364,10 @@ const vAlong = bindings.vAlong;
 const vLobe = bindings.vLobe;
 const vRing = bindings.vRing;
 const vUv = bindings.vUv;
+const uFlipMode = bindings.uFlipMode;
+const uAtlasCols = bindings.uAtlasCols;
+const uAtlasRows = bindings.uAtlasRows;
+const uFlipFps = bindings.uFlipFps;
 const uRamp = bindings.uRamp;
 const uRampT = bindings.uRampT;
 const uRampN = bindings.uRampN;
@@ -9288,11 +9411,23 @@ const uSwirlS = bindings.uSwirlS;
 const uSites = bindings.uSites;
 const uCells = bindings.uCells;
 const uCellA = bindings.uCellA;
+const uSmokeLit = bindings.uSmokeLit;
+const uSmokeCard = bindings.uSmokeCard;
+const uSmokeAmbient = bindings.uSmokeAmbient;
+const uSmokeRight = bindings.uSmokeRight;
+const uSmokeUp = bindings.uSmokeUp;
+const uSmokeForward = bindings.uSmokeForward;
+const uSmokeLights = bindings.uSmokeLights;
+const tDepth = bindings.tDepth;
+const uResolution = bindings.uResolution;
+const uNear = bindings.uNear;
+const uFar = bindings.uFar;
+const uSoft = bindings.uSoft;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate, frontFacing: gl_FrontFacing } = TSL;
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, fract, atan, div, mod, cos, sin, add, exp, sign, sqrt, fwidth, mat2, log, int, Continue, distance, Discard, acos } = TSL;
+	const { property, float, clamp, max, mod, If, Fn, floor, min, vec2, mul, sub, vec4, dot, step, abs, vec3, length, select, pow, Break, smoothstep, mix, Loop, fract, atan, div, cos, sin, add, exp, sign, sqrt, fwidth, mat2, log, int, Continue, distance, normalize, Discard, acos } = TSL;
 
 	const gl_FragColor = property( 'vec4' );
 
@@ -9309,6 +9444,9 @@ const uv = TSL.uv();
 	// (frequency, pan, width, segmentation)
 	// (intensity, fadeFrom, fadeTo, -)
 	// (frequency, depth, alongStart)
+
+
+
 
 
 
@@ -10065,6 +10203,64 @@ const uv = TSL.uv();
 
 	}, 'void' );
 
+	const smokeNormal = /*@__PURE__*/ Fn( ( [ uv ] ) => {
+
+		const xy = uv.mul( 2. ).sub( 1. ).toVar();
+		const z = sqrt( max( 0., sub( 1., dot( xy, xy ) ) ) ).toVar();
+
+		return normalize( uSmokeRight.mul( xy.x ).add( uSmokeUp.mul( xy.y ) ).add( uSmokeForward.mul( max( z, .01 ) ) ) );
+
+	} );
+
+	const smokeLighting = /*@__PURE__*/ Fn( ( [ normal, world ] ) => {
+
+		const light = vec3( uSmokeAmbient ).toVar();
+
+		Loop( 4, ( { i } ) => {
+
+			const delta = uSmokeLights.element( i ).xyz.sub( world ).toVar();
+			const d = length( delta ).toVar();
+			const direction = delta.div( max( d, .001 ) ).toVar();
+			const wrap = clamp( dot( normal, direction ).add( .5 ).div( 1.5 ), 0., 1. ).toVar();
+			const rangeFade = sub( 1., smoothstep( uSmokeLights.element( i ).w.mul( .75 ), uSmokeLights.element( i ).w, d ) ).toVar();
+			const attenuation = rangeFade.div( max( pow( max( d, .25 ), uSmokeLights.element( i.add( 4 ) ).w ), 1. ) ).toVar();
+			light.addAssign( uSmokeLights.element( i.add( 4 ) ).rgb.mul( wrap ).mul( attenuation ) );
+
+		} );
+
+		return light;
+
+	} );
+
+	const linDepth = /*@__PURE__*/ Fn( ( [ z ] ) => {
+
+		const zn = z.mul( 2. ).sub( 1. ).toVar();
+
+		return mul( 2., uNear ).mul( uFar ).div( max( uFar.add( uNear ).sub( zn.mul( uFar.sub( uNear ) ) ), 1e-5 ) );
+
+	} );
+
+	const softDepth = /*@__PURE__*/ Fn( () => {
+
+		const portResult = property( 'float' );
+
+		If( uSoft.lessThanEqual( 0. ), () => {
+
+			portResult.assign( 1. );
+
+		} ).Else( () => {
+
+			const sc = screenCoordinate.xy.div( max( uResolution, vec2( 1. ) ) ).toVar();
+			const sd = linDepth( tDepth.sample( sc ).x ).toVar();
+			const fd = linDepth( vClipPosition.z.div( vClipPosition.w ) ).toVar();
+			portResult.assign( clamp( sd.sub( fd ).div( uSoft ), 0., 1. ) );
+
+		} );
+
+		return portResult;
+
+	} );
+
 	const main = /*@__PURE__*/ Fn( () => {
 
 		const V = safeDir( uCam.sub( vWp ), vec3( 0., 0., 1. ) ).toVar();
@@ -10385,7 +10581,13 @@ const uv = TSL.uv();
 
 				} );
 
-			} ).Else( () => {
+			} ).ElseIf( uHasMask.equal( 0 ), () => {
+
+				shape.assign( proceduralShape( vUv.sub( .5 ), vUv, n, uTime, fres, uMaskScale, dims, uProcedural ) );
+
+			} );
+
+			If( uHasMask.equal( 1 ), () => {
 
 				// noise.distortionPan scrolls the field that drives the distortion.
 
@@ -10401,17 +10603,30 @@ const uv = TSL.uv();
 				const duv = vUv.add( nd.sub( .5 ).mul( uDistort ) ).toVar();
 				const mc = cos( uMaskRot ).toVar(), ms = sin( uMaskRot ).toVar();
 				const muv = mat2( mc, ms.negate(), ms, mc ).mul( duv.sub( .5 ) ).add( .5 ).mul( uMaskScale ).add( uMaskPan ).toVar();
+				const sampleUv = muv.toVar();
+				const frame = float( 0. ).toVar();
+				const cols = float( max( uAtlasCols, 1 ) ).toVar(), rows = float( max( uAtlasRows, 1 ) ).toVar();
+				const tiles = cols.mul( rows ).toVar();
 
-				If( uHasMask.equal( 1 ), () => {
+				If( uFlipMode.greaterThan( 0 ), () => {
 
-					const m = uMask.sample( muv ).toVar();
-					shape.assign( m.a.mul( max( m.r, max( m.g, m.b ) ) ) );
-
-				} ).Else( () => {
-
-					shape.assign( proceduralShape( vUv.sub( .5 ), vUv, n, uTime, fres, uMaskScale, dims, uProcedural ) );
+					frame.assign( flipFrame( uLayerU, uTime, tiles, uFlipMode, uFlipFps ) );
+					sampleUv.assign( muv.div( vec2( cols, rows ) ).add( tileOffset( frame, cols, rows ) ) );
 
 				} );
+
+				const m = uMask.sample( sampleUv ).toVar();
+				const maskShape = m.a.mul( max( m.r, max( m.g, m.b ) ) ).toVar();
+
+				If( uFlipMode.greaterThan( 0 ).and( fract( frame ).greaterThan( 0. ) ), () => {
+
+					const nextUv = muv.div( vec2( cols, rows ) ).add( tileOffset( nextFlipFrame( frame, tiles, uFlipMode ), cols, rows ) ).toVar();
+					const next = uMask.sample( nextUv ).toVar();
+					maskShape.assign( mix( maskShape, next.a.mul( max( next.r, max( next.g, next.b ) ) ), fract( frame ) ) );
+
+				} );
+
+				shape.mulAssign( maskShape );
 
 			} );
 
@@ -10539,7 +10754,7 @@ const uv = TSL.uv();
 			// shape is 1 on an analytic shell with procedural "none", so this is a no-op
 			// there and the procedural pattern applies everywhere else.
 
-			alpha.mulAssign( shape );
+			alpha.mulAssign( shape.mul( softDepth() ) );
 
 			// material.stripes: panning hard bands on the along coordinate in world
 			// metres, so a beam that extends does not squash its own bands.
@@ -10697,6 +10912,12 @@ const uv = TSL.uv();
 			If( uBand.equal( 1 ), () => {
 
 				col.mulAssign( select( gl_FrontFacing, 1., .42 ) );
+
+			} );
+
+			If( uSmokeLit.equal( 1 ), () => {
+
+				col.mulAssign( smokeLighting( select( uSmokeCard.equal( 1 ), smokeNormal( vUv ), normalize( vN ) ), vWp ) );
 
 			} );
 
@@ -12565,18 +12786,18 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const particleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uAnchorHead":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"}};
-export const subParticleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uAnchorHead":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentPlanarDrag":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentInterior":{"type":"float","kind":"uniform"},"uParentAngleJitter":{"type":"float","kind":"uniform"},"uParentAngleBias":{"type":"float","kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
+export const particleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uAnchorHead":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vNextTile":{"type":"vec2","kind":"varying"},"vFrameMix":{"type":"float","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"}};
+export const subParticleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uAnchorHead":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vNextTile":{"type":"vec2","kind":"varying"},"vFrameMix":{"type":"float","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentPlanarDrag":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentInterior":{"type":"float","kind":"uniform"},"uParentAngleJitter":{"type":"float","kind":"uniform"},"uParentAngleBias":{"type":"float","kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
 export const trailVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSegments":{"type":"float","kind":"uniform"},"uSpacing":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveG":{"type":"vec2","size":8,"kind":"uniform"},"uCurveGN":{"type":"int","kind":"uniform"},"uCurveGEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"}};
 export const subTrailVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSegments":{"type":"float","kind":"uniform"},"uSpacing":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveG":{"type":"vec2","size":8,"kind":"uniform"},"uCurveGN":{"type":"int","kind":"uniform"},"uCurveGEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentPlanarDrag":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentInterior":{"type":"float","kind":"uniform"},"uParentAngleJitter":{"type":"float","kind":"uniform"},"uParentAngleBias":{"type":"float","kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
 export const stripVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uStripStep":{"type":"float","kind":"uniform"},"uStripWave":{"type":"float","kind":"uniform"},"uPalettes":{"type":"float","kind":"uniform"},"uStripCount":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uStripLen":{"type":"vec2","kind":"uniform"},"uStripWide":{"type":"vec2","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vPalette":{"type":"float","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"}};
 export const sliverVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aIndex":{"type":"float","kind":"attribute"},"aSrcPos":{"type":"vec3","kind":"attribute"},"aSrcDir":{"type":"vec3","kind":"attribute"},"aEvent":{"type":"vec4","kind":"attribute"},"aSub":{"type":"float","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uSliverCurve":{"type":"float","kind":"uniform"},"uSliverTaper":{"type":"float","kind":"uniform"},"uSliverJag":{"type":"float","kind":"uniform"},"uSecondary":{"type":"float","kind":"uniform"},"uRetractOn":{"type":"float","kind":"uniform"},"uRetractStart":{"type":"float","kind":"uniform"},"uRetractEnd":{"type":"float","kind":"uniform"},"uRetractTip":{"type":"float","kind":"uniform"},"uSecLength":{"type":"float","kind":"uniform"},"uTwinkleFreq":{"type":"float","kind":"uniform"},"uTwinkleDepth":{"type":"float","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uSliverLen":{"type":"vec2","kind":"uniform"},"uSliverWide":{"type":"vec2","kind":"uniform"},"uSecAlong":{"type":"vec2","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uEPathType":{"type":"int","kind":"uniform"},"uEPathA":{"type":"vec3","kind":"uniform"},"uEPathB":{"type":"vec3","kind":"uniform"},"uEPathC":{"type":"vec3","kind":"uniform"},"uEPathD":{"type":"vec4","kind":"uniform"},"uEPathW":{"type":"vec2","kind":"uniform"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uCurveH":{"type":"vec2","size":8,"kind":"uniform"},"uCurveHN":{"type":"int","kind":"uniform"},"uCurveHEase":{"type":"float","kind":"uniform"},"uCurveT":{"type":"vec2","size":8,"kind":"uniform"},"uCurveTN":{"type":"int","kind":"uniform"},"uCurveTEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uPlanarDrag":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uInterior":{"type":"float","kind":"uniform"},"uAngleJitter":{"type":"float","kind":"uniform"},"uAngleBias":{"type":"float","kind":"uniform"},"uFrontC":{"type":"vec3","kind":"uniform"},"uFrontEx":{"type":"vec3","kind":"uniform"},"uFrontEy":{"type":"vec3","kind":"uniform"},"uFrontN":{"type":"vec3","kind":"uniform"},"uFrontR":{"type":"float","kind":"uniform"},"uFrontPh0":{"type":"float","kind":"uniform"},"uFrontSweep":{"type":"float","kind":"uniform"},"uFrontSpan":{"type":"float","kind":"uniform"},"uFrontStart":{"type":"float","kind":"uniform"}};
-export const particleFragmentBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uTime":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"tDepth":{"type":"sampler2D","kind":"uniform"},"uResolution":{"type":"vec2","kind":"uniform"},"uNear":{"type":"float","kind":"uniform"},"uFar":{"type":"float","kind":"uniform"},"uSoft":{"type":"float","kind":"uniform"},"uProcParams":{"type":"vec4","kind":"uniform"},"uStripeA":{"type":"vec4","size":3,"kind":"uniform"},"uStripeB":{"type":"vec4","size":3,"kind":"uniform"},"uStripeN":{"type":"int","kind":"uniform"},"uSymFill":{"type":"vec3","kind":"uniform"},"uSymOutline":{"type":"vec3","kind":"uniform"},"uSymHigh":{"type":"vec3","kind":"uniform"},"uSymInk":{"type":"vec3","kind":"uniform"},"uSymHot":{"type":"vec3","kind":"uniform"},"uSymHotI":{"type":"float","kind":"uniform"},"uSymHotA":{"type":"float","kind":"uniform"},"uScreenPitch":{"type":"float","kind":"uniform"},"uScreenOn":{"type":"float","kind":"uniform"},"uScreenWorld":{"type":"float","kind":"uniform"},"uScreenCol":{"type":"vec3","kind":"uniform"}};
+export const particleFragmentBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uTime":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vNextTile":{"type":"vec2","kind":"varying"},"vFrameMix":{"type":"float","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"tDepth":{"type":"sampler2D","kind":"uniform"},"uResolution":{"type":"vec2","kind":"uniform"},"uNear":{"type":"float","kind":"uniform"},"uFar":{"type":"float","kind":"uniform"},"uSoft":{"type":"float","kind":"uniform"},"uProcParams":{"type":"vec4","kind":"uniform"},"uStripeA":{"type":"vec4","size":3,"kind":"uniform"},"uStripeB":{"type":"vec4","size":3,"kind":"uniform"},"uStripeN":{"type":"int","kind":"uniform"},"uSymFill":{"type":"vec3","kind":"uniform"},"uSymOutline":{"type":"vec3","kind":"uniform"},"uSymHigh":{"type":"vec3","kind":"uniform"},"uSymInk":{"type":"vec3","kind":"uniform"},"uSymHot":{"type":"vec3","kind":"uniform"},"uSymHotI":{"type":"float","kind":"uniform"},"uSymHotA":{"type":"float","kind":"uniform"},"uScreenPitch":{"type":"float","kind":"uniform"},"uScreenOn":{"type":"float","kind":"uniform"},"uScreenWorld":{"type":"float","kind":"uniform"},"uScreenCol":{"type":"vec3","kind":"uniform"},"uSmokeLit":{"type":"int","kind":"uniform"},"uSmokeCard":{"type":"int","kind":"uniform"},"uSmokeAmbient":{"type":"float","kind":"uniform"},"uSmokeRight":{"type":"vec3","kind":"uniform"},"uSmokeUp":{"type":"vec3","kind":"uniform"},"uSmokeForward":{"type":"vec3","kind":"uniform"},"uSmokeLights":{"type":"vec4","size":8,"kind":"uniform"}};
 export const trailFragmentBindings = {"uTrail":{"type":"sampler2D","kind":"uniform"},"uHasTrail":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uTrailRampMode":{"type":"float","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"}};
 export const stripFragmentBindings = {"uOpacity":{"type":"float","kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vPalette":{"type":"float","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"}};
 export const sliverFragmentBindings = {"uOpacity":{"type":"float","kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"}};
 export const surfaceVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uArc":{"type":"float","kind":"uniform"},"uVertexAmp":{"type":"float","kind":"uniform"},"uVertexFreq":{"type":"float","kind":"uniform"},"uVertexSpeed":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uRoll":{"type":"float","kind":"uniform"},"uChannel":{"type":"float","kind":"uniform"},"uSplitOffset":{"type":"float","kind":"uniform"},"uSplitGrowth":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasVertexNoise":{"type":"int","kind":"uniform"},"uBillboard":{"type":"int","kind":"uniform"},"uRibbon":{"type":"int","kind":"uniform"},"uUseLocalZ":{"type":"int","kind":"uniform"},"uSlab":{"type":"int","kind":"uniform"},"uSlabBase":{"type":"int","kind":"uniform"},"uSlabTaper":{"type":"float","kind":"uniform"},"uFrameV":{"type":"int","kind":"uniform"},"uFrameMargin":{"type":"float","kind":"uniform"},"uZRange":{"type":"vec2","kind":"uniform"},"uVertexBias":{"type":"vec3","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vObj":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uCurveF":{"type":"vec2","size":8,"kind":"uniform"},"uCurveFN":{"type":"int","kind":"uniform"},"uCurveFEase":{"type":"float","kind":"uniform"}};
-export const surfaceFragmentBindings = {"uTime":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uProtect":{"type":"float","kind":"uniform"},"uRimBias":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uFresnelPower":{"type":"float","kind":"uniform"},"uFresnelStrength":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uChannel":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uHasFresnel":{"type":"int","kind":"uniform"},"uBolt":{"type":"int","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"uCam":{"type":"vec3","kind":"uniform"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uHasLattice":{"type":"int","kind":"uniform"},"uHasReveal":{"type":"int","kind":"uniform"},"uRevealMode":{"type":"int","kind":"uniform"},"uHasPlaneGlow":{"type":"int","kind":"uniform"},"uHasDissolve":{"type":"int","kind":"uniform"},"uRippleN":{"type":"int","kind":"uniform"},"uBand":{"type":"int","kind":"uniform"},"uLatEdge":{"type":"float","kind":"uniform"},"uLatGap":{"type":"float","kind":"uniform"},"uPulseSpeed":{"type":"float","kind":"uniform"},"uPhaseJitter":{"type":"float","kind":"uniform"},"uGrazeFade":{"type":"float","kind":"uniform"},"uDisStart":{"type":"float","kind":"uniform"},"uDisStagger":{"type":"float","kind":"uniform"},"uDisSoft":{"type":"float","kind":"uniform"},"uRevealFrom":{"type":"float","kind":"uniform"},"uRevealTo":{"type":"float","kind":"uniform"},"uRevealWidth":{"type":"float","kind":"uniform"},"uPlaneDist":{"type":"float","kind":"uniform"},"uPlaneI":{"type":"float","kind":"uniform"},"uBandStripes":{"type":"float","kind":"uniform"},"uTileCol":{"type":"vec3","kind":"uniform"},"uLatEdgeCol":{"type":"vec3","kind":"uniform"},"uPlaneCol":{"type":"vec3","kind":"uniform"},"uRipple":{"type":"vec4","size":8,"kind":"uniform"},"uSlab":{"type":"int","kind":"uniform"},"uSlabN":{"type":"int","kind":"uniform"},"uSlabTier":{"type":"vec4","size":8,"kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uReflect":{"type":"int","kind":"uniform"},"uReflectTint":{"type":"vec3","kind":"uniform"},"uReflectOpacity":{"type":"float","kind":"uniform"},"uReflectBlur":{"type":"float","kind":"uniform"},"uStreakOn":{"type":"int","kind":"uniform"},"uStreakRadiate":{"type":"int","kind":"uniform"},"uCreaseOn":{"type":"int","kind":"uniform"},"uStreakA":{"type":"vec4","kind":"uniform"},"uStreakB":{"type":"vec4","kind":"uniform"},"uStreakCol":{"type":"vec3","kind":"uniform"},"uCrease":{"type":"vec3","kind":"uniform"},"uSymbolSeed":{"type":"float","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vObj":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"uProcParams":{"type":"vec4","kind":"uniform"},"uStripeA":{"type":"vec4","size":3,"kind":"uniform"},"uStripeB":{"type":"vec4","size":3,"kind":"uniform"},"uStripeN":{"type":"int","kind":"uniform"},"uSymFill":{"type":"vec3","kind":"uniform"},"uSymOutline":{"type":"vec3","kind":"uniform"},"uSymHigh":{"type":"vec3","kind":"uniform"},"uSymInk":{"type":"vec3","kind":"uniform"},"uSymHot":{"type":"vec3","kind":"uniform"},"uSymHotI":{"type":"float","kind":"uniform"},"uSymHotA":{"type":"float","kind":"uniform"},"uScreenPitch":{"type":"float","kind":"uniform"},"uScreenOn":{"type":"float","kind":"uniform"},"uScreenWorld":{"type":"float","kind":"uniform"},"uScreenCol":{"type":"vec3","kind":"uniform"},"uFrame":{"type":"int","kind":"uniform"},"uSdfN":{"type":"int","kind":"uniform"},"uBeadOn":{"type":"int","kind":"uniform"},"uCorner":{"type":"float","kind":"uniform"},"uSdfCore":{"type":"float","kind":"uniform"},"uSdfSpine":{"type":"float","kind":"uniform"},"uSdfInnerOff":{"type":"float","kind":"uniform"},"uSdfInnerW":{"type":"float","kind":"uniform"},"uSdfHalo":{"type":"vec2","size":3,"kind":"uniform"},"uBeads":{"type":"vec3","kind":"uniform"},"uFlowOn":{"type":"int","kind":"uniform"},"uFlowN":{"type":"int","kind":"uniform"},"uFlowLayer":{"type":"vec4","size":8,"kind":"uniform"},"uFlowCut":{"type":"vec3","kind":"uniform"},"uSwirlOn":{"type":"int","kind":"uniform"},"uSwirlBands":{"type":"vec4","kind":"uniform"},"uSwirlDetail":{"type":"vec4","kind":"uniform"},"uSwirlLobe":{"type":"vec3","kind":"uniform"},"uSwirlS":{"type":"float","kind":"uniform"},"uSites":{"type":"sampler2D","kind":"uniform"},"uCells":{"type":"float","kind":"uniform"},"uCellA":{"type":"float","kind":"uniform"}};
+export const surfaceFragmentBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uProtect":{"type":"float","kind":"uniform"},"uRimBias":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uFresnelPower":{"type":"float","kind":"uniform"},"uFresnelStrength":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uChannel":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uHasFresnel":{"type":"int","kind":"uniform"},"uBolt":{"type":"int","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"uCam":{"type":"vec3","kind":"uniform"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uHasLattice":{"type":"int","kind":"uniform"},"uHasReveal":{"type":"int","kind":"uniform"},"uRevealMode":{"type":"int","kind":"uniform"},"uHasPlaneGlow":{"type":"int","kind":"uniform"},"uHasDissolve":{"type":"int","kind":"uniform"},"uRippleN":{"type":"int","kind":"uniform"},"uBand":{"type":"int","kind":"uniform"},"uLatEdge":{"type":"float","kind":"uniform"},"uLatGap":{"type":"float","kind":"uniform"},"uPulseSpeed":{"type":"float","kind":"uniform"},"uPhaseJitter":{"type":"float","kind":"uniform"},"uGrazeFade":{"type":"float","kind":"uniform"},"uDisStart":{"type":"float","kind":"uniform"},"uDisStagger":{"type":"float","kind":"uniform"},"uDisSoft":{"type":"float","kind":"uniform"},"uRevealFrom":{"type":"float","kind":"uniform"},"uRevealTo":{"type":"float","kind":"uniform"},"uRevealWidth":{"type":"float","kind":"uniform"},"uPlaneDist":{"type":"float","kind":"uniform"},"uPlaneI":{"type":"float","kind":"uniform"},"uBandStripes":{"type":"float","kind":"uniform"},"uTileCol":{"type":"vec3","kind":"uniform"},"uLatEdgeCol":{"type":"vec3","kind":"uniform"},"uPlaneCol":{"type":"vec3","kind":"uniform"},"uRipple":{"type":"vec4","size":8,"kind":"uniform"},"uSlab":{"type":"int","kind":"uniform"},"uSlabN":{"type":"int","kind":"uniform"},"uSlabTier":{"type":"vec4","size":8,"kind":"uniform"},"uFlicker":{"type":"float","kind":"uniform"},"uReflect":{"type":"int","kind":"uniform"},"uReflectTint":{"type":"vec3","kind":"uniform"},"uReflectOpacity":{"type":"float","kind":"uniform"},"uReflectBlur":{"type":"float","kind":"uniform"},"uStreakOn":{"type":"int","kind":"uniform"},"uStreakRadiate":{"type":"int","kind":"uniform"},"uCreaseOn":{"type":"int","kind":"uniform"},"uStreakA":{"type":"vec4","kind":"uniform"},"uStreakB":{"type":"vec4","kind":"uniform"},"uStreakCol":{"type":"vec3","kind":"uniform"},"uCrease":{"type":"vec3","kind":"uniform"},"uSymbolSeed":{"type":"float","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vObj":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uFlipMode":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"uProcParams":{"type":"vec4","kind":"uniform"},"uStripeA":{"type":"vec4","size":3,"kind":"uniform"},"uStripeB":{"type":"vec4","size":3,"kind":"uniform"},"uStripeN":{"type":"int","kind":"uniform"},"uSymFill":{"type":"vec3","kind":"uniform"},"uSymOutline":{"type":"vec3","kind":"uniform"},"uSymHigh":{"type":"vec3","kind":"uniform"},"uSymInk":{"type":"vec3","kind":"uniform"},"uSymHot":{"type":"vec3","kind":"uniform"},"uSymHotI":{"type":"float","kind":"uniform"},"uSymHotA":{"type":"float","kind":"uniform"},"uScreenPitch":{"type":"float","kind":"uniform"},"uScreenOn":{"type":"float","kind":"uniform"},"uScreenWorld":{"type":"float","kind":"uniform"},"uScreenCol":{"type":"vec3","kind":"uniform"},"uFrame":{"type":"int","kind":"uniform"},"uSdfN":{"type":"int","kind":"uniform"},"uBeadOn":{"type":"int","kind":"uniform"},"uCorner":{"type":"float","kind":"uniform"},"uSdfCore":{"type":"float","kind":"uniform"},"uSdfSpine":{"type":"float","kind":"uniform"},"uSdfInnerOff":{"type":"float","kind":"uniform"},"uSdfInnerW":{"type":"float","kind":"uniform"},"uSdfHalo":{"type":"vec2","size":3,"kind":"uniform"},"uBeads":{"type":"vec3","kind":"uniform"},"uFlowOn":{"type":"int","kind":"uniform"},"uFlowN":{"type":"int","kind":"uniform"},"uFlowLayer":{"type":"vec4","size":8,"kind":"uniform"},"uFlowCut":{"type":"vec3","kind":"uniform"},"uSwirlOn":{"type":"int","kind":"uniform"},"uSwirlBands":{"type":"vec4","kind":"uniform"},"uSwirlDetail":{"type":"vec4","kind":"uniform"},"uSwirlLobe":{"type":"vec3","kind":"uniform"},"uSwirlS":{"type":"float","kind":"uniform"},"uSites":{"type":"sampler2D","kind":"uniform"},"uCells":{"type":"float","kind":"uniform"},"uCellA":{"type":"float","kind":"uniform"},"uSmokeLit":{"type":"int","kind":"uniform"},"uSmokeCard":{"type":"int","kind":"uniform"},"uSmokeAmbient":{"type":"float","kind":"uniform"},"uSmokeRight":{"type":"vec3","kind":"uniform"},"uSmokeUp":{"type":"vec3","kind":"uniform"},"uSmokeForward":{"type":"vec3","kind":"uniform"},"uSmokeLights":{"type":"vec4","size":8,"kind":"uniform"},"tDepth":{"type":"sampler2D","kind":"uniform"},"uResolution":{"type":"vec2","kind":"uniform"},"uNear":{"type":"float","kind":"uniform"},"uFar":{"type":"float","kind":"uniform"},"uSoft":{"type":"float","kind":"uniform"}};
 export const blobVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"vN":{"type":"vec3","kind":"varying"},"vV":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vLobe":{"type":"vec3","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uNoiseSpeed":{"type":"float","kind":"uniform"},"aLobeA":{"type":"vec4","kind":"attribute"},"aLobeB":{"type":"vec4","kind":"attribute"},"aLobeC":{"type":"vec4","kind":"attribute"},"aLobeP":{"type":"vec4","kind":"attribute"}};
 export const blobFragmentBindings = {"vN":{"type":"vec3","kind":"varying"},"vV":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vLobe":{"type":"vec3","kind":"varying"},"uShadow":{"type":"vec3","kind":"uniform"},"uBody":{"type":"vec3","kind":"uniform"},"uHigh":{"type":"vec3","kind":"uniform"},"uRimCol":{"type":"vec3","kind":"uniform"},"uLight":{"type":"vec3","kind":"uniform"},"uBands":{"type":"float","kind":"uniform"},"uBandA":{"type":"float","kind":"uniform"},"uBandB":{"type":"float","kind":"uniform"},"uRimPow":{"type":"float","kind":"uniform"},"uRimAmt":{"type":"float","kind":"uniform"},"uFlat":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uGroundY":{"type":"float","kind":"uniform"},"uHeightSpan":{"type":"float","kind":"uniform"},"uUseToon":{"type":"float","kind":"uniform"},"uToonRamp":{"type":"float","kind":"uniform"},"uToonShadowScale":{"type":"float","kind":"uniform"},"uToonHighMix":{"type":"float","kind":"uniform"},"uRampBlendMode":{"type":"float","kind":"uniform"},"uRampBlendWeight":{"type":"float","kind":"uniform"},"uLightOn":{"type":"float","kind":"uniform"},"uLightFall":{"type":"float","kind":"uniform"},"uLightPos":{"type":"vec3","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"}};
 export const crystalVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aDir":{"type":"vec3","kind":"attribute"},"aOrg":{"type":"vec3","kind":"attribute"},"aLen":{"type":"float","kind":"attribute"},"aWid":{"type":"float","kind":"attribute"},"aT0":{"type":"float","kind":"attribute"},"aSeed":{"type":"float","kind":"attribute"},"aAlong":{"type":"float","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uSpan":{"type":"float","kind":"uniform"},"uGrowDur":{"type":"float","kind":"uniform"},"uOvershoot":{"type":"float","kind":"uniform"},"uInflate":{"type":"float","kind":"uniform"},"uHasCollapse":{"type":"float","kind":"uniform"},"uCollapseStart":{"type":"float","kind":"uniform"},"uCollapseDur":{"type":"float","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vW":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vSeed":{"type":"float","kind":"varying"}};

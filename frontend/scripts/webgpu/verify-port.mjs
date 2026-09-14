@@ -359,7 +359,7 @@ try {
             comparison,
           };
         } finally {
-          runtime.dispose();
+          await runtime.dispose();
         }
       },
       {

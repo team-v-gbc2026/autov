@@ -39,7 +39,7 @@ function programsOf(layer: LayerV2): string[] {
   // The baked structural values are part of the generated shader text, so two
   // layers only share a program when these agree. See WEBGPU_PORT.md.
   const structural = material
-    ? `${material.procedural}:${material.ramp.stops.length}:${material.erosion ? material.erosion.curve.keys.length : 0}`
+    ? `${material.procedural}:${material.ramp.stops.length}:${material.erosion ? material.erosion.curve.keys.length : 0}:${material.shading}`
     : "";
   const of = (kind: string) => `${kind}:${structural}`;
   switch (layer.kind) {

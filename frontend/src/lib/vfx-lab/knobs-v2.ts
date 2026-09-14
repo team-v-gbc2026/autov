@@ -421,6 +421,11 @@ export function applyKnobs(
         stop.intensity = clamp(stop.intensity * kRamp, 0, 8);
 
     // K7 — light intensity curves.
+    if (layer.light?.intensity.formula) {
+      const formula = layer.light.intensity.formula;
+      for (const field of ["start", "end", "peak"] as const)
+        formula[field] = clamp(formula[field] * kLight, -20, 20);
+    }
     if (layer.light)
       layer.light.intensity.keys = layer.light.intensity.keys.map(
         ([t, v]) => [t, clamp(v * kLight, -20, 20)] as [number, number],

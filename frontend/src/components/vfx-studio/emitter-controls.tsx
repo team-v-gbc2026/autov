@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ParameterName, VfxLayer } from "./ui-model";
+import CurveControl from "./curve-control";
 import ColorPicker from "./color-picker";
 import styles from "./emitter-controls.module.css";
 
@@ -86,5 +87,6 @@ export default function EmitterControls({ layer, onChange }: { layer: VfxLayer; 
         {group.parameters.map(name => <ParameterControl key={`${layer.id}-${name}`} name={name} value={layer.parameters[name]} onChange={value => onChange({ parameters: { ...layer.parameters, [name]: value } })} />)}
       </div>
     </section>)}
+    {section === "Motion" && !!layer.curves?.length && <section className={styles.section} aria-label="Layer curves"><h3>Curves</h3><div className={styles.parameters}>{layer.curves.map(curve => <CurveControl key={`${layer.id}-${curve.path}`} {...curve} onChange={value => onChange({ curves: [{ ...curve, value }] })} />)}</div></section>}
   </div>;
 }

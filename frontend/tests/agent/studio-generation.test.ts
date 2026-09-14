@@ -1,21 +1,11 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import {
-  generateCandidate,
-  modelStage,
-} from "../../src/lib/studio-tools/generation";
+import { modelStage } from "../../src/lib/studio-tools/generation";
 import type { Operation } from "../../src/lib/studio-tools/server";
 import type { callStructuredModel } from "../../src/lib/vfx-lab/model-provider";
-import { CANDIDATE_V2_SYSTEM } from "../../src/lib/vfx-lab/candidate-v2";
+import { createPresetV2 } from "../../src/lib/vfx-lab/recipes-v2";
 import {
-  createPresetV2,
-  exampleScaleSummary,
-  RECIPES_V2,
-} from "../../src/lib/vfx-lab/recipes-v2";
-import { techniqueBrief } from "../../src/lib/vfx-lab/techniques-v2";
-import {
-  lintDocumentV2,
   validateDocumentV2,
   type VfxDocumentV2,
 } from "../../src/lib/vfx-lab/schema-v2";
@@ -198,110 +188,289 @@ function lowFramedSmoke() {
     camera: { ...preset.camera, framing: 0.65 },
   });
 }
-const plan = {
-  name: "Smoke burst",
-  recipe: "smoke",
-  intent: "A billowing burst of smoke",
-  palette: ["#c8c4bd", "#7a7670", "#3a3835"],
-  duration: 2,
-  textures: [],
-  impact: 0.4,
-  motion: { emissionShape: "sphere", trajectory: "rising", timing: "fast" },
-  layers: [{ id: "pink-ring", kind: "blob", responsibility: "hero" }],
-  criteria: ["a", "b", "c"],
-};
-/** Drives generateCandidate end to end: state, reservations and both stages. */
-function stubGeneration(candidate: unknown, base: VfxDocumentV2) {
-  const seen: { system: string; text: string }[] = [];
-  globalThis.fetch = (async (url: string | URL | Request) => {
-    const href = String(typeof url === "string" ? url : (url as URL).toString());
-    if (href.includes("/rpc/studio_transition"))
-      return Response.json({
-        replayed: false,
-        status: "running",
-        call: { id: "reserve-1", result: null, reserved_usd: 1 },
+import {
+  authorCandidate,
+  AuthorCandidateSchema,
+} from "../../src/lib/studio-tools/author-candidate";
+
+for (const mode of ["replace", "add"] as const) {
+  test(
+    "Eve authoring preserves explicit framing and host constraints in " + mode,
+    async () => {
+      const base = lowFramedSmoke();
+      const input = AuthorCandidateSchema.parse({
+        expectedRevision: 7,
+        prompt: "A billowing burst of smoke",
+        referenceIds: [],
+        mode,
+        direction: {
+          silhouette: "Billowing ring",
+          layering: [{ role: "primary", appearance: "Purple lobes" }],
+          palette: "Purple",
+          timing: "Short burst",
+          motionDirection: "Outward",
+          uncertainties: [],
+          textureNeeds: [],
+        },
+        textures: { bindings: [] },
+        family: "smoke-burst",
+        techniqueIds: ["cauliflower-blob-cluster"],
       });
-    if (href.includes("/studio_documents"))
-      return Response.json({ revision: 7, document: base });
-    if (href.includes("/projects"))
-      return Response.json({ id: identity.projectId });
-    throw new Error(`Unexpected request ${href}`);
-  }) as typeof globalThis.fetch;
-  const provider = (async (...args: Parameters<typeof callStructuredModel>) => {
-    seen.push({ system: args[1], text: args[2] });
-    return {
-      value: seen.length === 1 ? plan : candidate,
-      usage: {},
-      elapsedSeconds: 0,
-    };
-  }) as unknown as typeof callStructuredModel;
-  return { seen, provider };
+      const calls: Parameters<typeof modelStage>[] = [];
+      const stage = (async (...args: Parameters<typeof modelStage>) => {
+        calls.push(args);
+        return toWire(lowFramedSmoke());
+      }) as typeof modelStage;
+      const result = await authorCandidate(
+        identity,
+        operation,
+        input,
+        signal,
+        { input, base, brief: input.prompt, images: [], criteria: [] },
+        stage,
+      );
+      assert.equal(
+        calls.length,
+        1,
+        "no hidden art-direction, planning or review calls",
+      );
+      assert.equal(calls[0][2], "candidate");
+      const payload = JSON.parse(calls[0][5]);
+      assert.deepEqual(payload.direction, input.direction);
+      assert.equal(payload.techniques[0].id, "cauliflower-blob-cluster");
+      assert.equal(
+        result.document.camera.framing,
+        0.65,
+        "authored framing wins over exemplar",
+      );
+      assert.deepEqual(result.document.environment, base.environment);
+      assert.equal(result.document.layers.length, mode === "add" ? 2 : 1);
+      if (mode === "add")
+        assert.deepEqual(result.document.layers[0], base.layers[0]);
+    },
+  );
 }
-test("the candidate prompt carries the routed family's knowledge and technique cards", async () => {
-  const base = lowFramedSmoke();
-  const { seen, provider } = stubGeneration(toWire(lowFramedSmoke()), base);
-  await generateCandidate(
-    identity,
-    operation,
-    {
-      expectedRevision: 7,
-      prompt: "A billowing burst of smoke",
-      referenceIds: [],
-      mode: "replace",
-    },
-    signal,
-    provider,
+import { generateEffectTexture } from "../../src/lib/studio-tools/effect-textures";
+import type { generateTexture } from "../../src/lib/vfx-lab/textures";
+import { registerEffectTexture } from "../../src/lib/studio-tools/references";
+import { createHash } from "node:crypto";
+const bytes = Buffer.from("test-texture-pixels");
+const texture = {
+  id: "fx-test-0",
+  data: `data:image/png;base64,${bytes.toString("base64")}`,
+  prompt: "Effect alpha mask",
+  model: "test",
+  sha256: createHash("sha256").update(bytes).digest("hex"),
+};
+
+test("effect image calls share the operation ledger and replay without generating twice", async () => {
+  let saved: unknown = null;
+  let reserved = false;
+  let count = 0;
+  globalThis.fetch = async (_url, init) => {
+    const args = JSON.parse(String(init?.body));
+    assert.equal(args.p_args.stage, "effect-texture-0");
+    if (args.p_action === "reserve") {
+      const replayed = reserved;
+      reserved = true;
+      assert.equal(args.p_args.usd, 2);
+      return Response.json({
+        replayed,
+        call: { id: "image-call", result: saved },
+      });
+    }
+    assert.equal(args.p_action, "settle");
+    assert.equal(args.p_args.usd, 0.25);
+    saved = args.p_args.result;
+    return Response.json({});
+  };
+  const provider = (async (...args: Parameters<typeof generateTexture>) => {
+    count++;
+    assert.equal(
+      args[3]!.cacheScope,
+      `${identity.userId}/${identity.projectId}`,
+    );
+    await args[3]!.settle("image-call", 0.25);
+    return { asset: texture, cached: false };
+  }) as typeof generateTexture;
+  assert.deepEqual(
+    await generateEffectTexture(
+      identity,
+      operation,
+      0,
+      "Effect mask",
+      [],
+      signal,
+      provider,
+    ),
+    texture,
   );
-  const candidate = seen[1];
-  const payload = JSON.parse(candidate.text);
-  assert.equal(payload.family, "smoke-burst");
-  assert.equal(payload.recipe, RECIPES_V2["smoke-burst"].knowledge);
-  assert.equal(
-    payload.technique,
-    techniqueBrief("smoke-burst", "A billowing burst of smoke"),
+  assert.deepEqual(
+    await generateEffectTexture(
+      identity,
+      operation,
+      0,
+      "Effect mask",
+      [],
+      signal,
+      provider,
+    ),
+    texture,
   );
-  assert.ok(payload.technique.length > 0);
-  assert.deepEqual(payload.scale, exampleScaleSummary("smoke-burst"));
-  assert.deepEqual(payload.example, createPresetV2("smoke-burst"));
-  assert.equal(candidate.system, CANDIDATE_V2_SYSTEM);
+  assert.equal(count, 1);
+  saved = null;
+  await assert.rejects(
+    generateEffectTexture(
+      identity,
+      operation,
+      0,
+      "Effect mask",
+      [],
+      signal,
+      provider,
+    ),
+    /unknown outcome/,
+  );
+  assert.equal(count, 1);
 });
-test("a mesh hero framed in the particle band comes back with the exemplar camera", async () => {
-  const base = lowFramedSmoke();
-  const { provider } = stubGeneration(toWire(lowFramedSmoke()), base);
-  const document = await generateCandidate(
+
+test("effect masks register stable board IDs, exact pixels and operation provenance", async () => {
+  const ids: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/rest/v1/projects") {
+      assert.equal(url.searchParams.get("user_id"), `eq.${identity.userId}`);
+      assert.equal(url.searchParams.get("id"), `eq.${identity.projectId}`);
+      return Response.json({ id: identity.projectId });
+    }
+    if (url.pathname.startsWith("/storage/v1/object/references/")) {
+      assert.ok(
+        url.pathname.includes(`${identity.userId}/${identity.projectId}/`),
+      );
+      assert.deepEqual(Buffer.from(init!.body as Uint8Array), bytes);
+      return Response.json({ Key: "saved" });
+    }
+    const row = JSON.parse(String(init?.body));
+    if (url.pathname === "/rest/v1/assets") {
+      ids.push(row.id);
+      assert.equal(row.project_id, identity.projectId);
+      assert.match(row.name, /^Effect texture/);
+      assert.equal(row.size_bytes, bytes.length);
+      return new Response(null, { status: 201 });
+    }
+    assert.equal(url.pathname, "/rest/v1/studio_reference_provenance");
+    assert.equal(row.operation_id, operation.id);
+    assert.deepEqual(row.timestamps, []);
+    return new Response(null, { status: 201 });
+  };
+  const first = await registerEffectTexture(
     identity,
     operation,
-    {
-      expectedRevision: 7,
-      prompt: "A billowing burst of smoke",
-      referenceIds: [],
-      mode: "replace",
-    },
-    signal,
-    provider,
+    texture,
+    "Smoke",
   );
-  assert.ok(document.camera.framing >= 0.8);
-  assert.equal(
-    document.camera.framing,
-    createPresetV2("smoke-burst").camera.framing,
+  const again = await registerEffectTexture(
+    identity,
+    operation,
+    texture,
+    "Smoke",
   );
-  assert.deepEqual(lintDocumentV2(document), []);
+  assert.deepEqual(first, again);
+  assert.equal(first.textureId, texture.id);
+  assert.equal(ids[0], ids[1]);
+  await assert.rejects(
+    registerEffectTexture(
+      identity,
+      operation,
+      { ...texture, sha256: "0".repeat(64) },
+      "Smoke",
+    ),
+    /hash mismatch/,
+  );
 });
-test("add mode appends layers and leaves the existing camera alone", async () => {
-  const base = lowFramedSmoke();
-  const { provider } = stubGeneration(toWire(lowFramedSmoke()), base);
-  const document = await generateCandidate(
+
+import { buildCandidate } from "../../agent/lib/generation";
+import { createDocument } from "../../src/lib/vfx-lab/ui-bridge";
+test("a terminal candidate failure is not retried by the workflow", async () => {
+  let failures = 0;
+  globalThis.fetch = async (_url, init) => {
+    const args = JSON.parse(String(init?.body));
+    assert.equal(args.p_action, "fail");
+    failures++;
+    return Response.json({ status: "failed", result: args.p_args.result });
+  };
+  const input = {
+    prompt: "",
+    mode: "replace",
+    expectedRevision: 0,
+    referenceIds: [],
+    textureIds: [],
+    requirements: [],
+    avoid: [],
+  } as const;
+  const ctx = {} as Parameters<typeof buildCandidate>[0];
+  const invalid = input as unknown as Parameters<typeof buildCandidate>[3];
+  await assert.rejects(
+    buildCandidate(ctx, identity, operation, invalid, {
+      input: invalid,
+      base: createDocument(),
+      brief: "",
+      images: [],
+      criteria: [],
+    }),
+    (error: unknown) => {
+      assert.equal((error as { fatal: boolean }).fatal, true);
+      return true;
+    },
+  );
+  assert.equal(failures, 1);
+});
+
+test("reserve on a failed operation preserves the original reason", async () => {
+  globalThis.fetch = async () =>
+    Response.json({
+      status: "failed",
+      result: {
+        message: "candidate: input exceeds the generation budget guard.",
+      },
+    });
+  await assert.rejects(
+    modelStage(
+      identity,
+      operation,
+      "candidate",
+      schema,
+      "system",
+      "text",
+      [],
+      signal,
+      100,
+    ),
+    /candidate: input exceeds/,
+  );
+});
+
+test("library board cards reuse their identity across generation operations", async () => {
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/rest/v1/projects")
+      return Response.json({ id: identity.projectId });
+    if (url.pathname.startsWith("/storage/"))
+      return Response.json({ Key: "saved" });
+    return new Response(null, { status: 201 });
+  };
+  const library = { ...texture, model: "reusable-v2-library" };
+  const first = await registerEffectTexture(
     identity,
     operation,
-    {
-      expectedRevision: 7,
-      prompt: "Add a billowing burst of smoke",
-      referenceIds: [],
-      mode: "add",
-    },
-    signal,
-    provider,
+    library,
+    "Library mask",
   );
-  assert.equal(document.camera.framing, 0.65);
-  assert.equal(document.layers.length, base.layers.length * 2);
+  const next = await registerEffectTexture(
+    identity,
+    { ...operation, id: "40000000-0000-4000-8000-000000000001" },
+    library,
+    "Library mask",
+  );
+  assert.equal(first.referenceId, next.referenceId);
 });

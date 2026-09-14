@@ -47,6 +47,9 @@ export function webgpuBrowserOptions() {
           "--disable-vulkan-surface",
           "--use-angle=vulkan",
           "--use-webgpu-adapter=swiftshader",
+          // Compiling/rasterizing the full preview on a CPU can exceed the
+          // GPU watchdog deadline. Hardware verification keeps its defaults.
+          "--disable-gpu-watchdog",
         ]
       : [],
   };
