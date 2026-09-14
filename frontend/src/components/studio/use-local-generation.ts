@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Candidate } from "@/lib/vfx-lab/pipeline";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
+import { saveProjectThumbnail } from "@/lib/project-thumbnail";
 
 export type LocalBudget = {
   limit: number;
@@ -29,9 +30,11 @@ type LocalStatus = {
  * the chat keeps saving prompts exactly as before.
  */
 export function useLocalGeneration({
+  projectId,
   onDocument,
   onProgress,
 }: {
+  projectId?: string;
   onDocument: (doc: VfxDocumentV2) => void;
   onProgress?: (message: string) => void;
 }) {
@@ -126,6 +129,7 @@ export function useLocalGeneration({
           },
         });
         callbacks.current.onDocument(result.selected.document);
+        if (projectId) await saveProjectThumbnail(projectId, result.selected.evidence.sheet);
         progress(`Generated ${result.selected.document.name}.`);
         return true;
       } catch (problem) {
@@ -143,7 +147,7 @@ export function useLocalGeneration({
         void refreshStatus();
       }
     },
-    [busy, refreshStatus, request, status?.configured],
+    [busy, projectId, refreshStatus, request, status?.configured],
   );
 
   return {

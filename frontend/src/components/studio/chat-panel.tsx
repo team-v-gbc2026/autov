@@ -112,6 +112,7 @@ export default function ChatPanel({
       [...items, { id: localId(), text }].slice(-40),
     );
   const generation = useLocalGeneration({
+    projectId: vfx?.standalone ? undefined : projectId,
     onDocument: document => vfx?.onDocument?.(document),
     onProgress: say,
   });

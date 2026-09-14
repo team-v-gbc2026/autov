@@ -53,6 +53,11 @@ for (const entry of await readdir(archive, { withFileTypes: true })) {
   const dest = path.join(out, "effects", s.id);
   await mkdir(dest, { recursive: true });
   await writeFile(path.join(dest, "document.json"), raw);
+  await mkdir(path.join(out, "thumbnails"), { recursive: true });
+  await copyFile(
+    path.join(dir, "thumbnail.webp"),
+    path.join(out, "thumbnails", `${s.id}.webp`),
+  );
   const note = notes[s.id];
   trials.push({
     id: s.id,

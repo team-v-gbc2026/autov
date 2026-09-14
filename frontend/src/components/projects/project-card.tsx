@@ -9,7 +9,7 @@ export default function ProjectCard({ project, index, onRename, onDelete }: {
   return <article className={styles.card}>
     <Link className={styles.cardLink} href={`/workspace/${project.id}`} aria-label={`Open ${project.name}`}>
       <div className={`${styles.art} ${styles[`variant${index % 3}`]}`} aria-hidden="true">
-        <div className={styles.orbit}><i /><i /><i /></div>
+        {project.thumbnail_url ? <img className={styles.projectThumbnail} src={project.thumbnail_url} alt="" /> : <div className={styles.orbit}><i /><i /><i /></div>}
         
         
       </div>

@@ -2,7 +2,7 @@
   "schemaVersion": "autov.shared-trials/1",
   "created": "2026-09-13T01:12:33.110Z",
   "draft": true,
-  "runtime": "autov.lab/1-three-r186-flow11",
+  "runtime": "autov.lab/2-three-r186",
   "cases": 17,
   "candidates": 88,
   "usage": {
@@ -1312,5 +1312,6 @@
       "note": null,
       "latest": false
     }
-  ]
+  ],
+  "documentSchema": "autov.lab/2"
 }

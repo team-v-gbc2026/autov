@@ -42,6 +42,7 @@ import {
   type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
 import { upgradeDocument } from "@/lib/vfx-lab/migrate";
+import { saveProjectThumbnail } from "@/lib/project-thumbnail";
 import "./vfx-studio/studio-ui.css";
 
 type StudioProps = {
@@ -151,6 +152,8 @@ export default function Studio({
       const { captureV2 } = await import("@/lib/vfx-lab/capture-v2");
       const captureDoc = operation.kind === "capture_candidate" ? validateWorkspaceDocumentV2(operation.input.document) : currentDocument;
       const evidence = await captureV2(captureDoc, { solo: typeof operation.input.layerId === "string" ? operation.input.layerId : undefined, times: operation.input.times as number[] | undefined });
+      if (operation.kind === "capture_candidate" && !standalone)
+        await saveProjectThumbnail(project.id, evidence.sheet).catch(() => undefined);
       return { sheet: evidence.sheet, times: evidence.times, renderedPixels: evidence.renderedPixels || 0 };
     }
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));

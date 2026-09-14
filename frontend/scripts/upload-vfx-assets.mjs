@@ -3,6 +3,7 @@
 //
 //   <texture dir>/<file>                        -> vfx-textures/v2/<file>
 //   frontend/fixtures/v2/<id>/document.json     -> vfx-fixtures/v2/<id>/document.json
+//   frontend/public/trial-presets/**            -> vfx-fixtures/presets/**
 //
 // The PNG library is no longer committed (see docs/vfx-lab/LOCAL_SETUP.md). The
 // texture dir is the first of these that exists: $VFX_ASSET_DIR,
@@ -52,6 +53,7 @@ function option(name, fallback = null) {
 }
 const verifyOnly = flag("--verify");
 const dryRun = flag("--dry-run");
+const presetsOnly = flag("--presets-only");
 
 // --- env -------------------------------------------------------------------
 
@@ -153,7 +155,28 @@ function fixtureEntries() {
   return entries;
 }
 
-const entries = [...textureEntries(), ...fixtureEntries()];
+function presetEntries() {
+  const base = path.join(root, "public", "trial-presets");
+  const entries = [];
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const localPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(localPath);
+      else if (/\.(json|webp)$/i.test(entry.name)) entries.push({
+        bucket: FIXTURE_BUCKET,
+        objectPath: `presets/${path.relative(base, localPath).split(path.sep).join("/")}`,
+        localPath,
+      });
+    }
+  };
+  walk(base);
+  return entries;
+}
+
+const entries = presetsOnly
+  ? presetEntries()
+  : [...textureEntries(), ...fixtureEntries(), ...presetEntries()];
 
 if (entries.length === 0) {
   console.error(

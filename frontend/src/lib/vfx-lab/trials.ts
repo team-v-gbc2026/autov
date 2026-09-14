@@ -2,6 +2,7 @@ import { z } from "zod";
 import { mkdir, readFile, readdir, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 import { DocumentSchema, validateDocument } from "./schema";
 import { DocumentV2Schema, isV2, validateDocumentV2 } from "./schema-v2";
 import { ReviewSchema } from "./protocol";
@@ -112,6 +113,19 @@ export async function saveTrial(input: unknown) {
   await writeFile(path.join(dir, "sheet.jpg"), binary(value.sheet), {
     mode: 0o600,
   });
+  // Reuse the generation evidence instead of rendering the effect a second
+  // time. The fifth contact-sheet tile is the first post-impact frame for both
+  // capture contracts and makes a reliable, label-free preset cover.
+  const sheetBuffer = binary(value.sheet);
+  const tileWidth = v2 ? 640 : 320;
+  const tileHeight = v2 ? 360 : 180;
+  const labelHeight = v2 ? 22 : 22;
+  await sharp(sheetBuffer)
+    .extract({ left: 0, top: tileHeight + labelHeight, width: tileWidth, height: tileHeight })
+    .resize(480, 270, { fit: "cover" })
+    .webp({ quality: 84 })
+    .toFile(path.join(dir, "thumbnail.webp"))
+    .catch(() => undefined);
   for (let i = 0; i < value.references.length; i++)
     await writeFile(
       path.join(dir, `reference-${i}`),
