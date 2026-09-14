@@ -55,6 +55,11 @@ export const TECHNIQUE_IDS = [
   "panning-flow-interior",
   "orbiting-lobe-ring",
   "path-anchored-trail",
+  // The water/playful/slash port: a mesh liquid tail, the arc-window blade that
+  // tears into tongues, and a burst made of drawn symbols rather than glows.
+  "torn-membrane-tail",
+  "arc-window-crescent",
+  "drawn-symbol-burst",
 ] as const;
 export type TechniqueId = (typeof TECHNIQUE_IDS)[number];
 
@@ -916,6 +921,104 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     },
     sources: [BEAM_ETC, SMOKE],
   },
+
+  "torn-membrane-tail": {
+    id: "torn-membrane-tail",
+    name: "Torn membrane tail",
+    use: "The tail of a water bolt, a slime lob or any liquid projectile: it has to read as smooth surfaces and rounded volumes, which an alpha card cannot do.",
+    construction: [
+      'A kind:"sheets" layer on the projectile\'s own flow axis, 20-26 curved membranes, length 0.4-1.4 m and width 0.2-0.55 m, curl 1.0-2.2 rad so each one wraps into a half tube rather than staying a card.',
+      "Three size classes on TWO cadences: a near collar re-firing every ~1.2 s and far crescents every ~2.55 s. A class whose life outlives its own period is clipped mid-flight, which is the one failure this pattern exists to avoid.",
+      "sheets.tear (scale ~3.4, threshold ~0.22) eats the border with a low-frequency field, so the silhouette is ragged instead of cut with scissors.",
+      "A second sheets layer at curl 2.6-3.4 and a third of the length is the ROUNDED DROPLETS: a sheet curled almost shut is a tube, and a tube at that size reads as a drop.",
+      "material.toon at two bands against one fixed world light, plus a rim. Both layers depth-write, so they intersect each other for real.",
+    ],
+    timing:
+      "Births are spread evenly INSIDE each class's own period, so coverage is uniform at every t; nothing new is born in the last fifth of the layer, so the tail thins out instead of being cut off.",
+    details: [
+      "Two cadences, not one: a single period either clips the long pieces or leaves the near collar sparse.",
+      "Opaque and depth-writing is the whole read — overlapping translucent sheets look like smoke.",
+      "The lateral sway is hashed per sheet and rides a sqrt ramp-in, so the tail swims rather than snapping sideways.",
+      "The sheet is bowed along its length as well as curled across it; a straight strip reads as a blade.",
+      "Tail reach is about three units for a one-unit head: any shorter and the projectile reads as a ball.",
+    ],
+    vocabulary: {
+      available: [
+        'kind:"sheets" + layer.sheets.{count,length,width,curl,bow,taper,classes,spawn,flow,speed,undulation,tumble,scaleIn,shrinkOut,tear,seed}',
+        "material.toon.{bands,thresholds,shadow,body,highlight,light,rim}",
+        "transform.squash.{axis,amplitude,frequency}",
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC],
+  },
+
+  "arc-window-crescent": {
+    id: "arc-window-crescent",
+    name: "Arc-window crescent",
+    use: "A sword slash, a claw swipe or any blade that sweeps an arc and then tears away, rather than a ribbon that fades.",
+    construction: [
+      'A kind:"crescent" layer: radius ~1.5 (so the blade is three units across), a 200-degree sweep, and the arc plane leaned toward the camera so a circle in it projects to an ellipse of about 0.43 — that lean is what turns the sweep into a banana instead of a "C".',
+      "window.head and window.tail are TWO curves on one window: the head runs (easeOutQuart over ~0.35 s) while the tail holds, then the tail accelerates into it over the next ~0.85 s. The sweep and the tear-away are the same field.",
+      "thickness peaks about 0.4 of the arc behind the LIVE tip, with a razor rise at the tip (tipPower ~0.35) and a root fade at the trailing end.",
+      "Three tonal copies plus a smear: a wide dark shadow behind and outside, the saturated body, a hot highlight at half the width inside it, and an additive copy lagging ~60 ms while the sweep travels.",
+      "erosionFront eats Voronoi cells behind the tail, so the trailing end breaks into tongues; erosionFront.widthFollowsWindow keeps a short window from losing its whole tail at once.",
+      'A kind:"licks" layer anchored to that front, and a particles layer at spawn.mode "frontAnchored" for the embers: both appear in the order the blade tears, with no time written down twice.',
+    ],
+    timing:
+      "Charge 0-10% of the duration, sweep to 22%, tear-away to 50%, a leftover ember to the end. The burst fires on the frame the head reaches the end of the arc.",
+    details: [
+      "The window is what reads as travelling; a full arc that fades in reads as a painted ring.",
+      "The thickness peak sits BEHIND the tip, so the leading edge is a razor and the body is fat.",
+      "The tail is eaten, not faded: cells disappear, and the gaps between them are the tongues.",
+      "The blade widens and flutters as the tear grows — a blade coming apart swells before it breaks.",
+      "One smear copy is the motion blur; two read as a double image.",
+    ],
+    vocabulary: {
+      available: [
+        "kind:\"crescent\" + layer.crescent.{radius,sweep,phase,planeTilt,window,thickness,widthSpace,tonal,erosionFront,streaks,widen,seed}",
+        'kind:"licks" + layer.licks.{count,length,width,curl,flipbookHz,anchor,drift,stagger,life,colors}',
+        'emitter.spawn.mode:"frontAnchored" + spawn.sourceLayerId',
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC],
+  },
+
+  "drawn-symbol-burst": {
+    id: "drawn-symbol-burst",
+    name: "Drawn symbol burst",
+    use: "A cute or comic impact whose content is DRAWN symbols — a solid star, faces, hearts, bolts — rather than glows and sparks.",
+    construction: [
+      'Every symbol layer carries layer.frame "camera", so the emitter\'s own XY is the screen plane. A 2D symbol burst read from a three-quarter camera collapses to a line without it.',
+      'environment.backdrop draws the wash behind everything and environment.ground goes to "none": the effect is drawn on paper, not standing on a floor.',
+      'The centre is a material.procedural "starSolid" sprite ~1.6 units across: a saturated fill, a thick outline, a material.screentone lattice inside it and a white-hot inner copy on material.symbol.hot.alpha. The hot core cuts at ~12% of the duration while the outlined shell keeps reading to ~25%.',
+      'Symbols are particles layers on emitter.shape.type "radialFan" (an even fan, jittered) with a radial throw, drag ~3 and a light gravity sag, so they arc outward and fall: 6 faces 0.36-0.52 across, 8 hearts, 3 bolts, 5-6 cloud lobes.',
+      'The rays are particles layers at render.mode "sliver" with render.retract: the inner end travels outward while the length collapses, so the ray shortens from the core outward. A star line retracts, it never fades.',
+      "A pin-prick dot and ~30 converging sparkles anticipate the hit, and one wide soft residual outlives every symbol.",
+    ],
+    timing:
+      "Anticipation 0-7%, flash 7-12%, symbols spread 12-30%, everything gone by the end. The symbols outlive the flash by three times over.",
+    details: [
+      "Alpha blend the drawn shapes: additive bleaches a saturated pink straight back to white.",
+      "The outline is the read. A fill with no ink line is a blob however saturated it is.",
+      "Expressions are hashed off the instance seed, so six faces are six faces and not one repeated.",
+      "The screentone is world- or UV-pitched, so it stays a printed lattice rather than scaling with the shape.",
+      "An even fan reads as a clock face: jitter every heading, and lean the whole fan with shape.angleBias.",
+    ],
+    vocabulary: {
+      available: [
+        'layer.frame:"camera"',
+        "environment.backdrop.{mode,hot,cold,center,aspect,topFalloff}",
+        'material.procedural "starSolid"|"face"|"heart"|"crescent"|"cloudLobe"|"bolt" + material.symbol.{fill,outline,highlight,ink,hot}',
+        "material.screentone.{pitch,color,space}",
+        'emitter.shape.type:"radialFan" + shape.{angleJitter,angleBias}',
+        'emitter.render.mode:"sliver" + render.{sliver,retract,secondary}',
+      ],
+      missing: [],
+    },
+    sources: [BEAM_ETC],
+  },
 };
 
 /** Every family the planner knows, mapped to its most relevant technique cards. */
@@ -938,10 +1041,12 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "staggered-instance-timing",
     "instanced-shard-burst",
   ],
+  // The arc-window card already carries the front ordering a slash needs, so
+  // staggered-instance-timing would only repeat it.
   "fire-slash": [
+    "arc-window-crescent",
     "uv-erosion-front",
     "three-tone-layer-stack",
-    "staggered-instance-timing",
   ],
   beam: [
     "stripe-panner-core-and-sheath",
@@ -996,6 +1101,18 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "cauliflower-blob-cluster",
     "staggered-instance-timing",
   ],
+  "water-projectile": [
+    "torn-membrane-tail",
+    "inverted-hull-outline",
+    "staggered-instance-timing",
+    "three-tone-layer-stack",
+  ],
+  "playful-impact": [
+    "drawn-symbol-burst",
+    "flat-splash-accent",
+    "converging-charge",
+    "staggered-instance-timing",
+  ],
 };
 
 /**
@@ -1029,7 +1146,18 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
     /column|overload|pillar|surge/i,
     ["blinking-arc-ribbons", "stripe-panner-core-and-sheath", "upright-glow-cylinder"],
   ],
-  [/water|liquid/i, ["two-layer-noise-mist", "polar-swirl-disc"]],
+  [
+    /water|liquid|aqua|splash/i,
+    ["torn-membrane-tail", "two-layer-noise-mist", "inverted-hull-outline"],
+  ],
+  [
+    /playful|\bcute\b|comic|cartoon|kawaii|\bemoji\b|\bface/i,
+    ["drawn-symbol-burst", "flat-splash-accent", "converging-charge"],
+  ],
+  [
+    /slash|slice|swipe|\bblade\b|\bsword\b|\bclaw\b/i,
+    ["arc-window-crescent", "uv-erosion-front", "three-tone-layer-stack"],
+  ],
   [/meteor|comet|falling/i, ["path-anchored-trail", "speed-line-cap", "instanced-shard-burst"]],
   [
     /crystal|ice|frost/i,

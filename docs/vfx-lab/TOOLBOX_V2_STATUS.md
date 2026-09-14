@@ -80,17 +80,44 @@ Companion docs: `TOOLBOX_V2_MAPPING.md` (spike → schema decisions), `DESIGN.md
   head reaches a point on it); and `environment.groundPool` (analytic disc/rect pools in the ground
   shader). Ported from the S8 portal, S9 vortex and S11 meteor spikes
   (`TOOLBOX_V2_MAPPING.md` §11–§13); `portal` and `sky-vortex` are new and `meteor-rain` is rebuilt.
+- **Liquid, drawn and arc vocabulary** (`sheets-v2.ts`, `crescent-v2.ts`, `licks-v2.ts`,
+  `schema-v2.ts`, `shaders-v2.ts`, `runtime-v2.ts`, `environment-v2.ts`, `evaluate-v2.ts`):
+  `kind:"sheets"` (curved, tapered, OPAQUE membranes on a hashed MULTI-CADENCE schedule — each
+  size class re-fires on its own period and the births inside it are spread evenly across it, so a
+  long crescent is never clipped by its own re-fire — cel-shaded from `material.toon` and torn at
+  the border by a low-frequency threshold); `kind:"crescent"` (the arc-window blade: a strip swept
+  along a signed arc of which only `[tail, head]` is drawn, head and tail being TWO curves on ONE
+  window, drawn once per tonal copy with an optional lagging smear, its tail EATEN by a Voronoi
+  erosion front rather than faded) and `kind:"licks"` (flat cel flame strips anchored to that
+  front on a flipbook hold), with `emitter.spawn.mode:"frontAnchored"` + `spawn.sourceLayerId`
+  (an instance owns a hashed parameter along that blade's arc and is born the moment the tail
+  reaches it); `transform.squash` (a volume-conserving breath on any kind);
+  `material.streaks` / `material.creases` (thin hard bands keyed on the along OR the angular
+  coordinate, and a higher-frequency field darkening narrow folds — what makes a smooth teardrop
+  read as folded water); `material.screentone` and `material.symbol` with the six drawn-symbol
+  procedurals (`starSolid`, `face`, `heart`, `crescent`, `cloudLobe`, `bolt`);
+  `layer.frame:"camera"` (the layer's local XY re-based onto the camera's right/up, closed form,
+  so a symbol burst lays out in the SCREEN plane); `emitter.shape.type:"radialFan"` with
+  `shape.{angleJitter,angleBias}`; `emitter.render.mode:"sliver"` with `render.{sliver,retract,
+  secondary}` (a jagged tapered needle that retracts from the root outward, plus short secondary
+  bits strung along it in the same layer); and `environment.backdrop` (a screen-space vignette
+  card behind everything). Ported from the S12 water, S13 playful and S13 slash spikes
+  (`TOOLBOX_V2_MAPPING.md` §14–§16); `water-projectile` and `playful-impact` are new and
+  `fire-slash` is rebuilt.
 - **Pipeline v2** (`protocol-v2.ts`, `recipes-v2.ts`, `pipeline.ts`, `refine.ts`, `route.ts`): planner/candidate/
   review/refine on schema v2 with structured outputs, scale anchors, lint-driven repair, review v2
   (640×360 sheet + 12-frame motion strip, six axes, defect checklist, jitter evidence).
 - **Exemplars** (`fixtures/v2/*/document.json`): fire-projectile, smoke-burst, lightning-impact, beam,
   fire-slash, ice-blast, shield, healing-aura, glitch-projectile, energy-column, portal,
-  sky-vortex, meteor-rain — hand-authored against the benchmark references (the "oracle"). The
-  last five are the fx15, fx04, fx16, fx14, fx17 and fx09 cases; the planner reaches the four the
-  v1 vocabulary cannot name by prompt keyword (`recipeV2For(id, prompt)` on aura/heal,
-  glitch/digital/hologram, column/overload/pillar/surge and vortex/tornado/swirl/maelstrom), since
+  sky-vortex, meteor-rain, water-projectile, playful-impact — hand-authored against the benchmark
+  references (the "oracle"). The last eight are the fx15, fx04, fx16, fx14, fx17, fx09, fx03 and
+  fx06 cases; the planner reaches the families the v1 vocabulary cannot name by prompt keyword
+  (`recipeV2For(id, prompt)` on aura/heal, glitch/digital/hologram, column/overload/pillar/surge,
+  vortex/tornado/swirl/maelstrom, water/liquid/aqua/splash and playful/cute/comic/kawaii), since
   `PlanSchema` still names v1 recipe ids — `portal` is the exception, because v1 has a `portal`
-  recipe id and `V1_RECIPE_TO_V2` now routes it to the family of the same name. Nothing is built in
+  recipe id and `V1_RECIPE_TO_V2` now routes it to the family of the same name, and `water` is the
+  second: `V1_RECIPE_TO_V2.water` now points at `water-projectile` instead of at `ice-blast`, so a
+  planner that picks it lands on the right family with or without a prompt. Nothing is built in
   code any more: `meteor-rain` was the last code-built recipe and it moved to a fixture with the
   S11 port.
 - **Dev gallery** `/dev/vfx-v2` (`npm run dev`): exemplars + every generated benchmark run, references,

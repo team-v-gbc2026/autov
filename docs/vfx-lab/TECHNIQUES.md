@@ -24,12 +24,12 @@ A **technique card** is that missing layer. Each one is a named, reusable constr
 - `vocabulary.missing` — the vocabulary the renderer does not have yet.
 - `sources` — which research doc it came from.
 
-26 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the thirteen `RecipeV2Id`
+29 cards live in `TECHNIQUES_V2`. `TECHNIQUES_BY_FAMILY` maps each of the fifteen `RecipeV2Id`
 families to its 3-4 most relevant cards; `TECHNIQUE_KEYWORDS` is a list of `[RegExp, TechniqueId[]]`
 pairs that add cards for shapes a family doesn't cover directly — aura/heal, sigil/summon,
-glitch/hologram, water, meteor/comet, crystal/ice outside `ice-blast`, and smoke outside
-`smoke-burst`. (Portal, vortex and energy column now have families of their own; their keywords
-route to those families and to the same cards.)
+glitch/hologram, meteor/comet, slash/blade, crystal/ice outside `ice-blast`, and smoke outside
+`smoke-burst`. (Portal, vortex, energy column, water and the playful symbol burst now have families
+of their own; their keywords route to those families and to the same cards.)
 
 ## How it reaches the prompt
 
@@ -210,6 +210,23 @@ around them — `sdf-frame-rim`, `panning-flow-interior`, `orbiting-lobe-ring` a
 `path-anchored-trail` — and `polar-swirl-disc`, `speed-line-cap` and `edge-biased-sparks` were
 rewritten.
 
-25 of the 26 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
+### Closed 2026-09-14 — the water / playful / slash spike port
+
+The port of the S12 water, S13 playful and S13 slash spikes (`TOOLBOX_V2_MAPPING.md` §14–§16) added
+three cards and no backlog. Nothing in the three is renderer backlog: every field they name exists.
+
+| Card | What it carries |
+|---|---|
+| `torn-membrane-tail` | `kind:"sheets"` — curved, tapered, OPAQUE membranes on a hashed MULTI-CADENCE schedule, cel-shaded from `material.toon` and torn at the border by a low-frequency threshold. The one rule the schema now enforces outright: a size class whose `life` outlives its own `period` is clipped by its own re-fire, and coverage inside a class comes from spreading its births evenly across that period |
+| `arc-window-crescent` | `kind:"crescent"` — a strip swept along a signed arc of which only `[tail, head]` is drawn, head and tail being TWO curves on ONE window, drawn once per tonal copy with an optional lagging smear; its tail EATEN by a Voronoi erosion front, with `kind:"licks"` and `emitter.spawn.mode:"frontAnchored"` both anchored to that front |
+| `drawn-symbol-burst` | `layer.frame:"camera"`, `environment.backdrop`, the six drawn-symbol procedurals with `material.symbol` and `material.screentone`, `emitter.shape.type:"radialFan"` and `emitter.render.mode:"sliver"` with `render.{retract,secondary}` — a star line RETRACTS from the root outward, it never simply fades |
+
+The port also added vocabulary no card had asked for: `transform.squash` (a volume-conserving
+breath on any kind) and `material.streaks` / `material.creases` (thin hard bands keyed on the along
+OR the angular coordinate, and a higher-frequency field darkening narrow folds). `uv-erosion-front`
+and `three-tone-layer-stack` — the two cards a slash reaches for — were already fully expressible
+and stay as they were; `arc-window-crescent` now leads the `fire-slash` family ahead of both.
+
+27 of the 29 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
 remaining 2 entries in the backlog above belong to `ground-ring-with-inner-fill` and
 `stepped-hash-glitch`.

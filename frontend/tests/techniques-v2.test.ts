@@ -200,3 +200,40 @@ test("the beam/column cards name the vocabulary the port added", () => {
     );
   }
 });
+
+test("the port-F cards route from their own families and prompts", () => {
+  // The three cards the water, playful and slash ports added, each reachable
+  // both from its family and from the words a director would actually use.
+  assert.ok(TECHNIQUES_BY_FAMILY["water-projectile"].includes("torn-membrane-tail"));
+  assert.ok(TECHNIQUES_BY_FAMILY["playful-impact"].includes("drawn-symbol-burst"));
+  assert.ok(TECHNIQUES_BY_FAMILY["fire-slash"].includes("arc-window-crescent"));
+  // Routed by prompt too. The per-call budget can legitimately drop a later
+  // card, so the keyword TABLE is what is asserted — the same way the aura
+  // route's fourth card is checked above.
+  const routed = (prompt: string) =>
+    TECHNIQUE_KEYWORDS.filter(([pattern]) => pattern.test(prompt)).flatMap(
+      ([, ids]) => ids,
+    );
+  assert.ok(routed("a lob of liquid water").includes("torn-membrane-tail"));
+  assert.ok(routed("a cute kawaii cartoon hit").includes("drawn-symbol-burst"));
+  assert.ok(routed("a sword slash across the screen").includes("arc-window-crescent"));
+  // And each one really reaches a brief for its own family.
+  assert.match(
+    techniqueBrief("water-projectile" as RecipeV2Id, ""),
+    /Torn membrane tail/,
+  );
+  assert.match(
+    techniqueBrief("playful-impact" as RecipeV2Id, ""),
+    /Drawn symbol burst/,
+  );
+  assert.match(techniqueBrief("fire-slash" as RecipeV2Id, ""), /Arc-window crescent/);
+  // All three are fully expressible today: nothing in them is renderer backlog.
+  for (const id of [
+    "torn-membrane-tail",
+    "drawn-symbol-burst",
+    "arc-window-crescent",
+  ] as const) {
+    assert.deepEqual(TECHNIQUES_V2[id].vocabulary.missing, []);
+    assert.ok(TECHNIQUES_V2[id].vocabulary.available.length >= 3, id);
+  }
+});

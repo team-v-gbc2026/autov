@@ -193,6 +193,27 @@ export function evaluateLayerV2(layer: LayerV2, time: number): EvaluatedLayerV2 
     }
   }
 
+  // transform.squash: a volume-conserving breath on the layer's own scale. The
+  // named axis takes 1 + amplitude*sin(2*PI*frequency*age) and the two cross
+  // axes the inverse square root of it, so the body keeps its volume instead of
+  // pumping — and because it multiplies transform.scale it reaches every kind
+  // with no per-kind branch anywhere. It runs after collapse and before the
+  // overrides, which stay the last word on any value.
+  if (next.transform.squash && age >= 0) {
+    const { axis, amplitude, frequency } = next.transform.squash;
+    const k = 1 + amplitude * Math.sin(age * 2 * Math.PI * frequency);
+    const cross = 1 / Math.sqrt(Math.max(k, 1e-4));
+    const factor: [number, number, number] =
+      axis === "x"
+        ? [k, cross, cross]
+        : axis === "y"
+          ? [cross, k, cross]
+          : [cross, cross, k];
+    next.transform.scale = next.transform.scale.map(
+      (v, i) => v * factor[i],
+    ) as [number, number, number];
+  }
+
   for (const override of next.overrides) {
     const w = windowWeight(override, time);
     // Exactly preserve protected values; no round-trip conversion at weight 0.

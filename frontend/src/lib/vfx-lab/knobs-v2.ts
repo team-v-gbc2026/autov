@@ -344,6 +344,64 @@ export function applyKnobs(
         clamp(b.width[1] * kMeshScale, 0.005, 1),
       ];
     }
+    // A tail of sheets scales by how long and how wide its membranes are and how
+    // fast they travel, so the tail keeps its proportions as the head grows.
+    // verticalStretch reaches only the length, the way it reaches a mesh's y.
+    // The class cadences are timing and the count is topology.
+    if (layer.sheets) {
+      const sh = layer.sheets;
+      sh.length = [
+        clamp(sh.length[0] * kMeshScale * kVertical, 0.05, 4),
+        clamp(sh.length[1] * kMeshScale * kVertical, 0.05, 4),
+      ];
+      sh.width = [
+        clamp(sh.width[0] * kMeshScale, 0.02, 3),
+        clamp(sh.width[1] * kMeshScale, 0.02, 3),
+      ];
+      sh.speed = [
+        clamp(sh.speed[0] * kMeshScale, 0, 12),
+        clamp(sh.speed[1] * kMeshScale, 0, 12),
+      ];
+      sh.spawn = {
+        axisFrom: clamp(sh.spawn.axisFrom * kMeshScale, -4, 4),
+        axisTo: clamp(sh.spawn.axisTo * kMeshScale, -4, 4),
+      };
+    }
+    // A blade scales by its arc radius and its thickness; the sweep, the plane
+    // lean and the two window curves are the SHAPE of the slash and belong to
+    // the document. verticalStretch reaches the thickness, which is the only
+    // dimension across the arc.
+    if (layer.crescent) {
+      const cr = layer.crescent;
+      cr.radius = clamp(cr.radius * kMeshScale, 0.05, 8);
+      cr.thickness.max = clamp(cr.thickness.max * kMeshScale * kVertical, 0.01, 3);
+      cr.erosionFront.width = clamp(cr.erosionFront.width, 0.01, 2);
+    }
+    // Licks scale by their own strips; the flipbook rate is timing.
+    if (layer.licks) {
+      const lk = layer.licks;
+      lk.length = [
+        clamp(lk.length[0] * kMeshScale, 0.02, 4),
+        clamp(lk.length[1] * kMeshScale, 0.02, 4),
+      ];
+      lk.width = [
+        clamp(lk.width[0] * kMeshScale, 0.01, 2),
+        clamp(lk.width[1] * kMeshScale, 0.01, 2),
+      ];
+    }
+    // A sliver needle scales the way a mesh does; the retract and the secondary
+    // bits are timing and topology.
+    if (layer.emitter?.render.sliver) {
+      const sl = layer.emitter.render.sliver;
+      sl.length = [
+        clamp(sl.length[0] * kMeshScale, 0.05, 8),
+        clamp(sl.length[1] * kMeshScale, 0.05, 8),
+      ];
+      sl.width = [
+        clamp(sl.width[0] * kMeshScale, 0.005, 1),
+        clamp(sl.width[1] * kMeshScale, 0.005, 1),
+      ];
+    }
     // A burst scales by how big its outlines are and how far they fly; the
     // shape and spoke counts are topology, so the knob space never moves them.
     if (layer.wireBurst) {

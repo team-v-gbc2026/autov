@@ -390,6 +390,124 @@ float stripeTerm(float along, float ring, float t){
 }
 `;
 
+/**
+ * Drawn symbols: the glyphs a cartoon impact is made of. Unlike every other
+ * pattern these are not a single coverage number — a symbol is a FILL inside an
+ * ink OUTLINE, with its own highlight and its own ink marks — so they return
+ * four coverages and material.symbol supplies the colours. The ramp is not
+ * consulted at all: a pink bear's head is two flat hexes and a line, and mixing
+ * a gradient through it is exactly what stops it reading as drawn.
+ *
+ * Modes 21 starSolid, 22 face, 23 heart, 24 crescent, 25 cloudLobe, 26 bolt.
+ * `p` is the centred quad coordinate scaled to -1..1, `sd` a per-instance hash
+ * (the face's expression rides it) and the result is
+ * (body, outline, ink, hot core).
+ */
+export const glslSymbol = /* glsl */ `
+uniform vec3 uSymFill,uSymOutline,uSymHigh,uSymInk,uSymHot;
+uniform float uSymHotI,uSymHotA,uScreenPitch,uScreenOn,uScreenWorld;
+uniform vec3 uScreenCol;
+float symC(vec2 p,float r){ return length(p)-r; }
+float symE(vec2 p,vec2 r){ return (length(p/r)-1.)*min(r.x,r.y); }
+float symSeg(vec2 p,vec2 a,vec2 b){ vec2 pa=p-a,ba=b-a; float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.); return length(pa-ba*h); }
+/* iq's star SDF: an n-pointed star whose inner radius is rf of the outer. */
+float symStar(vec2 p, float r, float rf, float points){
+  float m=max(points,3.);
+  float an=3.141592653589793/m, en=3.141592653589793/mix(3.,m,clamp(rf,0.,1.));
+  vec2 acs=vec2(cos(an),sin(an)), ecs=vec2(cos(en),sin(en));
+  float bn=mod(atan(p.x,p.y),2.*an)-an;
+  p=length(p)*vec2(cos(bn),abs(sin(bn)));
+  p-=r*acs;
+  p+=ecs*clamp(-dot(p,ecs),0.,r*acs.y/ecs.y);
+  return length(p)*sign(p.x);
+}
+/* iq's heart SDF, cusp at the origin and lobes at y = 1. */
+float symHeart(vec2 p){
+  p.x=abs(p.x);
+  if(p.y+p.x>1.) return sqrt(dot(p-vec2(.25,.75),p-vec2(.25,.75)))-sqrt(2.)/4.;
+  vec2 a=p-vec2(0.,1.), b=p-.5*max(p.x+p.y,0.);
+  return sqrt(min(dot(a,a),dot(b,b)))*sign(p.x-p.y);
+}
+/* Coverage of the four parts of a symbol: the fill, the ink outline around it,
+   the ink marks inside it, the lighter accent and the hot inner copy. */
+void symbolShape(vec2 p, float sd, int mode,
+                 out float body, out float ring, out float ink,
+                 out float high, out float hot){
+  float aa=fwidth(p.x)*1.4+.004;
+  float ow=max(uProcParams.x,.0);
+  float d=1e3, dInk=1e3, dHot=1e3, dHigh=1e3;
+  if(mode==21){
+    d=symStar(p,.70,clamp(uProcParams.y,.1,.9),max(uProcParams.x,3.));
+    // The hot inner copy is the SAME star at a fraction of the radius: one
+    // shape, so the flash can cut without the outline moving.
+    dHot=symStar(p,.70*clamp(uProcParams.w,.05,1.),clamp(uProcParams.y,.1,.9),max(uProcParams.x,3.));
+    ow=max(uProcParams.z,.0);
+  } else if(mode==22){
+    // A head and two ears, an expression hashed out of the instance seed, and
+    // a lighter muzzle and ear inners so the disc reads as a ball.
+    float ear=clamp(uProcParams.z,.05,.6);
+    d=symC(p,.58);
+    d=min(d,symC(p-vec2(-.44,.46),ear));
+    d=min(d,symC(p-vec2( .44,.46),ear));
+    float expr=floor(fract(sd*7.31)*max(uProcParams.x,1.));
+    vec2 el=p-vec2(-.235,.115), er=p-vec2(.235,.115);
+    float eye;
+    if(expr>.5 && expr<1.5){
+      eye=min(abs(symC(el,.135))-.042, abs(symC(er,.135))-.042);
+      eye=max(eye,-(p.y-.085));
+    } else {
+      eye=min(symE(el,vec2(.088,.115)), symE(er,vec2(.088,.115)));
+    }
+    float mouth = expr>1.5
+      ? symE(p-vec2(0.,-.185),vec2(.115,.095))
+      : max(abs(symC(p-vec2(0.,.12),.30))-.038, -(-p.y-.055));
+    dInk=min(eye,mouth);
+    float inner=min(symC(p-vec2(-.44,.47),ear*.49), symC(p-vec2(.44,.47),ear*.49));
+    dHigh=min(inner, symE(p-vec2(0.,-.115),vec2(.235,.175)*clamp(uProcParams.w,.1,2.)));
+    ow=max(uProcParams.y,.0);
+  } else if(mode==23){
+    d=symHeart((p+vec2(0.,.78))/1.55)*1.55;
+  } else if(mode==24){
+    // A comma crescent: a disc with an offset bite taken out of it.
+    float bite=clamp(uProcParams.y,0.,1.);
+    d=max(symC(p-vec2(-.06,.02),.56), -symC(p-vec2(.26+bite*.2,.24),.50));
+  } else if(mode==25){
+    // A union of hashed discs: a flat cel puff, one shape and no gradient.
+    float lobes=max(uProcParams.x,1.);
+    float rr=clamp(uProcParams.y,.05,.6);
+    for(int i=0;i<4;i++){
+      if(float(i)>=lobes) break;
+      float f=float(i)+sd*13.;
+      vec2 o=vec2(procHash21(vec2(f,1.))-.5, procHash21(vec2(f+3.1,2.))-.5)*.72;
+      d=min(d, length(p-o)-(rr+.16*procHash21(vec2(f+7.3,3.))));
+    }
+    // A lighter cap on the upper edge, which is what makes a puff a billow.
+    dHigh=d+.16-.30*(p.y*.5+.5);
+    ow=.0;
+  } else {
+    // A three-segment polyline: the little Z bolt a comic flicks past the rim.
+    float w=max(uProcParams.x,.02)*(1.-clamp(uProcParams.y,0.,.9)*abs(p.y));
+    float seg=symSeg(p,vec2(-.30,.86),vec2(.16,.16));
+    seg=min(seg,symSeg(p,vec2(.16,.16),vec2(-.16,-.02)));
+    seg=min(seg,symSeg(p,vec2(-.16,-.02),vec2(.30,-.86)));
+    d=seg-w;
+    ow=.0;
+  }
+  body=smoothstep(aa,-aa,d);
+  ring=ow>0. ? max(smoothstep(aa,-aa,d-ow)-body,0.) : 0.;
+  ink=smoothstep(aa,-aa,dInk)*body;
+  high=smoothstep(aa,-aa,dHigh)*body;
+  hot=smoothstep(aa,-aa,dHot)*body;
+}
+/** The halftone lattice, in world metres or in the card's own UV. */
+float screentoneAt(vec2 uvp, vec3 wp){
+  if(uScreenOn<.5) return 0.;
+  vec2 q = uScreenWorld>.5 ? wp.xy : uvp;
+  vec2 g=fract(q/max(uScreenPitch,1e-3))-.5;
+  return smoothstep(.36,.24,length(g));
+}
+`;
+
 // ---------------------------------------------------------------------------
 // Frame rims, flow surfaces and swirl discs
 // ---------------------------------------------------------------------------
@@ -590,6 +708,18 @@ uniform vec2 u${P}Life,u${P}Speed;
 uniform vec2 u${P}SpeedKey[${CURVE_KEYS}];
 uniform float u${P}BurstT[${CURVE_KEYS}]; uniform float u${P}BurstC[${CURVE_KEYS}];
 uniform float u${P}Interior;
+uniform float u${P}AngleJitter,u${P}AngleBias;
+${path ? `uniform vec3 uFrontC,uFrontEx,uFrontEy,uFrontN;
+uniform float uFrontR,uFrontPh0,uFrontSweep,uFrontSpan,uFrontStart;
+/* The arc point of the source crescent at parameter s, in THIS layer's space. */
+vec3 frontPoint(float sArc){
+  float ph=uFrontPh0+sArc*uFrontSweep;
+  return uFrontC+(uFrontEx*cos(ph)+uFrontEy*sin(ph))*uFrontR;
+}
+vec3 frontTangent(float sArc){
+  float ph=uFrontPh0+sArc*uFrontSweep;
+  return safeDir(-uFrontEx*sin(ph)+uFrontEy*cos(ph), vec3(1.,0.,0.));
+}` : ""}
 
 float ${p}Life(vec4 s){ return mix(u${P}Life.x,u${P}Life.y,s.y); }
 
@@ -623,7 +753,14 @@ ${
     : ""
 }${
   path
-    ? /* glsl */ `  if(u${P}SpawnMode==3){
+    ? /* glsl */ `  if(u${P}SpawnMode==5){
+    // frontAnchored: the instance owns a hashed parameter along the source
+    // crescent's arc and is born the moment that crescent's TAIL curve reaches
+    // it. The curve is inverted in closed form, so the embers appear in the
+    // order the blade tears with no time table anywhere.
+    return curveTInverse(instance)*uFrontSpan+uFrontStart;
+  }
+  if(u${P}SpawnMode==3){
     // pathAnchored: instance i owns u = i/(count-1) and is born the moment the
     // head curve passes it. The head curve's domain is the layer's own 0..1
     // progress, so the inverse is scaled back into layer seconds.
@@ -678,6 +815,16 @@ vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
     }
     return a1*pt.x+a2*pt.y+axis*(e.z-.5)*u${P}ShapeInner;
   }
+  if(u${P}ShapeType==13){
+    // radialFan: an evenly spaced fan in the plane across shape.axis. The even
+    // slot is what keeps a burst from clumping, and angleBias both compresses
+    // the fan (a full even ring reads as a clock face) and leans it.
+    float bias=clamp(u${P}AngleBias,-1.,1.);
+    float ang=aIndex*6.2831853*(1.-.25*abs(bias))
+             +bias*1.5707963
+             +(e.x-.5)*u${P}AngleJitter;
+    return (a1*cos(ang)+a2*sin(ang))*u${P}ShapeRadius;
+  }
   if(u${P}ShapeType==12){
     // orbit: a ring BAND between shape.innerRadius and shape.radius in the
     // plane across shape.axis, hashed on a sqrt so the lane population is even
@@ -687,7 +834,10 @@ vec3 ${p}Origin(vec4 s, vec4 e, vec4 e2){
   }
 ${
   path
-    ? /* glsl */ `  if(u${P}ShapeType==8){
+    ? /* glsl */ `  if(u${P}SpawnMode==5)
+    return frontPoint(s.x)+uFrontN*(e.z-.5)*u${P}ShapeRadius
+          +sph*u${P}ShapeRadius*.4;
+  if(u${P}ShapeType==8){
     // path: the instance sits ON the document path at its own u, scattered
     // across the path frame by shape.radius so the row reads as a dotted band
     // rather than a string of beads. Paths are in DOCUMENT space.
@@ -741,6 +891,14 @@ ${
   // what makes a shatter follow the spikes it broke off rather than the
   // cluster's centre. Every other velocity mode behaves as usual.
   if(u${P}ShapeType==9 && u${P}VelMode==0) return safeDir(aSrcDir,base);
+`
+    : ""
+}${
+  path
+    ? /* glsl */ `  // A front-anchored ember is thrown BACKWARD along the arc it was torn off,
+  // which is what makes the spray trail the blade instead of spraying out of
+  // a ring. Every other velocity mode behaves as usual.
+  if(u${P}SpawnMode==5 && u${P}VelMode==0) return safeDir(-frontTangent(s.x),base);
 `
     : ""
 }  if(u${P}VelMode==0) return safeDir(origin,radial);
@@ -953,6 +1111,8 @@ ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
+${glslCurve("T")}
+${glslCurveInverse("T")}
 ${glslParticleCore("", "self", "curveE(u)", source, events)}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
@@ -1078,6 +1238,8 @@ ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
+${glslCurve("T")}
+${glslCurveInverse("T")}
 ${glslParticleCore("", "self", "curveE(u)", source, events)}
 float stripHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
 void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); vPalette=0.; }
@@ -1126,6 +1288,135 @@ ${glslResolveBirth(false)}
 }
 `;
 }
+
+// --- slivers ----------------------------------------------------------------
+
+/**
+ * `emitter.render.mode:"sliver"`: the instance is a flat, tapered, jagged-edged
+ * needle in the SCREEN plane, rooted at its own position and pointing along its
+ * own heading — the splash sliver's silhouette on an instanced draw.
+ *
+ * `position` carries (s along the needle 0..1, side -1..1, 0). The notches on
+ * each edge are hashed per instance and evaluated here, so all the needles
+ * share one buffer and no two share a silhouette.
+ *
+ * `render.retract` is what a star line does instead of fading: the inner end
+ * travels outward while the length collapses, so the ray shortens from the core
+ * outward and the middle of the burst stays readable.
+ *
+ * `render.secondary` compiles a SECOND draw of the same program with uSecondary
+ * set and an aSub attribute: short bits strung along each parent needle, which
+ * can never drift off the ray they belong to because they re-derive it.
+ */
+export function sliverVertexSource(source = false, events = false) {
+  return /* glsl */ `
+attribute vec4 aSeed, aExtra, aExtra2;
+attribute float aIndex;
+${source ? "attribute vec3 aSrcPos, aSrcDir;" : ""}
+${events ? "attribute vec4 aEvent;" : ""}
+attribute float aSub;
+uniform float uTime,uSpan,uSliverCurve,uSliverTaper,uSliverJag,uSecondary;
+uniform float uRetractOn,uRetractStart,uRetractEnd,uRetractTip;
+uniform float uSecLength,uTwinkleFreq,uTwinkleDepth;
+uniform int uHasAlphaSpawn;
+uniform vec2 uSliverLen,uSliverWide,uSecAlong,uSize;
+varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+${glslNoise}
+${glslOrtho}
+${glslPath("E", "E")}
+${glslCurve("A")}
+${glslCurve("B")}
+${glslCurve("D")}
+${glslCurve("E")}
+${glslCurve("H")}
+${glslCurveInverse("H")}
+${glslCurve("T")}
+${glslCurveInverse("T")}
+${glslParticleCore("", "self", "curveE(u)", source, events)}
+float slvHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+/* One notched edge: 2-4 teeth of a hashed depth, exactly the splash sliver's. */
+float slvEdge(float t, float base, float h0, float h1, float h2){
+  float teeth=2.+floor(h0*3.);
+  float depth=uSliverJag*(.34+.30*h1);
+  return base*(1.-depth*fract(t*teeth+h2));
+}
+void kill(){ gl_Position=vec4(2.,2.,2.,1.); vAlpha=0.; vU=0.; vRot=0.; vTile=vec2(0.); vWp=vec3(0.); }
+
+void main(){
+  vSeed=aExtra2.xyz; vRot=0.; vTile=vec2(0.);
+${glslResolveBirth(false)}
+  if(dead){ kill(); return; }
+  vU=u;
+
+  vec3 pos,vel;
+  selfTraj(aSeed,aExtra,aExtra2,age,life,uTime,pos,vel);
+  vWp=pos;
+
+  float hs=aSeed.z*7.3+aSub*2.17;
+  float L=mix(uSliverLen.x,uSliverLen.y,slvHash(hs*1.7+.9))*curveA(u);
+  float W=mix(uSliverWide.x,uSliverWide.y,slvHash(hs*3.1+5.5));
+  // render.retract: the inner end travels outward while the length collapses.
+  float root=0.;
+  if(uRetractOn>.5){
+    float eat=smoothstep(uRetractStart,uRetractEnd,u);
+    if(uRetractTip>.5) L*=1.-eat;          // eaten from the tip inward
+    else { root=L*eat*.9; L*=1.-eat; }     // eaten from the root outward
+  }
+  float s=clamp(position.x,0.,1.), v=position.y;
+
+  vec4 mv=modelViewMatrix*vec4(pos,1.);
+  // The needle lies along the SCREEN projection of its own heading, so a fan
+  // read from a three-quarter camera still fans across the frame.
+  vec3 sv3=(modelViewMatrix*vec4(vel,0.)).xyz;
+  vec2 along=length(sv3.xy)>1e-5 ? normalize(sv3.xy) : vec2(0.,1.);
+  vec2 across=vec2(-along.y,along.x);
+  if(uSecondary>.5){
+    // A short bit riding its parent needle, at a hashed point along it.
+    float at=mix(uSecAlong.x,uSecAlong.y,slvHash(aSub*5.3+aSeed.w*9.1));
+    root+=L*at;
+    L*=uSecLength;
+  }
+  float base=W*.5*safePow(max(1.-s,0.),uSliverTaper)*safePow(smoothstep(0.,.22,s),.6);
+  float left =slvEdge(s,base,slvHash(hs*2.3),slvHash(hs*4.7+1.1),slvHash(hs*6.1+3.3));
+  float right=slvEdge(s,base,slvHash(hs*8.9+2.7),slvHash(hs*11.3+4.9),slvHash(hs*13.7+6.1));
+  float w=v<0. ? left : right;
+  // Two or three hashed bends, so no two needles are the same straight line.
+  float bends=2.+floor(slvHash(hs*17.3+8.3)*2.);
+  float bend=uSliverCurve*L*.12*sin(s*3.14159265*bends+slvHash(hs*19.1)*6.2831853)*s
+            *(slvHash(hs*23.9)<.5?-1.:1.);
+  mv.xy+=along*(root+s*L)+across*(v*w+bend);
+  gl_Position=projectionMatrix*mv;
+
+  vUv=vec2(v*.5+.5, s);
+  vAlpha=curveB(u)*smoothstep(0.,.03,age);
+  if(uHasAlphaSpawn==1) vAlpha*=curveD(aExtra.w);
+  if(uTwinkleDepth>0.)
+    vAlpha*=mix(1., safePow(abs(sin(uTime*uTwinkleFreq+aExtra2.y*19.7)),1.5), uTwinkleDepth);
+}
+`;
+}
+
+/**
+ * The needle's fill: the ramp read along its own length (stop t=0 the root, t=1
+ * the tip), soft across the width, fading out toward the point.
+ */
+export const sliverFragmentV2 = /* glsl */ `
+precision highp float;
+uniform float uOpacity,uFlicker;
+uniform int uBlendMode;
+varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+${glslRamp}
+void main(){
+  if(vAlpha<=0.) discard;
+  vec3 col=rampColor(smoothstep(.05,.75,vUv.y));
+  float a=vAlpha*uOpacity*uFlicker;
+  a*=1.-smoothstep(.72,1.,vUv.y)*.55;
+  a*=smoothstep(0.,.30,vUv.x)*smoothstep(1.,.70,vUv.x);
+  if(a<.002) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
+}
+`;
 
 /**
  * A flat unlit fill — no gradient, cel style — at one of the ramp's two ends.
@@ -1177,6 +1468,8 @@ ${glslCurve("E")}
 ${glslCurve("G")}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
+${glslCurve("T")}
+${glslCurveInverse("T")}
 ${glslParticleCore("", "self", "curveE(u)", source, events)}
 ${sub ? glslParticleCore("Parent", "parent", "1.0") : ""}
 ${sub ? glslSubEmitter : ""}
@@ -1251,8 +1544,29 @@ ${glslRamp}
 ${glslCurve("C")}
 ${glslSoft}
 ${glslProcedural}
+${glslSymbol}
 void main(){
   if(vAlpha<=0.) discard;
+  if(uProcedural>=21){
+    // The same drawn symbol a sprite draws, on an instanced billboard: the
+    // expression (and the cloud lobe layout) is hashed off the instance seed,
+    // so a population of six faces is six faces and not one repeated.
+    vec2 sp=(vUv-.5)*2.;
+    float body,ring,ink,high,hot;
+    symbolShape(sp,vSeed.x,uProcedural,body,ring,ink,high,hot);
+    float a=(body+ring)*vAlpha*uOpacity*uFlicker*softDepth();
+    if(body+ring<.004 || a<.003) discard;
+    float tone=screentoneAt(vUv,vWp)*body;
+    vec3 col=mix(uSymFill,uScreenCol,tone*.55);
+    col=mix(col,uSymHigh,high*.85);
+    col=mix(col,uSymHot,hot*uSymHotA);
+    col=mix(col,uSymOutline,ring);
+    col=mix(col,uSymInk,ink);
+    col*=1.+hot*uSymHotA*uSymHotI;
+    if(uBlendMode==1) gl_FragColor=vec4(col,clamp(a,0.,1.));
+    else gl_FragColor=vec4(col*a,clamp(a,0.,1.));
+    return;
+  }
   // material.mask.rotation turns the mask on every instance; the per-particle
   // random roll rides on top of it.
   float rot=vRot+uMaskRot;
@@ -1538,11 +1852,20 @@ uniform float uFlicker;
 uniform int uReflect;
 uniform vec3 uReflectTint;
 uniform float uReflectOpacity,uReflectBlur;
+// material.streaks / material.creases: hard surface bands and the narrow dark
+// folds under them, both keyed on the body's own (angle, along) coordinates.
+uniform int uStreakOn,uStreakRadiate,uCreaseOn;
+uniform vec4 uStreakA;   // (frequency, pan, width, segmentation)
+uniform vec4 uStreakB;   // (intensity, fadeFrom, fadeTo, -)
+uniform vec3 uStreakCol;
+uniform vec3 uCrease;    // (frequency, depth, alongStart)
+uniform float uSymbolSeed;
 varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
 ${glslNoise}
 ${glslRamp}
 ${glslCurve("C")}
 ${glslProcedural}
+${glslSymbol}
 ${glslFrame}
 ${glslFlow}
 ${glslSwirl}
@@ -1550,6 +1873,28 @@ ${glslLattice}
 void main(){
   vec3 V=safeDir(uCam-vWp, vec3(0.,0.,1.));
   float fres=1.-abs(dot(vN,V));
+  if(uProcedural>=21){
+    // A drawn symbol: a flat fill inside an ink outline, coloured by
+    // material.symbol and never by the ramp. Mixing a gradient through it is
+    // exactly what stops it reading as drawn.
+    vec2 sp=(vUv-.5)*2.;
+    float body,ring,ink,high,hot;
+    symbolShape(sp,uSymbolSeed,uProcedural,body,ring,ink,high,hot);
+    float a=(body*uOpacity+ring)*uFlicker;
+    if(body+ring<.004 || a<.003) discard;
+    float tone=screentoneAt(vUv,vObj)*body;
+    vec3 col=mix(uSymFill,uScreenCol,tone*.55);
+    col=mix(col,uSymHigh,high*.85);
+    col=mix(col,uSymHot,hot*uSymHotA);
+    col=mix(col,uSymOutline,ring);
+    col=mix(col,uSymInk,ink);
+    col*=1.+hot*uSymHotA*uSymHotI;
+    if(uChannel>=0.)
+      col*=uChannel<.5?vec3(1.,0.,0.):(uChannel<1.5?vec3(0.,1.,0.):vec3(0.,0.,1.));
+    if(uBlendMode==1) gl_FragColor=vec4(col,clamp(a,0.,1.));
+    else gl_FragColor=vec4(col*a,clamp(a,0.,1.));
+    return;
+  }
   if(uSlab==1){
     // Hard tiers, not a gaussian: a soft-edged wide slab reads as fog, a tiered
     // one as a bar. The tiers are listed outermost first, so each later one
@@ -1830,6 +2175,31 @@ void main(){
   }
 
   vec3 col=rampColor(key);
+  // material.creases: a second, higher-frequency surface field that darkens
+  // narrow folds. A smooth body with no creases reads as plastic; the folds are
+  // what make it read as a skin under tension.
+  if(uCreaseOn==1){
+    float gr=.5+.5*snoise(vec3(vRing*uCrease.x, vAlong*uCrease.x*.185-uTime*.9, 5.3));
+    float crease=smoothstep(.44,.30,gr)*smoothstep(uCrease.z,uCrease.z+.09,vAlong);
+    col*=mix(1., 1.-clamp(uCrease.y,0.,1.), crease);
+  }
+  // material.streaks: thin HARD bands on the ramp key. The radiate flag is the
+  // difference between rings and speed lines — false runs them round the body,
+  // true keys them on the angular coordinate so they run back from the nose,
+  // which is what reads as flowing water rather than as a painted barcode.
+  if(uStreakOn==1){
+    float key_ = uStreakRadiate==1
+      ? vRing*uStreakA.x + vAlong*.9
+      : vAlong*uStreakA.x;
+    float band=fract(key_ - uTime*uStreakA.y + (n-.5)*.10);
+    float stripe=smoothstep(uStreakA.z, uStreakA.z*.35, abs(band-.5));
+    float seg = uStreakA.w>0.
+      ? smoothstep(.34,.58,.5+.5*snoise(vec3(vRing*uStreakA.w*6.2831853, vAlong*.35, uTime*.3)))
+      : 1.;
+    float fade=smoothstep(uStreakB.y,uStreakB.y+.12,vAlong)
+              *(1.-smoothstep(max(uStreakB.z-.40,uStreakB.y),uStreakB.z,vAlong));
+    col+=uStreakCol*stripe*seg*fade*uStreakB.x;
+  }
   // The ramp carries the translucent body AND the fresnel rim, so it is only
   // dimmed by the lattice's visibility, never multiplied away by it: the rim has
   // to survive exactly where the cells compress below a pixel.
@@ -2401,6 +2771,252 @@ void main(){
   c*=uShade;
   if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
   else gl_FragColor=vec4(c*uOpacity,uOpacity);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Sheets — curved, tapered, OPAQUE membranes.
+//
+// Cel shading against a FIXED world light (material.toon), two bands and a rim,
+// with a low-frequency noise threshold eating the border so the crescent
+// silhouette is ragged rather than cut with scissors. DoubleSide and depth
+// writing: sheets intersect each other for real, which is the whole reason the
+// tail of a water projectile is mesh and not particles.
+// ---------------------------------------------------------------------------
+
+export const sheetVertexV2 = /* glsl */ `
+varying vec3 vN,vW; varying vec2 vUv;
+void main(){
+  vUv=uv;
+  vec4 wp=modelMatrix*vec4(position,1.);
+  vN=normalize(mat3(modelMatrix)*normal);
+  vW=wp.xyz;
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}
+`;
+
+export const sheetFragmentV2 = /* glsl */ `
+precision highp float;
+varying vec3 vN,vW; varying vec2 vUv;
+uniform vec3 uShadow,uBody,uHigh,uRim,uLight,uCam;
+uniform vec2 uBands;
+uniform float uRimPow,uRimAmt,uOpacity,uTear,uTearScale,uSeed,uBandCount;
+uniform int uBlendMode;
+${glslNoise}
+void main(){
+  // The torn edge: a low-frequency field raises the border threshold, so the
+  // membrane is eaten unevenly instead of ending on a straight cut.
+  if(uTear>0.){
+    float fld=.5+.5*snoise(vec3(vUv.x*uTearScale, vUv.y*uTearScale*.65, uSeed));
+    float edge=min(min(vUv.x,1.-vUv.x)*2.2, min(vUv.y,1.-vUv.y)*1.5);
+    if(edge+fld*.55 < uTear) discard;
+  }
+  vec3 N=normalize(vN);
+  if(!gl_FrontFacing) N=-N;
+  float ndl=dot(N,normalize(uLight))*.5+.5;
+  vec3 c = uBandCount>2.5
+    ? (ndl<uBands.x ? uShadow : (ndl<uBands.y ? uBody : uHigh))
+    : (ndl<uBands.x ? uShadow : uHigh);
+  vec3 V=normalize(uCam-vW);
+  float rim=pow(max(1.-clamp(dot(N,V),0.,1.),1e-4),uRimPow);
+  c+=uRim*rim*uRimAmt;
+  if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
+  else gl_FragColor=vec4(c*uOpacity,uOpacity);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Crescent — the arc-window blade.
+//
+// aS runs along the arc and aQ across it (0 = outer edge, 1 = inner). Only the
+// window [uTail, uHead] is drawn; the thickness profile peaks a little behind
+// the LIVE tip, so the leading edge is a razor and the body is fat. Everything
+// is swept here, so a track on the radius or the sweep re-shapes the blade with
+// nothing rebuilt.
+//
+// The tail does not fade, it is EATEN: Voronoi cells behind the front are
+// removed, which is what breaks the trailing end into tongues.
+// ---------------------------------------------------------------------------
+
+const glslVoronoi = /* glsl */ `
+float vorHash11(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+float vorHash21(vec2 p){ return vorHash11(dot(p, vec2(127.1,311.7))); }
+float vorNoise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  float a=vorHash21(i), b=vorHash21(i+vec2(1.,0.));
+  float c=vorHash21(i+vec2(0.,1.)), d=vorHash21(i+vec2(1.,1.));
+  vec2 u=f*f*(3.-2.*f);
+  return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+}
+float vorFbm(vec2 p){ return .55*vorNoise(p)+.28*vorNoise(p*2.07+11.3)+.17*vorNoise(p*4.11+5.7); }
+/* x = cell id 0..1, y = distance to the nearest cell EDGE. */
+vec2 voronoi2(vec2 p){
+  vec2 ip=floor(p), fp=fract(p);
+  float d1=8., d2=8., id=0.;
+  for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
+    vec2 g=vec2(float(x),float(y));
+    vec2 o=vec2(vorHash21(ip+g), vorHash21(ip+g+vec2(37.7,11.3)));
+    vec2 r=g+o-fp;
+    float d=dot(r,r);
+    if(d<d1){ d2=d1; d1=d; id=vorHash21(ip+g+vec2(7.1,3.9)); }
+    else if(d<d2) d2=d;
+  }
+  return vec2(id, sqrt(d2)-sqrt(d1));
+}
+`;
+
+export const crescentVertexV2 = /* glsl */ `
+attribute float aS; attribute float aQ;
+uniform vec3 uEx,uEy,uN;
+uniform float uR,uPh0,uSweep,uWmax,uHead,uTail,uScale,uRadOff,uWiden,uTime,uSeed;
+uniform float uPeakFrom,uTipPower,uRootFade,uScreenSpace;
+varying float vS,vQ,vWin,vTipD;
+${glslVoronoi}
+float crescentWidth(float s){
+  float dt=uHead-s;                                    // behind the LIVE tip
+  float rise=pow(max(smoothstep(0.,uPeakFrom*.9,dt),1e-4),uTipPower);
+  float fall=1.-smoothstep(uPeakFrom,uPeakFrom*2.6,dt);
+  float root=pow(max(smoothstep(0.,uRootFade,s-uTail),1e-4),.8);
+  return uWmax*rise*(.14+.86*fall)*root;
+}
+void main(){
+  float ph=uPh0+aS*uSweep;
+  vec3 rad=uEx*cos(ph)+uEy*sin(ph);
+  float w=crescentWidth(aS)*uScale;
+  // The strip widens and flutters as the tear-away grows: a blade coming apart
+  // swells before it breaks, and a constant width reads as a solid ribbon.
+  float flut=vorFbm(vec2(aS*7.-uTime*1.1,uSeed))-.5;
+  w*=1.+uWiden*(.55+1.5*flut)+.14*flut;
+  vec3 ctr=(modelMatrix*vec4(rad*uR,1.)).xyz;
+  vec3 tang=normalize(mat3(modelMatrix)*normalize(-uEx*sin(ph)+uEy*cos(ph)));
+  vec3 nrm=normalize(mat3(modelMatrix)*uN);
+  vec3 across;
+  if(uScreenSpace>.5){
+    // The across axis is built from the camera, so the blade never goes
+    // edge-on however the arc plane is leaning.
+    vec3 view=normalize(cameraPosition-ctr);
+    across=normalize(cross(tang,view));
+    vec3 wr=normalize(mat3(modelMatrix)*rad);
+    across*=sign(dot(across,wr));                      // +across = the OUTER side
+  } else {
+    across=normalize(mat3(modelMatrix)*rad);
+  }
+  float off=(.5-aQ)*w+uRadOff;
+  vec3 p=ctr+across*off;
+  // A short fade band at both ends of the window, so nothing pops in.
+  vWin=smoothstep(uTail,uTail+.035,aS)*(1.-smoothstep(uHead-.012,uHead,aS));
+  vS=aS; vQ=aQ; vTipD=clamp((uHead-aS)/max(uPeakFrom*.75,1e-3),0.,1.);
+  gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
+}
+`;
+
+export const crescentFragmentV2 = /* glsl */ `
+precision highp float;
+varying float vS,vQ,vWin,vTipD;
+uniform vec3 uC0,uC1,uC2,uC3,uStreakCol;
+uniform vec4 uI;                       // per-band intensities
+uniform float uTime,uSeed,uAlpha,uHead,uTail,uTear,uErode,uTipHot;
+uniform float uStreakOn,uStreakFreq,uStreakPan,uStreakI,uStreakSeg;
+uniform float uVorScale,uSeamWidth,uFrontWidth;
+uniform vec4 uBandT;                   // the four ramp stop positions
+uniform int uBlendMode;
+${glslVoronoi}
+vec3 bandColor(float q){
+  vec3 c=uC0*uI.x;
+  c=mix(c,uC1*uI.y,smoothstep(uBandT.x,uBandT.y,q));
+  c=mix(c,uC2*uI.z,smoothstep(uBandT.y,uBandT.z,q));
+  c=mix(c,uC3*uI.w,smoothstep(uBandT.z,uBandT.w,q));
+  return c;
+}
+void main(){
+  if(vWin<=.001) discard;
+  // Flow streaks running ALONG the blade, panning toward the tail. The Voronoi
+  // seams are what make them read as torn sheets of flame rather than as an
+  // airbrushed gradient.
+  vec2 cell=voronoi2(vec2(vS*uVorScale+uTime*uStreakPan, vQ*uVorScale*.6+uSeed*3.1));
+  float streak=1.;
+  if(uStreakOn>.5){
+    float lines=mix(.60,1.45,vorFbm(vec2(vS*uStreakFreq*3.3+uTime*uStreakPan*1.6, vQ*7.+uSeed)));
+    float seam=1.-smoothstep(0.,max(uSeamWidth,1e-3),cell.y);
+    streak=lines*(.72+.60*cell.x)+.35*seam*uStreakSeg;
+    streak=mix(1.,streak,clamp(uStreakI,0.,1.));
+  }
+  // The erosion FRONT: cells behind it are eaten, so the tail breaks into
+  // tongues instead of dimming. The front's reach is measured from the tail.
+  float front=clamp((vS-uTail)/max(.10,uFrontWidth),0.,1.);
+  float th=uErode+uTear*(1.-front);
+  float n=.42*cell.x+.58*vorFbm(vec2(vS*uVorScale+uSeed*5., vQ*2.1-uTime*.6));
+  float a=smoothstep(th,th+.16,n);
+  float edge=smoothstep(th-.02,th+.09,n)*(1.-smoothstep(th+.09,th+.26,n));
+  float tip=pow(max(1.-vTipD,1e-4),2.4);
+  vec3 col=bandColor(vQ)*streak;
+  col+=uC0*tip*uTipHot;
+  col+=uStreakCol*edge*uStreakI;
+  float al=a*vWin*uAlpha*(.86+.14*(1.-vQ))*(.78+.35*streak);
+  al=clamp(al,0.,1.);
+  if(al<.003) discard;
+  if(uBlendMode==1) gl_FragColor=vec4(col,al);
+  else gl_FragColor=vec4(col*al,al);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Licks — flat cel flame strips peeling off a crescent's erosion front.
+//
+// The shape is re-hashed on floor(layerTime * flipbookHz), so the set JUMPS
+// rather than slides; two flat colour bands and no gradient, because a gradient
+// is exactly what stops a lick reading as drawn.
+// ---------------------------------------------------------------------------
+
+export const lickVertexV2 = /* glsl */ `
+attribute float aSeed, aSide;
+uniform vec3 uAnchor,uTangent,uNormal,uDrift;
+uniform vec2 uLength,uWidth,uStagger,uLife;
+uniform float uTime,uSpan,uCurl,uFlipHz;
+varying float vS,vA;
+float lickHash(float p){ p=fract(p*.1031); p*=p+33.33; p*=p+p; return fract(p); }
+void main(){
+  float u=position.x, v=position.y;
+  float h1=lickHash(aSeed*2.3+.4), h2=lickHash(aSeed*4.9+6.6);
+  // The flipbook: the shape holds for 1/flipbookHz of a second and then jumps.
+  float k=floor(uTime*max(uFlipHz,1e-3))+aSeed;
+  float L=mix(uLength.x,uLength.y,lickHash(k*1.31));
+  float W=mix(uWidth.x,uWidth.y,lickHash(k*3.77+2.1));
+  float birth=mix(uStagger.x,uStagger.y,h1)*uSpan;
+  float life=mix(uLife.x,uLife.y,h2);
+  float age=uTime-birth;
+  float a01=clamp(age/max(life,1e-4),0.,1.);
+  float alive=step(0.,age)*step(a01,.999);
+  vA=alive*sin(3.14159265*pow(max(a01,1e-4),.7));
+  vS=u;
+  // Screen-aligned: the strip lies in the view plane, trailing back along the
+  // arc and leaning up, which is what a peeling lick does.
+  vec3 R=vec3(viewMatrix[0][0],viewMatrix[1][0],viewMatrix[2][0]);
+  vec3 Up=vec3(viewMatrix[0][1],viewMatrix[1][1],viewMatrix[2][1]);
+  vec3 base=uAnchor+uNormal*(h1-.5)*.10+uDrift*age;
+  vec2 dir=normalize(vec2(dot(-uTangent,R),dot(-uTangent,Up))+vec2(0.,.55)+vec2(1e-4));
+  vec2 pr=vec2(-dir.y,dir.x);
+  float w=W*.5*pow(max(u+.06,1e-4),.30)*pow(max(1.-u,1e-4),.85);
+  float curl=uCurl*sin(u*3.+h1*6.2831853)*u*aSide;
+  vec2 q=dir*(u*L*(.45+.85*a01))+pr*(aSide*.045+curl+v*w);
+  vec3 wp=base+(R*q.x+Up*q.y)*alive;
+  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);
+}
+`;
+
+export const lickFragmentV2 = /* glsl */ `
+precision highp float;
+varying float vS,vA;
+uniform vec3 uHot,uBody;
+uniform float uOpacity;
+uniform int uBlendMode;
+void main(){
+  float a=vA*uOpacity;
+  if(a<=.004) discard;
+  // Two flat bands: cel, not gradient.
+  vec3 col = vS<.42 ? uHot : uBody;
+  if(uBlendMode==1) gl_FragColor=vec4(col,a);
+  else gl_FragColor=vec4(col*a,a);
 }
 `;
 

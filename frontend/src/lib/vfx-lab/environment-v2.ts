@@ -19,6 +19,8 @@ const POOLS = GROUND_POOL_BUDGET_V2;
 export interface EnvironmentV2 {
   ground: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
   fill: THREE.HemisphereLight;
+  /** environment.backdrop: the screen-space card behind everything. */
+  backdrop: THREE.Mesh;
   apply(doc: VfxDocumentV2, scene: THREE.Scene, showGround: boolean): void;
   /**
    * environment.groundPool, re-evaluated every frame: each pool's live centre
@@ -121,6 +123,44 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
   ground.name = "environment-ground";
   scene.add(ground);
 
+  // environment.backdrop: a card locked to the clip-space corners, drawn before
+  // anything else with depth off. It is not lit and it is not fogged; it is the
+  // paper the effect is drawn on, which is exactly what a cartoon impact needs
+  // instead of a flat background colour.
+  const backdropUniforms = {
+    uHot: { value: new THREE.Color("#3d8ada") },
+    uCold: { value: new THREE.Color("#0c2a55") },
+    uCentre: { value: new THREE.Vector2(0.5, 0.46) },
+    uAspect: { value: 1.1 },
+    uTop: { value: 0.4 },
+  };
+  const backdrop = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.ShaderMaterial({
+      depthTest: false,
+      depthWrite: false,
+      uniforms: backdropUniforms,
+      vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,1.,1.); }`,
+      fragmentShader: /* glsl */ `
+        precision highp float; varying vec2 vUv;
+        uniform vec3 uHot,uCold; uniform vec2 uCentre; uniform float uAspect,uTop;
+        void main(){
+          vec2 d=(vUv-uCentre)*vec2(uAspect,1.);
+          // Wide, so the hot centre reaches the frame edges instead of ending
+          // in a visible disc.
+          float v=1.-smoothstep(.02,1.35,length(d));
+          vec3 c=mix(uCold,uHot,pow(max(v,1e-4),1.15));
+          c*=1.-uTop*smoothstep(.50,1.,vUv.y);
+          c*=1.-uTop*.55*smoothstep(.30,0.,vUv.y);
+          gl_FragColor=vec4(c,1.);
+        }`,
+    }),
+  );
+  backdrop.frustumCulled = false;
+  backdrop.renderOrder = -100;
+  backdrop.visible = false;
+  scene.add(backdrop);
+
   const fill = new THREE.HemisphereLight(
     new THREE.Color("#8a8894"),
     new THREE.Color("#3a3840"),
@@ -131,8 +171,18 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
   return {
     ground,
     fill,
+    backdrop,
     apply(doc, target, showGround) {
       target.background = new THREE.Color(doc.environment.background);
+      const card = doc.environment.backdrop;
+      backdrop.visible = !!card;
+      if (card) {
+        backdropUniforms.uHot.value.set(card.hot);
+        backdropUniforms.uCold.value.set(card.cold);
+        backdropUniforms.uCentre.value.fromArray(card.center);
+        backdropUniforms.uAspect.value = card.aspect;
+        backdropUniforms.uTop.value = card.topFalloff;
+      }
       const fog = doc.environment.fog;
       target.fog =
         fog.density > 0
@@ -167,6 +217,9 @@ export function createEnvironment(scene: THREE.Scene): EnvironmentV2 {
       });
     },
     dispose() {
+      backdrop.geometry.dispose();
+      (backdrop.material as THREE.Material).dispose();
+      backdrop.removeFromParent();
       ground.geometry.dispose();
       material.dispose();
       ground.removeFromParent();

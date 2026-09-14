@@ -35,6 +35,21 @@ import { latticeSites } from "../src/lib/vfx-lab/lattice-v2";
 import { bandGeometry, flickerAt } from "../src/lib/vfx-lab/runtime-v2";
 import { evaluateLayerV2 } from "../src/lib/vfx-lab/evaluate-v2";
 import {
+  sheetBirthAt,
+  sheetInstances,
+  sheetStateAt,
+} from "../src/lib/vfx-lab/sheets-v2";
+import {
+  arcFrame,
+  arcPoint,
+  arcTangent,
+  crescentBounds,
+  crescentWindowAt,
+  invertCrescentCurve,
+  sampleCrescentCurve,
+} from "../src/lib/vfx-lab/crescent-v2";
+import { buildLicksGeometry } from "../src/lib/vfx-lab/licks-v2";
+import {
   defaultGeometry,
   defaultMaterial,
   type GeometryV2,
@@ -834,5 +849,132 @@ test("the three new exemplars validate and carry their own vocabulary", () => {
     const doc = createPresetV2(id);
     assert.equal(doc.schemaVersion, "autov.lab/2");
     assert.ok(doc.layers.length > 3);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Port F — the three CPU-side generators the water and slash exemplars added.
+// Everything else about them is evaluated in the shader from (uniforms,
+// attributes, time) and is covered by the headless harness, which fails the run
+// unless the same time rendered twice is byte-identical.
+// ---------------------------------------------------------------------------
+
+test("a sheet's firing is a closed form in layer time, so seek == play", () => {
+  const doc = createPresetV2("water-projectile");
+  const layer = doc.layers.find((l) => l.kind === "sheets")!;
+  const spec = layer.sheets!;
+  const sheets = sheetInstances(spec);
+  assert.equal(sheets.length, spec.count);
+  // The generator is a pure function of the spec: the same spec twice is the
+  // same population, field for field.
+  assert.deepEqual(sheetInstances(spec), sheets);
+  const until = (layer.end - layer.start) * 0.78;
+
+  for (const sheet of sheets) {
+    // A slot's cadence must outlive it, or the re-fire clips it mid-flight.
+    assert.ok(sheet.life <= sheet.period + 1e-9, "a sheet outlives its cadence");
+    // The firing alive at t is the same one whether you arrive at t by playing
+    // or by seeking: it is floor((t - birth0) / period), and nothing else.
+    for (const t of [0.31, 0.9, 1.7, 2.4, 3.1]) {
+      const birth = sheetBirthAt(sheet, t);
+      // birth0 + k * period for a whole k, and the firing alive at t is always
+      // the one that started before it.
+      const k = Math.round((birth - sheet.birth0) / sheet.period);
+      assert.ok(
+        Math.abs(birth - (sheet.birth0 + k * sheet.period)) < 1e-9,
+        `birth ${birth} is not on the cadence at ${t}`,
+      );
+      assert.ok(birth <= t, `birth ${birth} is after ${t}`);
+      assert.deepEqual(
+        sheetStateAt(sheet, spec, t, until),
+        sheetStateAt(sheet, spec, t, until),
+      );
+    }
+  }
+  // Coverage: the two cadences together keep membranes alive throughout the
+  // hold, which is the whole reason the schedule is multi-cadence.
+  for (const t of [0.4, 1.0, 1.6, 2.2, 2.8]) {
+    const alive = sheets.filter((s) => sheetStateAt(s, spec, t, until).visible);
+    assert.ok(alive.length >= 4, `only ${alive.length} sheets alive at ${t}`);
+  }
+});
+
+test("a crescent's window and its inverse agree, so an ember's birth is closed form", () => {
+  const doc = createPresetV2("fire-slash");
+  const blade = doc.layers.find((l) => l.kind === "crescent")!;
+  const spec = blade.crescent!;
+  // The head never runs backwards and the tail never overtakes it.
+  let previous = -1;
+  for (let i = 0; i <= 40; i++) {
+    const u = i / 40;
+    const { head, tail } = crescentWindowAt(spec, u);
+    assert.ok(head >= previous - 1e-6, "the head runs backwards");
+    previous = head;
+    assert.ok(tail <= head + 1e-6, `the tail overtakes the head at u=${u}`);
+  }
+  // The tail curve's inverse IS a front-anchored instance's birth: inverting at
+  // the value the curve produces has to land back on the same progress.
+  for (let i = 1; i < 20; i++) {
+    const u = i / 20;
+    const value = sampleCrescentCurve(spec.window.tail, u);
+    const back = invertCrescentCurve(spec.window.tail, value);
+    assert.ok(
+      Math.abs(sampleCrescentCurve(spec.window.tail, back) - value) < 0.02,
+      `tail inverse misses at u=${u}`,
+    );
+  }
+  // The arc is a pure function of its parameter, and the frame stays a basis.
+  const frame = arcFrame(spec);
+  assert.ok(Math.abs(frame.ex.dot(frame.ey)) < 1e-6);
+  assert.ok(Math.abs(frame.normal.length() - 1) < 1e-6);
+  for (const s of [0, 0.25, 0.5, 0.75, 1]) {
+    const point = arcPoint(spec, s);
+    assert.ok(Math.abs(point.length() - spec.radius) < 1e-4);
+    // The tangent is perpendicular to the radius, so the strip's across axis
+    // is well defined everywhere along the sweep.
+    assert.ok(Math.abs(arcTangent(spec, s).dot(point.clone().normalize())) < 1e-6);
+  }
+  // Framing claims the blade's own arc, never the whole circle's bounding cube.
+  const bounds = crescentBounds(spec);
+  assert.ok(bounds.length > 0);
+  for (const corner of bounds)
+    assert.ok(corner.length() <= spec.radius * 2 + spec.thickness.max * 2);
+});
+
+test("a licks buffer is generated once and alternates its sides", () => {
+  const doc = createPresetV2("fire-slash");
+  const spec = doc.layers.find((l) => l.kind === "licks")!.licks!;
+  const geometry = buildLicksGeometry(spec);
+  assert.equal(geometry.instanceCount, spec.count);
+  const sides = Array.from(
+    geometry.getAttribute("aSide").array as Float32Array,
+  );
+  // Alternating, so the licks fan off both edges of the tear.
+  for (let i = 0; i < sides.length; i++)
+    assert.equal(sides[i], i % 2 === 0 ? 1 : -1);
+  const seeds = Array.from(geometry.getAttribute("aSeed").array as Float32Array);
+  assert.equal(new Set(seeds).size, seeds.length, "two licks share a seed");
+  geometry.dispose();
+});
+
+test("transform.squash conserves volume and stays a function of layer time", () => {
+  const doc = createPresetV2("water-projectile");
+  const head = doc.layers.find((l) => l.id === "head")!;
+  assert.ok(head.transform.squash);
+  for (const t of [0.2, 0.9, 1.55, 2.4, 3.3]) {
+    const a = evaluateLayerV2(head, t).layer.transform.scale;
+    const b = evaluateLayerV2(head, t).layer.transform.scale;
+    assert.deepEqual(a, b, "squash is not a pure function of time");
+    // The three axes multiply back to the un-squashed volume.
+    const plain = evaluateLayerV2(
+      { ...head, transform: { ...head.transform, squash: null } },
+      t,
+    ).layer.transform.scale;
+    const squashed = a[0] * a[1] * a[2];
+    const flat = plain[0] * plain[1] * plain[2];
+    assert.ok(
+      Math.abs(squashed - flat) < 1e-6 * Math.max(1, flat),
+      `volume drifts at ${t}: ${squashed} vs ${flat}`,
+    );
   }
 });

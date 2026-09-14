@@ -11,13 +11,15 @@ import energyColumnFixture from "../../../fixtures/v2/energy-column/document.jso
 import meteorRainFixture from "../../../fixtures/v2/meteor-rain/document.json";
 import portalFixture from "../../../fixtures/v2/portal/document.json";
 import skyVortexFixture from "../../../fixtures/v2/sky-vortex/document.json";
+import waterProjectileFixture from "../../../fixtures/v2/water-projectile/document.json";
+import playfulImpactFixture from "../../../fixtures/v2/playful-impact/document.json";
 import type { RecipeId } from "./recipes";
 import { type VfxDocumentV2, validateDocumentV2 } from "./schema-v2";
 
 // ---------------------------------------------------------------------------
 // autov.lab/2 construction recipes.
 //
-// Thirteen families, each with the knowledge the planner needs and one
+// Fifteen families, each with the knowledge the planner needs and one
 // complete example document. The examples are STARTING POINTS, not finished
 // look-dev: they exist so a candidate request always ships a valid, readable
 // reference built from the same parts (ramps, erosion, library masks, a light,
@@ -43,6 +45,8 @@ export const RECIPE_V2_IDS = [
   "energy-column",
   "portal",
   "sky-vortex",
+  "water-projectile",
+  "playful-impact",
 ] as const;
 export type RecipeV2Id = (typeof RECIPE_V2_IDS)[number];
 
@@ -62,9 +66,10 @@ export const V1_RECIPE_TO_V2: Record<RecipeId, RecipeV2Id> = {
   portal: "portal",
   // a shockwave is the ground half of a strike, without the bolt.
   shockwave: "lightning-impact",
-  // water has no family of its own yet; ice-blast is the nearest
-  // (cool palette, shard/mist secondaries, ground frost).
-  water: "ice-blast",
+  // Water has a family of its own now: a smooth teardrop head and a MESH tail
+  // of torn membranes, which is what separates it from the ice blast's faceted
+  // shards (the nearest family before the S12 port).
+  water: "water-projectile",
 };
 
 /**
@@ -85,6 +90,11 @@ export const FAMILY_KEYWORDS: Array<[RegExp, RecipeV2Id]> = [
   // A doorway and a maelstrom are the other two the v1 vocabulary cannot name.
   [/portal|gate|doorway|rift/i, "portal"],
   [/vortex|tornado|swirl|maelstrom/i, "sky-vortex"],
+  // Water and the cartoon symbol burst: the last two the v1 vocabulary cannot
+  // name on its own. Water also routes through V1_RECIPE_TO_V2, so a planner
+  // that picks the "water" recipe lands here with or without a prompt.
+  [/\bwater\b|liquid|aqua|splash/i, "water-projectile"],
+  [/playful|\bcute\b|comic|cartoon hit|kawaii|face symbols/i, "playful-impact"],
 ];
 
 // --- registry --------------------------------------------------------------
@@ -165,6 +175,18 @@ export const RECIPES_V2: Record<
     knowledge:
       'Four beats over 5 s: intensify 0-1.5, erupt 1.5-2.3, sustain to 3.5, reduce to 5.0. A plain dark cylinder (a kind:"beam" geometry.type "cylinder", radius 0.35, height 1.2, alpha blended and nearly black) is the housing the column rises out of; the document never describes the machine around it. The column is three coaxial layers standing on rotation [-1.5708,0,0] at y 0.3: a geometry.type "slab" with slab.anchor "base" and three hard tiers for the readable body width, a tapered cylinder shell at radius 0.34 with taper 0.7, and a white-gold core cylinder at radius 0.098. All three carry the SAME material.stripes segment ladder — about seven bands over the 4.5 m shaft, phase 0 so the bands run straight round the shaft like machine segments rather than breaking into filaments — and all three carry the SAME layer.collapse, which is what keeps them in step as the column reduces. A kind:"arcs" cage of 16-18 blinking helical wires wraps them, folded jitter so the wires kink instead of curling. The eruption at 1.5 s is a "lensFlare" sprite at head height whose geometry.radius snaps out on a track, a kind:"streakBurst" fan of 56 clumped orange/pink/pale-gold speed lines, ballistic sparks, alpha-blended dark debris chips, one thin expanding torus shock ring and a post.flash white-out of two frames at 1.85 s. A softRadial haze behind the column and a ringFill ground pool keep the frame from ever being black around it; two point lights finish it.',
   },
+  "water-projectile": {
+    name: "Water projectile",
+    subtitle: "A smooth head and a tail of torn membranes.",
+    knowledge:
+      'Water is MESH, never particles: it reads as smooth surfaces and rounded volumes, and an alpha card cannot do either. The head is a kind:"shell" teardrop (radius 0.36, length 1.36, so it is about one unit long) with LOW vertexNoise — water wobbles, it does not flicker — a pale-cyan ramp of space "surface", material.streaks with radiate true (thin hard bands keyed on the ANGULAR coordinate, so they run back from the nose as creases in a flowing skin rather than as rings) and material.creases at a higher frequency, which is what gives the head its faceted "folded water" read. transform.squash at about 6% and 1.3 Hz breathes it along the flow axis, volume-conserving. The tail is TWO kind:"sheets" layers on the same flow axis: 24 torn membranes (length 0.42-1.36, width to 0.52) in three size classes on two cadences — the near collar re-fires every 1.2 s and the far crescents every 2.55 s, because a class whose life outlives its own period is clipped mid-flight — and 26 short sheets curled almost shut (curl 2.6-3.4) which read as the rounded droplets. Both take material.toon, two bands against one fixed light plus a rim, and both depth-write so they intersect for real. A softRadial halo behind the nose, an environment.groundPool that FOLLOWS the head layer, and one cyan point light finish it. Tail reach is about 3 units.',
+  },
+  "playful-impact": {
+    name: "Playful impact",
+    subtitle: "A drawn cartoon burst of stars, faces and hearts.",
+    knowledge:
+      'Everything here is DRAWN, and everything lays out in the screen plane: every symbol layer carries layer.frame "camera", so the emitter\'s own XY is the frame\'s and the burst never collapses to a line from a three-quarter camera. environment.backdrop draws the blue vignette behind the lot and environment.ground is "none". The centre is a material.procedural "starSolid" sprite about 1.6 units across — a saturated pink fill, a thick white outline, a magenta material.screentone lattice inside it and a white-hot inner copy on material.symbol.hot.alpha, which cuts at 0.35 s while the outlined shell keeps reading to 0.7. Around it: 6 "face" symbols (0.36-0.52 across, three hashed expressions), 8 "heart" symbols, 3 white "bolt" glyphs and 6 "cloudLobe" puffs, every one of them a particles layer on emitter.shape.type "radialFan" with a radial throw, a drag of about 3 and a light gravity sag, so they arc outward and fall. The rays are TWO particles layers with render.mode "sliver": 10 long white needles 1.35-2.6 units and 5 short fat pink ones, both with render.retract so the inner end travels outward while the length collapses — a star line retracts, it does not fade. A pin-prick dot and 30 converging sparkles anticipate the hit from 0 to 0.2, 30 velocity-stretched spray dots flick past the rays, and a wide magenta softRadial residual outlives every symbol. One pink point light. Gone by three seconds.',
+  },
   "ice-blast": {
     name: "Ice blast",
     subtitle: "Erupting crystals with frost and mist.",
@@ -187,6 +209,8 @@ const EXAMPLES: Record<RecipeV2Id, () => VfxDocumentV2> = {
   "energy-column": () => validateDocumentV2(energyColumnFixture),
   portal: () => validateDocumentV2(portalFixture),
   "sky-vortex": () => validateDocumentV2(skyVortexFixture),
+  "water-projectile": () => validateDocumentV2(waterProjectileFixture),
+  "playful-impact": () => validateDocumentV2(playfulImpactFixture),
 };
 
 /** The example document for a family. Always a fresh, validated copy. */
@@ -207,6 +231,9 @@ export function exampleScaleSummary(id: RecipeV2Id) {
   const ribbons = doc.layers.filter((l) => l.ribbon);
   const bursts = doc.layers.filter((l) => l.wireBurst);
   const clusters = doc.layers.filter((l) => l.crystals);
+  const sheets = doc.layers.filter((l) => l.sheets);
+  const crescents = doc.layers.filter((l) => l.crescent);
+  const licks = doc.layers.filter((l) => l.licks);
   const lights = doc.layers.filter((l) => l.light);
   const round = (v: number) => Number(v.toFixed(2));
   return {
@@ -234,6 +261,15 @@ export function exampleScaleSummary(id: RecipeV2Id) {
         // centre, which is what the framing pass claims for it.
         ...clusters.map(
           (l) => (l.crystals!.baseRadius + l.crystals!.length[1]) * 2,
+        ),
+        // A blade's silhouette is its own arc; a tail of sheets is as long as
+        // its fastest class travels in one life.
+        ...crescents.map((l) => l.crescent!.radius * 2),
+        ...sheets.map(
+          (l) =>
+            l.sheets!.speed[1] *
+              Math.max(...l.sheets!.classes.map((c) => c.speed * c.life)) +
+            l.sheets!.length[1],
         ),
       ),
     ),
@@ -268,6 +304,26 @@ export function exampleScaleSummary(id: RecipeV2Id) {
       groups: l.crystals!.groups,
       collapses: !!l.crystals!.collapse,
       outline: !!l.material?.outline,
+    })),
+    sheets: sheets.map((l) => ({
+      count: l.sheets!.count,
+      length: l.sheets!.length,
+      width: l.sheets!.width,
+      classes: l.sheets!.classes.length,
+      periods: l.sheets!.classes.map((c) => c.period),
+      torn: !!l.sheets!.tear,
+    })),
+    crescents: crescents.map((l) => ({
+      radius: l.crescent!.radius,
+      sweepDegrees: round((l.crescent!.sweep * 180) / Math.PI),
+      thickness: l.crescent!.thickness.max,
+      tonalCopies: l.crescent!.tonal.length,
+      smears: l.crescent!.tonal.some((t) => !!t.smear),
+    })),
+    licks: licks.map((l) => ({
+      count: l.licks!.count,
+      length: l.licks!.length,
+      flipbookHz: l.licks!.flipbookHz,
     })),
     wireBursts: bursts.map((l) => ({
       shapes: l.wireBurst!.shapes,

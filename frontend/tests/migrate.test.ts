@@ -226,3 +226,44 @@ test("the beam/column vocabulary is absent from every upgraded v1 document", () 
     }
   }
 });
+
+test("the port-F vocabulary is absent from every upgraded v1 document", () => {
+  // A v1 document has no concept of a sheet tail, an arc-window blade, a cel
+  // lick, a drawn symbol, a squash breath, a screen-plane frame, a radial fan,
+  // a sliver needle or a backdrop card, so the migrator must leave every one of
+  // them at its documented neutral value — an upgraded v1 effect renders
+  // exactly as it did before any of it existed.
+  for (const file of FILES) {
+    const v2 = validateDocumentV2(upgradeDocument(loadV1(file)));
+    assert.equal(v2.environment.backdrop, null, file);
+    for (const layer of v2.layers) {
+      const where = `${file}/${layer.id}`;
+      assert.equal(layer.frame, null, where);
+      assert.equal(layer.transform.squash, null, where);
+      assert.equal(layer.sheets, undefined, where);
+      assert.equal(layer.crescent, undefined, where);
+      assert.equal(layer.licks, undefined, where);
+      assert.ok(
+        layer.kind !== "sheets" && layer.kind !== "crescent" && layer.kind !== "licks",
+        where,
+      );
+      if (layer.material) {
+        assert.equal(layer.material.streaks, null, where);
+        assert.equal(layer.material.creases, null, where);
+        assert.equal(layer.material.screentone, null, where);
+        assert.equal(layer.material.symbol, null, where);
+      }
+      if (layer.emitter) {
+        assert.equal(layer.emitter.shape.angleJitter, 0, where);
+        assert.equal(layer.emitter.shape.angleBias, 0, where);
+        assert.equal(layer.emitter.spawn.sourceLayerId, null, where);
+        assert.equal(layer.emitter.render.sliver, null, where);
+        assert.equal(layer.emitter.render.retract, null, where);
+        assert.equal(layer.emitter.render.secondary, null, where);
+        assert.notEqual(layer.emitter.shape.type, "radialFan", where);
+        assert.notEqual(layer.emitter.spawn.mode, "frontAnchored", where);
+        assert.notEqual(layer.emitter.render.mode, "sliver", where);
+      }
+    }
+  }
+});

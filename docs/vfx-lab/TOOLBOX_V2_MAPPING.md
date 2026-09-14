@@ -435,3 +435,125 @@ All three replaced a per-frame CPU table with a closed-form field: the portal's 
 instead of four bars, the vortex's arms are a coordinate shear instead of a rotation, and the
 meteor's impacts are a curve inversion instead of a time table. In each case the version that
 stores nothing is also the shorter one, and it is the only version a seek can land inside.
+
+## 14. Water projectile → schema (Phase H, 2026-09-14)
+
+The twelfth spike (`frontend/dev-assets/vfx-v2/spike-water.html`, source
+`docs/vfx-lab/spike-water-reference.js.txt`) is the first element whose tail is **mesh**. Everything
+before it streamed particles, and every one of them could: fire, smoke and lightning are made of
+alpha. Water is not. It reads as smooth surfaces and rounded volumes, and a card has neither, so the
+whole tail became geometry — twenty curved membranes and twenty-six droplets, all opaque and all
+depth-writing, intersecting each other for real.
+
+The one thing that forced a new idea was the *schedule*. A looping emitter has one period; the
+spike's tail has three sizes, and a far crescent lives 1.95 s while the near collar lives 1.02 s. One
+period either clips the long pieces or leaves the collar sparse, so the port made the cadence
+per-class.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| the S1 teardrop with `uLen` 1.36 / `uRad` 0.360 and LOW `fbm3` | `kind:"shell"` + `geometry.{type:"teardrop",radius,length,vertexNoise}` | already vocabulary; the number that matters is the amplitude — 0.06 against fire's 0.42, because water wobbles and does not flicker |
+| `uSquash` / `uScale`, `r *= sq`, `len *= 1/sq` | `transform.squash.{axis,amplitude,frequency}` | volume-conserving: the named axis takes `1 + a·sin(2π f t)` and the two cross axes the inverse square root of it. It multiplies `transform.scale`, which is how it reaches every kind with no per-kind branch |
+| `band = fract(ang*2.15 + vAlong*.9 - t*.22)` + `seg` + the along gate | `material.streaks.{space,frequency,pan,width,segmentation,color,intensity,fadeAlong,radiate}` | `radiate:true` keys the bands on the ANGULAR coordinate so they run back from the nose; `false` keys them on the along coordinate and they become rings. That flag is the difference between water moving over a body and a barcode painted on one |
+| `gr = snoise(ang*3.1, vAlong*3.6 - t*.9)` and `col *= mix(1,.52,crease*.72)` | `material.creases.{frequency,depth,alongStart}` | the second, higher-frequency field. Without it the head is plastic; with it, it is folded water |
+| `sheetGeo(len,width,curl,seed)` × 20, `toonMat` × 2, the `cls[i]` size table, `MEM_BIG_PERIOD` / `MEM_NEAR_PERIOD` and `cycleBirth` | `kind:"sheets"` + `layer.sheets` | a GENERATOR: `sheetInstances()` hashes every sheet's size, curl, bow, heading, sway, tumble and slot out of `(sheets.seed, index)`. `sheets.classes[]` carries the per-class `period`, and the births inside a class are spread evenly across it, so coverage is uniform at every t — and the schema REJECTS a class whose `life` exceeds its own `period`, which is exactly the failure the two-cadence trick exists to avoid |
+| the `toonFrag` `uTear` discard | `sheets.tear.{scale,threshold}` | a low-frequency noise threshold on the sheet's own UV; the renderer widens it with the sheet's age, so a membrane comes apart instead of simply shrinking |
+| `dropGeo` / `tearGeo` spheres and `dropMats` | a second `sheets` layer at `curl` 2.6–3.4 | a sheet curled almost shut IS a tube, and a tube at 0.1–0.3 m reads as a drop. One kind, not two |
+| `toonMat(shadow, high, rim, {rimPow, rimAmt})` | `material.toon` at `bands: 2` | already vocabulary from the smoke port; the sheets shader is the same half-lambert against one fixed world light |
+| the ground shader's analytic cyan ellipse under `uHead` | `environment.groundPool[{followsLayerId:"head", shape:"disc", anisotropy}]` | already vocabulary from the meteor port, and the `followsLayerId` half is exactly what `uHead` was |
+| `halo`'s additive quad behind the nose | a `softRadial` sprite | |
+| `HEAD`, `TAIL`, the palette, `T_IN` / `T_OUT` | the exemplar | `fixtures/v2/water-projectile/document.json` |
+
+Deliberately not ported: the spike's `N_CHIP` third population (the droplet layer's own small class
+covers it), its `P.layers` debug toggles, and the head's `uFlash` appear pop — an opacity track over
+the first 180 ms reads the same.
+
+### What the water port cost
+
+One renderer correction, and it was a sign error. `createSheetsLayer` built the sheet's frame with
+`makeBasis(axis, cross(axis, across), across)`, which is LEFT-handed;
+`Quaternion.setFromRotationMatrix` on a mirror gives a degenerate rotation, and every membrane
+collapsed into a sliver a few pixels wide. The frame is now `cross(across, axis)`, and the same trap
+is why `ribbonStripGeometry` and the arc strip both build their across axis from a cross product
+whose operand order is written down.
+
+## 15. Playful impact → schema (Phase H, 2026-09-14)
+
+The thirteenth spike (`frontend/dev-assets/vfx-v2/spike-playful.html`, source
+`docs/vfx-lab/spike-playful-reference.js.txt`) is the first element with no volume at all. Everything
+in it is a DRAWN SHAPE — a solid outlined star, six bear faces, hearts, bolts — and every one of them
+lives in the screen plane, pinned to a camera-facing group. That group is the whole spike, and
+turning it into vocabulary without letting layers acquire children is what §4 of the port brief
+decided: the frame is a property of a LAYER, not a parent node.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `const burst = new THREE.Group(); burst.quaternion.copy(camera.quaternion)` and everything parented to it | `layer.frame:"camera"` | the layer's local XY is re-based onto the camera's right/up every frame, closed form from the camera. Layers stay FLAT: the frame is per-layer, so eleven layers each carry it rather than one group owning them. A 2D symbol burst read from a three-quarter camera collapses to a line without it |
+| the `backdrop` full-screen quad with its `uHot`/`uCold` radial and ceiling darkening | `environment.backdrop.{mode:"radial",hot,cold,center,aspect,topFalloff}` | a screen-space card behind EVERYTHING including the ground, not lit and not fogged. It is the paper the effect is drawn on, and it goes with `environment.ground:"none"` |
+| `solidStar`'s `sdStar5` fill + ring + screentone + hot inner star | `material.procedural:"starSolid"` + `material.symbol.{fill,outline,highlight,ink,hot}` + `material.screentone` | `proceduralParams` is [points, inner ratio, outline width, hot core ratio]. The existing `"star"` procedural is the THIN four/five-point glint, so the drawn one took a new name. A symbol takes no colour from the ramp at all: it is a fill inside an ink outline, and mixing a gradient through it is exactly what stops it reading as drawn |
+| `uFillA` / `uHotA`, the hot star cutting at 0.44 while the outline holds to 0.70 | `material.symbol.hot.{color,intensity,alpha}` | the hot core is the SAME shape at a fraction of the radius, on its own alpha Curve over the layer's 0..1 progress, so the flash can cut without the outline moving |
+| `faceMat`'s head + ears + hashed expression + muzzle | `material.procedural:"face"`, params [expression count, outline width, ear size, muzzle] | the expression is hashed off the instance seed, so six faces are six faces and not one repeated |
+| `heartMat`'s `sdHeart` / comma branch | `material.procedural:"heart"` and `"crescent"` | two patterns, because a document that wants only hearts should not have to hash its way past the commas |
+| `lobeMat`'s union of four hashed discs with the lighter cap | `material.procedural:"cloudLobe"`, params [lobes, lobe radius] | |
+| `boltMat`'s three-segment polyline with the taper | `material.procedural:"bolt"`, params [width, taper] | |
+| `sliverGeo(len,width,curve,taper,h)` × 12, the `ang = (i/n)*2π + jitter` fan and the `eat`/`rr` root shrink | `emitter.shape.type:"radialFan"` + `emitter.render.mode:"sliver"` + `render.{sliver,retract}` | the fan and the needle are both generic. `render.retract` is what a star line does INSTEAD of fading: the inner end travels outward while the length collapses, so the ray shortens from the core outward and the middle of the burst stays readable |
+| the `dr = (1-exp(-age*k))/k` drag-limited throw with a lateral arc and a gravity sag | `emitter.forces.{drag,gravity}` on a `radialFan` shape inside a camera frame | already vocabulary; the frame is what makes the sag read as screen-down |
+| `antSparks`' inward pull | a particles layer with NEGATIVE radial speed | already vocabulary (`converging-charge`) |
+| `haloCard` / `residualCard` / `dotCard` / `spray` | `softRadial` sprites and one velocity-stretched particles layer | |
+| `CENTER`, the palette, `T_ANT` and every fade window | the exemplar | `fixtures/v2/playful-impact/document.json` |
+
+Deliberately not ported: the spike's `starCard` sparkle shader (the existing `"star"` procedural is
+the same silhouette), its per-layer debug toggles, and the `N_FAT` slivers as a separate *kind* — the
+fat pink chunks are the same sliver layer at a different length, width and taper.
+
+### One deviation from the port brief
+
+The brief named `geometry.type:"sliver"`. A geometry type belongs to a MESH kind, and both the
+playful star lines and the slash burst needles are instanced populations — particles carry no
+geometry at all. The needle is therefore `emitter.render.mode:"sliver"` with `emitter.render.sliver`,
+the same shape `emitter.render.mode:"flatStrip"` and `render.strip` already had. `render.secondary`
+is likewise a second draw of that same program in the SAME layer rather than an `emitter.sub`, which
+would have needed a parent particles layer to hang off.
+
+## 16. Fire slash → schema (Phase H, 2026-09-14)
+
+The fourteenth spike (`frontend/dev-assets/vfx-v2/spike-slash.html`, source
+`docs/vfx-lab/spike-slash-reference.js.txt`) is the one that made a **window** the subject. A ribbon
+already sweeps a path inside `[head - tail, head]`, but a slash's tail does not trail the head at a
+fixed distance: the head runs first and the tail holds, and then the tail alone accelerates and eats
+the blade from behind. Two independent curves on one window is the whole shape of a slash, and it is
+what the first `fire-slash` exemplar — two full-circle ribbons grown by `transform.scale` — could not
+express at all.
+
+| Spike knob | Schema v2 field | Notes |
+|---|---|---|
+| `ARC_C` / `ARC_N` / `ARC_EX` / `ARC_EY`, the in-plane view component and its cross product | `kind:"crescent"` + `crescent.{radius,sweep,phase,planeTilt}` on the LAYER's own transform | the arc lives in the layer's XY plane, leaned by `planeTilt`, and the layer's rotation aims the lot. The spike built its basis from the camera; the port makes it a rotation, so the blade is a real object and not a screen-space decal |
+| `ARC_SWEEP = 200°` | `crescent.sweep`, **signed** | the sign is which way round the circle the head travels, and once the plane is leaned it is what decides whether the banana bulges up or down. A positive sweep drew a "U"; nothing else about the document changes |
+| `widthAt(s)`'s `rise` / `fall` / `root` | `crescent.thickness.{max,peakFrom,tipPower,rootFade}` | the profile peaks BEHIND the live tip, which is what makes the leading edge a razor and the body fat |
+| `headOf(t)` easeOutQuart and `tailOf(t)` to the 1.55 | `crescent.window.{head,tail}`, two Curves over the layer's own 0..1 progress | the schema rejects a tail that overtakes its head, sampled at the union of both key sets — a tail that crosses a HELD head between its own keys is exactly the case a tail-keys-only check misses |
+| the four `crescentMat` copies at `scale` 1.02 / 1.20 / 1.00 / 0.52 with their own `radOff`, `lead`, `erode`, `tipHot` and 4-stop palettes | `crescent.tonal[]` (≤ 4) | one geometry, four draws. The `smear` copy carries `smear.{lag,opacity,window}` — the same strip a few frames behind, additive and faint, alive only while the sweep travels |
+| `vor(fuv)` + `front` + `th = uErode + uTear*(1-front)` | `crescent.erosionFront.{width,widthFollowsWindow,voronoi{scale,seamWidth}}` | the tail is EATEN, not faded: cells behind the front disappear and the gaps between them are the tongues. `widthFollowsWindow` scales the reach with the live window, so a short window does not lose its whole tail at once |
+| `lines` / `cellEdge` / `streak` along the strip | `crescent.streaks` | the same `material.streaks` spec the water head uses; `radiate` is ignored on a strip, which has no nose to radiate from |
+| `uWiden`'s `1 + uWiden*(0.55 + 1.5*flut)` | `crescent.widen` | a blade coming apart swells before it breaks; a constant width reads as a solid ribbon |
+| `tongueMat`'s `d = s - uTail`, `live = step(d,.10)*step(-.40,d)` and the `arcAt(s)` origin | `emitter.spawn.mode:"frontAnchored"` + `spawn.sourceLayerId` | instance i owns a hashed parameter `s` along the named crescent's arc and is born the moment that crescent's TAIL curve reaches `s`, at the arc point. The curve is inverted in closed form (the same `glslCurveInverse` a path-anchored trail uses), so the embers appear in the order the blade tears with no time written down twice |
+| `emberMat`'s `back = -arcTan(s)` throw | `velocity.mode:"radial"` on a front-anchored spawn | a front-anchored instance has no radius to be radial about, so the mode is re-read as "backward along the arc it was torn off" — the same re-reading `layerInstances` does with `aSrcDir` |
+| `lickMat`'s `k = floor(uTime*10)` flipbook, the `aSide` fan and the two flat colour bands | `kind:"licks"` + `layer.licks` | ANCHORED, not emitted: `anchor.{sourceLayerId,follow:"erosionFront",offset}` puts a lick where the blade's tail is at this instant. The flipbook hold is the whole point — sliding the same shape along reads as a smear |
+| `sliverMat`'s 12 radial needles with their hashed bends, and `bitMat`'s three bits per sliver | `emitter.shape.type:"radialFan"` + `render.mode:"sliver"` + `render.secondary.{perInstance,length,along}` | the secondary bits are a SECOND draw of the same program over the same instance attributes repeated, in the same layer, so a bit can never drift off the ray it belongs to — it re-derives that ray from the very same hashes |
+| `flashMat` / `sparkMat` / `chargeMat` / `chSparkMat` | `softRadial` sprites and ordinary particles layers | already vocabulary |
+| `emberPuffMat`'s leftover flame | a `flame` sprite with `material.flicker` and a motion track | |
+| the ground shader's analytic warm pool | `environment.groundPool` | already vocabulary from the meteor port |
+| `ARC_R`, `W_MAX`, the palette, `T_CH`/`T_SW`/`T_TE`/`T_BURST`/`T_EM` | the exemplar | `fixtures/v2/fire-slash/document.json`, rebuilt from scratch |
+
+Deliberately not ported: the spike's `N_TONGUE` billboards as a distinct kind (a `frontAnchored`
+particles layer with the existing `"flame"` procedural is the same thing), its `spikeMats` debug
+handles, and the `uStreak` toggle on the smear copy — a smear with no flow lines is the same field at
+intensity 0.
+
+### What the three ports agreed on
+
+All three replaced a per-frame CPU table with a closed-form field, the same way §13 said the portal,
+the vortex and the meteor did: the water tail's births are `birth0 + k·period` instead of a spawn
+list, the blade's tongues are a curve inverted at each instance's own arc parameter instead of a
+lit-flag per tongue, and the symbol burst's layout is a camera basis instead of a scene-graph parent.
+In each case the version that stores nothing is also the shorter one, and it is the only version a
+seek can land inside.

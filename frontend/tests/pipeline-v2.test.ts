@@ -514,6 +514,18 @@ test("every v1 recipe id maps onto a v2 family", () => {
     "portal",
   ] as const)
     assert.ok(RECIPE_V2_IDS.includes(recipeV2For(id)), id);
+  // Water has a family of its own now, with or without a prompt; the playful
+  // burst is prompt-routed the way aura and glitch are.
+  assert.equal(recipeV2For("water"), "water-projectile");
+  assert.equal(
+    recipeV2For("projectile", "a splash of water"),
+    "water-projectile",
+  );
+  assert.equal(
+    recipeV2For("projectile", "a cute cartoon hit with faces"),
+    "playful-impact",
+  );
+  assert.equal(recipeV2For("slash"), "fire-slash");
 });
 
 test("scalar refinement translates director notes into v2 paths", () => {
@@ -594,6 +606,9 @@ test("structural repair is bounded by the baseline document", () => {
         "arcs",
         "streakBurst",
         "reflection",
+        "sheets",
+        "crescent",
+        "licks",
       ])
         if (layer[slot] === undefined) layer[slot] = null;
     return { document: copy, explanation: "repair" };

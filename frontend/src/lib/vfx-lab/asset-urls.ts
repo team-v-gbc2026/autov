@@ -30,10 +30,12 @@ export const FIXTURE_IDS = [
   "ice-blast",
   "lightning-impact",
   "meteor-rain",
+  "playful-impact",
   "portal",
   "shield",
   "sky-vortex",
   "smoke-burst",
+  "water-projectile",
 ] as const;
 
 export type FixtureId = (typeof FIXTURE_IDS)[number];

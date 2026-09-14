@@ -63,6 +63,17 @@ export const KINDS_V2 = [
   // (layer.reflection). It draws the SOURCE layer's own geometry and material,
   // so it can never drift out of step with what it reflects.
   "reflection",
+  // Curved tapered opaque sheet meshes on a hashed multi-cadence schedule
+  // (layer.sheets): the torn membranes of a water tail. Colour comes from
+  // material.toon, not from material.ramp.
+  "sheets",
+  // The arc-window ribbon (layer.crescent): a strip swept along an arc whose
+  // head and tail are two curves, drawn once per tonal copy, with a Voronoi
+  // erosion front eating the tail. The blade of a slash.
+  "crescent",
+  // Flat cel flame strips anchored to a crescent's erosion front
+  // (layer.licks), re-hashed on a flipbook step.
+  "licks",
 ] as const;
 export const BLOB_ARRANGEMENTS = [
   "mound",
@@ -136,6 +147,25 @@ export const PROCEDURALS_V2 = [
   // disc, the second a billboard silhouette anchored at its leading point.
   "swirlDisc",
   "teardropStreak",
+  // Drawn SYMBOLS: flat graphic glyphs with a fill, a thick outline and (for
+  // the star) a hot inner copy, all read off material.symbol rather than off
+  // the ramp. They are billboard silhouettes like star4/softRadial, but unlike
+  // every other pattern they are opaque shapes with an ink line, which is what
+  // a cartoon impact is made of.
+  //   starSolid  [points, inner ratio, outline width, hot core ratio]
+  //              (the existing "star" is the thin 5-point pointed glint; this
+  //              is the solid, outlined, screentoned one)
+  //   face       [expression count, outline width, ear size, muzzle 0..1]
+  //   heart      [outline width, -, -, -]
+  //   crescent   [outline width, bite offset, -, -]
+  //   cloudLobe  [lobes, lobe radius, -, -]
+  //   bolt       [width, taper, -, -]
+  "starSolid",
+  "face",
+  "heart",
+  "crescent",
+  "cloudLobe",
+  "bolt",
 ] as const;
 export const GEOMETRIES_V2 = [
   "auto",
@@ -192,6 +222,11 @@ export const EMITTER_SHAPES = [
   // A ring band between shape.innerRadius and shape.radius in the plane
   // perpendicular to shape.axis: the orbit lane dark flecks ride.
   "orbit",
+  // An evenly spaced radial fan in the plane across shape.axis: instance i sits
+  // at shape.innerRadius along heading 2*PI*i/count, jittered by
+  // shape.angleJitter and leaned by shape.angleBias. The burst of slivers a
+  // slash throws at the end of its sweep.
+  "radialFan",
 ] as const;
 export const SPAWN_MODES = [
   "burst",
@@ -202,6 +237,11 @@ export const SPAWN_MODES = [
   // Instance i is born at the moment its own path's head reaches the end (the
   // impact), staggered inside spawn.window. See spawn.originsFromPath.
   "event",
+  // The instance owns a hashed parameter along a crescent layer's arc
+  // (spawn.sourceLayerId) and is born the moment that crescent's TAIL front
+  // passes it, taking the arc point as its origin. The embers a tearing blade
+  // leaves behind it, in the order the tear happens.
+  "frontAnchored",
 ] as const;
 export const VELOCITY_MODES = [
   "radial",
@@ -231,6 +271,12 @@ export const RENDER_MODES = [
   // width, lateral offset and waviness re-hashed on floor(t * strip.stepRate)
   // so the set jumps like a flipbook instead of sliding. See emitter.render.
   "flatStrip",
+  // A tapered, jagged-edged SLIVER (emitter.render.sliver) drawn in the screen
+  // plane, rooted at the instance and pointing along its own heading: the star
+  // lines of a cartoon impact and the radial needles of a slash burst. It is
+  // the splash sliver's silhouette on an instanced draw, which is why it is a
+  // render MODE and not a geometry type — particles carry no geometry.
+  "sliver",
 ] as const;
 export const ROLES_V2 = [
   "anticipation",
@@ -256,6 +302,14 @@ export const EFFECT_EXTENT_MIN = 1.5;
 export const PATH_BUDGET_V2 = 6;
 /** Strands one ribbon layer may sweep; each is its own tapered strip. */
 export const RIBBON_STRAND_BUDGET = 6;
+/** Sheets one layer may generate; each is its own curved mesh and draw call. */
+export const SHEET_BUDGET_V2 = 48;
+/** Size classes one sheets layer may declare; each carries its own cadence. */
+export const SHEET_CLASS_BUDGET_V2 = 3;
+/** Tonal copies one crescent may stack; each is a full strip draw. */
+export const CRESCENT_TONAL_BUDGET_V2 = 4;
+/** Cel licks one layer may peel off a front; each is its own instanced strip. */
+export const LICK_BUDGET_V2 = 24;
 
 // --- curves and ramps ------------------------------------------------------
 
@@ -694,6 +748,81 @@ export const SwirlSchema = z
   })
   .strict();
 
+// --- surface line work -----------------------------------------------------
+//
+// Two fields that draw ON the ramp key rather than replacing it, both meant for
+// a closed body (a shell, a teardrop): thin hard bands, and a second, higher
+// frequency field that darkens narrow creases.
+//
+// `radiate` is the difference between rings and speed lines: false runs the
+// bands round the body at `frequency` per unit of the along coordinate (a
+// ripple ladder), true keys them on the ANGULAR coordinate so they radiate back
+// from the nose, which is what reads as a skin of flowing water rather than as
+// a barcode. `segmentation` breaks each band into pieces with a second noise
+// field, so a line is a crease and not a painted ring; `fadeAlong` is the band
+// of the along coordinate they live in.
+export const StreaksSchema = z
+  .object({
+    space: z.literal("surface"),
+    frequency: scalar(0, 32),
+    // Bands a second the pattern pans, along the coordinate it keys on.
+    pan: scalar(-8, 8),
+    // Half-width of one band, in the key's own units.
+    width: scalar(0.001, 0.3),
+    // 0 = unbroken lines, up to 8 = chopped into short segments.
+    segmentation: scalar(0, 8),
+    color: hex,
+    intensity: scalar(0, 8),
+    // The band of the along coordinate the streaks live in.
+    fadeAlong: range(0, 1),
+    radiate: z.boolean(),
+  })
+  .strict();
+
+// A second, higher-frequency surface field that MULTIPLIES the ramp colour
+// down inside its troughs: the narrow dark folds that make a smooth body read
+// as a faceted one. `alongStart` is where along the axis the creases begin, so
+// a nose stays clean.
+export const CreasesSchema = z
+  .object({
+    frequency: scalar(0, 32),
+    depth: scalar(0, 1),
+    alongStart: scalar(0, 1),
+  })
+  .strict();
+
+// A comic halftone lattice inside whatever the material draws. `pitch` is the
+// cell size — in WORLD metres for space "world" (so the dots keep their size as
+// the shape scales, which is what a printed screen does) or in UV for "uv".
+export const ScreentoneSchema = z
+  .object({
+    pitch: scalar(0.002, 0.5),
+    color: hex,
+    space: z.enum(["world", "uv"]),
+  })
+  .strict();
+
+// Colours for the drawn-symbol procedurals (starSolid, face, heart, crescent,
+// cloudLobe, bolt). A symbol is a fill inside an ink outline, so it does not
+// take its colour from the ramp the way every other pattern does: two flat
+// hexes and, for the star, a hot inner copy on its own alpha track over the
+// layer's own 0..1 progress — which is how the flash can cut while the outlined
+// shell keeps reading.
+export const SymbolSchema = z
+  .object({
+    fill: hex,
+    outline: hex,
+    // A lighter accent used for the lit side of a face and for ear inners.
+    highlight: hex,
+    // Ink: eyes, mouths, the dark side of a glyph.
+    ink: hex,
+    hot: z
+      .object({ color: hex, intensity: scalar(0, 8), alpha: CurveSchema })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
 export const MaterialSchema = z
   .object({
     blend: z.enum(BLEND_MODES_V2),
@@ -756,6 +885,13 @@ export const MaterialSchema = z
     beads: BeadsSchema.nullable().default(null),
     flow: FlowSchema.nullable().default(null),
     swirl: SwirlSchema.nullable().default(null),
+    // The water/playful vocabulary. All defaulted, so archived documents load
+    // unchanged: hard surface bands and creases on a closed body, a halftone
+    // lattice, and the two flat colours a drawn symbol is made of.
+    streaks: StreaksSchema.nullable().default(null),
+    creases: CreasesSchema.nullable().default(null),
+    screentone: ScreentoneSchema.nullable().default(null),
+    symbol: SymbolSchema.nullable().default(null),
   })
   .strict();
 
@@ -784,6 +920,13 @@ export const EmitterShapeSchema = z
     // Shape "frame" only: the fraction of the population scattered INSIDE the
     // rectangle instead of on its perimeter. 0 is a pure rim spray.
     interiorFraction: scalar(0, 1).default(0),
+    // Shape "radialFan" only: how far each heading may wander off its even
+    // slot, and how hard the fan leans. `angleBias` both compresses the fan
+    // (an even ring reads as a clock face) and rotates it, so a positive bias
+    // is a burst thrown upward. Defaulted, so archived documents load
+    // unchanged.
+    angleJitter: scalar(0, Math.PI).default(0),
+    angleBias: scalar(-1, 1).default(0),
   })
   .strict();
 
@@ -811,6 +954,12 @@ export const SpawnSchema = z
     // is spawn.window, hashed per instance. Defaulted, so archived documents
     // load unchanged.
     originsFromPath: z.boolean().default(false),
+    // Spawn mode "frontAnchored": the crescent layer whose tail front the
+    // instances are born behind. Instance i owns a hashed parameter s along
+    // that crescent's arc and is born when the tail curve reaches s, at the arc
+    // point — so the embers appear in the order the blade tears, with no time
+    // table anywhere. Defaulted, so archived documents load unchanged.
+    sourceLayerId: z.string().max(48).nullable().default(null),
   })
   .strict();
 
@@ -897,6 +1046,46 @@ export const StripSchema = z
   })
   .strict();
 
+// render.mode "sliver": the instance is a flat, tapered, jagged-edged needle in
+// the screen plane, rooted at its own position and pointing along its heading —
+// the splash sliver's silhouette on an instanced draw. `curve` is the sideways
+// bow at the tip as a fraction of the length (its sign is hashed per instance),
+// `taper` the exponent of the (1-t) width falloff (high = a fat root and a
+// needle tip) and `jaggedness` the depth of the hashed notches on each edge.
+export const SliverRenderSchema = z
+  .object({
+    length: range(0.05, 8),
+    width: range(0.005, 1),
+    curve: scalar(0, 1),
+    taper: scalar(0.2, 4),
+    jaggedness: scalar(0, 1),
+  })
+  .strict();
+
+// The retract a star line does instead of fading: over [start,end] of the
+// particle's own life the sliver's INNER end travels outward while its length
+// collapses, so the ray shortens from the middle of the burst outward and the
+// core stays readable. `from` picks which end is eaten.
+export const RetractSchema = z
+  .object({
+    start: scalar(0, 1),
+    end: scalar(0, 1),
+    from: z.enum(["root", "tip"]),
+  })
+  .strict();
+
+// Short secondary sparks strung along each sliver: `perInstance` extra needles
+// per instance, `length` of one of them as a fraction of its parent's, scattered
+// over `along` of the parent's own length. One extra instanced draw, not a
+// second layer, so they can never drift off the ray they belong to.
+export const SecondarySchema = z
+  .object({
+    perInstance: integer(0, 4),
+    length: scalar(0.01, 1),
+    along: range(0, 1),
+  })
+  .strict();
+
 export const ParticleRenderSchema = z
   .object({
     mode: z.enum(RENDER_MODES),
@@ -918,6 +1107,11 @@ export const ParticleRenderSchema = z
     // which is what a speed-line cap needs (the tip is the meteor, the streak
     // is where it has been). Defaulted, so archived documents load unchanged.
     anchor: z.enum(["center", "head"]).default("center"),
+    // render.mode "sliver" only, plus the two things a sliver does that a quad
+    // cannot. All defaulted, so archived documents load unchanged.
+    sliver: SliverRenderSchema.nullable().default(null),
+    retract: RetractSchema.nullable().default(null),
+    secondary: SecondarySchema.nullable().default(null),
   })
   .strict();
 
@@ -1492,6 +1686,237 @@ export const ReflectionSchema = z
   })
   .strict();
 
+// --- sheets ----------------------------------------------------------------
+//
+// Curved, tapered, OPAQUE membranes streaming off a body: the tail of a water
+// projectile is mesh, never particles, because water reads as smooth surfaces
+// and rounded volumes. A generator like blob and splash — every sheet's size,
+// curl, heading, undulation and tumble is hashed out of (sheets.seed, index) —
+// with one thing none of the others have: a MULTI-CADENCE schedule.
+//
+// Each size class carries its own `period`, and the births inside a class are
+// spread evenly across it (slot k of n is born at (k + hash) * period/n). That
+// is the whole trick: a slot's period has to exceed its own life or the re-fire
+// clips the piece before it can travel, and one shared cadence would either
+// clip the long sheets or leave the near collar sparse. Two or three cadences
+// give uniform coverage at every t with nothing cut short.
+//
+// Colour comes from material.toon (two bands against a fixed world light, plus
+// a rim), never from material.ramp: a sheet is a lit surface. Sheets depth-write
+// and are drawn DoubleSide, so they intersect each other for real.
+/** The drawn-symbol patterns: the ones material.symbol colours. */
+export const SYMBOL_PROCEDURALS: ReadonlySet<string> = new Set([
+  "starSolid",
+  "face",
+  "heart",
+  "crescent",
+  "cloudLobe",
+  "bolt",
+]);
+
+export const SheetClassSchema = z
+  .object({
+    // Share of the population this class takes (weights are normalised).
+    weight: scalar(0.01, 1),
+    // Multipliers on the layer's own length, width and speed bands.
+    length: scalar(0.1, 4),
+    width: scalar(0.1, 4),
+    speed: scalar(0.05, 4),
+    // Seconds one sheet of this class lives, in absolute time.
+    life: scalar(0.05, 8),
+    // Seconds between two firings of one SLOT of this class. It must exceed
+    // the class's own life or the re-fire clips the sheet.
+    period: scalar(0.05, 12),
+  })
+  .strict();
+
+// A low-frequency noise threshold on the sheet's own UV that eats its border,
+// so the crescent silhouette is ragged instead of cut with scissors.
+export const SheetTearSchema = z
+  .object({ scale: scalar(0.2, 12), threshold: scalar(0, 1) })
+  .strict();
+
+export const SheetsSchema = z
+  .object({
+    count: integer(1, SHEET_BUDGET_V2),
+    // Bands, in metres, before the per-class multipliers.
+    length: range(0.05, 4),
+    width: range(0.02, 3),
+    // Radians the sheet wraps around its own long axis: 0 is a flat strip,
+    // ~1.5 a half tube. It is what stops a membrane reading as a card.
+    curl: range(0, 4),
+    // Shallow arc along the length as a fraction of it, so the sheet is a
+    // crescent rather than a straight strip. The sign is hashed per sheet.
+    bow: scalar(0, 0.6),
+    // Exponent of the sin() width profile: 1 is a lens, below 1 a blunt ribbon.
+    taper: scalar(0.1, 2),
+    classes: z.array(SheetClassSchema).min(1).max(SHEET_CLASS_BUDGET_V2),
+    // Where along the layer's own +Z a sheet starts, in metres. Negative is
+    // still INSIDE the head, which is what makes a membrane emerge from it.
+    spawn: z
+      .object({ axisFrom: scalar(-4, 4), axisTo: scalar(-4, 4) })
+      .strict(),
+    // Unit heading the sheets stream along, in the layer's own space.
+    flow: unit3,
+    // Metres a second, before the per-class multiplier.
+    speed: range(0, 12),
+    // The lateral swim: amplitude in metres at `frequency` hertz, hashed phase.
+    undulation: z
+      .object({ amplitude: scalar(0, 1), frequency: scalar(0, 12) })
+      .strict(),
+    // Radians a second the sheet rolls about the flow axis.
+    tumble: scalar(0, 8),
+    // Seconds a sheet takes to reach full size, and the fraction of its own
+    // life over which it shrinks away again.
+    scaleIn: scalar(0.001, 2),
+    shrinkOut: scalar(0.01, 1),
+    tear: SheetTearSchema.nullable(),
+    seed: integer(0, 2147483647),
+  })
+  .strict();
+
+// --- crescent ---------------------------------------------------------------
+//
+// The blade of a slash: a strip swept along an ARC, of which only the window
+// [tail, head] is drawn, with a thickness profile that peaks a little behind
+// the live tip. Head and tail are two independent curves over the layer's own
+// 0..1 progress, so the sweep (head runs, tail holds) and the tear-away (tail
+// catches up) are one layer and one field.
+//
+// The arc lives in the layer's own XY plane, leaned by `planeTilt` about its
+// own +X: seen from an elevated oblique camera a circle in that plane projects
+// to an ellipse, which is what turns a 200-degree arc into a banana instead of
+// a "C".
+//
+// It is drawn once per TONAL copy — a wide dark shadow behind, the saturated
+// body, a hot highlight inside it — each at its own scale, radial offset and
+// time lead. One copy may carry a `smear`: the same strip a few frames behind,
+// additive and faint, which is the motion blur of the sweep.
+export const CrescentWindowSchema = z
+  .object({ head: CurveSchema, tail: CurveSchema })
+  .strict();
+
+export const CrescentThicknessSchema = z
+  .object({
+    // Fattest FULL thickness, in metres (the erosion eats ~20% of it).
+    max: scalar(0.01, 3),
+    // How far behind the live tip the profile peaks, in arc parameter.
+    peakFrom: scalar(0.01, 2),
+    // Exponent of the razor rise at the leading tip; low is sharper.
+    tipPower: scalar(0.05, 4),
+    // Arc parameter over which the trailing end tapers back to nothing.
+    rootFade: scalar(0.005, 1),
+  })
+  .strict();
+
+// A copy of the strip. `ramp` is read ACROSS it, outer edge to inner: stop t=0
+// is the hot outer rim, the middle stops the saturated body, the last the dark
+// underside.
+export const CrescentSmearSchema = z
+  .object({
+    // Fraction of the layer the copy lags behind the live window.
+    lag: scalar(0, 1),
+    opacity: scalar(0, 1),
+    // The band of the layer's own 0..1 progress the smear exists in.
+    window: range(0, 1),
+  })
+  .strict();
+
+export const CrescentTonalSchema = z
+  .object({
+    scale: scalar(0.05, 3),
+    // Metres the copy is pushed outward (positive) or inward across the strip.
+    radialOffset: scalar(-2, 2),
+    // Fraction of the layer this copy's window leads (positive) or lags.
+    timeLead: scalar(-0.5, 0.5),
+    blend: z.enum(["additive", "alpha", "premultiplied"]),
+    ramp: z.array(RampStopSchema).min(2).max(4),
+    // Erosion threshold for this copy: a wider copy behind survives longer.
+    erode: scalar(0, 1),
+    // How hard the leading tip runs over the ramp's own first stop.
+    tipHot: scalar(0, 4),
+    smear: CrescentSmearSchema.nullable(),
+  })
+  .strict();
+
+// The tail does not fade, it is EATEN: Voronoi cells behind the front are
+// removed, so the strip breaks into tongues. `width` is how far behind the
+// front the eating reaches, in arc parameter; `widthFollowsWindow` scales it
+// with the live window so a short window does not lose its whole tail at once.
+export const CrescentErosionSchema = z
+  .object({
+    width: scalar(0.01, 2),
+    widthFollowsWindow: z.boolean(),
+    voronoi: z
+      .object({ scale: scalar(0.5, 40), seamWidth: scalar(0, 0.5) })
+      .strict(),
+  })
+  .strict();
+
+export const CrescentSchema = z
+  .object({
+    radius: scalar(0.05, 8),
+    // Signed: the sign is which way round the circle the head travels, and it
+    // is what decides whether the banana bulges up or down once the plane is
+    // leaned. A magnitude under 0.05 rad draws nothing.
+    sweep: scalar(-Math.PI * 2, Math.PI * 2),
+    // Where on the circle the tail end sits, in radians.
+    phase: scalar(-Math.PI * 2, Math.PI * 2),
+    // Lean of the arc plane about the layer's own +X.
+    planeTilt: scalar(-Math.PI, Math.PI),
+    window: CrescentWindowSchema,
+    thickness: CrescentThicknessSchema,
+    // "screen" builds the across axis from the camera, so the blade never goes
+    // edge-on; "surface" keeps it in the arc plane, which is a flat banner.
+    widthSpace: z.enum(["screen", "surface"]),
+    tonal: z.array(CrescentTonalSchema).min(1).max(CRESCENT_TONAL_BUDGET_V2),
+    erosionFront: CrescentErosionSchema,
+    // The flow lines running along the blade. Reuses the surface streak spec;
+    // `radiate` is ignored here (a strip has no nose to radiate from).
+    streaks: StreaksSchema.nullable(),
+    // How much the strip widens and flutters as the tear-away grows.
+    widen: scalar(0, 2),
+    seed: integer(0, 2147483647),
+  })
+  .strict();
+
+// --- licks -----------------------------------------------------------------
+//
+// Flat, hard-edged cel flame strips peeling off a crescent's erosion front:
+// two flat colour bands and no gradient, re-hashed on a flipbook step so the
+// shape JUMPS rather than slides — which is the whole difference between a
+// drawn lick and a stretched sprite.
+//
+// They are ANCHORED, not emitted: `anchor.sourceLayerId` names the crescent and
+// `follow` is "erosionFront", so a lick sits where that crescent's tail is at
+// this instant, offset along the arc by `anchor.offset`.
+export const LicksSchema = z
+  .object({
+    count: integer(1, LICK_BUDGET_V2),
+    length: range(0.02, 4),
+    width: range(0.01, 2),
+    // Sideways curl of the strip as a fraction of its own length.
+    curl: scalar(0, 1),
+    // Shape re-hash rate, in hertz of layer time. 0 holds one shape.
+    flipbookHz: scalar(0, 60),
+    anchor: z
+      .object({
+        sourceLayerId: z.string().max(48),
+        follow: z.literal("erosionFront"),
+        offset: scalar(-1, 1),
+      })
+      .strict(),
+    // Metres a second the lick drifts once it has peeled off, in layer space.
+    drift: vec3,
+    // Births spread over [from,to] of the LAYER window, and how long one lasts.
+    stagger: range(0, 1),
+    life: range(0.02, 8),
+    // The hot half and the body half of the two-band cel fill.
+    colors: z.tuple([hex, hex]),
+    seed: integer(0, 2147483647),
+  })
+  .strict();
+
 // --- event windows ---------------------------------------------------------
 //
 // A layer whose start is an EVENT rather than a clock time: `at` names a path
@@ -1536,8 +1961,27 @@ export const LightSchema = z
   })
   .strict();
 
+// Volume-conserving squash and stretch: the named axis breathes by
+// +-`amplitude` at `frequency` hertz of LAYER time and the two cross axes take
+// the inverse square root of it, so the body keeps its volume instead of
+// pumping. It multiplies transform.scale, which is how it reaches every kind
+// with no per-kind branch anywhere.
+export const SquashSchema = z
+  .object({
+    axis: z.enum(["x", "y", "z"]),
+    amplitude: scalar(0, 0.6),
+    frequency: scalar(0, 12),
+  })
+  .strict();
+
 export const TransformSchema = z
-  .object({ position: vec3, rotation: vec3, scale: vec3 })
+  .object({
+    position: vec3,
+    rotation: vec3,
+    scale: vec3,
+    // Defaulted, so archived documents load unchanged.
+    squash: SquashSchema.nullable().default(null),
+  })
   .strict();
 
 // v2 animation targets are dotted paths into the layer, e.g.
@@ -1586,6 +2030,14 @@ export const LayerV2Schema = z
     // The layer's start is an event on a path rather than a clock time.
     // Defaulted, so archived documents load unchanged.
     window: LayerWindowSchema.nullable().default(null),
+    // "camera" re-bases the layer's local XY onto the camera's right/up every
+    // frame, closed form from the camera, so everything the layer lays out —
+    // symbols, an emitter's own shape, a spray fan — lives in the SCREEN plane
+    // instead of in world space. A 2D symbol burst read from a three-quarter
+    // camera collapses to a line without it. Layers stay flat: this is a frame
+    // on one layer, never a parent group. Defaulted, so archived documents load
+    // unchanged.
+    frame: z.enum(["camera"]).nullable().default(null),
     material: MaterialSchema.optional(),
     emitter: EmitterSchema.optional(),
     geometry: GeometryV2Schema.optional(),
@@ -1598,6 +2050,9 @@ export const LayerV2Schema = z
     arcs: ArcsSchema.optional(),
     streakBurst: StreakBurstSchema.optional(),
     reflection: ReflectionSchema.optional(),
+    sheets: SheetsSchema.optional(),
+    crescent: CrescentSchema.optional(),
+    licks: LicksSchema.optional(),
     tracks: z.array(TrackV2Schema).max(16),
     overrides: z.array(OverrideV2Schema).max(64),
   })
@@ -1636,6 +2091,22 @@ export const GroundPoolSchema = z
 /** Ground pools one document may declare; each is one gaussian per pixel. */
 export const GROUND_POOL_BUDGET_V2 = 6;
 
+// A screen-space vignette card behind EVERYTHING, including the ground: the
+// blue wash a cartoon impact is drawn on. `center` is in 0..1 screen
+// coordinates, `aspect` stretches the falloff horizontally and `topFalloff`
+// darkens the ceiling, which is what keeps the card from reading as a flat
+// gradient. It is not lit and it is not fogged; it is the paper.
+export const BackdropSchema = z
+  .object({
+    mode: z.literal("radial"),
+    hot: hex,
+    cold: hex,
+    center: z.tuple([scalar(0, 1), scalar(0, 1)]),
+    aspect: scalar(0.1, 4),
+    topFalloff: scalar(0, 1),
+  })
+  .strict();
+
 export const EnvironmentSchema = z
   .object({
     ground: z.enum(["none", "grid", "plane"]),
@@ -1656,6 +2127,9 @@ export const EnvironmentSchema = z
       .max(GROUND_POOL_BUDGET_V2)
       .nullable()
       .default(null),
+    // The screen-space card behind everything. Defaulted, so archived
+    // documents load unchanged.
+    backdrop: BackdropSchema.nullable().default(null),
   })
   .strict();
 
@@ -1802,6 +2276,18 @@ export type Beads = z.infer<typeof BeadsSchema>;
 export type Flow = z.infer<typeof FlowSchema>;
 export type Swirl = z.infer<typeof SwirlSchema>;
 export type Reflection = z.infer<typeof ReflectionSchema>;
+export type Sheets = z.infer<typeof SheetsSchema>;
+export type SheetClass = z.infer<typeof SheetClassSchema>;
+export type Crescent = z.infer<typeof CrescentSchema>;
+export type CrescentTonal = z.infer<typeof CrescentTonalSchema>;
+export type Licks = z.infer<typeof LicksSchema>;
+export type Streaks = z.infer<typeof StreaksSchema>;
+export type Creases = z.infer<typeof CreasesSchema>;
+export type Screentone = z.infer<typeof ScreentoneSchema>;
+export type SymbolStyle = z.infer<typeof SymbolSchema>;
+export type Squash = z.infer<typeof SquashSchema>;
+export type SliverRender = z.infer<typeof SliverRenderSchema>;
+export type Backdrop = z.infer<typeof BackdropSchema>;
 export type LayerWindow = z.infer<typeof LayerWindowSchema>;
 export type GroundPool = z.infer<typeof GroundPoolSchema>;
 export type Twinkle = z.infer<typeof TwinkleSchema>;
@@ -2005,6 +2491,38 @@ export const V2_TARGET_RANGES: Record<string, [number, number]> = {
   "blob.perAnchor": [1, 4],
   "reflection.opacity": [0, 1],
   "reflection.scale": [0.05, 1],
+  "transform.squash.amplitude": [0, 0.6],
+  "transform.squash.frequency": [0, 12],
+  "material.streaks.intensity": [0, 8],
+  "material.streaks.frequency": [0, 32],
+  "material.streaks.width": [0.001, 0.3],
+  "material.creases.depth": [0, 1],
+  "material.screentone.pitch": [0.002, 0.5],
+  "material.symbol.hot.intensity": [0, 8],
+  "emitter.render.sliver.length[0]": [0.05, 8],
+  "emitter.render.sliver.length[1]": [0.05, 8],
+  "emitter.render.sliver.width[0]": [0.005, 1],
+  "emitter.render.sliver.width[1]": [0.005, 1],
+  "emitter.render.retract.start": [0, 1],
+  "emitter.render.retract.end": [0, 1],
+  "emitter.shape.angleJitter": [0, Math.PI],
+  "emitter.shape.angleBias": [-1, 1],
+  "sheets.speed[0]": [0, 12],
+  "sheets.speed[1]": [0, 12],
+  "sheets.undulation.amplitude": [0, 1],
+  "sheets.tumble": [0, 8],
+  "sheets.bow": [0, 0.6],
+  "crescent.radius": [0.05, 8],
+  "crescent.sweep": [-Math.PI * 2, Math.PI * 2],
+  "crescent.thickness.max": [0.01, 3],
+  "crescent.widen": [0, 2],
+  "crescent.erosionFront.width": [0.01, 2],
+  "crescent.tonal[0].erode": [0, 1],
+  "crescent.tonal[1].erode": [0, 1],
+  "crescent.tonal[2].erode": [0, 1],
+  "crescent.tonal[3].erode": [0, 1],
+  "licks.curl": [0, 1],
+  "licks.flipbookHz": [0, 60],
 };
 
 const COLOR_TARGETS = new Set<string>([
@@ -2035,6 +2553,15 @@ const COLOR_TARGETS = new Set<string>([
   "geometry.slab.tiers[2].color",
   "geometry.slab.tiers[3].color",
   "reflection.tint",
+  "material.streaks.color",
+  "material.screentone.color",
+  "material.symbol.fill",
+  "material.symbol.outline",
+  "material.symbol.highlight",
+  "material.symbol.ink",
+  "material.symbol.hot.color",
+  "licks.colors[0]",
+  "licks.colors[1]",
 ]);
 
 export const BUILTIN_TEXTURE_IDS: ReadonlySet<string> = new Set(
@@ -2171,6 +2698,62 @@ function blobChecks(blob: Blob, label: string) {
     throw new Error(`blob.retract runs backwards: ${label}`);
 }
 
+function sheetChecks(sheets: Sheets, label: string) {
+  for (const key of ["length", "width", "curl", "speed"] as const)
+    checkRange(sheets[key], `${label}/sheets.${key}`);
+  checkUnit(sheets.flow, `${label}/sheets.flow`);
+  // A slot re-fires every `period`, so a class whose life outlives its own
+  // cadence is clipped mid-flight — which is exactly the failure the two-cadence
+  // schedule exists to avoid.
+  for (const [i, cls] of sheets.classes.entries())
+    if (cls.life > cls.period)
+      throw new Error(
+        `Sheet class ${i} lives longer than its own period, so every sheet is clipped: ${label}`,
+      );
+}
+
+function crescentChecks(crescent: Crescent, label: string) {
+  if (Math.abs(crescent.sweep) < 0.05)
+    throw new Error(`Crescent sweep is too small to draw an arc: ${label}`);
+  checkCurve(crescent.window.head, `${label}/crescent.window.head`);
+  checkCurve(crescent.window.tail, `${label}/crescent.window.tail`);
+  for (const [i, tonal] of crescent.tonal.entries()) {
+    for (let k = 1; k < tonal.ramp.length; k++)
+      if (tonal.ramp[k].t <= tonal.ramp[k - 1].t)
+        throw new Error(`Crescent tonal ${i} ramp stops must ascend: ${label}`);
+    if (tonal.smear) checkRange(tonal.smear.window, `${label}/crescent.tonal[${i}].smear.window`);
+  }
+  // The tail must never overtake the head: a window that inverts draws nothing,
+  // and the erosion front would run backwards through its own tongues. Sampled
+  // at the union of both key sets, because a tail that crosses a held head
+  // between its own keys is exactly the case a tail-keys-only check misses.
+  const head = crescent.window.head.keys;
+  const tail = crescent.window.tail.keys;
+  for (const t of [...head, ...tail].map((k) => k[0]))
+    if (sampleMonotone(tail, t) > sampleMonotone(head, t) + 1e-6)
+      throw new Error(
+        `Crescent tail overtakes its head at u=${t}, so the window inverts: ${label}`,
+      );
+}
+
+function licksChecks(licks: Licks, label: string) {
+  checkRange(licks.length, `${label}/licks.length`);
+  checkRange(licks.width, `${label}/licks.width`);
+  checkRange(licks.stagger, `${label}/licks.stagger`);
+  checkRange(licks.life, `${label}/licks.life`);
+}
+
+/** Piecewise-linear read of a curve's keys; the tail/head comparison only. */
+function sampleMonotone(keys: readonly (readonly [number, number])[], x: number) {
+  if (x <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++)
+    if (x <= keys[i][0]) {
+      const f = (x - keys[i - 1][0]) / Math.max(keys[i][0] - keys[i - 1][0], 1e-6);
+      return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * f;
+    }
+  return keys[keys.length - 1][1];
+}
+
 function splashChecks(splash: Splash, label: string) {
   for (const key of ["length", "spread", "scaleIn", "detach", "fade"] as const)
     checkRange(splash[key], `${label}/splash.${key}`);
@@ -2248,6 +2831,27 @@ function emitterChecks(emitter: Emitter, label: string) {
       `render.strip is for render.mode "flatStrip" only: ${label}`,
     );
   }
+  if (emitter.render.mode === "sliver") {
+    if (!emitter.render.sliver)
+      throw new Error(`render.mode "sliver" needs render.sliver: ${label}`);
+    checkRange(emitter.render.sliver.length, `${label}/render.sliver.length`);
+    checkRange(emitter.render.sliver.width, `${label}/render.sliver.width`);
+  } else if (emitter.render.sliver) {
+    throw new Error(
+      `render.sliver is for render.mode "sliver" only: ${label}`,
+    );
+  }
+  // A retract that runs backwards never finishes; a secondary spark can only
+  // ride a sliver, because there is nothing else for it to be strung along.
+  if (emitter.render.retract && emitter.render.retract.start >= emitter.render.retract.end)
+    throw new Error(`render.retract runs backwards: ${label}`);
+  if (emitter.render.secondary) {
+    checkRange(emitter.render.secondary.along, `${label}/render.secondary.along`);
+    if (emitter.render.mode !== "sliver")
+      throw new Error(
+        `render.secondary is for render.mode "sliver" only: ${label}`,
+      );
+  }
   // A ring band with no width is a circle, which shape "ring" already is.
   if (
     emitter.shape.type === "orbit" &&
@@ -2321,6 +2925,7 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
   // Kinds whose instances are hashed out of their own spec, so another layer
   // can borrow their sites without depending on draw order.
   const generatorLayers = new Set<string>();
+  const crescentLayers = new Set<string>();
   let particles = 0;
   for (const layer of doc.layers) {
     if (ids.has(layer.id)) throw new Error(`Duplicate layer: ${layer.id}`);
@@ -2328,6 +2933,7 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     if (layer.kind === "particles") particleLayers.add(layer.id);
     if (layer.kind === "crystals" || layer.kind === "blob")
       generatorLayers.add(layer.id);
+    if (layer.kind === "crescent") crescentLayers.add(layer.id);
     if ((MESH_KINDS_V2 as readonly string[]).includes(layer.kind))
       meshLayers.add(layer.id);
   }
@@ -2392,6 +2998,17 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
       emitterChecks(layer.emitter, label);
       if (layer.emitter.shape.pathId)
         pathExists(layer.emitter.shape.pathId, label);
+      // A front-anchored spawn is born behind a real blade, so the blade has
+      // to exist: the birth IS that crescent's tail curve, inverted.
+      if (layer.emitter.spawn.mode === "frontAnchored") {
+        const front = layer.emitter.spawn.sourceLayerId;
+        if (!front)
+          throw new Error(
+            `spawn.mode "frontAnchored" needs spawn.sourceLayerId: ${label}`,
+          );
+        if (!crescentLayers.has(front))
+          throw new Error(`Front-anchored spawn source must be a crescent layer: ${front}`);
+      }
       const source = layer.emitter.shape.sourceLayerId;
       if (source && layer.emitter.shape.type === "layerInstances") {
         if (source === layer.id)
@@ -2482,6 +3099,49 @@ export function validateDocumentV2(input: unknown): VfxDocumentV2 {
     } else if (layer.streakBurst) {
       throw new Error(`Only streakBurst layers carry streakBurst: ${label}`);
     }
+    if (layer.kind === "sheets") {
+      if (!layer.sheets) throw new Error(`Sheets layer needs sheets: ${label}`);
+      sheetChecks(layer.sheets, label);
+    } else if (layer.sheets) {
+      throw new Error(`Only sheets layers carry sheets: ${label}`);
+    }
+    if (layer.kind === "crescent") {
+      if (!layer.crescent)
+        throw new Error(`Crescent layer needs crescent: ${label}`);
+      crescentChecks(layer.crescent, label);
+    } else if (layer.crescent) {
+      throw new Error(`Only crescent layers carry crescent: ${label}`);
+    }
+    if (layer.kind === "licks") {
+      if (!layer.licks) throw new Error(`Licks layer needs licks: ${label}`);
+      licksChecks(layer.licks, label);
+      if (!crescentLayers.has(layer.licks.anchor.sourceLayerId))
+        throw new Error(
+          `Licks must follow a crescent layer: ${layer.licks.anchor.sourceLayerId}`,
+        );
+    } else if (layer.licks) {
+      throw new Error(`Only licks layers carry licks: ${label}`);
+    }
+    // A sheet takes its colour from the cel bands, never from the ramp.
+    if (layer.kind === "sheets" && !layer.material?.toon)
+      throw new Error(`A sheets layer needs material.toon: ${label}`);
+    // The two drawn-symbol fields only mean anything to a symbol pattern.
+    if (
+      layer.material?.symbol &&
+      !SYMBOL_PROCEDURALS.has(layer.material.procedural)
+    )
+      throw new Error(
+        `material.symbol needs a drawn-symbol procedural (starSolid/face/heart/crescent/cloudLobe/bolt): ${label}`,
+      );
+    if (
+      SYMBOL_PROCEDURALS.has(layer.material?.procedural ?? "none") &&
+      !layer.material?.symbol
+    )
+      throw new Error(
+        `A drawn-symbol procedural needs material.symbol for its fill and outline: ${label}`,
+      );
+    if (layer.material?.symbol?.hot)
+      checkCurve(layer.material.symbol.hot.alpha, `${label}/symbol.hot.alpha`);
     if (layer.collapse) {
       checkCurve(layer.collapse.heightCurve, `${label}/collapse.heightCurve`);
       checkCurve(layer.collapse.widthCurve, `${label}/collapse.widthCurve`);
@@ -2632,9 +3292,14 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
         `${layer.id}: life variance ${(max / min).toFixed(2)} is below ${LIFE_VARIANCE_MIN}; particles will die in visible waves.`,
       );
     const [sizeMin, sizeMax] = emitter.render.size;
-    // A flatStrip lick takes its size from render.strip.length/width, which are
-    // bands of their own; render.size is only the sizeCurve's carrier there.
-    if (emitter.render.mode !== "flatStrip" && sizeMax / sizeMin < 1.2)
+    // A flatStrip lick and a sliver take their size from render.strip /
+    // render.sliver, which are bands of their own; render.size is only the
+    // sizeCurve's carrier there.
+    if (
+      emitter.render.mode !== "flatStrip" &&
+      emitter.render.mode !== "sliver" &&
+      sizeMax / sizeMin < 1.2
+    )
       warnings.push(
         `${layer.id}: size range is nearly uniform; add a size hierarchy.`,
       );
@@ -2664,9 +3329,11 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
     if (
       layer.enabled &&
       layer.emitter &&
-      // A flatStrip lick is a drawn shape, not a mote: 14-20 of them IS the
-      // population, and a hundred would read as fur.
+      // A flatStrip lick, a sliver and a drawn symbol are all drawn SHAPES, not
+      // motes: six faces IS the population, and sixty would read as wallpaper.
       layer.emitter.render.mode !== "flatStrip" &&
+      layer.emitter.render.mode !== "sliver" &&
+      !SYMBOL_PROCEDURALS.has(layer.material?.procedural ?? "none") &&
       layer.emitter.count < PARTICLE_COUNT_MIN
     )
       warnings.push(
@@ -2780,6 +3447,18 @@ export function effectExtentV2(
       );
     if (layer.streakBurst)
       size = Math.max(size, layer.streakBurst.length[1] * 2);
+    // A tail of sheets reaches as far as the fastest class travels in its own
+    // life, plus the sheet itself; the blade of a crescent spans its own arc.
+    if (layer.sheets) {
+      const fastest = Math.max(...layer.sheets.classes.map((c) => c.speed * c.life));
+      size = Math.max(
+        size,
+        layer.sheets.speed[1] * fastest + layer.sheets.length[1],
+      );
+    }
+    if (layer.crescent)
+      size = Math.max(size, layer.crescent.radius * 2);
+    if (layer.licks) size = Math.max(size, layer.licks.length[1] * 2);
     if (layer.wireBurst)
       size = Math.max(
         size,
@@ -2887,6 +3566,10 @@ export function defaultMaterial(): Material {
     beads: null,
     flow: null,
     swirl: null,
+    streaks: null,
+    creases: null,
+    screentone: null,
+    symbol: null,
   };
 }
 
@@ -3042,6 +3725,8 @@ export function defaultEmitter(): Emitter {
       pathId: null,
       sourceLayerId: null,
       interiorFraction: 0,
+      angleJitter: 0,
+      angleBias: 0,
     },
     spawn: {
       mode: "burst",
@@ -3051,6 +3736,7 @@ export function defaultEmitter(): Emitter {
       bursts: [],
       headCurve: null,
       originsFromPath: false,
+      sourceLayerId: null,
     },
     velocity: {
       mode: "radial",
@@ -3089,6 +3775,9 @@ export function defaultEmitter(): Emitter {
       twinkle: null,
       strip: null,
       anchor: "center",
+      sliver: null,
+      retract: null,
+      secondary: null,
     },
     trail: null,
     sub: null,
@@ -3213,6 +3902,7 @@ export function defaultDocumentShell(
       fog: { color: "#1b1a1f", density: 0.03 },
       background: "#1b1a1f",
       groundPool: null,
+      backdrop: null,
     },
     camera: {
       fov: 32,
@@ -3237,6 +3927,142 @@ export function defaultDocumentShell(
   };
 }
 
+/** The water spike's tail: twenty membranes in three classes on two cadences. */
+export function defaultSheets(): Sheets {
+  return {
+    count: 20,
+    length: [0.42, 1.36],
+    width: [0.21, 0.52],
+    curl: [1.05, 2.2],
+    bow: 0.16,
+    taper: 0.55,
+    classes: [
+      { weight: 0.34, length: 1, width: 1, speed: 1, life: 1.02, period: 1.2 },
+      { weight: 0.33, length: 1.3, width: 1.25, speed: 1.1, life: 1.08, period: 1.2 },
+      { weight: 0.33, length: 1.8, width: 1.5, speed: 1.6, life: 1.95, period: 2.55 },
+    ],
+    spawn: { axisFrom: -0.2, axisTo: 0.26 },
+    flow: [0, 0, 1],
+    speed: [0.82, 1.9],
+    undulation: { amplitude: 0.12, frequency: 0.7 },
+    tumble: 1.7,
+    scaleIn: 0.1,
+    shrinkOut: 0.12,
+    tear: { scale: 3.4, threshold: 0.24 },
+    seed: 5171,
+  };
+}
+
+/** The slash spike's blade: R 1.5, a 200-degree sweep, three tonal copies. */
+export function defaultCrescent(): Crescent {
+  return {
+    radius: 1.5,
+    sweep: 3.4907,
+    phase: -1.746,
+    planeTilt: 0.32,
+    window: {
+      head: { keys: [[0, 0], [0.1, 0], [0.22, 1], [1, 1]], ease: "smooth" },
+      tail: { keys: [[0, 0], [0.22, 0], [0.5, 1], [1, 1]], ease: "smooth" },
+    },
+    thickness: { max: 0.52, peakFrom: 0.4, tipPower: 0.35, rootFade: 0.26 },
+    widthSpace: "screen",
+    tonal: [
+      {
+        scale: 1.2,
+        radialOffset: -0.135,
+        timeLead: -0.013,
+        blend: "alpha",
+        erode: 0.16,
+        tipHot: 0,
+        ramp: [
+          { t: 0, color: "#c93a09", intensity: 1 },
+          { t: 0.25, color: "#7a1a08", intensity: 1 },
+          { t: 0.68, color: "#4e0f03", intensity: 1 },
+          { t: 1, color: "#240401", intensity: 1 },
+        ],
+        smear: null,
+      },
+      {
+        scale: 1,
+        radialOffset: 0,
+        timeLead: 0,
+        blend: "alpha",
+        erode: 0.1,
+        tipHot: 0.18,
+        ramp: [
+          { t: 0, color: "#ffeeb8", intensity: 0.86 },
+          { t: 0.25, color: "#ff7a1a", intensity: 1 },
+          { t: 0.68, color: "#ff3c10", intensity: 1 },
+          { t: 1, color: "#8e1e05", intensity: 1 },
+        ],
+        smear: null,
+      },
+      {
+        scale: 0.52,
+        radialOffset: 0.085,
+        timeLead: 0.013,
+        blend: "additive",
+        erode: 0.26,
+        tipHot: 0.85,
+        ramp: [
+          { t: 0, color: "#fff6d6", intensity: 0.48 },
+          { t: 0.25, color: "#ffc25c", intensity: 0.24 },
+          { t: 0.68, color: "#ff7c1c", intensity: 0.12 },
+          { t: 1, color: "#c03806", intensity: 0.03 },
+        ],
+        smear: null,
+      },
+    ],
+    erosionFront: {
+      width: 0.4,
+      widthFollowsWindow: true,
+      voronoi: { scale: 9, seamWidth: 0.1 },
+    },
+    streaks: {
+      space: "surface",
+      frequency: 9,
+      pan: 1.9,
+      width: 0.06,
+      segmentation: 2,
+      color: "#ffb040",
+      intensity: 0.7,
+      fadeAlong: [0, 1],
+      radiate: false,
+    },
+    widen: 0.42,
+    seed: 3301,
+  };
+}
+
+/** The slash spike's eight peeling licks. */
+export function defaultLicks(): Licks {
+  return {
+    count: 8,
+    length: [0.32, 0.78],
+    width: [0.14, 0.4],
+    curl: 0.22,
+    flipbookHz: 10,
+    anchor: { sourceLayerId: "blade", follow: "erosionFront", offset: 0.03 },
+    drift: [0, 0.3, 0],
+    stagger: [0.2, 0.38],
+    life: [0.28, 0.58],
+    colors: ["#ffc457", "#ff6412"],
+    seed: 8117,
+  };
+}
+
+/** The playful spike's blue vignette. */
+export function defaultBackdrop(): Backdrop {
+  return {
+    mode: "radial",
+    hot: "#3d8ada",
+    cold: "#0c2a55",
+    center: [0.5, 0.46],
+    aspect: 1.1,
+    topFalloff: 0.4,
+  };
+}
+
 export function defaultsV2() {
   return {
     material: defaultMaterial(),
@@ -3254,6 +4080,10 @@ export function defaultsV2() {
     sdfLine: defaultSdfLine(),
     flow: defaultFlow(),
     swirl: defaultSwirl(),
+    sheets: defaultSheets(),
+    crescent: defaultCrescent(),
+    licks: defaultLicks(),
+    backdrop: defaultBackdrop(),
     shell: defaultDocumentShell(),
   };
 }
@@ -3315,6 +4145,47 @@ export const MaterialWireSchema = MaterialSchema.extend({
     layers: z.array(FlowLayerSchema.extend({ pan: num2 })).min(1).max(FLOW_LAYER_BUDGET_V2),
   }).nullable(),
   swirl: SwirlSchema.extend({ strength: CurveWireSchema }).nullable(),
+  streaks: StreaksSchema.extend({ fadeAlong: num2 }).nullable(),
+  creases: CreasesSchema.nullable(),
+  screentone: ScreentoneSchema.nullable(),
+  symbol: SymbolSchema.extend({
+    hot: z
+      .object({ color: hex, intensity: scalar(0, 8), alpha: CurveWireSchema })
+      .strict()
+      .nullable(),
+  }).nullable(),
+});
+
+export const SheetsWireSchema = SheetsSchema.extend({
+  length: num2,
+  width: num2,
+  curl: num2,
+  speed: num2,
+  flow: num3,
+  tear: SheetTearSchema.nullable(),
+});
+export const CrescentWireSchema = CrescentSchema.extend({
+  window: CrescentWindowSchema.extend({
+    head: CurveWireSchema,
+    tail: CurveWireSchema,
+  }),
+  tonal: z
+    .array(
+      CrescentTonalSchema.extend({
+        smear: CrescentSmearSchema.extend({ window: num2 }).nullable(),
+      }),
+    )
+    .min(1)
+    .max(CRESCENT_TONAL_BUDGET_V2),
+  streaks: StreaksSchema.extend({ fadeAlong: num2 }).nullable(),
+});
+export const LicksWireSchema = LicksSchema.extend({
+  length: num2,
+  width: num2,
+  stagger: num2,
+  life: num2,
+  drift: num3,
+  colors: z.array(hex).length(2),
 });
 export const ArcsWireSchema = ArcsSchema.extend({
   radius: num2,
@@ -3389,10 +4260,13 @@ export const EmitterWireSchema = EmitterSchema.extend({
     pathId: PathIdSchema.nullable(),
     sourceLayerId: z.string().max(48).nullable(),
     interiorFraction: scalar(0, 1),
+    angleJitter: scalar(0, Math.PI),
+    angleBias: scalar(-1, 1),
   }),
   spawn: SpawnSchema.extend({
     headCurve: CurveWireSchema.nullable(),
     originsFromPath: z.boolean(),
+    sourceLayerId: z.string().max(48).nullable(),
   }),
   velocity: VelocitySchema.extend({
     speed: num2,
@@ -3416,6 +4290,9 @@ export const EmitterWireSchema = EmitterSchema.extend({
     twinkle: TwinkleSchema.nullable(),
     strip: StripSchema.extend({ length: num2, width: num2 }).nullable(),
     anchor: z.enum(["center", "head"]),
+    sliver: SliverRenderSchema.extend({ length: num2, width: num2 }).nullable(),
+    retract: RetractSchema.nullable(),
+    secondary: SecondarySchema.extend({ along: num2 }).nullable(),
   }),
   trail: TrailSchema.extend({ widthCurve: CurveWireSchema }).nullable(),
   sub: SubEmitterSchema.extend({ offset: num2 }).nullable(),
@@ -3438,6 +4315,7 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
     position: num3,
     rotation: num3,
     scale: num3,
+    squash: SquashSchema.nullable(),
   }),
   motion: MotionWireSchema.nullable(),
   jitter: JitterSchema.extend({ axis: num3.nullable() }).nullable(),
@@ -3455,6 +4333,10 @@ export const LayerV2WireSchema = LayerV2Schema.extend({
   arcs: ArcsWireSchema.nullable(),
   streakBurst: StreakBurstWireSchema.nullable(),
   reflection: ReflectionSchema.nullable(),
+  sheets: SheetsWireSchema.nullable(),
+  crescent: CrescentWireSchema.nullable(),
+  licks: LicksWireSchema.nullable(),
+  frame: z.enum(["camera"]).nullable(),
   tracks: z
     .array(TrackV2Schema.extend({ keys: z.array(num2).min(2).max(12) }))
     .max(16),
@@ -3479,6 +4361,7 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
       .array(GroundPoolSchema.extend({ position: num3, intensity: CurveWireSchema }))
       .max(GROUND_POOL_BUDGET_V2)
       .nullable(),
+    backdrop: BackdropSchema.extend({ center: num2 }).nullable(),
   }),
   post: PostSchema.extend({
     glitch: GlitchSchema.extend({
@@ -3517,6 +4400,9 @@ export function fromWireV2(
       "arcs",
       "streakBurst",
       "reflection",
+      "sheets",
+      "crescent",
+      "licks",
     ])
       if (next[slot] === null) delete next[slot];
     return next;

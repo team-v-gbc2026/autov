@@ -24,7 +24,8 @@
 //   Radius       | emitter.shape.radius (0..12)    | geometry.radius      | light.radius
 //                | blob.radius[1] / splash.length[1] / ribbon.width /
 //                | wireBurst.radius / crystals.length[1] / arcs.radius[1] /
-//                | streakBurst.length[1] on the generated kinds,
+//                | streakBurst.length[1] / sheets.length[1] / crescent.radius /
+//                | licks.length[1] on the generated kinds,
 //                | scaled as a band so the population keeps its size hierarchy
 //                |                                 | (0.01..8)            | (0.5..30)
 //   Opacity      | material.opacity (0..1)         | material.opacity     | — (no material)
@@ -148,6 +149,11 @@ function layerRadius(layer: LayerV2) {
   // An arc cage's "radius" is its helix band; a streak fan's is its reach.
   if (layer.arcs) return toUi(layer.arcs.radius[1], MESH_RADIUS);
   if (layer.streakBurst) return toUi(layer.streakBurst.length[1], MESH_RADIUS);
+  // A tail of sheets reads at its longest membrane, a blade at its own arc and
+  // a lick layer at its longest strip.
+  if (layer.sheets) return toUi(layer.sheets.length[1], MESH_RADIUS);
+  if (layer.crescent) return toUi(layer.crescent.radius, MESH_RADIUS);
+  if (layer.licks) return toUi(layer.licks.length[1], MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
   // A reflection has no size of its own: it draws its source's geometry, and
   // reflection.scale is how far the floor foreshortens it.
@@ -336,6 +342,25 @@ function writeRadius(layer: LayerV2, ui: number) {
       clamp(layer.streakBurst.length[0] * factor, 0.1, 12),
       clamp(target, 0.1, 12),
     ];
+  } else if (layer.sheets) {
+    // The band, not one number: sheets that are all the same length read as a
+    // comb rather than as a tail.
+    const target = Math.min(4, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.sheets.length[1], 1e-6);
+    layer.sheets.length = [clamp(layer.sheets.length[0] * factor, 0.05, 4), target];
+  } else if (layer.crescent) {
+    const target = Math.min(8, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.crescent.radius, 1e-6);
+    layer.crescent.radius = target;
+    layer.crescent.thickness.max = clamp(
+      layer.crescent.thickness.max * factor,
+      0.01,
+      3,
+    );
+  } else if (layer.licks) {
+    const target = Math.min(4, Math.max(0.02, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.licks.length[1], 1e-6);
+    layer.licks.length = [clamp(layer.licks.length[0] * factor, 0.02, 4), target];
   } else if (layer.wireBurst) {
     // The band, not one number: a burst whose outlines grow without flying
     // further just turns into a solid ball.
@@ -607,9 +632,11 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
       position: [0, 0.6, 0],
       rotation: [0, 0, 0],
       scale: [1, 1, 1],
+      squash: null,
     },
     motion: null,
     jitter: null,
+    frame: null,
     collapse: null,
     window: null,
     material: defaultMaterial(),

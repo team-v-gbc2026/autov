@@ -264,6 +264,9 @@ test("wire round-trip: homogeneous arrays parse back into the runtime contract",
       arcs: layer.arcs ?? null,
       streakBurst: layer.streakBurst ?? null,
     reflection: layer.reflection ?? null,
+    sheets: layer.sheets ?? null,
+    crescent: layer.crescent ?? null,
+    licks: layer.licks ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -386,6 +389,9 @@ test("blob and splash round-trip through the wire contract", () => {
       arcs: layer.arcs ?? null,
       streakBurst: layer.streakBurst ?? null,
     reflection: layer.reflection ?? null,
+    sheets: layer.sheets ?? null,
+    crescent: layer.crescent ?? null,
+    licks: layer.licks ?? null,
     })),
   };
   delete (wire as Record<string, unknown>).textures;
@@ -623,6 +629,9 @@ test("paths, ribbons and bursts round-trip through the wire contract", () => {
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
       reflection: layer.reflection ?? null,
+    sheets: layer.sheets ?? null,
+    crescent: layer.crescent ?? null,
+    licks: layer.licks ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -855,6 +864,9 @@ test("the ice and shield exemplars round-trip through the wire contract", () => 
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
       reflection: layer.reflection ?? null,
+    sheets: layer.sheets ?? null,
+    crescent: layer.crescent ?? null,
+    licks: layer.licks ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -1096,6 +1108,9 @@ test("the beam and column exemplars round-trip through the wire contract", () =>
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
       reflection: layer.reflection ?? null,
+    sheets: layer.sheets ?? null,
+    crescent: layer.crescent ?? null,
+    licks: layer.licks ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -1449,6 +1464,9 @@ test("the three new exemplars round-trip through the wire contract", () => {
         arcs: layer.arcs ?? null,
         streakBurst: layer.streakBurst ?? null,
         reflection: layer.reflection ?? null,
+    sheets: layer.sheets ?? null,
+    crescent: layer.crescent ?? null,
+    licks: layer.licks ?? null,
       })),
     };
     delete (wire as Record<string, unknown>).textures;
@@ -1603,4 +1621,309 @@ rejects(
     d.environment.groundPool![0].followsLayerId = "nope";
   },
   /Missing ground pool layer/,
+);
+
+// ---------------------------------------------------------------------------
+// Port F — the water, playful and slash exemplars, and the vocabulary they
+// introduced: kind "sheets"/"crescent"/"licks", transform.squash,
+// material.streaks/creases/screentone/symbol, layer.frame "camera", the drawn
+// symbol procedurals, emitter.shape "radialFan", emitter.render.mode "sliver"
+// with retract and secondary, emitter.spawn "frontAnchored" and
+// environment.backdrop.
+// ---------------------------------------------------------------------------
+
+const WATER = path.join(process.cwd(), "fixtures/v2/water-projectile/document.json");
+const PLAYFUL = path.join(process.cwd(), "fixtures/v2/playful-impact/document.json");
+const SLASH = path.join(process.cwd(), "fixtures/v2/fire-slash/document.json");
+const waterRaw = JSON.parse(readFileSync(WATER, "utf8"));
+const playfulRaw = JSON.parse(readFileSync(PLAYFUL, "utf8"));
+const slashRaw = JSON.parse(readFileSync(SLASH, "utf8"));
+const water = (): VfxDocumentV2 => structuredClone(waterRaw);
+const playful = (): VfxDocumentV2 => structuredClone(playfulRaw);
+const slash = (): VfxDocumentV2 => structuredClone(slashRaw);
+
+test("the water exemplar is a streaked head over a two-cadence mesh tail", () => {
+  const doc = validateDocumentV2(water());
+  assert.equal(doc.duration, 4);
+  const head = doc.layers.find((l) => l.id === "head")!;
+  assert.equal(head.kind, "shell");
+  assert.equal(head.material!.ramp.space, "surface");
+  // The streaks RADIATE from the nose; rings would read as a barcode.
+  assert.equal(head.material!.streaks!.radiate, true);
+  assert.ok(head.material!.creases!.depth > 0);
+  // Volume-conserving breath along the flow axis.
+  assert.equal(head.transform.squash!.axis, "z");
+  assert.ok(head.transform.squash!.amplitude > 0);
+  // Water is smooth: the vertex noise is an order below the fire shell's.
+  assert.ok(head.geometry!.vertexNoise!.amplitude < 0.1);
+
+  const tail = doc.layers.filter((l) => l.kind === "sheets");
+  assert.equal(tail.length, 2);
+  for (const layer of tail) {
+    assert.ok(layer.material!.toon, "a sheet is a lit surface, not a ramp");
+    // The whole point of the multi-cadence schedule: a class that outlives its
+    // own period is clipped by its own re-fire.
+    for (const cls of layer.sheets!.classes)
+      assert.ok(cls.life <= cls.period, "a class outlives its own cadence");
+  }
+  const membranes = doc.layers.find((l) => l.id === "membranes")!;
+  assert.equal(membranes.sheets!.classes.length, 3);
+  assert.ok(membranes.sheets!.tear, "the membrane border is torn, not cut");
+  // Two distinct cadences, which is what keeps the long crescents unclipped.
+  assert.ok(new Set(membranes.sheets!.classes.map((c) => c.period)).size >= 2);
+  // The droplets are the same generator curled almost shut.
+  const droplets = doc.layers.find((l) => l.id === "droplets")!;
+  assert.ok(droplets.sheets!.curl[0] > 2);
+  // The floor light follows the head instead of carrying a track of its own.
+  assert.equal(doc.environment.groundPool![0].followsLayerId, "head");
+});
+
+test("the playful exemplar is a screen-plane burst of drawn symbols", () => {
+  const doc = validateDocumentV2(playful());
+  assert.equal(doc.duration, 3);
+  // The paper it is drawn on, and no floor under it.
+  assert.ok(doc.environment.backdrop);
+  assert.equal(doc.environment.backdrop!.mode, "radial");
+  assert.equal(doc.environment.ground, "none");
+
+  const star = doc.layers.find((l) => l.id === "solid-star")!;
+  assert.equal(star.material!.procedural, "starSolid");
+  assert.equal(star.material!.blend, "alpha");
+  assert.ok(star.material!.symbol!.hot, "the flash cuts while the shell holds");
+  assert.ok(star.material!.screentone);
+  // 1.6 units across at its widest: the scale anchor for the family.
+  const widest = Math.max(
+    ...(star.tracks.find((t) => t.target === "geometry.radius")?.keys.map((k) => k[1]) ??
+      [star.geometry!.radius]),
+  );
+  assert.ok(widest * 2 >= 1.5);
+
+  const symbols = doc.layers.filter((l) => l.material?.symbol && l.kind === "particles");
+  assert.ok(symbols.length >= 4);
+  for (const layer of symbols) {
+    // Everything lays out in the SCREEN plane, or the burst collapses to a line.
+    assert.equal(layer.frame, "camera");
+    assert.equal(layer.emitter!.shape.type, "radialFan");
+  }
+  const faces = doc.layers.find((l) => l.id === "faces")!;
+  assert.equal(faces.material!.procedural, "face");
+  assert.equal(faces.emitter!.count, 6);
+
+  const rays = doc.layers.find((l) => l.id === "star-lines")!;
+  assert.equal(rays.emitter!.render.mode, "sliver");
+  assert.ok(rays.emitter!.render.sliver);
+  // A star line retracts from the root outward; it never simply fades.
+  assert.equal(rays.emitter!.render.retract!.from, "root");
+  assert.ok(
+    rays.emitter!.render.retract!.start < rays.emitter!.render.retract!.end,
+  );
+});
+
+test("the slash exemplar is one crescent, its licks and its front-anchored spray", () => {
+  const doc = validateDocumentV2(slash());
+  assert.equal(doc.duration, 3);
+  const blade = doc.layers.find((l) => l.kind === "crescent")!;
+  assert.equal(blade.id, "blade");
+  assert.equal(Math.abs(blade.crescent!.radius), 1.5);
+  // A 200-degree sweep, signed so the banana bulges up once the plane leans.
+  const degrees = Math.abs((blade.crescent!.sweep * 180) / Math.PI);
+  assert.ok(Math.abs(degrees - 200) < 0.01, `sweep is ${degrees} deg, not 200`);
+  assert.ok(blade.crescent!.sweep < 0, "the head travels the long way round");
+  // Three tones plus one smear, all on ONE window.
+  assert.equal(blade.crescent!.tonal.length, 4);
+  assert.equal(blade.crescent!.tonal.filter((t) => t.smear).length, 1);
+  assert.ok(blade.crescent!.erosionFront.widthFollowsWindow);
+  assert.ok(blade.crescent!.streaks);
+  // The tail never overtakes the head.
+  for (const [t, v] of blade.crescent!.window.tail.keys) {
+    const head = blade.crescent!.window.head.keys;
+    let h = head[head.length - 1][1];
+    for (let i = 1; i < head.length; i++)
+      if (t <= head[i][0]) {
+        const f = (t - head[i - 1][0]) / Math.max(head[i][0] - head[i - 1][0], 1e-6);
+        h = head[i - 1][1] + (head[i][1] - head[i - 1][1]) * f;
+        break;
+      }
+    assert.ok(v <= h + 1e-6, `tail overtakes the head at u=${t}`);
+  }
+
+  const licks = doc.layers.find((l) => l.kind === "licks")!;
+  assert.equal(licks.licks!.anchor.sourceLayerId, "blade");
+  assert.equal(licks.licks!.anchor.follow, "erosionFront");
+  assert.ok(licks.licks!.flipbookHz > 0, "the shape jumps, it does not slide");
+
+  const front = doc.layers.filter(
+    (l) => l.emitter?.spawn.mode === "frontAnchored",
+  );
+  assert.equal(front.length, 2, "the tongues and the embers both ride the front");
+  for (const layer of front)
+    assert.equal(layer.emitter!.spawn.sourceLayerId, "blade");
+
+  const burst = doc.layers.find((l) => l.id === "burst-slivers")!;
+  assert.equal(burst.emitter!.render.mode, "sliver");
+  assert.equal(burst.emitter!.render.secondary!.perInstance, 3);
+  assert.equal(burst.emitter!.shape.type, "radialFan");
+});
+
+test("the three port-F exemplars lint clean", () => {
+  for (const source of [water, playful, slash])
+    assert.deepEqual(lintDocumentV2(validateDocumentV2(source())), []);
+});
+
+test("the three port-F exemplars round-trip through the wire contract", () => {
+  for (const source of [water, playful, slash]) {
+    const doc = validateDocumentV2(source());
+    const wire = {
+      ...structuredClone(doc),
+      layers: doc.layers.map((layer) => ({
+        ...structuredClone(layer),
+        material: layer.material ?? null,
+        emitter: layer.emitter ?? null,
+        geometry: layer.geometry ?? null,
+        light: layer.light ?? null,
+        blob: layer.blob ?? null,
+        splash: layer.splash ?? null,
+        ribbon: layer.ribbon ?? null,
+        wireBurst: layer.wireBurst ?? null,
+        crystals: layer.crystals ?? null,
+        arcs: layer.arcs ?? null,
+        streakBurst: layer.streakBurst ?? null,
+        reflection: layer.reflection ?? null,
+        sheets: layer.sheets ?? null,
+        crescent: layer.crescent ?? null,
+        licks: layer.licks ?? null,
+      })),
+    };
+    delete (wire as Record<string, unknown>).textures;
+    DocumentV2WireSchema.parse(wire);
+    assert.deepEqual(fromWireV2(wire), { ...doc, textures: [] });
+  }
+});
+
+test("every port-F field is defaulted, so an archived document still loads", () => {
+  // The fire projectile predates all of it: strip the new keys and it has to
+  // validate to exactly the same document the defaults produce.
+  const bare = load() as unknown as Record<string, unknown>;
+  const environment = bare.environment as Record<string, unknown>;
+  delete environment.backdrop;
+  for (const layer of bare.layers as Record<string, unknown>[]) {
+    delete layer.frame;
+    delete (layer.transform as Record<string, unknown>).squash;
+    const material = layer.material as Record<string, unknown> | undefined;
+    if (material)
+      for (const key of ["streaks", "creases", "screentone", "symbol"])
+        delete material[key];
+    const emitter = layer.emitter as Record<string, unknown> | undefined;
+    if (emitter) {
+      for (const key of ["angleJitter", "angleBias"])
+        delete (emitter.shape as Record<string, unknown>)[key];
+      delete (emitter.spawn as Record<string, unknown>).sourceLayerId;
+      for (const key of ["sliver", "retract", "secondary"])
+        delete (emitter.render as Record<string, unknown>)[key];
+    }
+  }
+  const doc = validateDocumentV2(bare);
+  assert.equal(doc.environment.backdrop, null);
+  for (const layer of doc.layers) {
+    assert.equal(layer.frame, null);
+    assert.equal(layer.transform.squash, null);
+    assert.equal(layer.material?.streaks ?? null, null);
+    assert.equal(layer.material?.creases ?? null, null);
+    assert.equal(layer.material?.screentone ?? null, null);
+    assert.equal(layer.material?.symbol ?? null, null);
+    assert.equal(layer.emitter?.shape.angleJitter ?? 0, 0);
+    assert.equal(layer.emitter?.render.sliver ?? null, null);
+  }
+});
+
+rejects(
+  "a sheets class that outlives its own cadence",
+  water,
+  (d) => {
+    d.layers.find((l) => l.kind === "sheets")!.sheets!.classes[0].period = 0.05;
+  },
+  /lives longer than its own period/,
+);
+rejects(
+  "a sheets layer with no cel bands",
+  water,
+  (d) => {
+    d.layers.find((l) => l.kind === "sheets")!.material!.toon = null;
+  },
+  /needs material.toon/,
+);
+rejects(
+  "a crescent whose tail overtakes its head",
+  slash,
+  (d) => {
+    d.layers.find((l) => l.kind === "crescent")!.crescent!.window.tail = {
+      keys: [
+        [0, 0],
+        [1, 1],
+      ],
+      ease: "linear",
+    };
+  },
+  /tail overtakes its head/,
+);
+rejects(
+  "a crescent with no sweep to speak of",
+  slash,
+  (d) => {
+    d.layers.find((l) => l.kind === "crescent")!.crescent!.sweep = 0.01;
+  },
+  /sweep is too small/,
+);
+rejects(
+  "licks following a layer that is not a crescent",
+  slash,
+  (d) => {
+    d.layers.find((l) => l.kind === "licks")!.licks!.anchor.sourceLayerId = "tongues";
+  },
+  /must follow a crescent layer/,
+);
+rejects(
+  "a front-anchored spawn with no blade to ride",
+  slash,
+  (d) => {
+    d.layers.find(
+      (l) => l.emitter?.spawn.mode === "frontAnchored",
+    )!.emitter!.spawn.sourceLayerId = null;
+  },
+  /needs spawn.sourceLayerId/,
+);
+rejects(
+  "a drawn symbol with no palette",
+  playful,
+  (d) => {
+    d.layers.find((l) => l.id === "faces")!.material!.symbol = null;
+  },
+  /needs material.symbol/,
+);
+rejects(
+  "material.symbol on a pattern that is not a symbol",
+  playful,
+  (d) => {
+    d.layers.find((l) => l.id === "faces")!.material!.procedural = "flame";
+  },
+  /needs a drawn-symbol procedural/,
+);
+rejects(
+  "render.sliver without the sliver mode",
+  playful,
+  (d) => {
+    d.layers.find((l) => l.id === "star-lines")!.emitter!.render.mode = "billboard";
+  },
+  /render.sliver is for render.mode "sliver" only/,
+);
+rejects(
+  "a retract that runs backwards",
+  playful,
+  (d) => {
+    const retract = d.layers.find((l) => l.id === "star-lines")!.emitter!.render
+      .retract!;
+    retract.start = 0.9;
+    retract.end = 0.2;
+  },
+  /render.retract runs backwards/,
 );

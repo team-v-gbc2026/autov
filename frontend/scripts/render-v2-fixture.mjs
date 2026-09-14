@@ -74,6 +74,8 @@ const RECIPE_IDS = new Set([
   "energy-column",
   "portal",
   "sky-vortex",
+  "water-projectile",
+  "playful-impact",
 ]);
 const docImport = !docId
   ? `import doc from "../fixtures/v2/${fixtureId}/document.json";`

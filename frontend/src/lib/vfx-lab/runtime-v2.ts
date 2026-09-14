@@ -75,6 +75,14 @@ import {
   streakVertexV2,
   stripFragmentV2,
   stripVertexSource,
+  sliverFragmentV2,
+  sliverVertexSource,
+  sheetVertexV2,
+  sheetFragmentV2,
+  crescentVertexV2,
+  crescentFragmentV2,
+  lickVertexV2,
+  lickFragmentV2,
   crystalFragmentV2,
   crystalVertexV2,
   surfaceFragmentV2,
@@ -87,6 +95,22 @@ import {
   writeRamp,
 } from "./shaders-v2";
 import { STRIKE_HZ, buildLightningGeometry, lightningBounds } from "./lightning-v2";
+import {
+  sheetGeometry,
+  sheetInstances,
+  sheetStateAt,
+  sheetsBounds,
+} from "./sheets-v2";
+import {
+  arcFrame,
+  arcPoint,
+  arcTangent,
+  buildCrescentGeometry,
+  crescentBounds,
+  crescentWindowAt,
+  sampleCrescentCurve,
+} from "./crescent-v2";
+import { buildLicksGeometry } from "./licks-v2";
 
 export const RUNTIME_VERSION_V2 = "autov.lab/2-three-r186";
 
@@ -188,6 +212,7 @@ const SHAPE_INDEX: Record<string, number> = {
   pathLine: 10,
   frame: 11,
   orbit: 12,
+  radialFan: 13,
 };
 const VELOCITY_INDEX: Record<string, number> = {
   radial: 0,
@@ -203,9 +228,11 @@ const RENDER_INDEX: Record<string, number> = {
   horizontal: 2,
   vertical: 3,
   pathAligned: 4,
-  // flatStrip draws through its own vertex program, but the index still has to
-  // exist so the uniform and the CPU mirror agree on the mode.
+  // flatStrip and sliver draw through their own vertex programs, but the
+  // indices still have to exist so the uniform and the CPU mirror agree on the
+  // mode.
   flatStrip: 5,
+  sliver: 6,
 };
 const BLEND_INDEX: Record<string, number> = {
   additive: 0,
@@ -235,6 +262,14 @@ const PROCEDURAL_INDEX: Record<string, number> = {
   radialRays: 18,
   swirlDisc: 19,
   teardropStreak: 20,
+  // The drawn symbols. They take their colour from material.symbol, not from
+  // the ramp, and both the mesh and the particle fragment branch on >= 21.
+  starSolid: 21,
+  face: 22,
+  heart: 23,
+  crescent: 24,
+  cloudLobe: 25,
+  bolt: 26,
 };
 /**
  * Spawn modes the vertex shader knows about. It has to stay in step with the
@@ -248,6 +283,7 @@ const SPAWN_MODE_INDEX: Record<string, number> = {
   bursts: 2,
   pathAnchored: 3,
   event: 4,
+  frontAnchored: 5,
 };
 const SUB_MODE_INDEX: Record<string, number> = {
   alongPath: 0,
@@ -438,6 +474,13 @@ function particlePositionV2(
   sites: { positions: Float32Array; axes: Float32Array } | null = null,
   /** Path events, for spawn.mode "event"; layer-local seconds. */
   events: Array<{ position: [number, number, number]; time: number }> = [],
+  /** The source crescent's front, for spawn.mode "frontAnchored". */
+  front: {
+    tail: Curve;
+    span: number;
+    start: number;
+    point: (s: number, out: THREE.Vector3) => THREE.Vector3;
+  } | null = null,
 ): boolean {
   const i4 = index * 4;
   const s0 = attrs.seed[i4],
@@ -475,6 +518,12 @@ function particlePositionV2(
     age = time - (event.time + ((s0 * 7.13 + 0.37) % 1) * spawnWindow);
   } else if (emitter.spawn.mode === "pathAnchored" && emitter.spawn.headCurve) {
     age = time - invertCurve(emitter.spawn.headCurve, attrs.index[index]) * span;
+  } else if (emitter.spawn.mode === "frontAnchored" && front) {
+    // The instance's own arc parameter is its s0 hash; the birth is the source
+    // crescent's tail curve inverted at it, exactly as in the vertex program.
+    age =
+      time -
+      (invertCurve(front.tail, s0) * front.span + front.start);
   } else {
     age = time - s0 * spawnWindow;
   }
@@ -492,6 +541,24 @@ function particlePositionV2(
     sph.y + (Math.abs(sph.y) - sph.y) * clamp01(bias[1]),
     sph.z + (Math.abs(sph.z) - sph.z) * clamp01(bias[2]),
   );
+
+  if (emitter.spawn.mode === "frontAnchored" && front) {
+    // A front-anchored instance sits ON the arc, wherever its own parameter is.
+    front.point(s0, out);
+    const dir = new THREE.Vector3(s2 - 0.5, x3 - 0.5, s3 - 0.5).normalize();
+    const speed =
+      emitter.velocity.speed[0] +
+      (emitter.velocity.speed[1] - emitter.velocity.speed[0]) * x3;
+    const drag = emitter.forces.drag;
+    const travel = drag < 0.001 ? age : (1 - Math.exp(-drag * age)) / drag;
+    out
+      .addScaledVector(dir, speed * travel)
+      .addScaledVector(
+        new THREE.Vector3().fromArray(emitter.forces.gravity),
+        0.5 * age * age,
+      );
+    return true;
+  }
 
   const axis = new THREE.Vector3().fromArray(emitter.shape.axis);
   if (axis.lengthSq() < 1e-10) axis.set(0, 1, 0);
@@ -524,6 +591,17 @@ function particlePositionV2(
         .addScaledVector(a1, Math.cos(ca) * shape.radius)
         .addScaledVector(a2, Math.sin(ca) * shape.radius);
       break;
+    case "radialFan": {
+      const bias = Math.max(-1, Math.min(1, shape.angleBias));
+      const ang =
+        attrs.index[index] * Math.PI * 2 * (1 - 0.25 * Math.abs(bias)) +
+        bias * Math.PI * 0.5 +
+        (e0 - 0.5) * shape.angleJitter;
+      origin
+        .addScaledVector(a1, Math.cos(ang) * shape.radius)
+        .addScaledVector(a2, Math.sin(ang) * shape.radius);
+      break;
+    }
     case "disc": {
       const rr =
         shape.innerRadius +
@@ -894,6 +972,112 @@ function writeSlab(
 }
 
 /** Ramp space -> the shaders' uRampKeyMode. */
+/**
+ * material.streaks / creases / screentone / symbol: the surface line work and
+ * the drawn-symbol palette, as uniforms. Every one of them is nullable, so an
+ * absent field writes the "off" flag and costs one branch in the fragment.
+ */
+function lineWorkUniforms(material: Material): Record<string, THREE.IUniform> {
+  const streaks = material.streaks;
+  const creases = material.creases;
+  const tone = material.screentone;
+  const symbol = material.symbol;
+  return {
+    uStreakOn: { value: streaks ? 1 : 0 },
+    uStreakRadiate: { value: streaks?.radiate ? 1 : 0 },
+    uStreakA: {
+      value: new THREE.Vector4(
+        streaks?.frequency ?? 0,
+        streaks?.pan ?? 0,
+        streaks?.width ?? 0.03,
+        streaks?.segmentation ?? 0,
+      ),
+    },
+    uStreakB: {
+      value: new THREE.Vector4(
+        streaks?.intensity ?? 0,
+        streaks?.fadeAlong[0] ?? 0,
+        streaks?.fadeAlong[1] ?? 1,
+        0,
+      ),
+    },
+    uStreakCol: { value: new THREE.Color(streaks?.color ?? "#ffffff") },
+    uCreaseOn: { value: creases ? 1 : 0 },
+    uCrease: {
+      value: new THREE.Vector3(
+        creases?.frequency ?? 0,
+        creases?.depth ?? 0,
+        creases?.alongStart ?? 0,
+      ),
+    },
+    uScreenOn: { value: tone ? 1 : 0 },
+    uScreenPitch: { value: tone?.pitch ?? 0.05 },
+    uScreenWorld: { value: tone?.space === "world" ? 1 : 0 },
+    uScreenCol: { value: new THREE.Color(tone?.color ?? "#ffffff") },
+    uSymFill: { value: new THREE.Color(symbol?.fill ?? "#ffffff") },
+    uSymOutline: { value: new THREE.Color(symbol?.outline ?? "#ffffff") },
+    uSymHigh: { value: new THREE.Color(symbol?.highlight ?? "#ffffff") },
+    uSymInk: { value: new THREE.Color(symbol?.ink ?? "#000000") },
+    uSymHot: { value: new THREE.Color(symbol?.hot?.color ?? "#ffffff") },
+    uSymHotI: { value: symbol?.hot?.intensity ?? 0 },
+    uSymHotA: { value: 0 },
+    uSymbolSeed: { value: 0 },
+  };
+}
+
+/** The same fields, re-read from the LIVE material every frame. */
+function writeLineWork(
+  uniforms: Record<string, THREE.IUniform>,
+  material: Material,
+  /** The layer's own 0..1 progress; the hot core's alpha track runs on it. */
+  u: number,
+) {
+  const streaks = material.streaks;
+  const creases = material.creases;
+  const tone = material.screentone;
+  const symbol = material.symbol;
+  uniforms.uStreakOn.value = streaks ? 1 : 0;
+  uniforms.uStreakRadiate.value = streaks?.radiate ? 1 : 0;
+  (uniforms.uStreakA.value as THREE.Vector4).set(
+    streaks?.frequency ?? 0,
+    streaks?.pan ?? 0,
+    streaks?.width ?? 0.03,
+    streaks?.segmentation ?? 0,
+  );
+  (uniforms.uStreakB.value as THREE.Vector4).set(
+    streaks?.intensity ?? 0,
+    streaks?.fadeAlong[0] ?? 0,
+    streaks?.fadeAlong[1] ?? 1,
+    0,
+  );
+  (uniforms.uStreakCol.value as THREE.Color).set(streaks?.color ?? "#ffffff");
+  uniforms.uCreaseOn.value = creases ? 1 : 0;
+  (uniforms.uCrease.value as THREE.Vector3).set(
+    creases?.frequency ?? 0,
+    creases?.depth ?? 0,
+    creases?.alongStart ?? 0,
+  );
+  uniforms.uScreenOn.value = tone ? 1 : 0;
+  uniforms.uScreenPitch.value = tone?.pitch ?? 0.05;
+  uniforms.uScreenWorld.value = tone?.space === "world" ? 1 : 0;
+  (uniforms.uScreenCol.value as THREE.Color).set(tone?.color ?? "#ffffff");
+  if (!symbol) {
+    uniforms.uSymHotA.value = 0;
+    return;
+  }
+  (uniforms.uSymFill.value as THREE.Color).set(symbol.fill);
+  (uniforms.uSymOutline.value as THREE.Color).set(symbol.outline);
+  (uniforms.uSymHigh.value as THREE.Color).set(symbol.highlight);
+  (uniforms.uSymInk.value as THREE.Color).set(symbol.ink);
+  if (symbol.hot) {
+    (uniforms.uSymHot.value as THREE.Color).set(symbol.hot.color);
+    uniforms.uSymHotI.value = symbol.hot.intensity;
+    uniforms.uSymHotA.value = clamp01(curveAt(symbol.hot.alpha, u));
+  } else {
+    uniforms.uSymHotA.value = 0;
+  }
+}
+
 function rampKeyMode(material: Material) {
   const space = material.ramp.space;
   return space === "radial"
@@ -1152,6 +1336,8 @@ function emitterCoreUniforms(
     [`u${P}HasFloor`]: { value: emitter.forces.floor ? 1 : 0 },
     [`u${P}PlanarDrag`]: { value: emitter.forces.planarDrag },
     [`u${P}Interior`]: { value: emitter.shape.interiorFraction },
+    [`u${P}AngleJitter`]: { value: emitter.shape.angleJitter },
+    [`u${P}AngleBias`]: { value: emitter.shape.angleBias },
   };
   if (emitter.spawn.bursts.length) {
     const total = emitter.spawn.bursts.reduce((n, b) => n + b.count, 0) || 1;
@@ -1283,7 +1469,10 @@ function createParticleLayer(
     : null;
 
   const cel = emitter.render.mode === "flatStrip";
-  const plane = cel ? null : new THREE.PlaneGeometry(1, 1);
+  // A sliver draws through its own vertex program on the same (s, side) strip
+  // the cel lick uses: the silhouette is the strip, so there is no quad.
+  const needle = emitter.render.mode === "sliver";
+  const plane = cel || needle ? null : new THREE.PlaneGeometry(1, 1);
   const geometry = new THREE.InstancedBufferGeometry();
   if (plane) {
     geometry.index = plane.index;
@@ -1377,8 +1566,41 @@ function createParticleLayer(
       parentAttributes.push(attribute);
     });
   }
+  // render.mode "sliver": aSub identifies which secondary bit an instance is;
+  // the primary draw is all zeros.
+  if (needle)
+    geometry.setAttribute(
+      "aSub",
+      new THREE.InstancedBufferAttribute(new Float32Array(count), 1),
+    );
   geometry.instanceCount = count;
   plane?.dispose();
+
+  // spawn.mode "frontAnchored": the crescent whose tail front these instances
+  // are born behind. Its arc is re-expressed in THIS layer's own space every
+  // frame, so a track on either transform keeps the two in step.
+  const frontSource =
+    emitter.spawn.mode === "frontAnchored" && emitter.spawn.sourceLayerId
+      ? (doc.layers.find((l) => l.id === emitter.spawn.sourceLayerId) ?? null)
+      : null;
+  const frontSpec = frontSource?.crescent ?? null;
+  // The CPU mirror of that arc, for depth sorting and framing. The offset
+  // between the two layer origins is enough here: bounds are a box, so the
+  // sub-degree difference a rotation would add is below the trim anyway.
+  const frontMirror =
+    frontSource && frontSpec
+      ? {
+          tail: frontSpec.window.tail,
+          span: Math.max(frontSource.end - frontSource.start, 1e-4),
+          start: frontSource.start - layer.start,
+          point: (sArc: number, out: THREE.Vector3) =>
+            arcPoint(frontSpec, sArc, out).add(
+              new THREE.Vector3()
+                .fromArray(frontSource.transform.position)
+                .sub(new THREE.Vector3().fromArray(layer.transform.position)),
+            ),
+        }
+      : null;
 
   const atlas = material.mask.atlas;
   const flipbook = material.mask.flipbook;
@@ -1487,6 +1709,47 @@ function createParticleLayer(
     uNear: { value: CAMERA_NEAR },
     uFar: { value: CAMERA_FAR },
     uSoft: { value: material.softParticle },
+    // render.mode "sliver": the needle's own shape, its retract and the short
+    // secondary bits strung along it.
+    uSliverLen: {
+      value: new THREE.Vector2().fromArray(
+        emitter.render.sliver?.length ?? [1, 1],
+      ),
+    },
+    uSliverWide: {
+      value: new THREE.Vector2().fromArray(
+        emitter.render.sliver?.width ?? [0.1, 0.1],
+      ),
+    },
+    uSliverCurve: { value: emitter.render.sliver?.curve ?? 0 },
+    uSliverTaper: { value: emitter.render.sliver?.taper ?? 1.6 },
+    uSliverJag: { value: emitter.render.sliver?.jaggedness ?? 0 },
+    uRetractOn: { value: emitter.render.retract ? 1 : 0 },
+    uRetractStart: { value: emitter.render.retract?.start ?? 0 },
+    uRetractEnd: { value: emitter.render.retract?.end ?? 1 },
+    uRetractTip: { value: emitter.render.retract?.from === "tip" ? 1 : 0 },
+    uSecondary: { value: 0 },
+    uSecLength: { value: emitter.render.secondary?.length ?? 0.2 },
+    uSecAlong: {
+      value: new THREE.Vector2().fromArray(
+        emitter.render.secondary?.along ?? [0.2, 0.8],
+      ),
+    },
+    // spawn.mode "frontAnchored": the source crescent's arc, in this layer's
+    // own space, plus the tail curve (slot "T") whose inverse IS the birth.
+    uFrontC: { value: new THREE.Vector3() },
+    uFrontEx: { value: new THREE.Vector3(1, 0, 0) },
+    uFrontEy: { value: new THREE.Vector3(0, 1, 0) },
+    uFrontN: { value: new THREE.Vector3(0, 0, 1) },
+    uFrontR: { value: frontSpec?.radius ?? 1 },
+    uFrontPh0: { value: frontSpec?.phase ?? 0 },
+    uFrontSweep: { value: frontSpec?.sweep ?? 0 },
+    uFrontSpan: {
+      value: frontSource ? Math.max(frontSource.end - frontSource.start, 1e-4) : 1,
+    },
+    uFrontStart: { value: frontSource ? frontSource.start - layer.start : 0 },
+    ...curveUniforms("T", frontSpec?.window.tail ?? null),
+    ...lineWorkUniforms(material),
     // material.flicker, and the flatStrip lick's own flipbook parameters.
     uFlicker: { value: 1 },
     uStripStep: { value: emitter.render.strip?.stepRate ?? 10 },
@@ -1520,8 +1783,14 @@ function createParticleLayer(
     uniforms,
     vertexShader: cel
       ? stripVertexSource(!!sites, events.length > 0)
-      : particleVertexSource(!!parentEmitter, !!sites, events.length > 0),
-    fragmentShader: cel ? stripFragmentV2 : particleFragmentV2,
+      : needle
+        ? sliverVertexSource(!!sites, events.length > 0)
+        : particleVertexSource(!!parentEmitter, !!sites, events.length > 0),
+    fragmentShader: cel
+      ? stripFragmentV2
+      : needle
+        ? sliverFragmentV2
+        : particleFragmentV2,
     transparent: true,
     depthWrite: false,
     depthTest: true,
@@ -1582,6 +1851,120 @@ function createParticleLayer(
     group.add(ribbon);
   }
 
+  // render.secondary: a SECOND draw of the same needle program over the same
+  // instance attributes repeated `perInstance` times, with aSub telling each
+  // copy which bit it is. One layer, so a bit can never drift off the ray it
+  // belongs to — it re-derives that ray from the very same hashes.
+  let secondaryGeometry: THREE.InstancedBufferGeometry | null = null;
+  let secondaryMaterial: THREE.ShaderMaterial | null = null;
+  const secondary = needle ? emitter.render.secondary : null;
+  if (secondary && secondary.perInstance > 0) {
+    const per = secondary.perInstance;
+    const total = count * per;
+    secondaryGeometry = new THREE.InstancedBufferGeometry();
+    secondaryGeometry.index = geometry.index;
+    secondaryGeometry.attributes.position = geometry.attributes.position;
+    secondaryGeometry.attributes.uv = geometry.attributes.uv;
+    const repeat4 = (source: Float32Array) => {
+      const out = new Float32Array(total * 4);
+      for (let i = 0; i < total; i++) {
+        const from = Math.floor(i / per) * 4;
+        for (let k = 0; k < 4; k++) out[i * 4 + k] = source[from + k];
+      }
+      return new THREE.InstancedBufferAttribute(out, 4);
+    };
+    const indices = new Float32Array(total);
+    const subs = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      indices[i] = attrs.index[Math.floor(i / per)];
+      subs[i] = (i % per) + 1;
+    }
+    secondaryGeometry.setAttribute("aSeed", repeat4(attrs.seed));
+    secondaryGeometry.setAttribute("aExtra", repeat4(attrs.extra));
+    secondaryGeometry.setAttribute("aExtra2", repeat4(attrs.extra2));
+    secondaryGeometry.setAttribute(
+      "aIndex",
+      new THREE.InstancedBufferAttribute(indices, 1),
+    );
+    secondaryGeometry.setAttribute(
+      "aSub",
+      new THREE.InstancedBufferAttribute(subs, 1),
+    );
+    if (sites) {
+      secondaryGeometry.setAttribute("aSrcPos", geometry.getAttribute("aSrcPos"));
+      secondaryGeometry.setAttribute("aSrcDir", geometry.getAttribute("aSrcDir"));
+    }
+    if (events.length)
+      secondaryGeometry.setAttribute("aEvent", geometry.getAttribute("aEvent"));
+    secondaryGeometry.instanceCount = total;
+    // A shallow copy: every IUniform object is shared, so the per-frame writes
+    // reach both draws and only uSecondary differs.
+    secondaryMaterial = new THREE.ShaderMaterial({
+      uniforms: { ...uniforms, uSecondary: { value: 1 } },
+      vertexShader: sliverVertexSource(!!sites, events.length > 0),
+      fragmentShader: sliverFragmentV2,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      ...blendingFor(material.blend),
+    });
+    const bits = new THREE.Mesh(secondaryGeometry, secondaryMaterial);
+    bits.name = `${layer.id}-secondary`;
+    bits.frustumCulled = false;
+    bits.renderOrder = index;
+    group.add(bits);
+  }
+
+  /**
+   * The source crescent's arc, re-expressed in THIS layer's own space. Both
+   * transforms are live, so a track on either keeps the embers on the blade.
+   */
+  const writeFrontArc = (time: number) => {
+    if (!frontSource || !frontSpec) return;
+    const live = evaluateLayerV2(frontSource, time).layer;
+    const spec = live.crescent!;
+    const source = new THREE.Matrix4().compose(
+      new THREE.Vector3().fromArray(live.transform.position),
+      new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(...live.transform.rotation),
+      ),
+      new THREE.Vector3().fromArray(live.transform.scale),
+    );
+    const here = evaluateLayerV2(layer, time).layer;
+    const mine = new THREE.Matrix4()
+      .compose(
+        new THREE.Vector3().fromArray(here.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...here.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(here.transform.scale),
+      )
+      .invert();
+    const relative = mine.multiply(source);
+    const basis = arcFrame(spec);
+    (uniforms.uFrontC.value as THREE.Vector3)
+      .set(0, 0, 0)
+      .applyMatrix4(relative);
+    const rotation = new THREE.Matrix3().setFromMatrix4(relative);
+    (uniforms.uFrontEx.value as THREE.Vector3)
+      .copy(basis.ex)
+      .applyMatrix3(rotation)
+      .normalize();
+    (uniforms.uFrontEy.value as THREE.Vector3)
+      .copy(basis.ey)
+      .applyMatrix3(rotation)
+      .normalize();
+    (uniforms.uFrontN.value as THREE.Vector3)
+      .copy(basis.normal)
+      .applyMatrix3(rotation)
+      .normalize();
+    uniforms.uFrontR.value = spec.radius;
+    uniforms.uFrontPh0.value = spec.phase;
+    uniforms.uFrontSweep.value = spec.sweep;
+    writeCurve(uniforms, "T", spec.window.tail);
+  };
+
   const sortable =
     emitter.render.sortMode === "byDistance" &&
     count <= SORT_LIMIT &&
@@ -1605,6 +1988,7 @@ function createParticleLayer(
       group.position.fromArray(live.transform.position);
       group.rotation.set(...live.transform.rotation);
       group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
 
       if (parentLayer) {
         // Where the parent layer's transform was, sampled over its own live
@@ -1683,6 +2067,7 @@ function createParticleLayer(
       uniforms.uTwinkleFreq.value = e.render.twinkle?.frequency ?? 1;
       uniforms.uTwinkleDepth.value = e.render.twinkle?.depth ?? 0;
       uniforms.uFlicker.value = flickerAt(m, age);
+      writeLineWork(uniforms, m, clamp01(age / span));
       if (e.render.strip) {
         uniforms.uStripStep.value = e.render.strip.stepRate;
         uniforms.uStripWave.value = e.render.strip.waviness;
@@ -1700,6 +2085,22 @@ function createParticleLayer(
         uniforms.uSegments.value = e.trail.segments;
         uniforms.uSpacing.value = e.trail.spacing;
       }
+      if (e.render.sliver) {
+        (uniforms.uSliverLen.value as THREE.Vector2).fromArray(
+          e.render.sliver.length,
+        );
+        (uniforms.uSliverWide.value as THREE.Vector2).fromArray(
+          e.render.sliver.width,
+        );
+        uniforms.uSliverCurve.value = e.render.sliver.curve;
+        uniforms.uSliverTaper.value = e.render.sliver.taper;
+        uniforms.uSliverJag.value = e.render.sliver.jaggedness;
+      }
+      if (e.render.retract) {
+        uniforms.uRetractStart.value = e.render.retract.start;
+        uniforms.uRetractEnd.value = e.render.retract.end;
+      }
+      writeFrontArc(time);
       uniforms.uVortexW.value = e.forces.vortex?.strength ?? 0;
       uniforms.uVortexFalloff.value = e.forces.vortex?.falloff ?? 0;
       (uniforms.uVortexAxis.value as THREE.Vector3).fromArray(
@@ -1724,6 +2125,7 @@ function createParticleLayer(
           path,
           sites,
           localEvents,
+          frontMirror,
         )
           ? point.dot(view)
           : -Infinity;
@@ -1779,6 +2181,7 @@ function createParticleLayer(
             path,
             sites,
             localEvents,
+            frontMirror,
           )
         )
           continue;
@@ -1817,6 +2220,8 @@ function createParticleLayer(
       shaderMaterial.dispose();
       trailGeometry?.dispose();
       trailMaterial?.dispose();
+      secondaryGeometry?.dispose();
+      secondaryMaterial?.dispose();
     },
   };
 }
@@ -2241,6 +2646,7 @@ function createMeshLayer(
     uReflectTint: { value: new THREE.Color("#ffffff") },
     uReflectOpacity: { value: 1 },
     uReflectBlur: { value: 0 },
+    ...lineWorkUniforms(material),
     ...stripeUniforms(material),
     ...slabUniforms(geometry),
     ...rimUniforms(material, geometry),
@@ -2377,6 +2783,7 @@ function createMeshLayer(
       mesh.position.fromArray(live.transform.position);
       mesh.rotation.set(...live.transform.rotation);
       mesh.scale.fromArray(live.transform.scale).multiply(sizeOf(g, size));
+      applyLayerFrame(mesh, layer, live, camera);
       for (const copy of splitCopies) {
         copy.position.copy(mesh.position);
         copy.rotation.copy(mesh.rotation);
@@ -2458,6 +2865,7 @@ function createMeshLayer(
       uniforms.uGroundY.value = doc.environment.groundY;
       uniforms.uHeightSpan.value = m.ramp.heightSpan;
       uniforms.uFlicker.value = flickerAt(m, age);
+      writeLineWork(uniforms, m, u);
       writeStripes(uniforms, m);
       writeRim(uniforms, m, g, u);
       if (isSlab) writeSlab(uniforms, g);
@@ -2831,6 +3239,7 @@ function createBlobLayer(
       group.position.fromArray(live.transform.position);
       group.rotation.set(...live.transform.rotation);
       group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
       group.updateMatrixWorld();
       // blob.lightFrom: a point the lobes are shaded toward. Following a layer
       // reads that layer's LIVE transform, so a ring lit by its own core keeps
@@ -3090,6 +3499,7 @@ function createCrystalsLayer(
       group.position.fromArray(live.transform.position);
       group.rotation.set(...live.transform.rotation);
       group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
       hull.mesh.visible = !!m.outline && flags.textures;
       for (const part of [hull, fill]) {
         part.uniforms.uTime.value = age;
@@ -3196,7 +3606,7 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
     object: group,
     soft: false,
     trim: false,
-    update(time) {
+    update(time, _flags, camera) {
       // A splash's three windows are fractions of the layer's own 0..1
       // progress, so `u` is all the state a sliver needs.
       const { layer: live, visible, u } = evaluateLayerV2(layer, time);
@@ -3207,6 +3617,7 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
       group.position.fromArray(live.transform.position);
       group.rotation.set(...live.transform.rotation);
       group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
       for (const part of parts) {
         const state = sliverStateAt(part.sliver, live_, u);
         for (const draw of [part.backing, part.fill]) {
@@ -3320,7 +3731,7 @@ function createRibbonLayer(
     object: mesh,
     soft: false,
     trim: false,
-    update(time) {
+    update(time, _flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
       mesh.visible = visible;
       if (!visible) return;
@@ -3329,6 +3740,7 @@ function createRibbonLayer(
       mesh.position.fromArray(live.transform.position);
       mesh.rotation.set(...live.transform.rotation);
       mesh.scale.fromArray(live.transform.scale);
+      applyLayerFrame(mesh, layer, live, camera);
       uniforms.uTime.value = age;
       uniforms.uHead.value = sampleCurve(r.window.head, u);
       uniforms.uTail.value = r.window.tail;
@@ -3423,7 +3835,7 @@ function createWireBurstLayer(layer: LayerV2, index: number): LayerObject {
     object: group,
     soft: false,
     trim: false,
-    update(time) {
+    update(time, _flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
       group.visible = visible;
       if (!visible) return;
@@ -3432,6 +3844,7 @@ function createWireBurstLayer(layer: LayerV2, index: number): LayerObject {
       group.position.fromArray(live.transform.position);
       group.rotation.set(...live.transform.rotation);
       group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
       for (const draw of draws) {
         draw.uniforms.uTime.value = age;
         draw.uniforms.uLayerU.value = u;
@@ -3527,7 +3940,7 @@ function createArcsLayer(layer: LayerV2, index: number): LayerObject {
     object: mesh,
     soft: false,
     trim: false,
-    update(time) {
+    update(time, _flags, camera) {
       const { layer: live, visible, age } = evaluateLayerV2(layer, time);
       mesh.visible = visible;
       if (!visible) return;
@@ -3536,6 +3949,7 @@ function createArcsLayer(layer: LayerV2, index: number): LayerObject {
       mesh.position.fromArray(live.transform.position);
       mesh.rotation.set(...live.transform.rotation);
       mesh.scale.fromArray(live.transform.scale);
+      applyLayerFrame(mesh, layer, live, camera);
       uniforms.uTime.value = age;
       uniforms.uSpan.value = a.span;
       uniforms.uWidth.value = a.width;
@@ -3630,7 +4044,7 @@ function createStreakBurstLayer(layer: LayerV2, index: number): LayerObject {
     object: mesh,
     soft: false,
     trim: false,
-    update(time) {
+    update(time, _flags, camera) {
       const { layer: live, visible, u } = evaluateLayerV2(layer, time);
       mesh.visible = visible;
       if (!visible) return;
@@ -3639,6 +4053,7 @@ function createStreakBurstLayer(layer: LayerV2, index: number): LayerObject {
       mesh.position.fromArray(live.transform.position);
       mesh.rotation.set(...live.transform.rotation);
       mesh.scale.fromArray(live.transform.scale);
+      applyLayerFrame(mesh, layer, live, camera);
       uniforms.uGrow.value = clamp01(sampleCurve(b.grow, u));
       uniforms.uCurvature.value = b.curvature;
       uniforms.uUpBias.value = b.upBias;
@@ -3751,6 +4166,7 @@ function spawnBoundsV2(
       (shape.type === "ring" ||
         shape.type === "disc" ||
         shape.type === "orbit" ||
+        shape.type === "radialFan" ||
         shape.type === "frame") &&
       axis.lengthSq() > 1e-10
     ) {
@@ -3786,6 +4202,9 @@ function spawnBoundsV2(
           ),
         );
       } else if (shape.type === "line") lean.copy(reach);
+      // A radial fan lies in the plane across its axis and claims nothing along
+      // it, the same way a ring and a disc do.
+      else if (shape.type === "radialFan") extent.add(new THREE.Vector3());
       else
         extent.add(
           new THREE.Vector3(
@@ -3802,6 +4221,505 @@ function spawnBoundsV2(
   const hi = center.clone().max(center.clone().add(lean));
   push(hi.add(extent).addScalar(margin));
   push(lo.sub(extent).addScalar(-margin));
+}
+
+// ---------------------------------------------------------------------------
+// Camera-framed layers
+// ---------------------------------------------------------------------------
+
+/**
+ * `layer.frame:"camera"`: the layer's local XY is re-based onto the camera's
+ * right/up every frame, closed form from the camera, so everything the layer
+ * lays out lives in the SCREEN plane. A 2D symbol burst read from a
+ * three-quarter camera collapses to a line without it.
+ *
+ * Layers stay flat — this is a frame on one layer, never a parent group — so it
+ * is applied after the ordinary transform, on top of whatever rotation the
+ * layer already carries.
+ */
+function applyLayerFrame(
+  object: THREE.Object3D,
+  layer: LayerV2,
+  live: LayerV2,
+  camera: THREE.Camera,
+) {
+  if (layer.frame !== "camera") return;
+  object.quaternion
+    .copy(camera.quaternion)
+    .multiply(
+      new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(...live.transform.rotation),
+      ),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Sheet layers
+// ---------------------------------------------------------------------------
+
+/**
+ * The membranes of a water tail: curved, tapered, OPAQUE meshes on a hashed
+ * multi-cadence schedule. Each sheet is its own mesh and its own draw (the
+ * splash layer's shape), because every one of them carries a different curl and
+ * bow and they have to intersect each other for real.
+ *
+ * Colour is material.toon — two cel bands against a fixed world light plus a
+ * rim — never the ramp: a sheet is a lit surface, and a ramp keyed on age would
+ * make the tail read as a gradient rather than as water.
+ */
+function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
+  const material = layer.material!;
+  const spec = layer.sheets!;
+  const sheets = sheetInstances(spec);
+  const group = new THREE.Group();
+  group.name = layer.id;
+  const blend = BLEND_INDEX[material.blend] ?? 1;
+
+  const parts = sheets.map((sheet) => {
+    const geometry = sheetGeometry(sheet, spec);
+    const uniforms: Record<string, THREE.IUniform> = {
+      uShadow: { value: new THREE.Color(material.toon!.shadow) },
+      uBody: { value: new THREE.Color(material.toon!.body) },
+      uHigh: { value: new THREE.Color(material.toon!.highlight) },
+      uRim: { value: new THREE.Color(material.toon!.shadow) },
+      uLight: { value: new THREE.Vector3().fromArray(material.toon!.light) },
+      uCam: { value: new THREE.Vector3() },
+      uBands: { value: new THREE.Vector2().fromArray(material.toon!.thresholds) },
+      uBandCount: { value: material.toon!.bands },
+      uRimPow: { value: material.toon!.rim.power },
+      uRimAmt: { value: material.toon!.rim.amount },
+      uOpacity: { value: material.opacity },
+      uTear: { value: 0 },
+      uTearScale: { value: spec.tear?.scale ?? 3 },
+      uSeed: { value: sheet.hash },
+      uBlendMode: { value: blend },
+    };
+    const shader = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: sheetVertexV2,
+      fragmentShader: sheetFragmentV2,
+      transparent: material.blend !== "alpha",
+      // Opaque and depth-writing: sheets intersect each other for real, which
+      // is the whole reason a water tail is mesh and not particles.
+      depthWrite: true,
+      side: THREE.DoubleSide,
+      ...blendingFor(material.blend),
+    });
+    const mesh = new THREE.Mesh(geometry, shader);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = index;
+    group.add(mesh);
+    return { sheet, geometry, shader, uniforms, mesh };
+  });
+
+  const basis = new THREE.Matrix4();
+  const quaternion = new THREE.Quaternion();
+  return {
+    id: layer.id,
+    source: layer,
+    object: group,
+    soft: false,
+    trim: false,
+    // Opaque, so the soft-particle depth pre-pass has to see them.
+    occluder: material.blend === "alpha",
+    update(time, _flags, camera) {
+      const { layer: live, visible, age } = evaluateLayerV2(layer, time);
+      group.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const spec_ = live.sheets!;
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
+      // Nothing is born in the last fifth of the layer, so the tail thins out
+      // instead of being cut off mid-flight.
+      const until = (layer.end - layer.start) * 0.78;
+      const axis = new THREE.Vector3().fromArray(spec_.flow).normalize();
+      const across = orthoOf(axis, new THREE.Vector3());
+      // Right-handed, or setFromRotationMatrix reads a mirror and every sheet
+      // collapses to a sliver: X is the flow (the sheet's own length), Z is the
+      // lateral axis and Y closes the frame.
+      const up = new THREE.Vector3().crossVectors(across, axis).normalize();
+      basis.makeBasis(axis, up, across);
+      quaternion.setFromRotationMatrix(basis);
+      for (const part of parts) {
+        const state = sheetStateAt(part.sheet, spec_, age, until);
+        part.mesh.visible = state.visible;
+        if (!state.visible) continue;
+        part.mesh.position
+          .set(0, 0, 0)
+          .addScaledVector(axis, state.position[0])
+          .addScaledVector(across, state.position[1])
+          .addScaledVector(up, state.position[2]);
+        part.mesh.quaternion.copy(quaternion);
+        part.mesh.rotateX(state.roll);
+        part.mesh.rotateY(state.yaw);
+        part.mesh.scale.setScalar(state.scale);
+        const u = part.uniforms;
+        (u.uShadow.value as THREE.Color).set(m.toon!.shadow);
+        (u.uBody.value as THREE.Color).set(m.toon!.body);
+        (u.uHigh.value as THREE.Color).set(m.toon!.highlight);
+        (u.uRim.value as THREE.Color).set(m.toon!.highlight);
+        (u.uLight.value as THREE.Vector3).fromArray(m.toon!.light);
+        (u.uBands.value as THREE.Vector2).fromArray(m.toon!.thresholds);
+        u.uRimPow.value = m.toon!.rim.power;
+        u.uRimAmt.value = m.toon!.rim.amount;
+        u.uOpacity.value = m.opacity;
+        // The torn border eats a little more as the sheet ages, so a membrane
+        // comes apart rather than simply shrinking.
+        u.uTear.value = spec_.tear
+          ? spec_.tear.threshold * (0.7 + 0.6 * state.age01)
+          : 0;
+        u.uTearScale.value = spec_.tear?.scale ?? 3;
+        (u.uCam.value as THREE.Vector3).copy(camera.position);
+      }
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const axis = new THREE.Vector3().fromArray(live.sheets!.flow).normalize();
+      const across = orthoOf(axis, new THREE.Vector3());
+      const up = new THREE.Vector3().crossVectors(across, axis).normalize();
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of sheetsBounds(live.sheets!))
+        push(
+          new THREE.Vector3()
+            .addScaledVector(axis, corner.x)
+            .addScaledVector(across, corner.y)
+            .addScaledVector(up, corner.z)
+            .applyMatrix4(matrix),
+        );
+    },
+    dispose() {
+      for (const part of parts) {
+        part.geometry.dispose();
+        part.shader.dispose();
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Crescent layers
+// ---------------------------------------------------------------------------
+
+/**
+ * The blade of a slash: one strip swept along an arc, drawn once per TONAL
+ * copy. The copies share one geometry — the buffer carries (s, q) and nothing
+ * else — and differ only in their scale, their radial offset, their time lead
+ * and their four-stop ramp, which is what keeps a wide dark shadow, a saturated
+ * body and a hot highlight locked to the same window.
+ */
+function createCrescentLayer(layer: LayerV2, index: number): LayerObject {
+  const material = layer.material!;
+  const spec = layer.crescent!;
+  const geometry = buildCrescentGeometry();
+  const group = new THREE.Group();
+  group.name = layer.id;
+  const frame = arcFrame(spec);
+
+  const copies = spec.tonal.map((tonal, order) => {
+    const stops = tonal.ramp;
+    const at = (i: number) => stops[Math.min(i, stops.length - 1)];
+    const uniforms: Record<string, THREE.IUniform> = {
+      uEx: { value: frame.ex.clone() },
+      uEy: { value: frame.ey.clone() },
+      uN: { value: frame.normal.clone() },
+      uR: { value: spec.radius },
+      uPh0: { value: spec.phase },
+      uSweep: { value: spec.sweep },
+      uWmax: { value: spec.thickness.max },
+      uPeakFrom: { value: spec.thickness.peakFrom },
+      uTipPower: { value: spec.thickness.tipPower },
+      uRootFade: { value: spec.thickness.rootFade },
+      uScreenSpace: { value: spec.widthSpace === "screen" ? 1 : 0 },
+      uHead: { value: 0 },
+      uTail: { value: 0 },
+      uScale: { value: tonal.scale },
+      uRadOff: { value: tonal.radialOffset },
+      uWiden: { value: 0 },
+      uTime: { value: 0 },
+      uSeed: { value: spec.seed * 0.0137 + order * 2.7 },
+      uC0: { value: new THREE.Color(at(0).color) },
+      uC1: { value: new THREE.Color(at(1).color) },
+      uC2: { value: new THREE.Color(at(2).color) },
+      uC3: { value: new THREE.Color(at(3).color) },
+      uI: {
+        value: new THREE.Vector4(
+          at(0).intensity,
+          at(1).intensity,
+          at(2).intensity,
+          at(3).intensity,
+        ),
+      },
+      uBandT: {
+        value: new THREE.Vector4(at(0).t, at(1).t, at(2).t, at(3).t),
+      },
+      uAlpha: { value: material.opacity },
+      uTear: { value: 0 },
+      uErode: { value: tonal.erode },
+      uTipHot: { value: tonal.tipHot },
+      uStreakOn: { value: spec.streaks ? 1 : 0 },
+      uStreakFreq: { value: spec.streaks?.frequency ?? 0 },
+      uStreakPan: { value: spec.streaks?.pan ?? 0 },
+      uStreakI: { value: spec.streaks?.intensity ?? 0 },
+      uStreakSeg: { value: spec.streaks?.segmentation ?? 0 },
+      uStreakCol: { value: new THREE.Color(spec.streaks?.color ?? "#ffffff") },
+      uVorScale: { value: spec.erosionFront.voronoi.scale },
+      uSeamWidth: { value: spec.erosionFront.voronoi.seamWidth },
+      uFrontWidth: { value: spec.erosionFront.width },
+      uBlendMode: { value: BLEND_INDEX[tonal.blend] ?? 1 },
+    };
+    const shader = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: crescentVertexV2,
+      fragmentShader: crescentFragmentV2,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      ...blendingFor(tonal.blend),
+    });
+    const mesh = new THREE.Mesh(geometry, shader);
+    mesh.name = `${layer.id}-${order}`;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = index * 8 + order;
+    group.add(mesh);
+    return { tonal, uniforms, shader, mesh, order };
+  });
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: group,
+    soft: false,
+    trim: false,
+    update(time, _flags, camera) {
+      const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
+      group.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const c = live.crescent!;
+      group.position.fromArray(live.transform.position);
+      group.rotation.set(...live.transform.rotation);
+      group.scale.fromArray(live.transform.scale);
+      applyLayerFrame(group, layer, live, camera);
+      const basis = arcFrame(c);
+      // The tear-away: how far the tail has caught up with the head, which is
+      // what both the erosion threshold and the widening ride.
+      const tear = clamp01(
+        (sampleCrescentCurve(c.window.tail, u) - 0) /
+          Math.max(sampleCrescentCurve(c.window.head, u), 1e-4),
+      );
+      for (const copy of copies) {
+        const tonal = c.tonal[copy.order] ?? copy.tonal;
+        const lead = clamp01(u + tonal.timeLead);
+        const window = crescentWindowAt(c, lead);
+        const smear = tonal.smear;
+        const un = copy.uniforms;
+        let alpha = m.opacity;
+        if (smear) {
+          // The smear is the same strip a few frames behind, additive and
+          // faint: the motion blur of the sweep, alive only while it travels.
+          const back = crescentWindowAt(c, clamp01(lead - smear.lag));
+          window.head = back.head;
+          window.tail = back.tail;
+          alpha *=
+            smear.opacity *
+            smoothstep01(smear.window[0], smear.window[0] + 0.04, u) *
+            (1 - smoothstep01(smear.window[1] - 0.12, smear.window[1], u));
+        }
+        (un.uEx.value as THREE.Vector3).copy(basis.ex);
+        (un.uEy.value as THREE.Vector3).copy(basis.ey);
+        (un.uN.value as THREE.Vector3).copy(basis.normal);
+        un.uR.value = c.radius;
+        un.uPh0.value = c.phase;
+        un.uSweep.value = c.sweep;
+        un.uWmax.value = c.thickness.max;
+        un.uPeakFrom.value = c.thickness.peakFrom;
+        un.uTipPower.value = c.thickness.tipPower;
+        un.uRootFade.value = c.thickness.rootFade;
+        un.uHead.value = Math.max(window.head, 1e-4);
+        un.uTail.value = window.tail;
+        un.uScale.value = tonal.scale;
+        un.uRadOff.value = tonal.radialOffset;
+        un.uTime.value = age;
+        un.uTear.value = 0.9 * tear;
+        un.uWiden.value = c.widen * tear;
+        un.uErode.value = tonal.erode;
+        un.uTipHot.value = tonal.tipHot;
+        un.uAlpha.value = alpha * flickerAt(m, age);
+        un.uFrontWidth.value = c.erosionFront.widthFollowsWindow
+          ? Math.max(0.1, c.erosionFront.width * (window.head - window.tail))
+          : c.erosionFront.width;
+        un.uVorScale.value = c.erosionFront.voronoi.scale;
+        un.uSeamWidth.value = c.erosionFront.voronoi.seamWidth;
+        const stops = tonal.ramp;
+        const at = (i: number) => stops[Math.min(i, stops.length - 1)];
+        (un.uC0.value as THREE.Color).set(at(0).color);
+        (un.uC1.value as THREE.Color).set(at(1).color);
+        (un.uC2.value as THREE.Color).set(at(2).color);
+        (un.uC3.value as THREE.Color).set(at(3).color);
+        (un.uI.value as THREE.Vector4).set(
+          at(0).intensity,
+          at(1).intensity,
+          at(2).intensity,
+          at(3).intensity,
+        );
+        (un.uBandT.value as THREE.Vector4).set(at(0).t, at(1).t, at(2).t, at(3).t);
+        copy.mesh.visible =
+          window.head > 0.002 && window.tail < 0.999 && alpha > 0.008;
+      }
+    },
+    bounds(time, push) {
+      const { layer: live, visible } = evaluateLayerV2(layer, time);
+      if (!visible) return;
+      const matrix = new THREE.Matrix4().compose(
+        new THREE.Vector3().fromArray(live.transform.position),
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...live.transform.rotation),
+        ),
+        new THREE.Vector3().fromArray(live.transform.scale),
+      );
+      for (const corner of crescentBounds(live.crescent!))
+        push(corner.applyMatrix4(matrix));
+    },
+    dispose() {
+      geometry.dispose();
+      for (const copy of copies) copy.shader.dispose();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Lick layers
+// ---------------------------------------------------------------------------
+
+/**
+ * Flat cel flame strips peeling off a crescent's erosion front. They are
+ * ANCHORED, not emitted: the anchor is wherever the source crescent's TAIL is
+ * at this instant, so the licks appear in the order the blade tears without a
+ * single time being written down twice.
+ */
+function createLicksLayer(
+  doc: VfxDocumentV2,
+  layer: LayerV2,
+  index: number,
+): LayerObject {
+  const material = layer.material!;
+  const spec = layer.licks!;
+  const geometry = buildLicksGeometry(spec);
+  const source = doc.layers.find((l) => l.id === spec.anchor.sourceLayerId);
+  const span = Math.max(layer.end - layer.start, 1e-6);
+
+  const uniforms: Record<string, THREE.IUniform> = {
+    uAnchor: { value: new THREE.Vector3() },
+    uTangent: { value: new THREE.Vector3(1, 0, 0) },
+    uNormal: { value: new THREE.Vector3(0, 0, 1) },
+    uDrift: { value: new THREE.Vector3().fromArray(spec.drift) },
+    uLength: { value: new THREE.Vector2().fromArray(spec.length) },
+    uWidth: { value: new THREE.Vector2().fromArray(spec.width) },
+    uStagger: { value: new THREE.Vector2().fromArray(spec.stagger) },
+    uLife: { value: new THREE.Vector2().fromArray(spec.life) },
+    uTime: { value: 0 },
+    uSpan: { value: span },
+    uCurl: { value: spec.curl },
+    uFlipHz: { value: spec.flipbookHz },
+    uHot: { value: new THREE.Color(spec.colors[0]) },
+    uBody: { value: new THREE.Color(spec.colors[1]) },
+    uOpacity: { value: material.opacity },
+    uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
+  };
+  const shader = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: lickVertexV2,
+    fragmentShader: lickFragmentV2,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    ...blendingFor(material.blend),
+  });
+  const mesh = new THREE.Mesh(geometry, shader);
+  mesh.name = layer.id;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = index;
+
+  /** Where the source crescent's tail front is, in this layer's own space. */
+  const anchorAt = (time: number) => {
+    if (!source?.crescent) return null;
+    const live = evaluateLayerV2(source, time);
+    const c = live.layer.crescent!;
+    const s = clamp01(
+      sampleCrescentCurve(c.window.tail, live.u) + spec.anchor.offset,
+    );
+    const basis = arcFrame(c);
+    const offset = new THREE.Vector3()
+      .fromArray(live.layer.transform.position)
+      .sub(new THREE.Vector3().fromArray(layer.transform.position));
+    return {
+      point: arcPoint(c, s).add(offset),
+      tangent: arcTangent(c, s),
+      normal: basis.normal,
+    };
+  };
+
+  return {
+    id: layer.id,
+    source: layer,
+    object: mesh,
+    soft: false,
+    trim: false,
+    update(time, _flags, camera) {
+      const { layer: live, visible, age } = evaluateLayerV2(layer, time);
+      mesh.visible = visible;
+      if (!visible) return;
+      const m = live.material!;
+      const l = live.licks!;
+      mesh.position.fromArray(live.transform.position);
+      mesh.rotation.set(...live.transform.rotation);
+      mesh.scale.fromArray(live.transform.scale);
+      applyLayerFrame(mesh, layer, live, camera);
+      const anchor = anchorAt(time);
+      if (anchor) {
+        (uniforms.uAnchor.value as THREE.Vector3).copy(anchor.point);
+        (uniforms.uTangent.value as THREE.Vector3).copy(anchor.tangent);
+        (uniforms.uNormal.value as THREE.Vector3).copy(anchor.normal);
+      }
+      uniforms.uTime.value = age;
+      uniforms.uCurl.value = l.curl;
+      uniforms.uFlipHz.value = l.flipbookHz;
+      (uniforms.uLength.value as THREE.Vector2).fromArray(l.length);
+      (uniforms.uWidth.value as THREE.Vector2).fromArray(l.width);
+      (uniforms.uStagger.value as THREE.Vector2).fromArray(l.stagger);
+      (uniforms.uLife.value as THREE.Vector2).fromArray(l.life);
+      (uniforms.uDrift.value as THREE.Vector3).fromArray(l.drift);
+      (uniforms.uHot.value as THREE.Color).set(l.colors[0]);
+      (uniforms.uBody.value as THREE.Color).set(l.colors[1]);
+      uniforms.uOpacity.value = m.opacity * flickerAt(m, age);
+    },
+    bounds() {
+      // A licks layer decorates the blade it peels off, and the blade already
+      // claims the frame: claiming its own reach on top would pull the camera
+      // back off the thing being decorated, the same way a reflection
+      // contributes nothing.
+    },
+    dispose() {
+      geometry.dispose();
+      shader.dispose();
+    },
+  };
+}
+
+/** smoothstep, for the smear's own window. */
+function smoothstep01(a: number, b: number, x: number) {
+  const t = clamp01((x - a) / Math.max(b - a, 1e-6));
+  return t * t * (3 - 2 * t);
 }
 
 // ---------------------------------------------------------------------------
@@ -4050,6 +4968,10 @@ export class VfxRuntimeV2 {
         if (layer.kind === "arcs") return createArcsLayer(layer, index);
         if (layer.kind === "streakBurst")
           return createStreakBurstLayer(layer, index);
+        if (layer.kind === "sheets") return createSheetsLayer(layer, index);
+        if (layer.kind === "crescent") return createCrescentLayer(layer, index);
+        if (layer.kind === "licks")
+          return createLicksLayer(this.doc!, layer, index);
         if (layer.kind === "reflection")
           return createReflectionLayer(this.doc!, layer, index, this.textures);
         return createMeshLayer(this.doc!, layer, index, this.textures);
