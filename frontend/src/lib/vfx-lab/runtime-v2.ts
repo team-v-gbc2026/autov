@@ -1,3 +1,4 @@
+import { layerBuildKey } from "./layer-build-key";
 import type { IUniform } from "three";
 import * as THREE from "three/webgpu";
 import { createV2NodeMaterial, type V2NodeMaterial } from "./node-material-v2";
@@ -1951,7 +1952,7 @@ export class VfxRuntimeV2 {
       nextObjects = nextDoc.layers.filter(layer => layer.enabled).map((layer, index) => {
         const parent = layer.emitter?.sub
           ? nextDoc.layers.find(item => item.id === layer.emitter!.sub!.parentLayerId) : null;
-        const key = JSON.stringify([sharedKey, index, layer, parent]);
+        const key = JSON.stringify([sharedKey, index, layerBuildKey(layer), parent]);
         keys.set(layer.id, key);
         const existing = previous.get(layer.id);
         if (existing && this.objectKeys.get(layer.id) === key) return existing;
@@ -1971,9 +1972,15 @@ export class VfxRuntimeV2 {
       object.object.removeFromParent();
       if (!retained.has(object)) object.dispose();
     }
+    // Factories close over source; keep that object identity and replace its live values.
+    for (const object of nextObjects) {
+      const updated = nextDoc.layers.find(layer => layer.id === object.id)!;
+      Object.assign(object.source, updated);
+    }
     this.objects = nextObjects;
     this.objectKeys = keys;
     this.doc = nextDoc;
+    if (preserveCamera && created.length === 0) this.preparedPreviewDocument = nextDoc;
     const lights = this.objects
       .filter((o) => o.source.kind === "light")
       .sort(

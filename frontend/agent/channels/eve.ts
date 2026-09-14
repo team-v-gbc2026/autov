@@ -72,6 +72,18 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
         if (body.turnId !== undefined && typeof body.turnId !== "string") throw new ChatError("INVALID_BODY", "Invalid cancellation request.");
         return await route.handler(jsonRequest(request, { turnId: body.turnId }), args);
       }
+      if (route.method === "POST" && route.path === "/eve/v1/session/:sessionId/reset") {
+        lease = await acquireLease(access.client, authorizedProjectId);
+        await assertIdle(args.attachSession(sessionId!));
+        await transition({ userId: access.userId, projectId: authorizedProjectId }, "cancel_turn", { sessionId });
+        const result = await route.handler(jsonRequest(request, {}), args);
+        if (!result.ok) return result;
+        const { error } = await access.client.from("project_conversations")
+          .update({ session_id: null, initial_prompt_hash: null })
+          .eq("project_id", authorizedProjectId).eq("lease_id", lease);
+        if (error) throw new ChatError("CONVERSATION_UNAVAILABLE", "Could not clear the conversation binding.", 503);
+        return result;
+      }
       if (!isCreate && !isSend) throw new ChatError("UNSUPPORTED_OPERATION", "This conversation supports messages and cancellation only.", 403);
       const unavailable = configurationError();
       if (unavailable) throw new ChatError("NOT_CONFIGURED", unavailable, 503);

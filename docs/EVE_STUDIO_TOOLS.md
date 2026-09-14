@@ -102,3 +102,13 @@ and current asset availability. Keys include project, asset ID, storage path, MI
 and file size; names are read fresh. Board uploads use unique paths. An external overwrite
 at the same path with unchanged metadata can remain cached until expiry. Restarts clear
 the cache, and instances do not share it. Documents and generation results are not cached.
+
+## Reference image editing
+
+Open an image on the project board, open its Generate prompt, describe an edit, and
+submit. The server uses `OPENAI_API_KEY` with `gpt-image-1.5` (one medium-quality
+1024×1024 image) and adds a new board asset; the source stays unchanged. Image edits
+use a separate provider call and are not included in the VFX generation spending
+ledger. Provider retries are disabled. Image-model access is required. This action
+is available in authenticated project boards; standalone local boards and the
+text-only image-generation dialog are not connected.

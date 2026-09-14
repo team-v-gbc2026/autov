@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Reference } from "@/lib/project-types";
+import { agentHeaders } from "@/lib/agent/client";
 import { referenceName } from "./board/board-store";
 
 export function useReferences(projectId: string, userId: string, initialReferences: Reference[]) {
@@ -29,6 +30,19 @@ export function useReferences(projectId: string, userId: string, initialReferenc
     }
     if (lock.current) return;
     if (next.map(item => item.id).join() !== latest.current.map(item => item.id).join()) { latest.current = next; setReferences(next); }
+  }
+  async function editImage(referenceId: string, prompt: string) {
+    if (lock.current) throw new Error("Wait for the current image operation to finish.");
+    lock.current = true;
+    try {
+      const response = await fetch("/api/references/edit", { method: "POST", headers: { ...await agentHeaders(projectId), "Content-Type": "application/json" }, body: JSON.stringify({ referenceId, prompt }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not edit this image.");
+      if (result.url) {
+        latest.current = [...latest.current, result as Reference];
+        setReferences(latest.current);
+      } else router.refresh();
+    } finally { lock.current = false; }
   }
   async function uploadFile(file: File): Promise<Reference> {
     if (lock.current) throw new Error("Wait for the current upload to finish.");
@@ -77,6 +91,6 @@ export function useReferences(projectId: string, userId: string, initialReferenc
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not remove reference."); }
     finally { lock.current = false; setBusy(false); }
   }
-  return { reconcileAssets, references, busy, error, setError, addFiles, uploadFile, removeReference, refresh: () => router.refresh() };
+  return { editImage, reconcileAssets, references, busy, error, setError, addFiles, uploadFile, removeReference, refresh: () => router.refresh() };
 }
-export type ReferenceState = Omit<ReturnType<typeof useReferences>, "reconcileAssets"> & { reconcileAssets?: ReturnType<typeof useReferences>["reconcileAssets"] };
+export type ReferenceState = Omit<ReturnType<typeof useReferences>, "reconcileAssets" | "editImage"> & { editImage?: ReturnType<typeof useReferences>["editImage"]; reconcileAssets?: ReturnType<typeof useReferences>["reconcileAssets"] };

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
 import type { PlaybackClock } from "./playback-clock";
+import { createWorkspaceDocument } from "@/lib/vfx-lab/ui-bridge";
 import type { VfxRuntimeV2 } from "@/lib/vfx-lab/runtime-v2";
 
 /** Slider drags fire many times a frame; coalesce document installs. */
@@ -13,7 +14,7 @@ const INSTALL_DEBOUNCE_MS = 50;
  * orbit controls and rendering are owned by the runtime.
  */
 export default function WorkspaceScene({
-  doc,
+  doc: effect,
   clock,
   solo,
   focusRequest = 0,
@@ -23,6 +24,8 @@ export default function WorkspaceScene({
   solo?: string;
   focusRequest?: number;
 }) {
+  // The studio stage stays visible even when an effect authors a black backdrop.
+  const doc = useMemo(() => ({ ...effect, environment: createWorkspaceDocument().environment }), [effect]);
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<VfxRuntimeV2 | null>(null);
   // The rAF loop and the async mount read the latest props through refs, so a

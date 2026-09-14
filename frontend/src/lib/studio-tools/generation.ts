@@ -145,5 +145,5 @@ export async function generateCandidate(
   const generated = fromWireV2(wire, []);
   return input.mode === "add"
     ? appendGenerated(state.document, generated)
-    : generated;
+    : { ...generated, environment: structuredClone(state.document.environment) };
 }

@@ -9,7 +9,7 @@ import type { Generation, EffectVersion } from "@/lib/project-types";
 import ReferenceComposer, { type ComposerHandle } from "./composer/reference-composer";
 import { displayPrompt } from "./composer/prompt-format";
 import type { Reference } from "@/lib/project-types";
-import { iconButton as button } from "./icon-button";
+import IconButton, { iconButton as button } from "./icon-button";
 import Icon from "./icon";
 import type { VfxUiDocument } from "@/components/vfx-studio/ui-model";
 import type { VfxDocumentV2 } from "@/lib/vfx-lab/schema-v2";
@@ -72,6 +72,8 @@ export default function ChatPanel({
     mentionEmitter: emitter => composer.current?.mentionEmitter(emitter),
     setText: text => composer.current?.setText(text),
   }));
+  const [clearing, setClearing] = useState(false);
+  const [historyCleared, setHistoryCleared] = useState(false);
   const [responding, setResponding] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -155,20 +157,38 @@ export default function ChatPanel({
   const scopedEdits = vfx?.document.layers.flatMap(layer =>
     layer.edits.map(edit => ({ layer, edit })),
   ) || [];
-  const hasHistory = messages.length > 0 || versions.length > 0 || scopedEdits.length > 0 || !!connection?.sessionId || agentHasHistory;
+  async function clearChat() {
+    if (clearing || saving || responding || generation.busy) return;
+    setClearing(true);
+    try {
+      if (!vfx?.standalone) {
+        const current = await loadConversation(projectId, new AbortController().signal);
+        if (current.sessionId) {
+          const response = await fetch(`/eve/v1/session/${encodeURIComponent(current.sessionId)}/reset`, {
+            method: "POST", headers: { ...await agentHeaders(projectId), "Content-Type": "application/json" }, body: "{}",
+          });
+          if (!response.ok) { const result = await response.json(); throw new Error(result.error || "Could not clear chat."); }
+        }
+        reconnect();
+      }
+      setMessages([]); setProgress([]); setNotice(""); setAgentHasHistory(false); setHistoryCleared(true);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Could not clear chat."); }
+    finally { setClearing(false); }
+  }
+  const hasHistory = messages.length > 0 || (!historyCleared && (versions.length > 0 || scopedEdits.length > 0)) || !!connection?.sessionId || agentHasHistory;
   return (
     <ChatTargets.Provider value={{ references, emitters: vfx?.document.layers || [], onReference: vfx?.onReference, onEmitter: vfx?.onEmitter }}><aside className={`glass chat-panel ${styles.panel}`}>
       <div className="panel-heading">
         <div>
           <h2>Assistant</h2><span className={styles.subtitle}>Your VFX creative partner</span>
         </div>
-        <div>{button("panel", "Collapse creative assistant", onCollapse)}</div>
+        <div><IconButton name="trash" label={clearing ? "Clearing chat" : "Clear chat"} disabled={clearing || saving || responding || generation.busy || (!vfx?.standalone && !connection)} onClick={() => void clearChat()} />{button("panel", "Collapse creative assistant", onCollapse)}</div>
       </div>
       <div ref={scroll} onScroll={event => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} className={`chat-content ${hasHistory ? "" : "chat-content-empty"}`}>
         {!hasHistory && <ChatEmptyState disabled={saving || (!vfx?.standalone && !connection)} onSelect={value => { composer.current?.setText(value); }} />}
         <div className="messages" aria-live="polite">
           {messages.map(message => <ChatMessage key={message.id} role="user" text={message.prompt} caption={message.status === "draft" ? "Saved prompt · history" : `Generation ${message.status}`} />)}
-          {versions.map((version) => (
+          {!historyCleared && versions.map((version) => (
             <a
               className="effect-download"
               key={version.id}
@@ -177,7 +197,7 @@ export default function ChatPanel({
               Download effect JSON · {version.schema_version} ↓
             </a>
           ))}
-          {scopedEdits.map(({ layer, edit }) => (
+          {!historyCleared && scopedEdits.map(({ layer, edit }) => (
             <div key={edit.id} className="scoped-edit-message">
               <p className="user-message">{displayPrompt(edit.prompt)}</p>
               <p className="assistant-message">
@@ -203,7 +223,7 @@ export default function ChatPanel({
         </div>
       </div>
       <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy || (vfx?.standalone ? generation.busy : !connection)} saving={saving} responding={responding} onStop={async () => { if (!agent.current) throw new Error("Assistant disconnected"); await agent.current.stop(); }} sendLabel="Send message" onSend={async (prompt, referenceIds) => {
-        if (saving || busy) return false;
+        if (saving || busy || clearing) return false;
         if (vfx?.standalone) {
           if (generation.busy) return false;
           if (!generation.available) { setNotice("Local generation is not configured. Add OPENAI_API_KEY to frontend/.env.local."); return false; }
@@ -245,7 +265,7 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
   const accepted = useRef(false);
   const sending = useRef(false);
   const [sendError, setSendError] = useState("");
-  const [toolActivity, setToolActivity] = useState("");
+  const [toolActivity, setToolActivity] = useState<Record<string, string>>({});
   const [toolFailure, setToolFailure] = useState("");
   const agent = useEveAgent({
     headers: () => agentHeaders(projectId),
@@ -253,9 +273,9 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
     resume: !!sessionId,
     optimistic: true,
     onEvent: event => {
-      if (event.type === "message.received") { accepted.current = true; setToolFailure(""); }
-      if (event.type === "actions.requested") setToolActivity("Working with studio tools…");
-      if (event.type === "action.result") { setToolActivity(""); if (event.data.status !== "completed") setToolFailure(event.data.error?.message || "The studio tool could not complete this request."); }
+      if (event.type === "message.received") { accepted.current = true; setToolFailure(""); setToolActivity({}); }
+      if (event.type === "actions.requested") setToolActivity(current => ({ ...current, ...Object.fromEntries(event.data.actions.map(action => [action.callId, "toolName" in action ? action.toolName : "working"])) }));
+      if (event.type === "action.result") { setToolActivity(current => { const next = { ...current }; delete next[event.data.result.callId]; return next; }); if (event.data.status !== "completed") setToolFailure(event.data.error?.message || "The studio tool could not complete this request."); }
     },
   });
   useEffect(() => { onHistory(agent.data.messages.length > 0); }, [agent.data.messages.length, onHistory]);
@@ -285,7 +305,6 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
   }));
   return <>
     {toolFailure && <p className={`${styles.notice} ${styles.error}`} role="alert">{toolFailure}</p>}
-    {active && toolActivity && <p className={styles.notice} role="status">{toolActivity}</p>}
     {agent.data.messages.map(message => <ChatMessage key={message.id} role={message.role}
       text={message.parts.filter(part => part.type === "text").map(part => part.text).join("\n\n")}
       files={message.parts.filter(part => part.type === "file").map(part => part.filename || "Reference image")}
@@ -293,9 +312,32 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
       caption={message.role === "user" ? message.metadata?.status === "failed" ? "Not confirmed · draft restored" : message.metadata?.optimistic ? "Sending…" : undefined : undefined}
     />)}
     {resuming && <div className={styles.reconnecting} role="status"><svg className={styles.spinner} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity=".2" /><path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg><span>Reconnecting</span></div>}
-    {active && <div className={styles.notice} role="status"><span className={styles.dots} aria-hidden="true"><i /><i /><i /></span>{agent.status === "submitted" ? "Sending your message" : "Responding"}</div>}
+    {active && <ToolHint key={Object.values(toolActivity).join(",")} tools={Object.values(toolActivity)} submitting={agent.status === "submitted"} />}
     {(sendError || agent.error) && <p className={`${styles.notice} ${styles.error}`} role="alert">{sendError || "The assistant is unavailable. Reconnect to check the conversation before retrying."}
       <button type="button" onClick={reconnect}>Reconnect</button>
     </p>}
   </>;
+}
+
+const generationHints = ["Building your VFX…", "Making your idea real…", "Warming up the particles…", "Giving your effect some spark…"];
+const editingHints = ["Shaping your effect…", "Fine-tuning the particles…", "Working on the details…"];
+const referenceHints = ["Looking at your references…", "Exploring the details…", "Taking a closer look…"];
+const previewHints = ["Preparing your preview…", "Framing your effect…", "Capturing the moment…"];
+function ToolHint({ tools, submitting }: { tools: string[]; submitting: boolean }) {
+  const hints = tools.includes("generate_vfx") ? generationHints
+    : tools.includes("preview_vfx") ? previewHints
+    : tools.some(tool => tool.includes("reference")) ? referenceHints
+    : tools.some(tool => tool === "edit_vfx" || tool === "undo_vfx_edit") ? editingHints
+    : tools.length ? ["Exploring your effect…", "Looking at the details…"]
+    : [submitting ? "Sending your idea…" : "Thinking it through…"];
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (hints.length < 2) return;
+    const timer = setInterval(() => setIndex(value => value + 1), 3500);
+    return () => clearInterval(timer);
+  }, [hints.length]);
+  return <div className={styles.toolHint} role="status" aria-live="polite">
+    <span className={styles.dots} aria-hidden="true"><i /><i /><i /></span>
+    <span>{hints[index % hints.length]}</span>
+  </div>;
 }

@@ -271,6 +271,17 @@ export default function Studio({
       </div>
       <div className="lab-scene-export">
         <IconButton
+          name="reset"
+          label="Reset effect"
+          disabled={saving || !synced.ready}
+          onClick={() => {
+            setEnvironmentOpen(false);
+            openDocument(createWorkspaceDocument(project.name));
+            setEmitterFocus(undefined);
+            setImportError("");
+          }}
+        />
+        <IconButton
           name="upload"
           label="Import effect JSON"
           onClick={() => {
@@ -364,7 +375,7 @@ export default function Studio({
           vfx={{
             document: vfxDocument,
             selectedEmitterId: selectedLayerId,
-            onDocument: openDocument,
+            onDocument: generated => openDocument({ ...generated, environment: doc.environment }),
             standalone,
             beforeSend: async () => { if (uiImport) throw new Error("Import a v2 effect before using studio tools."); await synced.flush(); },
             onReference: focusReference,

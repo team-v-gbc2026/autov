@@ -61,10 +61,10 @@ test("messages, streams, and cancellation enforce the server binding before runt
     assert.equal(response.status, 404);
   }
 });
-test("session resets are denied even to the owner", async () => {
+test("session resets reject another conversation", async () => {
   mockDatabase();
-  const response = await route("/eve/v1/session/:sessionId/reset", "POST").handler(request("/eve/v1/session/owned-session/reset", "POST"), { params: { sessionId: "owned-session" }, resolveSession: async () => ({ id: "owned-session" }) } as unknown as RouteHandlerArgs);
-  assert.equal(response.status, 403);
+  const response = await route("/eve/v1/session/:sessionId/reset", "POST").handler(request("/eve/v1/session/stolen-session/reset", "POST"), { params: { sessionId: "stolen-session" }, resolveSession: async () => ({ id: "owned-session" }) } as unknown as RouteHandlerArgs);
+  assert.equal(response.status, 404);
 });
 test("missing Gateway configuration returns an actionable failure before a model call", async () => {
   mockDatabase();
@@ -127,4 +127,34 @@ test("an idle owned session accepts a follow-up and preserves Eve delivery metad
   assert.equal(response.status, 202);
   assert.equal((await response.json()).deliveryId, "delivery-2");
   assert.equal(deliveries, 1);
+});
+
+test("clearing an owned idle conversation resets Eve and clears its binding", async () => {
+  mockDatabase();
+  process.env.SUPABASE_SECRET_KEY = "test-secret";
+  const databaseFetch = globalThis.fetch;
+  let cleared = false;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/rest/v1/rpc/claim_project_conversation") return Response.json(true);
+    if (url.pathname === "/rest/v1/rpc/studio_transition") return Response.json({});
+    if (url.pathname === "/rest/v1/project_conversations" && init?.method === "PATCH") {
+      if (JSON.parse(String(init.body)).session_id === null) cleared = true;
+      return new Response(null, { status: 204 });
+    }
+    return databaseFetch(input, init);
+  };
+  let reset = false;
+  const session = {
+    id: "owned-session",
+    getStreamTailIndex: async () => 0,
+    getEventStream: async () => new ReadableStream({ start(c) { c.enqueue({ type: "session.waiting" }); c.close(); } }),
+    reset: async () => { reset = true; return { status: "reset", previousSessionId: "owned-session" }; },
+  };
+  const response = await route("/eve/v1/session/:sessionId/reset", "POST").handler(request("/eve/v1/session/owned-session/reset", "POST"), {
+    params: { sessionId: "owned-session" }, resolveSession: async () => session, attachSession: () => session,
+  } as unknown as RouteHandlerArgs);
+  assert.equal(response.status, 200);
+  assert.equal(reset, true);
+  assert.equal(cleared, true);
 });
