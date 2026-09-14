@@ -125,7 +125,7 @@ function rendererDescription(renderer: THREE.WebGPURenderer) {
  */
 export async function captureV2(
   input: VfxDocumentV2,
-  options: { solo?: string; diagnostic?: boolean } = {},
+  options: { solo?: string; diagnostic?: boolean; times?: number[] } = {},
 ): Promise<Evidence> {
   const doc = validateDocumentV2(input);
   const host = document.createElement("div");
@@ -186,7 +186,8 @@ export async function captureV2(
       return canvas;
     };
 
-    const times = captureTimesV2(doc);
+    if (options.times && (!options.times.length || options.times.length > 8 || options.times.some(time => !Number.isFinite(time) || time < 0 || time > doc.duration))) throw new Error("Capture times must be within the effect duration.");
+    const times = options.times ?? captureTimesV2(doc);
     let renderedPixels = 0;
     const sheet = compose(
       times,

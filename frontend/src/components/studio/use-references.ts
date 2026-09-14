@@ -17,6 +17,19 @@ export function useReferences(projectId: string, userId: string, initialReferenc
   // Updated by mutation handlers as well, so sequential uploads see each other.
   useEffect(() => { latest.current = references; }, [references]);
 
+  async function reconcileAssets(assets: { id: string; name: string; storage_path: string; mime_type: string }[]) {
+    const client = createClient();
+    const next: Reference[] = [];
+    for (const asset of assets) {
+      const existing = latest.current.find(item => item.id === asset.id);
+      if (existing) { next.push(existing); continue; }
+      const { data, error } = await client.storage.from("references").createSignedUrl(asset.storage_path, 3600);
+      if (error || !data) continue;
+      next.push({ id: asset.id, name: asset.name, url: data.signedUrl, type: asset.mime_type });
+    }
+    if (lock.current) return;
+    if (next.map(item => item.id).join() !== latest.current.map(item => item.id).join()) { latest.current = next; setReferences(next); }
+  }
   async function uploadFile(file: File): Promise<Reference> {
     if (lock.current) throw new Error("Wait for the current upload to finish.");
     if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type) || file.size === 0 || file.size > 20 * 1024 * 1024) throw new Error("Use PNG, JPEG, WebP or GIF images up to 20 MB.");
@@ -64,6 +77,6 @@ export function useReferences(projectId: string, userId: string, initialReferenc
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not remove reference."); }
     finally { lock.current = false; setBusy(false); }
   }
-  return { references, busy, error, setError, addFiles, uploadFile, removeReference, refresh: () => router.refresh() };
+  return { reconcileAssets, references, busy, error, setError, addFiles, uploadFile, removeReference, refresh: () => router.refresh() };
 }
-export type ReferenceState = ReturnType<typeof useReferences>;
+export type ReferenceState = Omit<ReturnType<typeof useReferences>, "reconcileAssets"> & { reconcileAssets?: ReturnType<typeof useReferences>["reconcileAssets"] };

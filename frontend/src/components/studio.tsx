@@ -11,6 +11,7 @@ import PanelToggle from "./studio/panel-toggle";
 import Icon from "./studio/icon";
 import IconButton from "./studio/icon-button";
 import { PlaybackFrames, usePlaybackClock } from "./studio/playback-clock";
+import { useStudioDocument, type BrowserOperation } from "./studio/use-studio-document";
 import { useReferences } from "./studio/use-references";
 import type {
   Project,
@@ -113,7 +114,18 @@ export default function Studio({
   const [saving, setSaving] = useState(false);
   // The autov.lab/2 document is the source of truth; the timeline, the emitter
   // rows and the controls all read a pure projection of it.
-  const [doc, setDoc] = useState<VfxDocumentV2>(() => initialDocument ? validateWorkspaceDocumentV2(initialDocument) : createWorkspaceDocument(project.name));
+  const [selectedLayerId, setSelectedLayerId] = useState(
+    () => initialDocument?.layers[0]?.id ?? "",
+  );
+  const [soloLayerId, setSoloLayerId] = useState<string>();
+  const references = useReferences(project.id, userId, initialReferences);
+  const [referenceFocus, setReferenceFocus] = useState<{ id: string; sequence: number }>();
+  const [emitterFocus, setEmitterFocus] = useState<{ id: string; sequence: number }>();
+  const focusReference = (id: string) => { setLeft(true); setReferenceFocus({ id, sequence: Date.now() }); };
+  const focusEmitter = (id: string) => { setSelectedLayerId(id); setEmitterFocus({ id, sequence: Date.now() }); };
+  const browserHandler = useRef<(operation: BrowserOperation, currentDocument: VfxDocumentV2) => Promise<Record<string, unknown>>>(async () => { throw new Error("Studio is starting."); });
+  const synced = useStudioDocument(project.id, () => initialDocument ? validateWorkspaceDocumentV2(initialDocument) : createWorkspaceDocument(project.name), standalone, (operation, currentDocument) => browserHandler.current(operation, currentDocument), references.reconcileAssets);
+  const { document: doc, setDoc } = synced;
   // A JSON import in the UI dialect has no v2 document behind it, so it stays a
   // UI-only document (with the workspace environment visible) until a generation or a
   // v1/v2 import replaces it.
@@ -122,15 +134,28 @@ export default function Studio({
     () => uiImport ?? projectToUi(doc),
     [uiImport, doc],
   );
-  const [selectedLayerId, setSelectedLayerId] = useState(
-    () => initialDocument?.layers[0]?.id ?? "",
-  );
-  const [soloLayerId, setSoloLayerId] = useState<string>();
   const [importError, setImportError] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
   const clock = usePlaybackClock(vfxDocument.duration);
   const playback = clock.getSnapshot();
-  const references = useReferences(project.id, userId, initialReferences);
+  useEffect(() => { browserHandler.current = async (operation, currentDocument) => {
+    if (operation.kind === "reference_view") focusReference(String(operation.input.referenceId));
+    if (operation.kind === "view") {
+      const input = operation.input;
+      if (typeof input.layerId === "string") focusEmitter(input.layerId);
+      if (typeof input.solo === "boolean") setSoloLayerId(input.solo ? String(input.layerId || selectedLayerId) : undefined);
+      if (typeof input.playing === "boolean") playback.setPlaying(input.playing);
+      if (typeof input.time === "number") playback.setTime(input.time);
+    }
+    if (["preview", "capture_candidate"].includes(operation.kind)) {
+      const { captureV2 } = await import("@/lib/vfx-lab/capture-v2");
+      const captureDoc = operation.kind === "capture_candidate" ? validateWorkspaceDocumentV2(operation.input.document) : currentDocument;
+      const evidence = await captureV2(captureDoc, { solo: typeof operation.input.layerId === "string" ? operation.input.layerId : undefined, times: operation.input.times as number[] | undefined });
+      return { sheet: evidence.sheet, times: evidence.times, renderedPixels: evidence.renderedPixels || 0 };
+    }
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return {};
+  }; });
 
   const { layout } = useBoardLayout(project.id);
   const chat = useRef<ChatPanelHandle>(null);
@@ -321,7 +346,7 @@ export default function Studio({
         <PanelToggle side="right" label="Chat" onOpen={() => setRight(true)} />
       )}
       <div hidden={!left}>
-        <ReferencesPanel projectId={project.id} state={boardState} onMention={mention} locked={saving} onCollapse={() => setLeft(false)} />
+        <ReferencesPanel focusRequest={referenceFocus} projectId={project.id} state={boardState} onMention={mention} locked={saving} onCollapse={() => setLeft(false)} />
       </div>
       <div hidden={!right}>
         <ChatPanel
@@ -332,7 +357,7 @@ export default function Studio({
           ref={chat}
           references={displayReferences}
           uploadFile={references.uploadFile}
-          busy={references.busy}
+          busy={references.busy || !synced.ready}
           saving={saving}
           setSaving={setSaving}
           onCollapse={() => setRight(false)}
@@ -341,6 +366,9 @@ export default function Studio({
             selectedEmitterId: selectedLayerId,
             onDocument: openDocument,
             standalone,
+            beforeSend: async () => { if (uiImport) throw new Error("Import a v2 effect before using studio tools."); await synced.flush(); },
+            onReference: focusReference,
+            onEmitter: focusEmitter,
           }}
         />
       </div>
@@ -361,6 +389,7 @@ export default function Studio({
         }}
         tracks={
           <EmitterTimeline
+            focusRequest={emitterFocus}
             layers={vfxDocument.layers}
             duration={vfxDocument.duration}
             time={playback.time}
@@ -403,6 +432,7 @@ export default function Studio({
           />
         }
       />}</PlaybackFrames>
+      {synced.error && <div className="lab-import-error" role="alert"><span>{synced.error} Your local edits are preserved; export them before reloading if there is a conflict.</span></div>}
       {importError && <div className="lab-import-error" role="alert">
         <span>{importError}</span>
         <IconButton name="close" label="Dismiss error" onClick={() => setImportError("")} />

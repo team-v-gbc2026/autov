@@ -1,4 +1,4 @@
-import type { VfxUiDocument } from "../../components/vfx-studio/ui-model";
+import type { VfxDocumentV2 } from "../vfx-lab/schema-v2";
 
 /** Data supplied by the adapter after it verifies user/project ownership.
  * Browser document snapshots are untrusted input, never authorization evidence.
@@ -7,7 +7,8 @@ export type StudioToolContext = {
   userId: string;
   projectId: string;
   snapshot: {
-    document: VfxUiDocument;
+    document: VfxDocumentV2;
+    revision: number;
     selectedEmitterId: string | null;
   };
 };

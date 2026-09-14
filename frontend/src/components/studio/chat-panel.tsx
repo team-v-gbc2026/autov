@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useImperativeHandle, type Ref } from "react";
-import ChatMessage from "./chat-message";
+import ChatMessage, { ChatTargets } from "./chat-message";
 import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
 import { useEveAgent } from "eve/react";
@@ -26,6 +26,9 @@ type AgentHandle = { stop: () => Promise<void>; send: (prompt: string, reference
 type VfxEditing = {
   document: VfxUiDocument;
   selectedEmitterId?: string;
+  beforeSend?: () => Promise<void>;
+  onReference?: (id: string) => void;
+  onEmitter?: (id: string) => void;
   /** Receives the autov.lab/2 document a local generation produced. */
   onDocument?: (doc: VfxDocumentV2) => void;
   /** Dev pages have no Supabase project: skip the prompt save and only run local generation. */
@@ -154,7 +157,7 @@ export default function ChatPanel({
   ) || [];
   const hasHistory = messages.length > 0 || versions.length > 0 || scopedEdits.length > 0 || !!connection?.sessionId || agentHasHistory;
   return (
-    <aside className={`glass chat-panel ${styles.panel}`}>
+    <ChatTargets.Provider value={{ references, emitters: vfx?.document.layers || [], onReference: vfx?.onReference, onEmitter: vfx?.onEmitter }}><aside className={`glass chat-panel ${styles.panel}`}>
       <div className="panel-heading">
         <div>
           <h2>Assistant</h2><span className={styles.subtitle}>Your VFX creative partner</span>
@@ -164,7 +167,7 @@ export default function ChatPanel({
       <div ref={scroll} onScroll={event => { const el = event.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }} className={`chat-content ${hasHistory ? "" : "chat-content-empty"}`}>
         {!hasHistory && <ChatEmptyState disabled={saving || (!vfx?.standalone && !connection)} onSelect={value => { composer.current?.setText(value); }} />}
         <div className="messages" aria-live="polite">
-          {messages.map(message => <ChatMessage key={message.id} role="user" text={displayPrompt(message.prompt)} caption={message.status === "draft" ? "Saved prompt · history" : `Generation ${message.status}`} />)}
+          {messages.map(message => <ChatMessage key={message.id} role="user" text={message.prompt} caption={message.status === "draft" ? "Saved prompt · history" : `Generation ${message.status}`} />)}
           {versions.map((version) => (
             <a
               className="effect-download"
@@ -213,16 +216,18 @@ export default function ChatPanel({
         if (!agent.current) return false;
         setNotice("");
         stickToBottom.current = true;
+        try { await vfx?.beforeSend?.(); }
+        catch (error) { setNotice(error instanceof Error ? error.message : "Could not save studio changes."); return false; }
         return agent.current.send(prompt, referenceIds);
       }} />
       <div className="chat-footnote">
-        {!vfx?.standalone ? "Discuss effects and reference images. Studio editing is coming next." : generation.busy ? (
+        {!vfx?.standalone ? "Edit effects and explore references with the assistant." : generation.busy ? (
           <span>Generating… <button type="button" className="icon-button" onClick={generation.abort} aria-label="Stop generation"><Icon name="close" size={13} /></button></span>
         ) : generation.available && generation.budget ? (
           `Local generation ready · $${generation.budget.used.toFixed(2)} of $${generation.budget.limit.toFixed(2)} used`
         ) : "Local generation is not configured."}
       </div>
-    </aside>
+    </aside></ChatTargets.Provider>
   );
 }
 
@@ -240,12 +245,18 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
   const accepted = useRef(false);
   const sending = useRef(false);
   const [sendError, setSendError] = useState("");
+  const [toolActivity, setToolActivity] = useState("");
+  const [toolFailure, setToolFailure] = useState("");
   const agent = useEveAgent({
     headers: () => agentHeaders(projectId),
     initialSession: sessionId ? { sessionId, streamIndex: 0 } : undefined,
     resume: !!sessionId,
     optimistic: true,
-    onEvent: event => { if (event.type === "message.received") accepted.current = true; },
+    onEvent: event => {
+      if (event.type === "message.received") { accepted.current = true; setToolFailure(""); }
+      if (event.type === "actions.requested") setToolActivity("Working with studio tools…");
+      if (event.type === "action.result") { setToolActivity(""); if (event.data.status !== "completed") setToolFailure(event.data.error?.message || "The studio tool could not complete this request."); }
+    },
   });
   useEffect(() => { onHistory(agent.data.messages.length > 0); }, [agent.data.messages.length, onHistory]);
   const active = agent.status === "submitted" || agent.status === "streaming";
@@ -273,8 +284,10 @@ function AgentConversation({ ref, projectId, sessionId, vfx, setSaving, onHistor
     },
   }));
   return <>
+    {toolFailure && <p className={`${styles.notice} ${styles.error}`} role="alert">{toolFailure}</p>}
+    {active && toolActivity && <p className={styles.notice} role="status">{toolActivity}</p>}
     {agent.data.messages.map(message => <ChatMessage key={message.id} role={message.role}
-      text={displayPrompt(message.parts.filter(part => part.type === "text").map(part => part.text).join("\n\n"))}
+      text={message.parts.filter(part => part.type === "text").map(part => part.text).join("\n\n")}
       files={message.parts.filter(part => part.type === "file").map(part => part.filename || "Reference image")}
       streaming={message.metadata?.status === "streaming"}
       caption={message.role === "user" ? message.metadata?.status === "failed" ? "Not confirmed · draft restored" : message.metadata?.optimistic ? "Sending…" : undefined : undefined}

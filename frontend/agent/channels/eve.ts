@@ -4,12 +4,21 @@ import type { HttpRouteDefinition, Session } from "eve/channels";
 import { ChatError, jsonRequest, parseTurn, readBody, responseError } from "../lib/contracts";
 import { acquireLease, conversationAddress, assertSession, authorizeProject, conversation, releaseLease } from "../lib/database";
 import { referenceParts } from "../lib/references";
+import { transition } from "../../src/lib/studio-tools/server";
+import { mentionPattern, emitterMentionPattern } from "../../src/components/studio/composer/prompt-format";
+import { readState } from "../../src/lib/studio-tools/server";
 import { configurationError } from "../lib/config";
 
 const base = eveChannel({
   auth: async request => {
     const { userId, project } = await authorizeProject(request);
-    return { authenticator: "supabase", principalType: "user", principalId: userId, attributes: { projectId: project.id } };
+    let referenceIds: string[] = [], selectedEmitterId = "";
+    if (request.method === "POST") {
+      const body = await request.clone().json().catch(() => ({}));
+      referenceIds = Array.isArray(body.clientContext?.referenceIds) ? body.clientContext.referenceIds.filter((id: unknown) => typeof id === "string").slice(0, 8) : [];
+      selectedEmitterId = typeof body.clientContext?.studio?.selectedEmitterId === "string" ? body.clientContext.studio.selectedEmitterId : "";
+    }
+    return { authenticator: "supabase", principalType: "user", principalId: userId, attributes: { projectId: project.id, referenceIds, selectedEmitterId } };
   },
   turnPolicy: "queue",
   uploadPolicy: { allowedMediaTypes: ["image/jpeg"], maxBytes: 20 * 1024 * 1024 },
@@ -58,6 +67,7 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
       const isCancel = route.method === "POST" && route.path === "/eve/v1/session/:sessionId/cancel";
       if (isStream) return await route.handler(request, args);
       if (isCancel) {
+        if (process.env.STUDIO_TOOLS_ENABLED !== "0") await transition({ userId: access.userId, projectId: authorizedProjectId }, "cancel_turn", { sessionId });
         const body = await readBody(request);
         if (body.turnId !== undefined && typeof body.turnId !== "string") throw new ChatError("INVALID_BODY", "Invalid cancellation request.");
         return await route.handler(jsonRequest(request, { turnId: body.turnId }), args);
@@ -69,6 +79,17 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
       if (isCreate && binding.session_id) return Response.json({ ok: false, code: "SESSION_EXISTS", error: "A conversation already exists. Reconnect before sending.", sessionId: binding.session_id }, { status: 409 });
       stage = "parse_turn";
       const turn = parseTurn(await readBody(request));
+      for (const match of turn.prompt.matchAll(mentionPattern)) {
+        if (!turn.referenceIds.includes(match[2])) turn.referenceIds.push(match[2]);
+      }
+      if (turn.referenceIds.length > 8) throw new ChatError("INVALID_REFERENCES", "Use at most eight references.");
+      if (process.env.STUDIO_TOOLS_ENABLED !== "0") {
+        const state = await readState({ userId: access.userId, projectId: authorizedProjectId });
+        for (const match of turn.prompt.matchAll(emitterMentionPattern)) {
+          let id: string; try { id = decodeURIComponent(match[2]); } catch { throw new ChatError("INVALID_EMITTER", "Invalid emitter tag."); }
+          if (!state.document.layers.some(layer => layer.id === id)) throw new ChatError("INVALID_EMITTER", "An emitter tag is no longer available.");
+        }
+      }
       stage = "claim_lease";
       lease = await acquireLease(access.client, authorizedProjectId);
       const freshBinding = await conversation(access.client, authorizedProjectId);
@@ -87,7 +108,7 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
       stage = "load_references";
       const files = await referenceParts(access.client, authorizedProjectId, turn.referenceIds);
       const message = [{ type: "text" as const, text: turn.prompt }, ...files];
-      const clientContext = { project: access.project, studio: turn.context };
+      const clientContext = { project: access.project, studio: turn.context, referenceIds: turn.referenceIds };
       let response: Response;
       if (isCreate) {
         const promptHash = createHash("sha256").update(JSON.stringify(turn)).digest("hex");
@@ -95,7 +116,7 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
         if (prepareError) throw new ChatError("CONVERSATION_UNAVAILABLE", "Could not prepare the conversation.", 503);
         stage = "create_session";
         const session = await args.from(address).send(message, {
-          auth: { authenticator: "supabase", principalType: "user", principalId: access.userId, attributes: { projectId: authorizedProjectId } },
+          auth: { authenticator: "supabase", principalType: "user", principalId: access.userId, attributes: { projectId: authorizedProjectId, referenceIds: turn.referenceIds, selectedEmitterId: typeof turn.context.selectedEmitterId === "string" ? turn.context.selectedEmitterId : "" } },
           context: [`Untrusted studio context: ${JSON.stringify(clientContext)}`],
           turnPolicy: "queue",
         });

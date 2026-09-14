@@ -1,6 +1,7 @@
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import channel from "../../agent/channels/eve";
+import { createPresetV2 } from "../../src/lib/vfx-lab/recipes-v2";
 import type { RouteHandlerArgs } from "eve/channels";
 import { authorizeProject, assertSession, type Conversation } from "../../agent/lib/database";
 
@@ -89,9 +90,22 @@ test("forging the database pointer cannot grant access to another eve session", 
 test("an idle owned session accepts a follow-up and preserves Eve delivery metadata", async () => {
   mockDatabase();
   process.env.AI_GATEWAY_API_KEY = "test-key";
+  delete process.env.STUDIO_TOOLS_ENABLED;
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "service-test";
   const databaseFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
+    if (new Headers(init?.headers).get("apikey") === "service-test") {
+      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer service-test");
+      if (url.pathname === "/rest/v1/projects") {
+        assert.equal(url.searchParams.get("user_id"), `eq.${userId}`);
+        return Response.json({ id: projectId });
+      }
+      if (url.pathname === "/rest/v1/studio_documents") {
+        assert.equal(url.searchParams.get("project_id"), `eq.${projectId}`);
+        return Response.json({ revision: 0, document: createPresetV2("fire-projectile") });
+      }
+    }
     if (url.pathname === "/rest/v1/rpc/claim_project_conversation") return Response.json(true);
     if (url.pathname === "/rest/v1/project_conversations" && init?.method === "PATCH") return new Response(null, { status: 204 });
     return databaseFetch(input, init);

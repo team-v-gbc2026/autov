@@ -1,27 +1,10 @@
-# Eve studio tool adapters
+# Eve studio tools
 
-Scaffold only. There are no callable studio tools in this directory yet.
+The nine authored tools call shared operations in `src/lib/studio-tools`.
+Document tools use persisted project revisions; browser tools use expiring operation
+leases and Eve workflow waits. `defaultTools: false` keeps shell/filesystem/web tools
+disabled. All adapters derive identity from the authenticated Eve session and verify
+current project ownership before accessing service-role storage.
 
-Eve discovers authored tools from TypeScript files in this directory. A filename
-such as `read_studio.ts` becomes the model-facing tool name. Use `defineTool`
-from `eve/tools` with a runtime input schema, a description, and an executor.
-See the installed Eve guide at `node_modules/eve/docs/tools/overview.mdx`.
-
-Each adapter should:
-
-1. Resolve verified user/project identity and the current studio state through
-   an explicitly implemented transport. Do not trust IDs supplied by the model.
-2. Parse arguments and call the shared operation in `src/lib/studio-tools/`.
-3. Return the actual operation outcome, without credentials or private URLs.
-
-Keep validation and studio mutations in the shared operation; keep Eve-specific
-session context and result formatting in this adapter. Do not implement placeholder
-executors that return success before an action is connected.
-
-`agent.ts` keeps `defaultTools: false`: shell, filesystem, web, and delegation
-capabilities remain disabled. That setting does not disable authored tools added
-here, so add executable tool files only when their implementations are ready.
-
-Before enabling edits, wire results into the studio's authoritative state and
-handle stale snapshots and durable replay. This scaffold adds no transport,
-new database tables, renderer integration, or tool registration.
+See `docs/EVE_STUDIO_TOOLS.md` at the repository root for setup, tool examples,
+validation commands, cancellation/replay behavior, and extension boundaries.

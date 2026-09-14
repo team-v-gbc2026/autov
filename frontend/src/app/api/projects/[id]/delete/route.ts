@@ -7,8 +7,8 @@ function validUuid(value: string) {
   return /^[0-9a-f-]{36}$/i.test(value);
 }
 
-export async function POST(request: NextRequest, context: { params: { id: string } | Promise<{ id: string }> }) {
-  const resolvedParams = "then" in context.params ? await context.params : context.params;
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await context.params;
   const projectId = resolvedParams.id;
   if (!validUuid(projectId)) return NextResponse.json({ error: "Invalid project." }, { status: 400 });
 

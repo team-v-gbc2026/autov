@@ -38,3 +38,7 @@
 .reconnecting { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 20px 0; color: #96a79c; font-size: 10px; }
 @media (prefers-reduced-motion: no-preference) { .spinner { animation: spin 1s linear infinite; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.mentionChip { display: inline; padding: 1px 5px; margin: 0 1px; border: 1px solid #bba37455; border-radius: 5px; background: #bba37418; color: #dbc695; font: inherit; cursor: pointer; }
+.mentionChip:disabled { opacity: .55; cursor: default; }
+.mentionChip:focus-visible { outline: 2px solid #dbc695; outline-offset: 2px; }

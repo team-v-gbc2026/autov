@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { UserContent } from "ai";
 import sharp from "sharp";
+import { encodeMention } from "../../src/components/studio/composer/prompt-format";
 import { ChatError } from "./contracts";
 
 export async function referenceParts(client: SupabaseClient, projectId: string, ids: string[]): Promise<Exclude<UserContent, string>> {
@@ -18,7 +19,7 @@ export async function referenceParts(client: SupabaseClient, projectId: string, 
     try {
       bytes = await sharp(Buffer.from(await blob.arrayBuffer()), { limitInputPixels: 40_000_000, pages: 1 }).rotate().resize({ width: 1280, height: 1280, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
     } catch { throw new ChatError("INVALID_IMAGE", `Could not decode reference “${asset.name}”. Try a smaller PNG or JPEG.`); }
-    parts.push({ type: "text", text: `Reference: ${asset.name}${asset.mime_type === "image/gif" ? " (first frame only)" : ""}` });
+    parts.push({ type: "text", text: `Reference: ${encodeMention(asset.id, asset.name)}${asset.mime_type === "image/gif" ? " (first frame only)" : ""}` });
     // Durable bytes rather than expiring signed URLs; later turns can reuse the image.
     parts.push({ type: "file", mediaType: "image/jpeg", filename: `${asset.name}.jpg`, data: `data:image/jpeg;base64,${bytes.toString("base64")}` });
   }

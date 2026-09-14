@@ -12,7 +12,8 @@ import IconButton from "../icon-button";
 import Tooltip from "@/components/ui/tooltip";
 import styles from "./board.module.css";
 
-export default function MoodBoard({ projectId, state, onMention, onCollapse, locked }: {
+export default function MoodBoard({ projectId, state, onMention, onCollapse, locked, focusRequest }: {
+  focusRequest?: { id: string; sequence: number };
   projectId: string; state: ReferenceState; onMention: (reference: Reference) => void; onCollapse: () => void; locked: boolean;
 }) {
   const { layout, update, persist } = useBoardLayout(projectId);
@@ -47,6 +48,17 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
     return { x, y };
   });
   const preview = refs.find(item => item.id === previewId);
+  useEffect(() => {
+    if (!focusRequest) return;
+    const index = refs.findIndex(item => item.id === focusRequest.id);
+    const api = transform.current, host = viewport.current;
+    if (index < 0 || !api || !host) return;
+    const point = positions[index], size = sizes[focusRequest.id];
+    const zoom = Math.min(1.5, (host.clientWidth - 32) / size.width, (host.clientHeight - 32) / size.height);
+    api.setTransform(host.clientWidth / 2 - (point.x + size.width / 2) * zoom, host.clientHeight / 2 - (point.y + size.height / 2) * zoom, zoom, 0);
+    // This request intentionally runs only when a new focus command arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest]);
   const reportPersistence = () => { if (!persist()) state.setError("Board arrangement could not be saved in this browser."); };
 
   useEffect(() => {

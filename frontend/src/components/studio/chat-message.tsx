@@ -1,11 +1,24 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { parseMentions } from "@/lib/studio-tools/mentions";
 import Tooltip from "@/components/ui/tooltip";
 import styles from "./chat.module.css";
 
-function inline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => part.startsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part.startsWith("`") ? <code key={i}>{part.slice(1, -1)}</code> : part);
+export const ChatTargets = createContext<{ references: { id: string; name: string }[]; emitters: { id: string; name: string }[]; onReference?: (id: string) => void; onEmitter?: (id: string) => void }>({ references: [], emitters: [] });
+function Inline({ text }: { text: string }) {
+  const targets = useContext(ChatTargets);
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, group) => {
+    if (part.startsWith("**")) return <strong key={group}><Inline text={part.slice(2, -2)} /></strong>;
+    if (part.startsWith("`")) return <code key={group}>{part.slice(1, -1)}</code>;
+    return <span key={group}>{parseMentions(part, true).map((token, index) => {
+      if (token.type === "text") return token.text;
+      const item = (token.type === "reference" ? targets.references : targets.emitters).find(item => item.id === token.id);
+      const click = token.type === "reference" ? targets.onReference : targets.onEmitter;
+      return <button key={index} type="button" className={styles.mentionChip} disabled={!item || !click} title={item ? `Focus ${item.name}` : "This item is no longer available"} onClick={() => click?.(token.id)}>{token.type === "reference" ? "@" : "#"}{item?.name || token.label}{!item && " (unavailable)"}</button>;
+    })}</span>;
+  });
 }
+function inline(text: string): ReactNode { return <Inline text={text} />; }
 function AssistantText({ text }: { text: string }) {
   return text.split(/(```[\s\S]*?(?:```|$))/g).map((block, i) => {
     if (block.startsWith("```")) return <pre key={i}><code>{block.replace(/^```[^\n]*\n?/, "").replace(/```$/, "")}</code></pre>;
@@ -26,7 +39,7 @@ export default function ChatMessage({ role, text, files = [], streaming = false,
     <div className={styles.author}>{role === "user" ? "You" : <><span className={styles.mark} aria-hidden="true">✦</span> AutoV</>}</div>
     <div className={styles.body}>
       {files.length > 0 && <div className={styles.attachments}>{files.map((file, i) => <span key={i} title={file}>▧ {file}</span>)}</div>}
-      {role === "assistant" ? <AssistantText text={text} /> : <p>{text}</p>}
+      {role === "assistant" ? <AssistantText text={text} /> : <p>{inline(text)}</p>}
     </div>
     {caption && <small className={styles.caption}>{caption}</small>}
     {role === "assistant" && text && !streaming && <Tooltip content={copyError ? "Could not copy · retry" : copied ? "Copied" : "Copy message"}><button type="button" className={styles.copy} aria-label={copyError ? "Could not copy. Retry copying message" : copied ? "Copied message" : "Copy assistant message"} onClick={async () => {
