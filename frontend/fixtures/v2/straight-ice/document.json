@@ -45,9 +45,9 @@
   },
   "post": {
     "bloom": {
-      "strength": 0.58,
+      "strength": 0.44,
       "radius": 0.5,
-      "threshold": 1.1
+      "threshold": 1.4
     },
     "exposure": 1,
     "grade": {
@@ -330,28 +330,28 @@
           "stops": [
             {
               "t": 0,
-              "color": "#ffffff",
-              "intensity": 2.2
+              "color": "#eefaff",
+              "intensity": 1.3
             },
             {
               "t": 0.32,
-              "color": "#cdeeff",
-              "intensity": 1.5
+              "color": "#b4e2f8",
+              "intensity": 1.0
             },
             {
               "t": 0.68,
-              "color": "#68b6e0",
-              "intensity": 0.95
+              "color": "#5aa8d8",
+              "intensity": 0.72
             },
             {
               "t": 1,
-              "color": "#2c5f8e",
-              "intensity": 0.6
+              "color": "#255c8e",
+              "intensity": 0.5
             }
           ],
           "displacementShift": 0
         },
-        "opacity": 0.82,
+        "opacity": 0.86,
         "mask": {
           "textureId": null,
           "uvScale": [
@@ -388,25 +388,25 @@
             "keys": [
               [
                 0,
-                0.02
+                0.03
               ],
               [
                 0.55,
-                0.09
+                0.11
               ],
               [
                 1,
-                0.2
+                0.26
               ]
             ],
             "ease": "smooth"
           },
-          "softness": 0.1,
-          "edgeWidth": 0.07,
+          "softness": 0.12,
+          "edgeWidth": 0.06,
           "edgeColor": "#eaf9ff",
-          "edgeIntensity": 2.6,
+          "edgeIntensity": 1.8,
           "displacementProtect": 0.4,
-          "rimBias": 0.55
+          "rimBias": 0.5
         },
         "softParticle": 0,
         "fresnel": {
@@ -419,12 +419,12 @@
         "type": "cylinder",
         "segments": 96,
         "radialSegments": 20,
-        "radius": 0.5,
+        "radius": 0.46,
         "length": 7.4,
         "thickness": 0.22,
         "vertexNoise": {
-          "amplitude": 0.16,
-          "frequency": 5.2,
+          "amplitude": 0.26,
+          "frequency": 5.8,
           "speed": 0.35,
           "bias": [
             0,
@@ -550,22 +550,22 @@
             {
               "t": 0,
               "color": "#ffffff",
-              "intensity": 2.9
+              "intensity": 1.5
             },
             {
               "t": 0.45,
-              "color": "#ddf6ff",
-              "intensity": 2.2
+              "color": "#c6edff",
+              "intensity": 1.15
             },
             {
               "t": 1,
-              "color": "#8fd2f2",
-              "intensity": 1.2
+              "color": "#6fbde8",
+              "intensity": 0.6
             }
           ],
           "displacementShift": 0
         },
-        "opacity": 0.9,
+        "opacity": 0.62,
         "mask": {
           "textureId": null,
           "uvScale": [
@@ -611,7 +611,7 @@
         "type": "plane",
         "segments": 64,
         "radialSegments": 12,
-        "radius": 0.13,
+        "radius": 0.07,
         "length": 7.4,
         "thickness": 0.12,
         "vertexNoise": null,
@@ -830,11 +830,11 @@
           "floor": null
         },
         "render": {
-          "mode": "velocityStretch",
-          "stretch": 1.5,
+          "mode": "billboard",
+          "stretch": 0,
           "size": [
-            0.09,
-            0.34
+            0.06,
+            0.18
           ],
           "sizeCurve": {
             "keys": [
@@ -861,11 +861,11 @@
               ],
               [
                 0.1,
-                1
+                0.9
               ],
               [
                 0.7,
-                0.9
+                0.7
               ],
               [
                 1,
@@ -978,7 +978,7 @@
         "procedural": "none"
       },
       "emitter": {
-        "count": 280,
+        "count": 190,
         "shape": {
           "type": "line",
           "axis": [
@@ -1005,7 +1005,7 @@
         "spawn": {
           "mode": "continuous",
           "window": 1.5,
-          "rate": 88,
+          "rate": 58,
           "duration": 3.4,
           "bursts": []
         },
@@ -1048,8 +1048,8 @@
           "mode": "billboard",
           "stretch": 0,
           "size": [
-            0.06,
-            0.22
+            0.04,
+            0.14
           ],
           "sizeCurve": {
             "keys": [
@@ -1076,11 +1076,11 @@
               ],
               [
                 0.12,
-                1
+                0.85
               ],
               [
                 0.66,
-                0.8
+                0.6
               ],
               [
                 1,
