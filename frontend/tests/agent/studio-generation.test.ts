@@ -14,7 +14,6 @@ const identity = {
 };
 const operation = { id: "30000000-0000-4000-8000-000000000001" } as Operation;
 process.env.OPENAI_API_KEY = "test-key-not-sent";
-process.env.STUDIO_TOOLS_ENABLED = "1";
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://database.example.com";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "test-only";
 const schema = z.object({ name: z.string() });

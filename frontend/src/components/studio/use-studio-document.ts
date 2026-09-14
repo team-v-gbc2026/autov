@@ -146,12 +146,6 @@ export function useStudioDocument(
             document: current.document,
           });
           if (!active) return;
-          if (state.enabled === false) {
-            current.disabled = true;
-            current.initialized = true;
-            setReady(true);
-            return;
-          }
           current.document = validateWorkspaceDocumentV2(state.document);
           current.revision = state.revision;
           current.initialized = true;

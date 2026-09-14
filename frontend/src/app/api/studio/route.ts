@@ -54,8 +54,6 @@ export async function GET(request: Request) {
   try {
     const access = await authorizeProject(request),
       identity = { userId: access.userId, projectId: access.project.id };
-    if (process.env.STUDIO_TOOLS_ENABLED === "0")
-      return Response.json({ enabled: false });
     const state = await readState(identity);
     const client = admin();
     const { data: operations, error } = await client
@@ -105,11 +103,6 @@ export async function POST(request: Request) {
     const body = RequestSchema.parse(
       JSON.parse(Buffer.concat(chunks).toString("utf8")),
     );
-    if (
-      body.action === "initialize" &&
-      process.env.STUDIO_TOOLS_ENABLED === "0"
-    )
-      return Response.json({ enabled: false });
     if (body.action === "initialize")
       return Response.json(
         await transition(identity, "initialize", {

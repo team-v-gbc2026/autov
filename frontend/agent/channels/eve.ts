@@ -67,7 +67,7 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
       const isCancel = route.method === "POST" && route.path === "/eve/v1/session/:sessionId/cancel";
       if (isStream) return await route.handler(request, args);
       if (isCancel) {
-        if (process.env.STUDIO_TOOLS_ENABLED !== "0") await transition({ userId: access.userId, projectId: authorizedProjectId }, "cancel_turn", { sessionId });
+        await transition({ userId: access.userId, projectId: authorizedProjectId }, "cancel_turn", { sessionId });
         const body = await readBody(request);
         if (body.turnId !== undefined && typeof body.turnId !== "string") throw new ChatError("INVALID_BODY", "Invalid cancellation request.");
         return await route.handler(jsonRequest(request, { turnId: body.turnId }), args);
@@ -83,12 +83,10 @@ function protect(route: HttpRouteDefinition): HttpRouteDefinition {
         if (!turn.referenceIds.includes(match[2])) turn.referenceIds.push(match[2]);
       }
       if (turn.referenceIds.length > 8) throw new ChatError("INVALID_REFERENCES", "Use at most eight references.");
-      if (process.env.STUDIO_TOOLS_ENABLED !== "0") {
-        const state = await readState({ userId: access.userId, projectId: authorizedProjectId });
-        for (const match of turn.prompt.matchAll(emitterMentionPattern)) {
-          let id: string; try { id = decodeURIComponent(match[2]); } catch { throw new ChatError("INVALID_EMITTER", "Invalid emitter tag."); }
-          if (!state.document.layers.some(layer => layer.id === id)) throw new ChatError("INVALID_EMITTER", "An emitter tag is no longer available.");
-        }
+      const state = await readState({ userId: access.userId, projectId: authorizedProjectId });
+      for (const match of turn.prompt.matchAll(emitterMentionPattern)) {
+        let id: string; try { id = decodeURIComponent(match[2]); } catch { throw new ChatError("INVALID_EMITTER", "Invalid emitter tag."); }
+        if (!state.document.layers.some(layer => layer.id === id)) throw new ChatError("INVALID_EMITTER", "An emitter tag is no longer available.");
       }
       stage = "claim_lease";
       lease = await acquireLease(access.client, authorizedProjectId);

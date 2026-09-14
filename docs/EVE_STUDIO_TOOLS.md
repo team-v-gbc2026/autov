@@ -11,9 +11,7 @@ Image generation, image cleanup and custom parameter metadata are not included.
 1. Apply `supabase/migrations/20260914090000_studio_tools.sql` after existing migrations.
 2. Configure server-only `SUPABASE_SERVICE_ROLE_KEY`, `AI_GATEWAY_API_KEY` and
    `OPENAI_API_KEY`, along with the existing public Supabase URL/publishable key.
-3. Studio tools are enabled by default, including when `STUDIO_TOOLS_ENABLED` is unset.
-   Set `STUDIO_TOOLS_ENABLED=0` only to explicitly disable them and keep editing local.
-   Enabled tools require the storage configuration and migration above.
+3. Studio tools are always enabled and require the storage configuration and migration above.
 4. Keep `OPENAI_VFX_MODEL=gpt-6-astra`; the inherited conservative cost formula is
    tied to that model. `OPENAI_VFX_BUDGET_USD` defaults to 30, accepts positive values
    up to 60, and applies cumulatively per project to generation provider calls.
