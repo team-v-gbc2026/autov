@@ -37,7 +37,7 @@ test("successful provider edit registers a new reference", async () => {
       }
       return Response.json({ id, name: "Source", storage_path: `${id}/${id}/${id}` });
     }
-    if (url.includes("api.openai.com")) { calls++; return Response.json({ data: [{ b64_json: png.toString("base64") }] }); }
+    if (new URL(url).hostname === "api.openai.com") { calls++; return Response.json({ data: [{ b64_json: png.toString("base64") }] }); }
     if (url.includes("/object/sign/")) return Response.json({ signedURL: "/signed/image" });
     if (url.includes("/storage/")) return init?.method === "POST" ? Response.json({ Key: "saved" }) : new Response(png);
     throw new Error("Unexpected request");
@@ -64,7 +64,7 @@ test("text-only image generation saves a new board reference", async () => {
       }
       return Response.json({ id, name: "Source", storage_path: `${id}/${id}/${id}` });
     }
-    if (url.includes("api.openai.com")) { calls++; return Response.json({ data: [{ b64_json: png.toString("base64") }] }); }
+    if (new URL(url).hostname === "api.openai.com") { calls++; return Response.json({ data: [{ b64_json: png.toString("base64") }] }); }
     if (url.includes("/object/sign/")) return Response.json({ signedURL: "/signed/image" });
     if (url.includes("/storage/")) return init?.method === "POST" ? Response.json({ Key: "saved" }) : new Response(png);
     throw new Error("Unexpected request");
