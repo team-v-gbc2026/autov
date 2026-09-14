@@ -49,11 +49,11 @@ with a short timeout and fall back to the local file, so they work offline.
 
 ### Uploading
 
-Put the service role key in `frontend/.env.local` (never commit it, never use a
+Put the secret key in `frontend/.env.local` (never commit it, never use a
 `NEXT_PUBLIC_` prefix):
 
 ```sh
-SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_SECRET_KEY=...
 ```
 
 Then, with the PNG originals available locally:

@@ -902,6 +902,8 @@ export default function VfxStudio() {
       </div>
       <PlaybackPanel
         playback={playback}
+        effectName={doc.name}
+        onEffectNameChange={name => commit({ ...doc, name })}
         duration={doc.duration}
         minDuration={Math.max(0.01, ...doc.layers.map((l) => l.end))}
         onDurationChange={(duration) => {

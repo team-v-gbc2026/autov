@@ -7,8 +7,8 @@ function validUuid(value: string) {
   return /^[0-9a-f-]{36}$/i.test(value);
 }
 
-export async function POST(request: NextRequest, context: { params: { id: string } | Promise<{ id: string }> }) {
-  const resolvedParams = "then" in context.params ? await context.params : context.params;
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await context.params;
   const projectId = resolvedParams.id;
   if (!validUuid(projectId)) return NextResponse.json({ error: "Invalid project." }, { status: 400 });
 
@@ -17,8 +17,8 @@ export async function POST(request: NextRequest, context: { params: { id: string
   if (userError || !user) return NextResponse.json({ error: "Sign in required." }, { status: 401 });
 
   const { url, key } = supabaseConfig();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const admin = serviceRoleKey ? createAdminClient(url, serviceRoleKey) : null;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  const admin = secretKey ? createAdminClient(url, secretKey) : null;
 
   const db = admin ?? supabase;
   const useServiceRole = !!admin;

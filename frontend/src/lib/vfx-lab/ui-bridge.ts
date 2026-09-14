@@ -457,13 +457,23 @@ export function applyLayerPatch(
     retime(layer, start, end);
   }
   if (patch.enabled !== undefined) layer.enabled = patch.enabled;
-  if (patch.color !== undefined) {
-    if (layer.light) layer.light.color = patch.color;
-    else if (layer.material) layer.material.ramp.stops[0].color = patch.color;
-  }
-  if (patch.secondaryColor !== undefined && layer.material) {
+  if (patch.color !== undefined && layer.light) layer.light.color = patch.color;
+  if (layer.material && ((patch.color !== undefined && patch.color !== layer.material.ramp.stops[0].color) ||
+    (patch.secondaryColor !== undefined && patch.secondaryColor !== layer.material.ramp.stops[layer.material.ramp.stops.length - 1].color))) {
     const stops = layer.material.ramp.stops;
-    stops[stops.length - 1].color = patch.secondaryColor;
+    const first = stops[0], last = stops[stops.length - 1];
+    const primary = patch.color ?? first.color;
+    const secondary = patch.secondaryColor ?? last.color;
+    const channels = (hex: string) => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
+    const from = channels(primary), to = channels(secondary);
+    // The two UI colors describe the whole ramp, including authored interior stops.
+    // Keep sampling positions and HDR intensity so editing hue preserves timing/brightness.
+    for (const stop of stops) {
+      const t = last.t === first.t ? 0 : (stop.t - first.t) / (last.t - first.t);
+      stop.color = `#${from.map((value, index) => Math.round(value + (to[index] - value) * t).toString(16).padStart(2, "0")).join("")}`;
+    }
+    first.color = primary;
+    last.color = stops.length === 1 ? (patch.color ?? patch.secondaryColor ?? primary) : secondary;
   }
   if (patch.blend !== undefined && layer.material) {
     const current = layer.material.blend;

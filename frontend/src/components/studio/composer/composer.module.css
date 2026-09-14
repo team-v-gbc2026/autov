@@ -13,3 +13,9 @@
 .picker img { object-fit: cover; border-radius: 4px; }.picker button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.picker small { margin-left: auto; color: #788893; }.picker p { font-size: 11px; color: #8a989f; padding: 10px; }
 
 .emitterDot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; margin: 0 10px; }
+
+.composer { border-radius: 14px; background: #ffffff04; transition: border-color .15s; }
+.composer:focus-within { border-color: #a3bbad55; }
+.composer .stop { background: #d7e3dc; color: #17251c; border-radius: 50%; }
+.composer :global(.send-button) { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; }
+.composer :global(.send-button):focus-visible { outline: 2px solid #adc5b6; outline-offset: 3px; }

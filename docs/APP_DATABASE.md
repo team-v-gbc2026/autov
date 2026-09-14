@@ -12,7 +12,7 @@ cp .env.example .env.local # only when no local environment file exists
 npm run dev
 ```
 
-Use `/login` to create an account or sign in, `/workspace` to create/open projects, and `/workspace/<project-id>` for the studio. Email/password authentication uses Supabase SSR cookies. Private routes verify the user on the server; RLS also protects direct API access. The frontend never needs a service-role key.
+Use `/login` to create an account or sign in, `/workspace` to create/open projects, and `/workspace/<project-id>` for the studio. Email/password authentication uses Supabase SSR cookies. Private routes verify the user on the server; RLS also protects direct API access. The frontend never needs a secret key.
 
 In Supabase Auth URL configuration, allow `http://localhost:3000/auth/callback` and the deployed app's `/auth/callback` URL. Configure Site URL to the app origin. For separate marketing/app domains, login and the studio should run on the app origin. Signup uses the project's email-confirmation setting; email delivery is provided by the project's configured mail service.
 
@@ -22,7 +22,7 @@ In Supabase Auth URL configuration, allow `http://localhost:3000/auth/callback` 
 | --- | --- |
 | `projects` | User-owned project name and creation time |
 | `assets` | Image metadata and private storage path; `archived` removes a reference from the current workspace without breaking earlier prompts |
-| `generations` | Prompt and processing state; new requests are saved as `draft` until generation is connected |
+| `generations` | Historical prompts and processing state; Eve chat does not create generation rows |
 | `generation_inputs` | Ordered reference snapshot; composite foreign keys enforce the same project |
 | `effect_versions` | Immutable result rows containing `definition` JSON and the producer's `schema_version` |
 
@@ -30,10 +30,10 @@ Reference files live in the private `references` bucket at `<user-id>/<project-i
 
 ## Generation team contract
 
-1. The authenticated app calls `save_generation(p_project_id, p_prompt, p_asset_ids)` to atomically create a draft and its inputs. The returned UUID is the generation ID.
-2. Connect your backend invocation after this save, or process drafts through your own backend. Do not enable automatic draft processing until intended. Claim work atomically to prevent two workers processing one request.
+1. The old prompt-saving action and RPC are retired. New messages go to Eve; see [the agent integration](EVE_STUDIO_INTEGRATION.md). A future generation tool must explicitly create a generation and its inputs in a transaction.
+2. Connect your backend invocation to that explicit generation tool. Do not enable automatic draft processing until intended. Claim work atomically to prevent two workers processing one request.
 3. Read the generation and ordered `generation_inputs`. Join `assets` for image locations. Create signed URLs server-side if your model requires URLs.
-4. Only a trusted backend may change status (`queued`, `running`, `succeeded`, `failed`), settings, errors, or completion time. Use your existing server authentication and a server-only Supabase secret/service-role key. Check ownership when accepting user-supplied generation IDs.
+4. Only a trusted backend may change status (`queued`, `running`, `succeeded`, `failed`), settings, errors, or completion time. Use your existing server authentication and a server-only Supabase secret key. Check ownership when accepting user-supplied generation IDs.
 5. Insert an `effect_versions` row with `project_id`, `generation_id`, `schema_version`, and `definition`. Definition must be a JSON object; its internal VFX schema is deliberately unspecified. Validate it in your generator/runtime. Save the result and successful status in one transaction where possible.
 6. The studio lists saved versions after a refresh. `GET /api/effects/<version-id>` returns the raw JSON as a download after checking authentication and RLS. The current canvas remains the existing sample; pass your JSON to your renderer separately.
 

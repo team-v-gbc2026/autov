@@ -18,7 +18,7 @@
 //
 // Env (read from the shell or frontend/.env.local):
 //   NEXT_PUBLIC_SUPABASE_URL      defaults to the shared team project
-//   SUPABASE_SERVICE_ROLE_KEY     required for uploads, never printed
+//   SUPABASE_SECRET_KEY     required for uploads, never printed
 //
 // Plain fetch against the storage REST API — no dependencies, no client lib.
 
@@ -89,7 +89,7 @@ const env = (name) => process.env[name] || fileEnv[name] || "";
 const supabaseUrl = (
   env("NEXT_PUBLIC_SUPABASE_URL") || DEFAULT_SUPABASE_URL
 ).replace(/\/+$/, "");
-const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
+const serviceKey = env("SUPABASE_SECRET_KEY");
 
 const publicUrl = (bucket, objectPath) =>
   `${supabaseUrl}/storage/v1/object/public/${bucket}/${objectPath}`;
@@ -176,7 +176,6 @@ async function upload(entry) {
     {
       method: "POST",
       headers: {
-        authorization: `Bearer ${serviceKey}`,
         apikey: serviceKey,
         "content-type": contentType(entry.localPath),
         "cache-control": `max-age=${CACHE_CONTROL}`,
@@ -215,7 +214,7 @@ async function verify(entry) {
 
 if (!verifyOnly && !dryRun && !serviceKey) {
   console.error(
-    "SUPABASE_SERVICE_ROLE_KEY is not set.\n" +
+    "SUPABASE_SECRET_KEY is not set.\n" +
       "Put it in frontend/.env.local (never commit it) or export it, then re-run.",
   );
   process.exit(1);

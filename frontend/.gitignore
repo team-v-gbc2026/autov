@@ -40,6 +40,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# eve generated runtime and local durable state
+/.eve/
+/.output/
+/.workflow/
+
 # Local generation secrets, evidence, cumulative spend ledger
 .autov-local/
 # Offline mirror of the vfx-textures bucket (see docs/vfx-lab/LOCAL_SETUP.md)

@@ -349,3 +349,18 @@ test("a documented no-op returns the same document identity", () => {
   // Re-applying the projected values changes nothing either.
   assert.equal(applyLayerPatch(doc, light.id, { parameters }), doc);
 });
+
+test("primary color recolors interior ramp stops while preserving timing and intensity", () => {
+  const doc = createDocument();
+  const layer = doc.layers.find(layer => layer.material)!;
+  layer.material!.ramp.stops = [
+    { t: 0, color: "#ffffff", intensity: 1 },
+    { t: 0.5, color: "#cccccc", intensity: 3 },
+    { t: 1, color: "#000000", intensity: 0.5 },
+  ];
+  const edited = applyLayerPatch(doc, layer.id, { color: "#0000ff" });
+  const stops = edited.layers.find(item => item.id === layer.id)!.material!.ramp.stops;
+  assert.deepEqual(stops.map(stop => stop.color), ["#0000ff", "#000080", "#000000"]);
+  assert.deepEqual(stops.map(stop => [stop.t, stop.intensity]), [[0, 1], [0.5, 3], [1, 0.5]]);
+  assert.equal(layer.material!.ramp.stops[1].color, "#cccccc");
+});

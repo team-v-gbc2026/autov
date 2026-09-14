@@ -22,7 +22,9 @@ export default function EmitterTimeline({
   onTimingChange,
   onTag,
   editorControls,
+  focusRequest,
 }: {
+  focusRequest?: { id: string; sequence: number };
   layers: PreviewLayer[];
   duration: number;
   time: number;
@@ -39,6 +41,8 @@ export default function EmitterTimeline({
   onTimingChange: (id: string, edge: "start" | "end", value: number) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [lastFocus, setLastFocus] = useState(focusRequest);
+  if (focusRequest !== lastFocus) { setLastFocus(focusRequest); if (focusRequest) setEditingId(focusRequest.id); }
   const selectLayer = (id: string) => {
     if (id !== selected) setEditingId(null);
     onSelect(id);
