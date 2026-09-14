@@ -66,7 +66,7 @@ export const PreviewSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
     layerId: z.string().optional(),
-    times: z.array(z.number().min(0).max(12)).min(1).max(8).optional(),
+    times: z.array(z.number().min(0).max(12)).min(1).optional(),
   })
   .strict();
 export class OperationError extends Error {

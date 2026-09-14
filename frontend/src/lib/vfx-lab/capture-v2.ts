@@ -25,13 +25,14 @@ import {
 // asked to judge.
 // ---------------------------------------------------------------------------
 
-// Sheet: 8 tiles at 640x360, four per row. Half the tile count of v1 at four
-// times the area — the defect checklist asks about particle variation, billboard
-// edges and aliasing, and none of those survive a 320x180 thumbnail.
+// Sheet: 24 tiles at 320x180, four per row. Temporal coverage matters more to
+// candidate review than spending four times the pixels on each isolated frame;
+// this is three times the former frame count at 75% of its total tile area.
 const SHEET_COLUMNS = 4;
-const TILE_WIDTH = 640;
-const TILE_HEIGHT = 360;
+const TILE_WIDTH = 320;
+const TILE_HEIGHT = 180;
 const LABEL_HEIGHT = 22;
+const MAX_SHEET_BYTES = 1_500_000;
 
 // Strip: 12 consecutive frames at 320x180, 33 ms apart, four per row. Twelve
 // adjacent frames are the only evidence in the record that shows whether motion
@@ -71,27 +72,29 @@ function ascending(times: number[], duration: number) {
 }
 
 /**
- * The eight moments the sheet shows: the anticipation beat, the frame before
- * impact, impact itself, three moments across the falloff, the middle of the
- * dissipation and the last renderable frame.
+ * Broad, predictable coverage plus three frames around the real impact.
  */
 export function captureTimesV2(doc: VfxDocumentV2) {
   const impact = impactTimeV2(doc);
-  const end = doc.duration - 0.001;
-  const dissipation = impact + 0.4;
-  return ascending(
-    [
-      impact - 0.12,
-      impact - 1 / 30,
-      impact,
-      impact + 0.05,
-      impact + 0.15,
-      dissipation,
-      (dissipation + end) / 2,
-      end,
-    ],
-    doc.duration,
+  const normalize = (time: number) =>
+    round3(clamp(time, 0, Math.max(0, doc.duration - 0.001)));
+  const selected = new Set(
+    Array.from({ length: 21 }, (_, i) => normalize((doc.duration * i) / 20)),
   );
+  for (const time of [impact - 1 / 30, impact, impact + 0.05])
+    selected.add(normalize(time));
+  for (let i = 1; selected.size < 24 && i < 48; i++)
+    selected.add(normalize((doc.duration * i) / 48));
+  return ascending([...selected].sort((a, b) => a - b).slice(0, 24), doc.duration);
+}
+
+function jpeg(canvas: HTMLCanvasElement, maxBytes = Infinity) {
+  for (const quality of [0.88, 0.8, 0.7, 0.6, 0.5]) {
+    const data = canvas.toDataURL("image/jpeg", quality);
+    const bytes = Math.ceil((data.length - data.indexOf(",") - 1) * 0.75);
+    if (bytes <= maxBytes) return data;
+  }
+  throw new Error("Capture sheet could not fit within 1.5 MB.");
 }
 
 /** Twelve consecutive frames from 0.1 s before impact, 33 ms apart. */
@@ -197,7 +200,7 @@ export async function captureV2(
       return canvas;
     };
 
-    if (options.times && (!options.times.length || options.times.length > 8 || options.times.some(time => !Number.isFinite(time) || time < 0 || time > doc.duration))) throw new Error("Capture times must be within the effect duration.");
+    if (options.times && (!options.times.length || options.times.some(time => !Number.isFinite(time) || time < 0 || time > doc.duration))) throw new Error("Capture times must be within the effect duration.");
     const times = options.times ?? captureTimesV2(doc);
     let renderedPixels = 0;
     const sheet = await compose(
@@ -229,7 +232,7 @@ export async function captureV2(
           STRIP_TILE_WIDTH,
           STRIP_TILE_HEIGHT,
           11,
-        )).toDataURL("image/jpeg", 0.88);
+        ));
 
     let temporal: TemporalDiagnostics | undefined;
     let jitter: number | undefined;
@@ -272,8 +275,8 @@ export async function captureV2(
       renderedPixels,
       temporal,
       jitterScore: jitter,
-      sheet: sheet.toDataURL("image/jpeg", 0.88),
-      strip,
+      sheet: jpeg(sheet, MAX_SHEET_BYTES),
+      strip: strip ? jpeg(strip) : undefined,
       stripTimes,
       times,
       width: TILE_WIDTH,

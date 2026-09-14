@@ -5278,34 +5278,35 @@ export class VfxRuntimeV2 {
     const created: LayerObject[] = [];
     let nextObjects: LayerObject[];
     try {
-      nextObjects = nextDoc.layers
-        .filter((layer) => layer.enabled)
-        .map((layer, index) => {
-          const parent = layer.emitter?.sub
-            ? nextDoc.layers.find(
-                (item) => item.id === layer.emitter!.sub!.parentLayerId,
-              )
-            : null;
-          const key = JSON.stringify([
-            sharedKey,
-            index,
-            layerBuildKey(layer),
-            parent,
-          ]);
-          keys.set(layer.id, key);
-          const existing = previous.get(layer.id);
-          if (existing && this.objectKeys.get(layer.id) === key)
-            return existing;
-          const object = buildLayerObject(
-            nextDoc,
-            layer,
-            index,
-            this.textures,
-            this.depthTarget.depthTexture!,
-          );
-          created.push(object);
-          return object;
-        });
+      // Keep hidden layers resident. Visibility is toggled frequently in the
+      // editor, and disposing here used to make every unhide rebuild geometry
+      // and compile its GPU pipelines again on the interaction's critical path.
+      nextObjects = nextDoc.layers.map((layer, index) => {
+        const parent = layer.emitter?.sub
+          ? nextDoc.layers.find(
+              (item) => item.id === layer.emitter!.sub!.parentLayerId,
+            )
+          : null;
+        const key = JSON.stringify([
+          sharedKey,
+          index,
+          layerBuildKey(layer),
+          parent,
+        ]);
+        keys.set(layer.id, key);
+        const existing = previous.get(layer.id);
+        if (existing && this.objectKeys.get(layer.id) === key)
+          return existing;
+        const object = buildLayerObject(
+          nextDoc,
+          layer,
+          index,
+          this.textures,
+          this.depthTarget.depthTexture!,
+        );
+        created.push(object);
+        return object;
+      });
     } catch (error) {
       for (const object of created) object.dispose();
       throw error;
@@ -5326,7 +5327,7 @@ export class VfxRuntimeV2 {
     if (preserveCamera && created.length === 0)
       this.preparedPreviewDocument = nextDoc;
     const lights = this.objects
-      .filter((o) => o.source.kind === "light")
+      .filter((o) => o.source.enabled && o.source.kind === "light")
       .sort(
         (a, b) =>
           Math.max(...b.source.light!.intensity.keys.map((k) => k[1])) -
@@ -5855,11 +5856,12 @@ export class VfxRuntimeV2 {
     for (const object of this.objects) {
       if (object.source.kind === "light") {
         object.update(time, this.flags, this.camera);
-        if (solo && object.id !== solo)
+        if (!object.source.enabled || (solo && object.id !== solo))
           (object.object as THREE.PointLight).intensity = 0;
         continue;
       }
       if (
+        !object.source.enabled ||
         (solo && object.id !== solo) ||
         time < object.source.start ||
         time >= object.source.end

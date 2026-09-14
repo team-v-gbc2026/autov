@@ -36,7 +36,7 @@ const RequestSchema = z.discriminatedUnion("action", [
       leaseId: uuid,
       error: z.string().max(500).optional(),
       sheet: z.string().max(12_000_000).optional(),
-      times: z.array(z.number().min(0).max(12)).max(8).optional(),
+      times: z.array(z.number().min(0).max(12)).optional(),
       renderedPixels: z.number().nonnegative().optional(),
     })
     .strict(),

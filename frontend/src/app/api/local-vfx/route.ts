@@ -222,7 +222,7 @@ const RequestSchema = z.discriminatedUnion("action", [
       runId: z.string(),
       document: AnyDocumentSchema,
       sheet: sheetImageSchema,
-      times: z.array(z.number().min(0).max(12)).min(1).max(16),
+      times: z.array(z.number().min(0).max(12)).min(1),
       temporal: TemporalDiagnosticsSchema.optional(),
       // v2 only: the motion strip and its spike measure.
       strip: sheetImageSchema.optional(),
