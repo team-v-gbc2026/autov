@@ -109,6 +109,10 @@ export const RAMP_SPACES = [
   // Distance from the layer centre over geometry.radius (0 centre, 1 rim):
   // the centre-to-haze palette of a swirl disc.
   "radial",
+  // The particle's OWN quad: 0 at the bottom (the tail of a velocity-stretched
+  // sprite), 1 at the top (its head). One particle carries the whole gradient,
+  // so a population is never one flat colour however many of them there are.
+  "sprite",
 ] as const;
 export const PROCEDURALS_V2 = [
   "none",
@@ -298,6 +302,39 @@ export const GROUND_CHANNEL_MIN = 0x3a;
 export const BLOB_LOBE_BUDGET = 40;
 /** A hero silhouette smaller than this disappears inside the framed shot. */
 export const EFFECT_EXTENT_MIN = 1.5;
+/**
+ * Layer kinds whose hero is a MESH VOLUME rather than a particle spray. A
+ * particle hero is framed loosely on purpose — the spray reaches well past the
+ * spawn shape, and tightening the camera crops the sparks. A blob column, a
+ * crystal cluster, a blade, a rim or a ribbon is the whole silhouette: framed
+ * at the particle-era 0.45-0.7 it renders as a model on a table.
+ */
+export const MESH_HERO_KINDS_V2 = new Set([
+  "blob",
+  "crystals",
+  "crescent",
+  "ribbon",
+]);
+/** Layers that are dressing, never the thing the camera is framing. */
+export const HERO_EXCLUDED_KINDS = new Set([
+  "light",
+  "decal",
+  "splash",
+  "reflection",
+]);
+/**
+ * Framing a mesh-hero document is AUTHORED at: the band every such exemplar
+ * sits in, and what the guide asks for.
+ */
+export const MESH_HERO_FRAMING_MIN = 0.85;
+/**
+ * Framing below which a mesh hero is certainly wrong, which is what the lint
+ * warns on. It is lower than the authored band on purpose: the portal exemplar
+ * frames its 1.6 x 2.4 doorway at 0.80, and a lint that fires on an accepted
+ * exemplar teaches the model to distrust the lint. Everything the live runs
+ * actually got wrong (0.65 on a three-metre plume) is well below it.
+ */
+export const MESH_HERO_FRAMING_LINT = 0.8;
 /** Named paths one document may declare; every path costs uniforms per layer. */
 export const PATH_BUDGET_V2 = 6;
 /** Strands one ribbon layer may sweep; each is its own tapered strip. */
@@ -385,6 +422,18 @@ export const RampStopSchema = z
   .object({ t: scalar(0, 1), color: hex, intensity: scalar(0, 8) })
   .strict();
 
+// A SECOND key space mixed into the ramp key: key = mix(primary, secondary,
+// weight). One ramp then answers to two things at once — "rises while turning
+// blue to green (height) and fades with age (life)" is one ramp, not two
+// layers — which is the cheapest way out of a population that reads as one
+// flat colour.
+export const RampBlendSchema = z
+  .object({
+    space: z.enum(RAMP_SPACES),
+    weight: scalar(0, 1),
+  })
+  .strict();
+
 export const RampSchema = z
   .object({
     space: z.enum(RAMP_SPACES),
@@ -395,6 +444,8 @@ export const RampSchema = z
     // clamp((worldY - groundY)/heightSpan). Defaulted, not required, so
     // documents authored before the space existed still load.
     heightSpan: scalar(0.1, 12).default(2),
+    // Defaulted, so documents authored before the blend existed still load.
+    blend: RampBlendSchema.nullable().default(null),
   })
   .strict();
 
@@ -476,6 +527,20 @@ export const ToonSchema = z
     rim: z
       .object({ power: scalar(0.5, 8), amount: scalar(0, 2) })
       .strict(),
+    // Where the BODY band's colour comes from. "fixed" is the original three
+    // flat hexes. "ramp" takes the body colour from material.ramp, evaluated at
+    // the fragment in the ramp's own space (height, radial, life, layerTime,
+    // plus material.ramp.blend), and derives the other two bands from it:
+    //   shadow    = body * shadowScale, nudged toward toon.shadow
+    //   highlight = mix(body, toon.highlight, highlightMix)
+    // so the cluster still posterises into the same bands while the base colour
+    // grades continuously across height or radius. It is the fix for a lobe
+    // population that reads as two or three flat tones — used gently, it keeps
+    // the banded look and only stops the bands being CONSTANT.
+    // All three defaulted, so documents authored before it existed still load.
+    colorSource: z.enum(["fixed", "ramp"]).default("fixed"),
+    shadowScale: scalar(0, 1).default(0.55),
+    highlightMix: scalar(0, 1).default(0.35),
   })
   .strict();
 
@@ -1115,12 +1180,31 @@ export const ParticleRenderSchema = z
   })
   .strict();
 
+/**
+ * A ribbon trail's own colour. "along" runs the key down the ribbon — 0 at the
+ * head (the particle itself), 1 at the tail — so a streamer can be hot where it
+ * is being drawn and cold where it is dying; "life" keys it on the particle's
+ * age exactly as the sprite does. Without it the trail borrows material.ramp
+ * keyed on life, and the whole ribbon is one colour at any instant.
+ */
+export const TRAIL_RAMP_SPACES = ["along", "life"] as const;
+export const TrailRampSchema = z
+  .object({
+    space: z.enum(TRAIL_RAMP_SPACES),
+    stops: z.array(RampStopSchema).min(2).max(6),
+  })
+  .strict();
+
 export const TrailSchema = z
   .object({
     segments: integer(2, 16),
     spacing: scalar(0.005, 0.2),
+    // Width down the ribbon, sampled at the same 0 head -> 1 tail key the
+    // "along" ramp uses: a taper to 0 is what stops a trail reading as a bar.
     widthCurve: CurveSchema,
     textureId: z.string().max(48).nullable(),
+    // Defaulted, so documents authored before the trail ramp existed still load.
+    ramp: TrailRampSchema.nullable().default(null),
   })
   .strict();
 
@@ -3321,6 +3405,15 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
     warnings.push(
       `camera.framing ${doc.camera.framing.toFixed(2)} crops the effect; 0.6-1.0 is the normal range for a full-frame effect.`,
     );
+  // The framing rule that came out of the particle era (0.45-0.7, "roughly half
+  // the frame") is wrong for a document whose biggest thing is a mesh volume:
+  // there is no spray reaching past it, so at 0.65 the hero sits in the middle
+  // of an empty shot. The exemplars that carry one all frame at 0.85-1.0.
+  const meshHero = meshHeroLayerV2(doc);
+  if (meshHero && doc.camera.framing < MESH_HERO_FRAMING_LINT)
+    warnings.push(
+      `camera.framing ${doc.camera.framing.toFixed(2)} is below ${MESH_HERO_FRAMING_LINT} while the largest layer (${meshHero.id}, ${meshHero.kind}) is a mesh hero; raise framing to 0.85-1.0 and copy the family exemplar's camera block (fov, elevation, azimuth) unless the prompt asks for a different angle.`,
+    );
 
   // --- scale warnings ------------------------------------------------------
   // Nothing here is fatal: they describe a document that validates but renders
@@ -3403,82 +3496,7 @@ export function effectExtentV2(
   for (const layer of doc.layers) {
     if (!layer.enabled || layer.kind === "light") continue;
     origins.push(layer.transform.position);
-    if (layer.geometry) {
-      const tracked = (target: string, fallback: number) => {
-        const track = layer.tracks.find((t) => t.target === target);
-        return track ? Math.max(...track.keys.map((k) => k[1])) : fallback;
-      };
-      size = Math.max(
-        size,
-        tracked("geometry.radius", layer.geometry.radius) * 2,
-        tracked("geometry.length", layer.geometry.length),
-      );
-    }
-    if (layer.blob) {
-      const blob = layer.blob;
-      // The generator's own volume, not where a lobe ends up: a column that
-      // shoots out of frame is framed on the stack it grows from, the same way
-      // a particle layer is framed on its spawn shape.
-      size = Math.max(
-        size,
-        blob.spread * 2 + blob.radius[1] * 2,
-        blob.height + blob.radius[1] * 2,
-      );
-    }
-    if (layer.splash) size = Math.max(size, layer.splash.length[1] * 2);
-    // A cluster spans the furthest tip on either side of its own centre.
-    if (layer.crystals)
-      size = Math.max(
-        size,
-        (layer.crystals.baseRadius + layer.crystals.length[1]) * 2,
-      );
-    if (layer.ribbon) {
-      // The path the window slides along, not the window itself: a ribbon that
-      // wraps a 0.8 m ring is a 1.6 m element however short its lit segment is.
-      const path = doc.paths.find((p) => p.id === layer.ribbon!.pathId);
-      if (path) size = Math.max(size, pathSpanV2(path));
-    }
-    // A cage of arcs spans its own helix; a streak fan spans its longest ray.
-    if (layer.arcs)
-      size = Math.max(
-        size,
-        layer.arcs.radius[1] * (1 + layer.arcs.jitter.amplitude) * 2,
-        layer.arcs.span,
-      );
-    if (layer.streakBurst)
-      size = Math.max(size, layer.streakBurst.length[1] * 2);
-    // A tail of sheets reaches as far as the fastest class travels in its own
-    // life, plus the sheet itself; the blade of a crescent spans its own arc.
-    if (layer.sheets) {
-      const fastest = Math.max(...layer.sheets.classes.map((c) => c.speed * c.life));
-      size = Math.max(
-        size,
-        layer.sheets.speed[1] * fastest + layer.sheets.length[1],
-      );
-    }
-    if (layer.crescent)
-      size = Math.max(size, layer.crescent.radius * 2);
-    if (layer.licks) size = Math.max(size, layer.licks.length[1] * 2);
-    if (layer.wireBurst)
-      size = Math.max(
-        size,
-        (layer.wireBurst.radius +
-          layer.wireBurst.travel +
-          // A spoke reaches half again as far as an outline; see wire-burst-v2.
-          layer.wireBurst.travel * 0.5) *
-          2,
-      );
-    if (layer.emitter && includeParticles) {
-      const shape = layer.emitter.shape;
-      const reach =
-        Math.max(0, layer.emitter.velocity.speed[1]) * layer.emitter.life[1];
-      size = Math.max(
-        size,
-        shape.radius * 2,
-        shape.length,
-        reach + layer.emitter.render.size[1],
-      );
-    }
+    size = Math.max(size, layerExtentV2(layer, doc, includeParticles));
   }
   let spread = 0;
   for (const a of origins)
@@ -3488,6 +3506,127 @@ export function effectExtentV2(
         Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]),
       );
   return Math.max(size, spread);
+}
+
+/**
+ * One layer's own world-space extent in metres, by whichever spec object it
+ * carries. Split out of `effectExtentV2` so the lint can also ask WHICH layer is
+ * the biggest thing in the shot, which is what decides how the camera frames it.
+ */
+export function layerExtentV2(
+  layer: LayerV2,
+  doc: VfxDocumentV2,
+  includeParticles = true,
+): number {
+  let size = 0;
+  if (layer.geometry) {
+    const tracked = (target: string, fallback: number) => {
+      const track = layer.tracks.find((t) => t.target === target);
+      return track ? Math.max(...track.keys.map((k) => k[1])) : fallback;
+    };
+    size = Math.max(
+      size,
+      tracked("geometry.radius", layer.geometry.radius) * 2,
+      tracked("geometry.length", layer.geometry.length),
+    );
+  }
+  if (layer.blob) {
+    const blob = layer.blob;
+    // The generator's own volume, not where a lobe ends up: a column that
+    // shoots out of frame is framed on the stack it grows from, the same way
+    // a particle layer is framed on its spawn shape.
+    size = Math.max(
+      size,
+      blob.spread * 2 + blob.radius[1] * 2,
+      blob.height + blob.radius[1] * 2,
+    );
+  }
+  if (layer.splash) size = Math.max(size, layer.splash.length[1] * 2);
+  // A cluster spans the furthest tip on either side of its own centre.
+  if (layer.crystals)
+    size = Math.max(
+      size,
+      (layer.crystals.baseRadius + layer.crystals.length[1]) * 2,
+    );
+  if (layer.ribbon) {
+    // The path the window slides along, not the window itself: a ribbon that
+    // wraps a 0.8 m ring is a 1.6 m element however short its lit segment is.
+    const path = doc.paths.find((p) => p.id === layer.ribbon!.pathId);
+    if (path) size = Math.max(size, pathSpanV2(path));
+  }
+  // A cage of arcs spans its own helix; a streak fan spans its longest ray.
+  if (layer.arcs)
+    size = Math.max(
+      size,
+      layer.arcs.radius[1] * (1 + layer.arcs.jitter.amplitude) * 2,
+      layer.arcs.span,
+    );
+  if (layer.streakBurst)
+    size = Math.max(size, layer.streakBurst.length[1] * 2);
+  // A tail of sheets reaches as far as the fastest class travels in its own
+  // life, plus the sheet itself; the blade of a crescent spans its own arc.
+  if (layer.sheets) {
+    const fastest = Math.max(...layer.sheets.classes.map((c) => c.speed * c.life));
+    size = Math.max(
+      size,
+      layer.sheets.speed[1] * fastest + layer.sheets.length[1],
+    );
+  }
+  if (layer.crescent)
+    size = Math.max(size, layer.crescent.radius * 2);
+  if (layer.licks) size = Math.max(size, layer.licks.length[1] * 2);
+  if (layer.wireBurst)
+    size = Math.max(
+      size,
+      (layer.wireBurst.radius +
+        layer.wireBurst.travel +
+        // A spoke reaches half again as far as an outline; see wire-burst-v2.
+        layer.wireBurst.travel * 0.5) *
+        2,
+    );
+  if (layer.emitter && includeParticles) {
+    const shape = layer.emitter.shape;
+    const reach =
+      Math.max(0, layer.emitter.velocity.speed[1]) * layer.emitter.life[1];
+    size = Math.max(
+      size,
+      shape.radius * 2,
+      shape.length,
+      reach + layer.emitter.render.size[1],
+    );
+  }
+  return size;
+}
+
+/**
+ * The biggest drawable layer in the document, when that layer is a mesh hero —
+ * a blob cluster, a crystal burst, a blade, a swept ribbon or an SDF frame rim.
+ * `null` when the shot is led by particles or by an ordinary primitive, which is
+ * what the older 0.45-0.7 framing band was measured on.
+ */
+export function meshHeroLayerV2(doc: VfxDocumentV2): LayerV2 | null {
+  // Dressing is excluded before size is measured: a ground decal and a flat
+  // splash accent are both routinely the widest thing in the document and
+  // neither is what the camera is framing. Roles narrow it the rest of the way
+  // — the hero is what carries the effect, not the residue behind it.
+  const candidates = doc.layers.filter(
+    (l) =>
+      l.enabled &&
+      !HERO_EXCLUDED_KINDS.has(l.kind) &&
+      (l.role === "primary" || l.role === "impact"),
+  );
+  let best: LayerV2 | null = null;
+  let bestExtent = 0;
+  for (const layer of candidates) {
+    const extent = layerExtentV2(layer, doc);
+    if (extent <= bestExtent) continue;
+    bestExtent = extent;
+    best = layer;
+  }
+  if (!best) return null;
+  return MESH_HERO_KINDS_V2.has(best.kind) || best.geometry?.frame
+    ? best
+    : null;
 }
 
 /** Widest dimension of a path's own volume, in metres. Lint-only heuristic. */
@@ -3535,6 +3674,7 @@ export function defaultMaterial(): Material {
       ],
       displacementShift: 0,
       heightSpan: 2,
+      blend: null,
     },
     opacity: 1,
     mask: {
@@ -3624,6 +3764,9 @@ export function defaultToon(): Toon {
     // Upper left, slightly toward the camera: the spike's fixed key light.
     light: [-0.474, 0.848, 0.236],
     rim: { power: 3, amount: 0.42 },
+    colorSource: "fixed",
+    shadowScale: 0.55,
+    highlightMix: 0.35,
   };
 }
 
@@ -4107,6 +4250,7 @@ export const MotionWireSchema = MotionSchema.extend({
 // defaults and ask the model for the value.
 export const RampWireSchema = RampSchema.extend({
   heightSpan: scalar(0.1, 12),
+  blend: RampBlendSchema.nullable(),
 });
 export const MaskWireSchema = MaskSchema.extend({
   uvScale: num2,
@@ -4126,7 +4270,13 @@ export const MaterialWireSchema = MaterialSchema.extend({
   noise: NoiseWireSchema.nullable(),
   erosion: ErosionWireSchema.nullable(),
   proceduralParams: num4,
-  toon: ToonSchema.extend({ thresholds: num2, light: num3 }).nullable(),
+  toon: ToonSchema.extend({
+    thresholds: num2,
+    light: num3,
+    colorSource: z.enum(["fixed", "ramp"]),
+    shadowScale: scalar(0, 1),
+    highlightMix: scalar(0, 1),
+  }).nullable(),
   outline: OutlineSchema.nullable(),
   opaqueUntil: scalar(0, 1).nullable(),
   rgbSplit: RgbSplitSchema.nullable(),
@@ -4294,7 +4444,10 @@ export const EmitterWireSchema = EmitterSchema.extend({
     retract: RetractSchema.nullable(),
     secondary: SecondarySchema.extend({ along: num2 }).nullable(),
   }),
-  trail: TrailSchema.extend({ widthCurve: CurveWireSchema }).nullable(),
+  trail: TrailSchema.extend({
+    widthCurve: CurveWireSchema,
+    ramp: TrailRampSchema.nullable(),
+  }).nullable(),
   sub: SubEmitterSchema.extend({ offset: num2 }).nullable(),
 });
 export const GeometryV2WireSchema = GeometryV2Schema.extend({

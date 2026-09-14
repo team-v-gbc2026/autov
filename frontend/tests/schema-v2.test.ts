@@ -1927,3 +1927,158 @@ rejects(
   },
   /render.retract runs backwards/,
 );
+
+// ---------------------------------------------------------------------------
+// Port G — colour fields, per-particle trails and mesh-hero framing.
+// ---------------------------------------------------------------------------
+
+const smokeBurst = (): VfxDocumentV2 =>
+  validateDocumentV2(
+    JSON.parse(readFileSync("fixtures/v2/smoke-burst/document.json", "utf8")),
+  );
+
+test("the smoke exemplar grades its cel bands and carries a sprite-keyed spray", () => {
+  const doc = smokeBurst();
+  const column = doc.layers.find((l) => l.id === "column")!;
+  // The bands are untouched — three of them, on the same thresholds — and only
+  // the BODY colour became continuous, which is the whole point of the change.
+  assert.equal(column.material!.toon!.bands, 3);
+  assert.equal(column.material!.toon!.colorSource, "ramp");
+  assert.equal(column.material!.ramp.space, "height");
+  assert.equal(column.material!.ramp.heightSpan, 3);
+  assert.equal(column.material!.ramp.stops.length, 3);
+  assert.equal(column.material!.ramp.stops[0].color, "#2c1a7a");
+  assert.equal(column.material!.ramp.stops[2].color, "#b9a6ff");
+  const pink = doc.layers.find((l) => l.id === "pink-ring")!;
+  assert.equal(pink.material!.toon!.colorSource, "ramp");
+  assert.equal(pink.material!.ramp.space, "height");
+  // One particle carries the gradient, and the spray shifts with height too.
+  const sparks = doc.layers.find((l) => l.id === "pop-sparks")!;
+  assert.equal(sparks.kind, "particles");
+  assert.equal(sparks.material!.ramp.space, "sprite");
+  assert.deepEqual(sparks.material!.ramp.blend, {
+    space: "height",
+    weight: 0.4,
+  });
+  assert.equal(sparks.emitter!.render.mode, "velocityStretch");
+  assert.equal(sparks.emitter!.render.anchor, "head");
+});
+
+test("the heal and meteor exemplars carry per-particle ribbon trails", () => {
+  const heal = validateDocumentV2(
+    JSON.parse(readFileSync("fixtures/v2/healing-aura/document.json", "utf8")),
+  );
+  const sparkles = heal.layers.find((l) => l.id === "sparkles")!;
+  assert.deepEqual(sparkles.material!.ramp.blend, {
+    space: "height",
+    weight: 0.45,
+  });
+  const trail = sparkles.emitter!.trail!;
+  assert.equal(trail.ramp!.space, "along");
+  // A trail that does not taper to 0 reads as a bar with a cut end.
+  assert.equal(trail.widthCurve.keys[trail.widthCurve.keys.length - 1][1], 0);
+
+  const meteor = validateDocumentV2(
+    JSON.parse(readFileSync("fixtures/v2/meteor-rain/document.json", "utf8")),
+  );
+  const sparks = meteor.layers.find((l) => l.id === "sparks")!;
+  assert.equal(sparks.emitter!.trail!.ramp!.space, "along");
+  assert.equal(sparks.emitter!.trail!.ramp!.stops.length, 3);
+  assert.equal(sparks.material!.ramp.blend!.space, "height");
+});
+
+test("the port-G exemplars lint clean", () => {
+  for (const id of ["smoke-burst", "healing-aura", "meteor-rain"])
+    assert.deepEqual(
+      lintDocumentV2(
+        validateDocumentV2(
+          JSON.parse(readFileSync(`fixtures/v2/${id}/document.json`, "utf8")),
+        ),
+      ),
+      [],
+      id,
+    );
+});
+
+test("the port-G exemplars round-trip through the wire contract", () => {
+  for (const id of ["smoke-burst", "healing-aura", "meteor-rain"]) {
+    const doc = validateDocumentV2(
+      JSON.parse(readFileSync(`fixtures/v2/${id}/document.json`, "utf8")),
+    );
+    const wire = {
+      ...structuredClone(doc),
+      layers: doc.layers.map((layer) => ({
+        ...structuredClone(layer),
+        material: layer.material ?? null,
+        emitter: layer.emitter ?? null,
+        geometry: layer.geometry ?? null,
+        light: layer.light ?? null,
+        blob: layer.blob ?? null,
+        splash: layer.splash ?? null,
+        ribbon: layer.ribbon ?? null,
+        wireBurst: layer.wireBurst ?? null,
+        crystals: layer.crystals ?? null,
+        arcs: layer.arcs ?? null,
+        streakBurst: layer.streakBurst ?? null,
+        reflection: layer.reflection ?? null,
+        sheets: layer.sheets ?? null,
+        crescent: layer.crescent ?? null,
+        licks: layer.licks ?? null,
+      })),
+    };
+    delete (wire as Record<string, unknown>).textures;
+    DocumentV2WireSchema.parse(wire);
+    assert.deepEqual(fromWireV2(wire), { ...doc, textures: [] }, id);
+  }
+});
+
+test("every port-G field is defaulted, so an archived document still loads", () => {
+  const bare = load() as unknown as Record<string, unknown>;
+  for (const layer of bare.layers as Record<string, unknown>[]) {
+    const material = layer.material as Record<string, unknown> | undefined;
+    if (material) {
+      delete (material.ramp as Record<string, unknown>).blend;
+      const toon = material.toon as Record<string, unknown> | undefined;
+      if (toon)
+        for (const key of ["colorSource", "shadowScale", "highlightMix"])
+          delete toon[key];
+    }
+    const emitter = layer.emitter as Record<string, unknown> | undefined;
+    const trail = emitter?.trail as Record<string, unknown> | undefined;
+    if (trail) delete trail.ramp;
+  }
+  const doc = validateDocumentV2(bare);
+  for (const layer of doc.layers) {
+    assert.equal(layer.material?.ramp.blend ?? null, null);
+    assert.equal(layer.emitter?.trail?.ramp ?? null, null);
+    if (layer.material?.toon) {
+      assert.equal(layer.material.toon.colorSource, "fixed");
+      assert.equal(layer.material.toon.shadowScale, 0.55);
+      assert.equal(layer.material.toon.highlightMix, 0.35);
+    }
+  }
+});
+
+test("a mesh-hero document framed in the particle band is linted", () => {
+  const doc = smokeBurst();
+  assert.deepEqual(lintDocumentV2(doc), []);
+  // The fx12 failure, reproduced: the exemplar's own geometry at the framing
+  // the particle-era rule asked for.
+  doc.camera.framing = 0.65;
+  const warnings = lintDocumentV2(doc);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /camera\.framing 0\.65 is below 0\.8/);
+  assert.match(warnings[0], /mesh hero/);
+  assert.match(warnings[0], /copy the family exemplar's camera block/);
+});
+
+test("a particle-hero document keeps the wider framing band", () => {
+  // fire-projectile's biggest layer is its particle spray, so the mesh-hero
+  // rule must not fire on it at a framing the older rule allowed.
+  const doc = load();
+  doc.camera.framing = 0.65;
+  assert.deepEqual(
+    lintDocumentV2(doc).filter((w) => w.includes("mesh hero")),
+    [],
+  );
+});

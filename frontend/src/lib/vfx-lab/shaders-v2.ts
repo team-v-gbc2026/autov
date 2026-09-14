@@ -1514,7 +1514,7 @@ export const trailFragmentV2 = /* glsl */ `
 precision highp float;
 uniform sampler2D uTrail;
 uniform int uHasTrail,uBlendMode;
-uniform float uOpacity,uFlicker;
+uniform float uOpacity,uFlicker,uTrailRampMode;
 varying vec2 vUv; varying float vU,vAlpha; varying vec3 vSeed; varying vec3 vWp;
 ${glslRamp}
 void main(){
@@ -1522,7 +1522,11 @@ void main(){
   float shape;
   if(uHasTrail==1){ vec4 m=texture2D(uTrail,vUv); shape=m.a*max(m.r,max(m.g,m.b)); }
   else shape=smoothstep(1.,0.,abs(vUv.x*2.-1.));
-  vec3 col=rampColor(vU);
+  // trail.ramp.space "along" (mode 1) runs the key DOWN the ribbon: vUv.y is 0
+  // at the head (the particle itself) and 1 at the tail, the same key
+  // trail.widthCurve tapers on. Without a trail ramp the ribbon borrows the
+  // layer's ramp keyed on the particle's age, so it is one colour at a time.
+  vec3 col=rampColor(uTrailRampMode>.5 ? clamp(vUv.y,0.,1.) : vU);
   float a=shape*vAlpha*uOpacity*uFlicker;
   if(a<.002) discard;
   if(uBlendMode==1) gl_FragColor=vec4(col,a);
@@ -1536,6 +1540,7 @@ uniform sampler2D uMask,uNoise;
 uniform int uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uAtlasCols,uAtlasRows;
 uniform float uTime,uDistort,uErodeSoft,uEdgeW,uEdgeI,uOpacity,uMaskRot;
 uniform float uRampKeyMode,uGroundY,uHeightSpan,uFlicker;
+uniform float uRampBlendMode,uRampBlendWeight;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol;
 varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
@@ -1545,6 +1550,18 @@ ${glslCurve("C")}
 ${glslSoft}
 ${glslProcedural}
 ${glslSymbol}
+/**
+ * The ramp key for one of the five spaces a particle understands. 5 is
+ * "sprite": the card's own V, 0 at the bottom (the tail of a stretched sprite)
+ * and 1 at the top (its head). 4 is "radial" on the card, 3 world height, and
+ * everything else is the particle's normalized age.
+ */
+float particleRampKey(float mode){
+  if(mode>4.5) return clamp(vUv.y,0.,1.);
+  if(mode>3.5) return clamp(length((vUv-.5)*2.),0.,1.);
+  if(mode>2.5) return clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.);
+  return clamp(vU,0.,1.);
+}
 void main(){
   if(vAlpha<=0.) discard;
   if(uProcedural>=21){
@@ -1603,12 +1620,14 @@ void main(){
     er=smoothstep(th,th+uErodeSoft,field);
     edge=smoothstep(th-uEdgeW,th+uErodeSoft*.5,field)-er;
   }
-  // Particles key their ramp on life, except in the "height" space, where the
-  // colour is a function of world height instead of age (mode 3). Erosion is
-  // always keyed on life.
-  float key = uRampKeyMode>2.5
-    ? clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.)
-    : vU;
+  // Particles key their ramp on life (mode 0/1/2), on world height (3), on the
+  // distance out from the card's own centre (4) or along the card itself (5) —
+  // "sprite" space, where the quad's +Y is the head of a velocity-stretched
+  // streak, so ONE particle carries the whole gradient. material.ramp.blend
+  // mixes a second space into the same key. Erosion stays keyed on life.
+  float key = particleRampKey(uRampKeyMode);
+  if(uRampBlendWeight>0.)
+    key = mix(key, particleRampKey(uRampBlendMode), uRampBlendWeight);
   vec3 col=rampColor(key);
   col+=uEdgeCol*uEdgeI*edge*shape;
   // material.flicker: the hashed per-step multiplier, computed on the CPU from
@@ -1827,7 +1846,7 @@ export const surfaceFragmentV2 = /* glsl */ `
 precision highp float;
 uniform float uTime,uOpacity,uErodeSoft,uEdgeW,uEdgeI,uProtect,uRimBias,uDisplaceShift;
 uniform float uFresnelPower,uFresnelStrength,uDistort,uRampKeyMode,uLayerU,uMaskRot,uRadius,uLength,uThickness;
-uniform float uGroundY,uHeightSpan,uChannel;
+uniform float uGroundY,uHeightSpan,uChannel,uRampBlendMode,uRampBlendWeight;
 uniform int uShell,uHasMask,uHasNoise,uUseErosion,uBlendMode,uProcedural,uHasFresnel,uBolt;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol,uCam;
@@ -2060,18 +2079,30 @@ void main(){
     else shape=proceduralShape(vUv-.5,vUv,n,uTime,fres,uMaskScale,dims,uProcedural);
   }
 
+  // Every ramp space this surface understands, as one function, so
+  // material.ramp.blend can ask it twice and mix the two keys.
+  #define MESH_RAMP_KEY(mode, dst) \
+    /* 5 = "sprite": the mesh's own V. On a card that is bottom-to-top, which */ \
+    /* is the same axis a stretched particle's sprite gradient runs along. */ \
+    if(mode>4.5) dst=clamp(vUv.y,0.,1.); \
+    /* 4 = "radial": distance from the layer centre over geometry.radius, read */ \
+    /* off the card's own UV so it is independent of the transform. */ \
+    else if(mode>3.5) dst=clamp(length((vUv-.5)*2.),0.,1.); \
+    /* A flow surface keys the "surface" space on its own MASK, not on the */ \
+    /* along coordinate: the patches are what the two stops describe. */ \
+    else if(mode>1.5 && mode<2.5 && flowMask>=0.) dst=flowMask; \
+    /* 3 = "height": world metres above environment.groundY, over uHeightSpan. */ \
+    else if(mode>2.5) dst=clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.); \
+    else if(mode>1.5) dst=clamp(vAlong*1.08+(n-.5)*.35*smoothstep(.15,.7,vAlong),0.,1.); \
+    else if(mode>0.5) dst=clamp(uLayerU,0.,1.); \
+    else dst=clamp(vAlong,0.,1.);
   float key;
-  // 4 = "radial": distance from the layer centre over geometry.radius, read off
-  // the card's own UV so it is independent of the transform.
-  if(uRampKeyMode>3.5) key=clamp(length((vUv-.5)*2.),0.,1.);
-  // A flow surface keys the "surface" space on its own MASK, not on the along
-  // coordinate: the patches are what the two stops describe.
-  else if(uRampKeyMode>1.5 && uRampKeyMode<2.5 && flowMask>=0.) key=flowMask;
-  // 3 = "height": world metres above environment.groundY, over uHeightSpan.
-  else if(uRampKeyMode>2.5) key=clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.);
-  else if(uRampKeyMode>1.5) key=clamp(vAlong*1.08+(n-.5)*.35*smoothstep(.15,.7,vAlong),0.,1.);
-  else if(uRampKeyMode>0.5) key=clamp(uLayerU,0.,1.);
-  else key=clamp(vAlong,0.,1.);
+  MESH_RAMP_KEY(uRampKeyMode, key)
+  if(uRampBlendWeight>0.){
+    float bkey;
+    MESH_RAMP_KEY(uRampBlendMode, bkey)
+    key=mix(key,bkey,uRampBlendWeight);
+  }
   // The rim term is attenuated near the start of a mesh's axis so a bar does not
   // flare at its root; a lattice body has no such root, and its rim is exactly
   // what carries the silhouette where the cells fade out, so it is exempt.
@@ -2584,6 +2615,10 @@ varying vec3 vN,vV,vWp;
 uniform vec3 uShadow,uBody,uHigh,uRimCol,uLight;
 uniform float uBands,uBandA,uBandB,uOpacity,uRimPow,uRimAmt,uFlat;
 uniform float uRampKeyMode,uLayerU,uLobeU,uGroundY,uHeightSpan,uUseToon;
+// material.toon.colorSource "ramp": the BODY band's colour comes from
+// material.ramp evaluated in the ramp's own space, and the other two bands are
+// derived from it, so the cluster still posterises while its base colour grades.
+uniform float uToonRamp,uToonShadowScale,uToonHighMix,uRampBlendMode,uRampBlendWeight;
 // blob.lightFrom: a fake POINT light the lobes are shaded toward instead of the
 // parallel world light material.toon carries, plus the far/near brightness bias
 // an "orbit" ring applies to whichever half is currently behind the centre.
@@ -2592,6 +2627,22 @@ uniform vec3 uLightPos;
 uniform int uBlendMode;
 ${glslRamp}
 vec3 safeDirLocal(vec3 v){ float l=length(v); return l>1e-5 ? v/l : vec3(0.,1.,0.); }
+/**
+ * The lobe's ramp key: world height over uHeightSpan (3), the layer's own
+ * progress (1), or the lobe's own 0..1 age — the only scalar a generated lobe
+ * has, which is what "life" and "surface" both fall back to. material.ramp.blend
+ * mixes a second space into it.
+ */
+float lobeRampKey(float mode){
+  return mode>2.5
+    ? clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.)
+    : (mode>0.5 && mode<1.5 ? clamp(uLayerU,0.,1.) : clamp(uLobeU,0.,1.));
+}
+float lobeRampKeyBlended(){
+  float key=lobeRampKey(uRampKeyMode);
+  if(uRampBlendWeight>0.) key=mix(key,lobeRampKey(uRampBlendMode),uRampBlendWeight);
+  return key;
+}
 void main(){
   // The outline hull draws flat and unlit whatever else is set.
   if(uFlat>.5){ gl_FragColor=vec4(uShadow*uShade*uOpacity,uOpacity); return; }
@@ -2611,19 +2662,24 @@ void main(){
       fall=1./(1.+uLightFall*dist*uLightFall*dist);
     }
     float ndl=dot(N,L)*.5+.5;
+    // colorSource "ramp": the three fixed hexes become one continuous body
+    // colour plus two derived neighbours. The BANDING is unchanged — the same
+    // two thresholds on the same half-lambert — so a cluster that should read
+    // cel-shaded still does; only the constant is gone.
+    vec3 body=uBody, shadow=uShadow, high=uHigh;
+    if(uToonRamp>.5){
+      body=rampColor(lobeRampKeyBlended());
+      shadow=mix(body*uToonShadowScale, uShadow, .25);
+      high=mix(body, uHigh, uToonHighMix);
+    }
     c = uBands>2.5
-      ? (ndl<uBandA ? uShadow : (ndl<uBandB ? uBody : uHigh))
-      : (ndl<uBandA ? uShadow : uHigh);
+      ? (ndl<uBandA ? shadow : (ndl<uBandB ? body : high))
+      : (ndl<uBandA ? shadow : high);
     c+=uRimCol*pow(max(1.-clamp(dot(N,safeDirLocal(vV)),0.,1.),1e-4),uRimPow)*uRimAmt;
     c*=mix(1.,fall,step(.5,uLightOn));
   } else {
-    // No toon: the ramp is the colour source, keyed the usual way. "life" and
-    // "surface" both fall back to the lobe's own 0..1 age, which is the only
-    // scalar a generated lobe has.
-    float key = uRampKeyMode>2.5
-      ? clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.)
-      : (uRampKeyMode>0.5 && uRampKeyMode<1.5 ? clamp(uLayerU,0.,1.) : clamp(uLobeU,0.,1.));
-    c=rampColor(key);
+    // No toon: the ramp is the colour source, keyed the usual way.
+    c=rampColor(lobeRampKeyBlended());
   }
   c*=uShade;
   if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
@@ -2767,8 +2823,12 @@ uniform vec3 uCol,uDark;
 uniform float uOpacity;
 uniform int uBlendMode;
 void main(){
+  // No uShade here: a sliver's backing and body colours are already darkened on
+  // the CPU when the pair is built, and this program has never carried the
+  // blob's orbit brightness uniform. Multiplying by it was a paste from
+  // blobFragmentV2 that left the program unlinkable, so every splash layer's
+  // draw was silently skipped.
   vec3 c=mix(uDark,uCol,smoothstep(.0,.55,vUv.y));
-  c*=uShade;
   if(uBlendMode==1) gl_FragColor=vec4(c,uOpacity);
   else gl_FragColor=vec4(c*uOpacity,uOpacity);
 }
@@ -3024,7 +3084,11 @@ void main(){
 // Uniform builders
 // ---------------------------------------------------------------------------
 
-export function rampUniforms(ramp: Ramp) {
+/**
+ * Only the stops are read, so a trail's own ramp (its space is "along", and it
+ * has no displacement shift or height span) fills the same uniform block.
+ */
+export function rampUniforms(ramp: Pick<Ramp, "stops">) {
   const colors: THREE.Vector4[] = [];
   const stops: number[] = [];
   for (let i = 0; i < RAMP_STOPS; i++) {
@@ -3044,7 +3108,7 @@ export function rampUniforms(ramp: Ramp) {
 
 export function writeRamp(
   uniforms: Record<string, THREE.IUniform>,
-  ramp: Ramp,
+  ramp: Pick<Ramp, "stops">,
 ) {
   const colors = uniforms.uRamp.value as THREE.Vector4[];
   const stops = uniforms.uRampT.value as number[];

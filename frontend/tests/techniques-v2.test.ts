@@ -43,8 +43,8 @@ test("brief stays within budget for every family on an empty prompt", () => {
   for (const id of RECIPE_V2_IDS) {
     const brief = techniqueBrief(id, "");
     assert.ok(
-      brief.length <= 8400,
-      `${id} brief is ${brief.length} chars, over the 8400 budget`,
+      brief.length <= 14400,
+      `${id} brief is ${brief.length} chars, over the 14400 budget`,
     );
     assert.ok(!brief.includes("…"), `${id} brief truncates text with an ellipsis`);
     assert.ok(brief.length > 0, `${id} brief is empty`);
@@ -236,4 +236,55 @@ test("the port-F cards route from their own families and prompts", () => {
     assert.deepEqual(TECHNIQUES_V2[id].vocabulary.missing, []);
     assert.ok(TECHNIQUES_V2[id].vocabulary.available.length >= 3, id);
   }
+});
+
+test("the colour-field cards route from every particle family and from their keywords", () => {
+  // Every family that carries particles owns them; water-projectile is all mesh.
+  for (const family of RECIPE_V2_IDS) {
+    if (family === "water-projectile") continue;
+    assert.ok(
+      TECHNIQUES_BY_FAMILY[family].includes("continuous-colour-field"),
+      `${family} is missing continuous-colour-field`,
+    );
+    assert.ok(
+      TECHNIQUES_BY_FAMILY[family].includes("particle-ribbon-trails"),
+      `${family} is missing particle-ribbon-trails`,
+    );
+  }
+  for (const prompt of [
+    "a gradient from blue to green",
+    "a graduated violet plume",
+    "the colours blend as it rises",
+    "a smooth transition into green",
+    "long trails behind the sparks",
+    "ribbon streamers off the impact",
+    "a streamer of embers",
+  ]) {
+    const cards = TECHNIQUE_KEYWORDS.find(([pattern]) =>
+      pattern.test(prompt),
+    )?.[1];
+    assert.ok(cards?.includes("continuous-colour-field"), prompt);
+    assert.ok(cards?.includes("particle-ribbon-trails"), prompt);
+  }
+  const brief = techniqueBrief("smoke-burst", "a violet plume with a gradient");
+  assert.match(brief, /Continuous colour field/);
+  assert.match(brief, /material\.ramp\.blend/);
+  assert.match(brief, /Particle ribbon trails/);
+});
+
+test("a keyword-matched card is never displaced by the universal colour cards", () => {
+  // The regression the reordering exists for: every family list now ends with
+  // the two colour cards, so on family position alone they would take the last
+  // slots and drop the card the prompt actually asked for.
+  const aura = techniqueBrief(
+    "fire-slash" as RecipeV2Id,
+    "a green healing aura around the caster",
+  );
+  assert.match(aura, /Ground ring with inner fill/);
+  assert.ok(
+    aura.indexOf("Ground ring with inner fill") <
+      (aura.includes("Continuous colour field")
+        ? aura.indexOf("Continuous colour field")
+        : Infinity),
+  );
 });

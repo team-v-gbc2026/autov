@@ -60,6 +60,10 @@ export const TECHNIQUE_IDS = [
   "torn-membrane-tail",
   "arc-window-crescent",
   "drawn-symbol-burst",
+  // The colour-field port: a ramp that answers to more than one thing, and the
+  // ribbon each particle drags behind it.
+  "continuous-colour-field",
+  "particle-ribbon-trails",
 ] as const;
 export type TechniqueId = (typeof TECHNIQUE_IDS)[number];
 
@@ -99,6 +103,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
       "Add isolated wisp lobes at 20-30% radius near the top.",
       "Displace each lobe with geometry.vertexNoise so the mesh itself is bumpy.",
       "Ramp each lobe by material.ramp.space:\"surface\" (light cap, mid body, dark shadow).",
+      'Cel bands, not flat colours: material.toon.colorSource:"ramp" takes the BODY band from material.ramp evaluated at the fragment (space "height" with heightSpan set to the cluster\'s real metres), so the cluster grades from a deep base to a light crown while still posterising into the same bands. Keep toon.shadowScale ~0.55 and toon.highlightMix ~0.35: the banding is what makes it read as cel, the ramp only stops the bands being constant.',
       "Stagger every lobe's layer.start by 40-100ms so the cluster builds.",
     ],
     timing:
@@ -117,6 +122,7 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
         "blob.bump.{amplitude,frequency,speed} (the cauliflower radius field)",
         "blob.comma.{curl,taper}",
         "material.toon.{bands,thresholds,shadow,body,highlight,light,rim}",
+        'material.toon.{colorSource:"fixed"|"ramp",shadowScale,highlightMix} (a continuous body colour under the same bands)',
         "material.opaqueUntil",
       ],
       missing: [],
@@ -888,6 +894,83 @@ export const TECHNIQUES_V2: Record<TechniqueId, TechniqueCard> = {
     sources: [BEAM_ETC, SMOKE],
   },
 
+  "continuous-colour-field": {
+    id: "continuous-colour-field",
+    name: "Continuous colour field",
+    use: "Any population or volume that would otherwise read as one flat colour: the ramp keys on something that varies ACROSS the effect (height, radius, the sprite itself) instead of only on each piece's own age.",
+    construction: [
+      'Pick the key the motion already carries: material.ramp.space "height" for anything that RISES (heightSpan = the metres the effect actually spans, so a 3 m plume sets heightSpan 3, not the default 2), "radial" for anything that SPREADS from a centre, "life" for anything that AGES in place, "layerTime" for a whole layer that turns over at once.',
+      'Add material.ramp.blend {space, weight} for the second thing that is true at the same time: a plume that rises AND cools is space "height" with blend {space:"life", weight 0.35-0.55}. key = mix(primary, secondary, weight), so weight 0.5 is an even split and anything above 0.7 simply swaps the two.',
+      'material.ramp.space "sprite" runs the gradient across each particle\'s OWN quad — 0 at the bottom/tail, 1 at the top/head, along the stretch axis for a velocity-stretched sprite — so ONE spark carries a hot head and a cold tail. Worth it only when the piece is big enough to read it: render.stretch >= 1.2, or size >= 0.1.',
+      'Sprite + blend is the dense case: space "sprite" with blend {space:"height", weight 0.3-0.45} gives every ember a head-to-tail gradient AND makes the whole spray shift colour as it climbs.',
+      'A cel-shaded volume is not exempt: material.toon.colorSource:"ramp" takes the toon BODY band from material.ramp at the fragment and derives shadow = body * toon.shadowScale and highlight = mix(body, toon.highlight, toon.highlightMix), so a lobe cluster keeps its bands and loses its flatness. Blob lobes only.',
+      "3-4 ramp stops, never 2, and never at 0% or 100% saturation: two stops is a crossfade, four is a palette (deep base, body, hot shoulder, pale tip).",
+      "Match the reference: grade continuously where the reference grades, and leave the banding alone where the reference is banded. Two or three tones against a banded reference is the intended look, not a defect.",
+      "Trail ramps are separate: emitter.trail.ramp {space:\"along\"} colours the ribbon head-to-tail independently of the sprite in front of it.",
+    ],
+    timing:
+      "The key is spatial, so it holds for the whole layer: there is no phase to schedule. Stagger layer.start as usual; a height-keyed layer needs no life stagger to avoid a uniform wave because the colour already varies across the population.",
+    details: [
+      "Height-keyed smoke is the single cheapest fix for a flat plume: the same 200 particles become a gradient because they are at different heights, not different ages.",
+      "A blend is one ramp doing two jobs — it costs nothing and removes the second layer that would otherwise exist only to add a hue.",
+      "A sprite gradient is what makes a spark read as a streak rather than a dot: the head is hot, the tail is the base colour.",
+      "heightSpan left at its default 2 on a 4 m column clips the ramp to the bottom half and the top is one colour.",
+      "Blend weight above about 0.7 means the blend space was the right primary all along.",
+    ],
+    vocabulary: {
+      available: [
+        'material.ramp.space "life"|"layerTime"|"surface"|"height"|"radial"|"sprite"',
+        "material.ramp.heightSpan (metres the height space covers above environment.groundY)",
+        "material.ramp.blend.{space,weight} (key = mix(primary, secondary, weight))",
+        "material.ramp.displacementShift (vertex displacement shifts the key on mesh lobes)",
+        'material.toon.{colorSource:"fixed"|"ramp",shadowScale,highlightMix} (a continuous body colour under cel bands)',
+        'emitter.trail.ramp.{space:"along"|"life",stops}',
+        "emitter.render.stretch + render.anchor \"head\" (what makes a sprite gradient readable)",
+      ],
+      missing: [
+        "A per-particle hue jitter (a random offset into the ramp per instance).",
+        'A "speed" ramp space (key on the particle\'s own velocity magnitude).',
+      ],
+    },
+    sources: [SMOKE, BEAM_ETC],
+  },
+
+  "particle-ribbon-trails": {
+    id: "particle-ribbon-trails",
+    name: "Particle ribbon trails",
+    use: "Streamers behind a population — embers, sparks, healing motes, meteor debris — where each particle drags its own tapered ribbon instead of the layer carrying one hero streak.",
+    construction: [
+      "emitter.trail on the particles layer: segments 4-12 (6-8 is the readable default; 16 is only for a slow hero mote) and spacing 0.02-0.06 s, which is how far back in the particle's OWN past each segment samples. segments * spacing is the ribbon's length in seconds, so 8 x 0.04 is a 0.32 s tail.",
+      "trail.widthCurve runs 0 head -> 1 tail and MUST reach 0 at the tail (keys [[0,1],[1,0]], or [[0,0.8],[0.35,1],[1,0]] for a ribbon that swells just behind the head). A curve that ends above about 0.15 reads as a bar with a cut end.",
+      'trail.ramp {space:"along", stops} colours it head-to-tail: the head stop is the sprite\'s own hot colour and the tail stop is a darker, less saturated version of it, so the ribbon dies into the background instead of stopping.',
+      "Width comes from emitter.render.size, so a 0.05-0.16 spark gives a hairline ribbon: that is correct. Raise render.size, never the segment count, for a fatter streamer.",
+      'The ribbon is analytic — vertex k evaluates the same closed-form position at age - k*spacing — so it costs one extra draw per layer, survives a seek, and follows every force (curl, vortex, gravity) the sprite follows.',
+      "Give the sprite a velocity to trail: at speed 0 the ribbon collapses into the particle. 1.5-6 m/s over a 0.4-1.2 s life is the readable band.",
+    ],
+    timing:
+      "The ribbon exists for the particle's whole life. Trail length in seconds (segments * spacing) should be 20-40% of emitter.life[0] — longer and the oldest segment is a straight line the eye reads as a wire.",
+    details: [
+      "One ribbon per particle is what separates a spray of motes from a spray of streamers; a single kind:\"trail\" mesh cannot do it for a population.",
+      "Taper to 0 at the tail or the streamer reads as a cut bar.",
+      "A trail ramp keyed \"along\" is a second gradient for free: the population is graded by life, each ribbon by position.",
+      "Pair with render.mode \"velocityStretch\" and a sprite-space ramp and one spark carries three gradients — along the ribbon, along the card, and across its own life.",
+      'Related but different: kind:"trail" is ONE tapered mesh streak and kind:"ribbon" is a multi-strand strip swept along a document path — both are for a single hero path, not for a population.',
+    ],
+    vocabulary: {
+      available: [
+        "emitter.trail.{segments,spacing,widthCurve,textureId}",
+        'emitter.trail.ramp.{space:"along"|"life",stops}',
+        'emitter.render.mode:"velocityStretch" + render.stretch + render.anchor:"head"',
+        'kind:"trail" (one mesh streak) and kind:"ribbon" (a path-swept multi-strand strip) for a single hero path',
+      ],
+      missing: [
+        "A trail width in world units independent of emitter.render.size.",
+        "Per-segment noise on the ribbon spine (a wavy streamer).",
+      ],
+    },
+    sources: [BEAM_ETC, ICE_SHIELD],
+  },
+
   "path-anchored-trail": {
     id: "path-anchored-trail",
     name: "Path-anchored trail",
@@ -1028,18 +1111,24 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "uv-erosion-front",
     "staggered-instance-timing",
     "cauliflower-blob-cluster",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "smoke-burst": [
     "cauliflower-blob-cluster",
     "inverted-hull-outline",
     "flat-splash-accent",
     "two-layer-noise-mist",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "lightning-impact": [
     "blinking-arc-ribbons",
     "converging-charge",
     "staggered-instance-timing",
     "instanced-shard-burst",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   // The arc-window card already carries the front ordering a slash needs, so
   // staggered-instance-timing would only repeat it.
@@ -1047,59 +1136,79 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "arc-window-crescent",
     "uv-erosion-front",
     "three-tone-layer-stack",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   beam: [
     "stripe-panner-core-and-sheath",
     "converging-charge",
     "vent-on-shutoff",
     "three-tone-layer-stack",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "energy-column": [
     "stripe-panner-core-and-sheath",
     "blinking-arc-ribbons",
     "three-tone-layer-stack",
     "edge-biased-sparks",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   shield: [
     "hex-lattice-fresnel-shield",
     "converging-charge",
     "staggered-instance-timing",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "meteor-rain": [
     "path-anchored-trail",
     "speed-line-cap",
     "instanced-shard-burst",
     "cauliflower-blob-cluster",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "ice-blast": [
     "cast-sigil-reveal",
     "instanced-shard-burst",
     "two-layer-noise-mist",
     "staggered-instance-timing",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "healing-aura": [
     "path-window-ribbon",
     "ground-ring-with-inner-fill",
     "upright-glow-cylinder",
     "four-point-sparkles",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "glitch-projectile": [
     "stepped-hash-glitch",
     "staggered-instance-timing",
     "instanced-shard-burst",
     "path-window-ribbon",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   portal: [
     "sdf-frame-rim",
     "panning-flow-interior",
     "edge-biased-sparks",
     "ground-ring-with-inner-fill",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "sky-vortex": [
     "polar-swirl-disc",
     "orbiting-lobe-ring",
     "cauliflower-blob-cluster",
     "staggered-instance-timing",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
   "water-projectile": [
     "torn-membrane-tail",
@@ -1112,6 +1221,8 @@ export const TECHNIQUES_BY_FAMILY: Record<RecipeV2Id, TechniqueId[]> = {
     "flat-splash-accent",
     "converging-charge",
     "staggered-instance-timing",
+    "continuous-colour-field",
+    "particle-ribbon-trails",
   ],
 };
 
@@ -1164,6 +1275,10 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
     ["instanced-shard-burst", "two-layer-noise-mist", "hex-lattice-fresnel-shield"],
   ],
   [
+    /gradient|graduat|blend|transition|trail|ribbon|streamer/i,
+    ["continuous-colour-field", "particle-ribbon-trails"],
+  ],
+  [
     /smoke|puff|cloud/i,
     [
       "cauliflower-blob-cluster",
@@ -1172,6 +1287,17 @@ export const TECHNIQUE_KEYWORDS: Array<[RegExp, TechniqueId[]]> = [
       "two-layer-noise-mist",
     ],
   ],
+];
+
+/**
+ * Cards that belong to every family that carries particles rather than to one
+ * shape. They stay in `TECHNIQUES_BY_FAMILY` — that is where a reader looks to
+ * see what a family is built from — but `techniqueBrief` orders them after the
+ * keyword-matched cards, so they never displace the card the prompt named.
+ */
+const UNIVERSAL_TECHNIQUES: TechniqueId[] = [
+  "continuous-colour-field",
+  "particle-ribbon-trails",
 ];
 
 /**
@@ -1193,9 +1319,15 @@ const APPROXIMATIONS: Partial<Record<TechniqueId, string>> = {};
  * cards of the same weight: at 6600 a vortex prompt against another family
  * dropped polar-swirl-disc, which is exactly the card it asked for. Even at
  * 8200 the block is a third of the size of the example document the same call
- * already sends.
+ * already sends. Raised again from 8200 with the colour-field port:
+ * continuous-colour-field and particle-ribbon-trails are on every family that
+ * carries particles, and at 8200 with four cards they were always the two that
+ * fell off — which is the opposite of the point, since a flat palette is the
+ * defect the live runs keep admitting. 14000 is what six full cards cost on the
+ * widest family (sky-vortex), still well under half the example document the
+ * same call already sends.
  */
-const BRIEF_CHAR_BUDGET = 8200;
+const BRIEF_CHAR_BUDGET = 14000;
 
 /**
  * A single card in full: every construction step (numbered), the timing
@@ -1219,7 +1351,7 @@ function cardBrief(card: TechniqueCard): string {
 /**
  * A prompt block of technique cards for one family and prompt: the family's
  * own cards first, then any keyword-matched cards not already included, up
- * to `opts.max` (default 4) cards and `BRIEF_CHAR_BUDGET` (4500) characters.
+ * to `opts.max` (default 6) cards and `BRIEF_CHAR_BUDGET` characters.
  * Every included card is emitted in full — `use`, every construction step,
  * timing and the top 3 details are never cut — so a card that would push
  * the block over budget is dropped whole rather than truncated. Only
@@ -1231,16 +1363,27 @@ export function techniqueBrief(
   prompt: string,
   opts: { max?: number } = {},
 ): string {
-  const max = opts.max ?? 4;
+  // Six, not four: the two colour-field cards sit at the end of every
+  // particle-carrying family list, so a four-card brief never reached them.
+  const max = opts.max ?? 6;
   const candidates: TechniqueId[] = [];
   const addCandidate = (id: TechniqueId) => {
     if (!candidates.includes(id)) candidates.push(id);
   };
-  for (const id of TECHNIQUES_BY_FAMILY[family]) addCandidate(id);
+  // The colour-field cards are on every particle-carrying family, so on their
+  // family position alone they would sit ahead of the card the PROMPT asked
+  // for and, at the budget, push it out. They are general craft, not a family
+  // shape, so they go last however they were reached.
+  const family_cards = TECHNIQUES_BY_FAMILY[family].filter(
+    (id) => !UNIVERSAL_TECHNIQUES.includes(id),
+  );
+  for (const id of family_cards) addCandidate(id);
   for (const [pattern, ids] of TECHNIQUE_KEYWORDS) {
     if (!pattern.test(prompt)) continue;
     for (const id of ids) addCandidate(id);
   }
+  for (const id of TECHNIQUES_BY_FAMILY[family])
+    if (UNIVERSAL_TECHNIQUES.includes(id)) addCandidate(id);
   const parts: string[] = [];
   let total = 0;
   for (const id of candidates) {

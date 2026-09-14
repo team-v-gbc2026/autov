@@ -119,6 +119,7 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
       stops,
       displacementShift: 0,
       heightSpan: 2,
+      blend: null,
     },
     opacity: p.opacity,
     mask: {

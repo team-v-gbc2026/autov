@@ -230,3 +230,26 @@ and stay as they were; `arc-window-crescent` now leads the `fire-slash` family a
 27 of the 29 cards now implement fully within today's vocabulary (`vocabulary.missing: []`); the
 remaining 2 entries in the backlog above belong to `ground-ring-with-inner-fill` and
 `stepped-hash-glitch`.
+
+### Closed 2026-09-14 — the colour-field port
+
+The port that came out of the first live run with the v2 vocabulary (`TOOLBOX_V2_MAPPING.md` §17)
+added two cards and four backlog entries.
+
+| Card | What it carries |
+|---|---|
+| `continuous-colour-field` | `material.ramp.space:"sprite"` (the key across a particle's own quad, 0 tail → 1 head), `material.ramp.blend {space, weight}` (a second key space mixed into the first: `key = mix(primary, secondary, weight)`), `material.ramp.heightSpan` used honestly, and `material.toon.{colorSource:"ramp",shadowScale,highlightMix}` — a cel cluster whose BODY band comes from the ramp at the fragment, so the bands stay and the flat colour goes. Plus the rule that decides which key: height for what rises, radial for what spreads, life for what ages, sprite for pieces big enough to read their own gradient |
+| `particle-ribbon-trails` | `emitter.trail.{segments,spacing,widthCurve,ramp}` — the ribbon each particle drags behind it, keyed head-to-tail by `trail.ramp.space:"along"`, tapered to 0 at the tail. Cross-references `kind:"trail"` (one mesh streak) and `kind:"ribbon"` (a multi-strand strip swept along a document path), which are for a single hero path and not for a population |
+
+Backlog the two cards name (`vocabulary.missing`):
+
+- A per-particle hue jitter — a random offset into the ramp per instance, so a population varies
+  without needing a spatial key.
+- A `"speed"` ramp space, keying on the particle's own velocity magnitude.
+- A trail width in world units, independent of `emitter.render.size` (today a 0.05 spark can only
+  drag a hairline).
+- Per-segment noise on the ribbon spine, for a wavy streamer rather than an exact replay of the path.
+
+31 of the 31 cards route from a family or a keyword; 27 implement fully within today's vocabulary,
+and the backlog above belongs to `ground-ring-with-inner-fill`, `stepped-hash-glitch`,
+`continuous-colour-field` and `particle-ribbon-trails`.

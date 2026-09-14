@@ -441,3 +441,25 @@ test("meshScale reaches the ribbon and wireBurst generators, topology excepted",
   assert.deepEqual(applyKnobs(heal, IDENTITY_KNOBS), heal);
   assert.deepEqual(applyKnobs(glitch, IDENTITY_KNOBS), glitch);
 });
+
+test("rampIntensity moves a per-particle trail's own ramp with the sprite's", () => {
+  const doc = validateDocumentV2(
+    JSON.parse(readFileSync("fixtures/v2/meteor-rain/document.json", "utf8")),
+  );
+  const before = doc.layers.find((l) => l.id === "sparks")!;
+  const baseline = before.emitter!.trail!.ramp!.stops.map((s) => s.intensity);
+  const knobs = IDENTITY_KNOBS.map((v, i) =>
+    KNOB_NAMES[i] === "rampIntensity" ? 0.5 : v,
+  );
+  const next = applyKnobs(doc, knobs);
+  const after = next.layers.find((l) => l.id === "sparks")!;
+  assert.deepEqual(
+    after.emitter!.trail!.ramp!.stops.map((s) => s.intensity),
+    baseline.map((v) => v * 0.5),
+  );
+  // Leaving it out would brighten the spark and not the streamer behind it.
+  assert.deepEqual(
+    after.material!.ramp.stops.map((s) => s.intensity),
+    before.material!.ramp.stops.map((s) => s.intensity * 0.5),
+  );
+});

@@ -9,6 +9,8 @@ import { readTarget, writeTarget } from "./evaluate-v2";
 import {
   fromWireV2,
   mapV1Target,
+  meshHeroLayerV2,
+  MESH_HERO_FRAMING_LINT,
   validateDocumentV2,
   V2_TARGET_RANGES,
   type VfxDocumentV2,
@@ -189,4 +191,37 @@ export function applyStructuralRefinementV2(
   )
     throw Error("Post repair may only lower bloom and exposure.");
   return validateDocumentV2(next);
+}
+
+/**
+ * The one repair the knob solver cannot reach and the model keeps getting
+ * wrong: a document whose biggest layer is a mesh hero — a blob column, a
+ * crystal cluster, a blade, a swept ribbon, an SDF frame rim — framed in the
+ * particle band. The knob subspace has no camera in it, so a `smallInFrame`
+ * defect on such a document is rejected by the residual and nothing moves.
+ *
+ * The fix is the exemplar's own camera, which is measured, not guessed: the
+ * family example is already the scale reference, so it is also the framing
+ * reference. Only the camera block moves, and only when the lint actually
+ * complains, so a document the model framed correctly is returned untouched
+ * (the same object, so a caller can test for "nothing to do").
+ */
+export function applyExemplarCameraV2(
+  doc: VfxDocumentV2,
+  exemplar: VfxDocumentV2,
+): VfxDocumentV2 {
+  const hero = meshHeroLayerV2(doc);
+  if (!hero || doc.camera.framing >= MESH_HERO_FRAMING_LINT) return doc;
+  // An exemplar framed in the particle band is no better a reference than the
+  // candidate: take the minimum acceptable framing instead of copying a number
+  // that would leave the same defect in place.
+  const camera = {
+    ...exemplar.camera,
+    framing: Math.max(exemplar.camera.framing, MESH_HERO_FRAMING_LINT),
+    // Shake and push-in are direction, not framing: whatever the candidate
+    // chose for the motion of the shot survives the repair.
+    shake: doc.camera.shake,
+    pushIn: doc.camera.pushIn,
+  };
+  return validateDocumentV2({ ...doc, camera });
 }

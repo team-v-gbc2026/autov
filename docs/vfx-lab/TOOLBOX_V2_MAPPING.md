@@ -557,3 +557,64 @@ list, the blade's tongues are a curve inverted at each instance's own arc parame
 lit-flag per tongue, and the symbol burst's layout is a camera basis instead of a scene-graph parent.
 In each case the version that stores nothing is also the shorter one, and it is the only version a
 seek can land inside.
+
+## 17. Colour fields and trails (Phase I, 2026-09-14)
+
+The first live run with the schema-v2 vocabulary
+(`.autov-local/benchmarks/v2-techniques-3/fx12-smoke-burst/`) used blob, toon, outline and splash
+correctly and still scored 2.56/5. Two things were wrong with it, and neither was a missing shape.
+
+**The shot was framed for particles.** `CRAFT_RULES` still said "camera.framing sits between 0.45 and
+0.7 so the effect occupies roughly half the frame" — a rule measured when every hero was a spray that
+reached well past its own spawn shape. A blob column has no such reach: at 0.65 it is a model on a
+table. The generated document framed at 0.65 / fov 35 / elevation 0.24 where the exemplar frames at
+1.0 / fov 30 / elevation 0.07, and the refine stage could not reach it — the knob subspace has no
+camera in it, so `smallInFrame` came back "Knob solve rejected".
+
+**Every population was one colour at a time.** `material.ramp.space` could only key on the particle's
+own age, the layer's progress, a surface coordinate, world height or a radius — one of them, for the
+whole layer — and `material.toon` painted its three bands with three fixed hexes, so a cluster of
+forty lobes was three flat purples wherever they were.
+
+| Failure | Schema v2 field | Notes |
+|---|---|---|
+| framing 0.65 on a three-metre plume | `MESH_HERO_KINDS_V2` + `lintDocumentV2` + `applyExemplarCameraV2` | the lint finds the largest **primary/impact** layer, skipping dressing (light, decal, splash, reflection), and warns when that layer is a blob/crystals/crescent/ribbon/frame rim and `camera.framing` is under 0.80. The repair copies the family exemplar's whole camera block — fov, elevation, azimuth, framing — keeping the candidate's own shake and push-in, and runs both after the candidate lint repair and after a structural repair that admitted `smallInFrame`. 0.85–1.0 is the authored band; the lint floor is 0.80 because the portal exemplar frames its 1.6 × 2.4 doorway there, and a lint that fires on an accepted exemplar teaches the model to distrust the lint |
+| a column at rise 5.2 that never leaves the lower third | `CRAFT_RULES` blob anchors | column rise 8–14 units/s for a 2.5–3.5-unit plume, mound/ring spread 1.0–1.6, lobe radius 0.25–0.6, string rise 2–4. The exemplar's column is rise 12 |
+| one sprite, one colour | `material.ramp.space:"sprite"` | the key runs across the particle's OWN quad — 0 at the bottom (the tail of a velocity-stretched card), 1 at the top (its head) — so one spark is hot at its head and cold at its tail. Implemented in `particleFragmentV2` off `vUv.y`, which is already the stretch axis, so it costs nothing; on a mesh the same mode reads the mesh's own V. The flat cel strip (`stripFragmentV2`) is deliberately excluded: it is a two-band palette selector, and a gradient there is the opposite of what it is for |
+| "rises turning blue→green AND fades with age" needing two layers | `material.ramp.blend {space, weight}` | `key = mix(primary, secondary, weight)`, any two of the six spaces. One ramp does both jobs, and weight 0 is the switch the fragment tests, so an unblended ramp costs one comparison |
+| a cel cluster that is three flat colours wherever it is | `material.toon.{colorSource,shadowScale,highlightMix}` | `colorSource:"ramp"` takes the toon BODY band from `material.ramp` evaluated at the fragment in the ramp's own space, and derives `shadow = body × shadowScale` (nudged 25% toward `toon.shadow`) and `highlight = mix(body, toon.highlight, highlightMix)`. The two thresholds and the half-lambert are untouched: the cluster still posterises into the same bands, and only the constant is gone. Blob lobes only — sheets and crescents keep their fixed tonal stacks, which are authored per copy |
+| a spray of motes where the reference has streamers | `emitter.trail.ramp {space:"along"\|"life"}` | the ribbon each particle already drew could only borrow the layer's ramp keyed on the particle's age, so the whole strip was one colour at any instant. `space:"along"` keys it head-to-tail off `vUv.y` — the same 0 head → 1 tail key `trail.widthCurve` already tapered on. The trail gets its own uniform block spread off the sprite's, so every other uniform is still one write per frame |
+| `flatColor` read as an absolute tone count | `DEFECT_CHECKLIST` | reference-relative now: fewer colour steps or less positional/temporal gradient *than the reference and the prompt call for*. Deliberate cel banding against a banded reference is not a defect — the fx12 reference is itself three flat tones |
+
+Exemplars rewritten to demonstrate it, all still lint-clean and seek-deterministic:
+
+- `fixtures/v2/smoke-burst`: the four violet lobe layers and the two pink ones take
+  `toon.colorSource:"ramp"` over a height ramp (#2c1a7a → #5a3ce0 → #b9a6ff, and the pink
+  #9c0f88 → #e81eb4 → #ff7ad6, both over `heightSpan` 3), so the plume grades from a deep plum base
+  to a light lavender crown while every lobe still reads as three cel bands. A new `pop-sparks`
+  particles layer is `space:"sprite"` with `blend {space:"height", weight 0.4}` on
+  `velocityStretch` / `anchor:"head"`: each glint carries a head-to-tail gradient and the spray
+  shifts with the column.
+- `fixtures/v2/healing-aura`: the sparkles key `life` blended 45% into `height` over a 2.4 m span,
+  and carry a six-segment ribbon trail keyed `along` from pale lime at the head to green at the tail.
+- `fixtures/v2/meteor-rain`: the ground sparks blend 30% of `height` into their life ramp and drag an
+  eight-segment trail keyed `along`, hot amber at the head into ember brown at the tail.
+
+Two technique cards carry it into the prompt — `continuous-colour-field` and
+`particle-ribbon-trails` — on every family that has particles, plus a keyword route on
+`gradient|graduat|blend|transition|trail|ribbon|streamer`. They are ordered AFTER the keyword-matched
+cards in `techniqueBrief`, because they are general craft rather than a family shape and would
+otherwise push out the card the prompt actually named.
+
+### The shader bug the port found
+
+`splashFragmentV2` multiplied by `uShade` — a uniform that belongs to `blobFragmentV2` and was never
+declared or supplied here. The program therefore failed to compile, Three.js logged it and carried
+on, and **every `splash` layer in every document drew nothing**, leaving a GL_INVALID_OPERATION
+(1282) behind each skipped `useProgram`. In the fx12 candidate that was `white-outward-accent`, the
+one layer meant to break the silhouette outward. `scripts/verify-shader-links.mjs` (`npm run verify:shaders`) and
+`tests/shader-links.test.ts` now render every exemplar and fail on any shader message or non-zero
+`gl.getError()`, so a uniform declared in one variant and used in another cannot ship again. The
+test runs the script as a CHILD PROCESS: the harness owns a browser, an http server and an esbuild
+service, and imported in-process inside the node test runner it never returns. It costs about five
+minutes of SwiftShader, so `AUTOV_SKIP_SHADER_LINKS=1` skips it in a tight edit loop.

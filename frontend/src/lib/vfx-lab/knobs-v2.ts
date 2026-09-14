@@ -410,9 +410,14 @@ export function applyKnobs(
       w.travel = clamp(w.travel * kMeshScale, 0, 8);
     }
 
-    // K6 — ramp intensity, every layer that has a ramp.
+    // K6 — ramp intensity, every layer that has a ramp. A per-particle trail
+    // carrying its own ramp is one of them: leaving it out would brighten a
+    // spark and not the streamer behind it.
     if (layer.material)
       for (const stop of layer.material.ramp.stops)
+        stop.intensity = clamp(stop.intensity * kRamp, 0, 8);
+    if (layer.emitter?.trail?.ramp)
+      for (const stop of layer.emitter.trail.ramp.stops)
         stop.intensity = clamp(stop.intensity * kRamp, 0, 8);
 
     // K7 — light intensity curves.

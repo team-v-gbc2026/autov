@@ -185,3 +185,12 @@ Dropped: visual parameter "cards" (prior art: Design Galleries, 1997; weak novel
   event-spawned populations (`spawn.originsFromPath` with no `shape.pathId`) collapse to one layer.
 - Texture generation is off in v2 (library only). `quality.style` ps1/ps2 is approximate.
 - Structured-output documents are 13–15 kB minified; candidate max_output_tokens 32 000.
+- `material.toon.colorSource:"ramp"` is implemented for blob lobes only. `kind:"sheets"` and
+  `kind:"crescent"` cel-shade from their own fixed tonal stacks (authored per copy), and a
+  `colorSource:"ramp"` set on one of those is accepted by the schema and ignored by the renderer.
+- `material.ramp.space:"sprite"` is a no-op on the flat cel strip (`render.mode:"flatStrip"`), which
+  is a two-band palette selector by design, and on `kind:"licks"`, which carries its own two colours.
+- `material.ramp.blend` is implemented on the particle, mesh and blob programs. The wireBurst and
+  strip programs ignore it: neither has a second key space worth mixing.
+- The mesh-hero framing lint (`MESH_HERO_FRAMING_LINT`) warns below 0.80 rather than the authored
+  0.85–1.0 band, because the portal exemplar frames its doorway at 0.80.

@@ -272,7 +272,8 @@
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 2.0
+          "heightSpan": 2.0,
+          "blend": null
         },
         "opacity": 1.0,
         "mask": {
@@ -402,7 +403,8 @@
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 2.0
+          "heightSpan": 2.0,
+          "blend": null
         },
         "opacity": 1.0,
         "mask": {
@@ -521,7 +523,8 @@
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 2.0
+          "heightSpan": 2.0,
+          "blend": null
         },
         "opacity": 0.5,
         "mask": {
@@ -645,7 +648,8 @@
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 2.0
+          "heightSpan": 2.0,
+          "blend": null
         },
         "opacity": 0.22,
         "mask": {
@@ -788,17 +792,26 @@
           "stops": [
             {
               "t": 0,
-              "color": "#d6ff9c",
+              "color": "#f2ffd2",
               "intensity": 2.3
             },
             {
+              "t": 0.45,
+              "color": "#d6ff9c",
+              "intensity": 1.6
+            },
+            {
               "t": 1,
-              "color": "#a8ff80",
-              "intensity": 0.95
+              "color": "#6fd86a",
+              "intensity": 0.8
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 2.0
+          "heightSpan": 2.4,
+          "blend": {
+            "space": "height",
+            "weight": 0.45
+          }
         },
         "opacity": 1.0,
         "mask": {
@@ -959,7 +972,43 @@
             "depth": 0.55
           }
         },
-        "trail": null,
+        "trail": {
+          "segments": 6,
+          "spacing": 0.035,
+          "widthCurve": {
+            "keys": [
+              [
+                0,
+                1
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "textureId": null,
+          "ramp": {
+            "space": "along",
+            "stops": [
+              {
+                "t": 0,
+                "color": "#eaffc8",
+                "intensity": 1.8
+              },
+              {
+                "t": 1,
+                "color": "#4fae63",
+                "intensity": 0.25
+              }
+            ]
+          }
+        },
         "sub": null
       }
     },
@@ -1036,7 +1085,8 @@
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 2.0
+          "heightSpan": 2.0,
+          "blend": null
         },
         "opacity": 0.35,
         "mask": {

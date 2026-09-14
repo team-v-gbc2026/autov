@@ -1078,17 +1078,41 @@ function writeLineWork(
   }
 }
 
+const RAMP_KEY_MODES: Record<string, number> = {
+  life: 0,
+  layerTime: 1,
+  surface: 2,
+  height: 3,
+  radial: 4,
+  sprite: 5,
+};
+
 function rampKeyMode(material: Material) {
-  const space = material.ramp.space;
-  return space === "radial"
-    ? 4
-    : space === "height"
-      ? 3
-      : space === "surface"
-        ? 2
-        : space === "layerTime"
-          ? 1
-          : 0;
+  return RAMP_KEY_MODES[material.ramp.space] ?? 0;
+}
+
+/**
+ * material.ramp.blend as two uniforms: which space to mix in and how much of
+ * it. Weight 0 (no blend) is the switch the fragment tests, so an unblended
+ * ramp costs one comparison and nothing else.
+ */
+function rampBlendUniforms(material: Material) {
+  const blend = material.ramp.blend;
+  return {
+    uRampBlendMode: { value: blend ? (RAMP_KEY_MODES[blend.space] ?? 0) : 0 },
+    uRampBlendWeight: { value: blend ? blend.weight : 0 },
+  };
+}
+
+function writeRampBlend(
+  uniforms: Record<string, THREE.IUniform>,
+  material: Material,
+) {
+  const blend = material.ramp.blend;
+  uniforms.uRampBlendMode.value = blend
+    ? (RAMP_KEY_MODES[blend.space] ?? 0)
+    : 0;
+  uniforms.uRampBlendWeight.value = blend ? blend.weight : 0;
 }
 
 /**
@@ -1700,6 +1724,7 @@ function createParticleLayer(
     uEdgeI: { value: material.erosion?.edgeIntensity ?? 0 },
     uOpacity: { value: material.opacity },
     uRampKeyMode: { value: rampKeyMode(material) },
+    ...rampBlendUniforms(material),
     uGroundY: { value: doc.environment.groundY },
     uHeightSpan: { value: material.ramp.heightSpan },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
@@ -1812,6 +1837,7 @@ function createParticleLayer(
   group.add(mesh);
   let trailMaterial: THREE.ShaderMaterial | null = null;
   let trailGeometry: THREE.InstancedBufferGeometry | null = null;
+  let trailUniforms: Record<string, THREE.IUniform> | null = null;
   if (trail) {
     const strip = trailStripGeometry(trail.segments);
     trailGeometry = new THREE.InstancedBufferGeometry();
@@ -1834,8 +1860,16 @@ function createParticleLayer(
       trailGeometry.setAttribute("aPExtra2", parentAttributes[2]);
     }
     trailGeometry.instanceCount = count;
+    // The ribbon shares every uniform OBJECT with the sprite draw — one write
+    // per frame moves both — except its ramp, which is its own so a trail can
+    // be keyed head-to-tail while the sprite it trails is keyed on age.
+    trailUniforms = {
+      ...uniforms,
+      ...rampUniforms(trail.ramp ?? material.ramp),
+      uTrailRampMode: { value: trail.ramp?.space === "along" ? 1 : 0 },
+    };
     trailMaterial = new THREE.ShaderMaterial({
-      uniforms,
+      uniforms: trailUniforms,
       vertexShader: trailVertexSource(!!parentEmitter, !!sites, events.length > 0),
       fragmentShader: trailFragmentV2,
       transparent: true,
@@ -2047,6 +2081,7 @@ function createParticleLayer(
       );
       uniforms.uProcedural.value = proceduralIndex(m);
       uniforms.uRampKeyMode.value = rampKeyMode(m);
+      writeRampBlend(uniforms, m);
       uniforms.uGroundY.value = doc.environment.groundY;
       uniforms.uHeightSpan.value = m.ramp.heightSpan;
       uniforms.uUseErosion.value = flags.erosion && m.erosion ? 1 : 0;
@@ -2084,6 +2119,11 @@ function createParticleLayer(
       if (e.trail) {
         uniforms.uSegments.value = e.trail.segments;
         uniforms.uSpacing.value = e.trail.spacing;
+        if (trailUniforms) {
+          writeRamp(trailUniforms, e.trail.ramp ?? m.ramp);
+          trailUniforms.uTrailRampMode.value =
+            e.trail.ramp?.space === "along" ? 1 : 0;
+        }
       }
       if (e.render.sliver) {
         (uniforms.uSliverLen.value as THREE.Vector2).fromArray(
@@ -2532,6 +2572,7 @@ function createMeshLayer(
     uTime: { value: 0 },
     uLayerU: { value: 0 },
     uRampKeyMode: { value: rampSpace },
+    ...rampBlendUniforms(material),
     uGroundY: { value: doc.environment.groundY },
     uHeightSpan: { value: material.ramp.heightSpan },
     uShell: { value: shell ? 1 : 0 },
@@ -2862,6 +2903,7 @@ function createMeshLayer(
       uniforms.uProtect.value = m.erosion?.displacementProtect ?? 0;
       uniforms.uRimBias.value = m.erosion?.rimBias ?? 0;
       uniforms.uRampKeyMode.value = rampKeyMode(m);
+      writeRampBlend(uniforms, m);
       uniforms.uGroundY.value = doc.environment.groundY;
       uniforms.uHeightSpan.value = m.ramp.heightSpan;
       uniforms.uFlicker.value = flickerAt(m, age);
@@ -3170,10 +3212,14 @@ function createBlobLayer(
     uRimAmt: { value: material.toon?.rim.amount ?? 0 },
     uFlat: { value: hull ? 1 : 0 },
     uUseToon: { value: material.toon ? 1 : 0 },
+    uToonRamp: { value: material.toon?.colorSource === "ramp" ? 1 : 0 },
+    uToonShadowScale: { value: material.toon?.shadowScale ?? 0.55 },
+    uToonHighMix: { value: material.toon?.highlightMix ?? 0.35 },
     uOpacity: { value: 1 },
     uLayerU: { value: 0 },
     uLobeU: { value: 0 },
     uRampKeyMode: { value: rampKeyMode(material) },
+    ...rampBlendUniforms(material),
     uGroundY: { value: doc.environment.groundY },
     uHeightSpan: { value: material.ramp.heightSpan },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 1 },
@@ -3317,6 +3363,7 @@ function createBlobLayer(
             : 0;
           uniforms.uNoiseSpeed.value = blob.bump.speed;
           uniforms.uRampKeyMode.value = rampKeyMode(m);
+          writeRampBlend(uniforms as Record<string, THREE.IUniform>, m);
           uniforms.uHeightSpan.value = m.ramp.heightSpan;
           uniforms.uGroundY.value = doc.environment.groundY;
           uniforms.uUseToon.value = m.toon ? 1 : 0;
@@ -3337,6 +3384,10 @@ function createBlobLayer(
           part.fillUniforms.uBands.value = m.toon.bands;
           part.fillUniforms.uRimPow.value = m.toon.rim.power;
           part.fillUniforms.uRimAmt.value = m.toon.rim.amount;
+          part.fillUniforms.uToonRamp.value =
+            m.toon.colorSource === "ramp" ? 1 : 0;
+          part.fillUniforms.uToonShadowScale.value = m.toon.shadowScale;
+          part.fillUniforms.uToonHighMix.value = m.toon.highlightMix;
         }
         if (outline) {
           (part.hullUniforms.uShadow.value as THREE.Color).set(outline.color);

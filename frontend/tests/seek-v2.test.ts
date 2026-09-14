@@ -978,3 +978,55 @@ test("transform.squash conserves volume and stays a function of layer time", () 
     );
   }
 });
+
+test("the port-G exemplars evaluate identically on a seek", () => {
+  // The colour-field port is entirely shader-side — a ramp key, a blend weight
+  // and a trail ramp are read at the fragment from (uniforms, time) — so the
+  // only way it could break determinism is by moving CPU state onto a layer.
+  // Backwards as well as forwards: a seek arrives from either direction.
+  for (const id of ["smoke-burst", "healing-aura", "meteor-rain"] as const) {
+    const doc = createPresetV2(id);
+    const times = Array.from({ length: 11 }, (_, i) => (doc.duration * i) / 10);
+    for (const layer of doc.layers) {
+      const forward = times.map((t) => evaluateLayerV2(layer, t));
+      const backward = [...times]
+        .reverse()
+        .map((t) => evaluateLayerV2(layer, t))
+        .reverse();
+      assert.deepEqual(forward, backward, `${id}/${layer.id}`);
+    }
+    // The lobes a blob generates are a function of (spec, seed) alone, and each
+    // lobe's state a closed form in layer time: the toon ramp changed neither.
+    for (const layer of doc.layers) {
+      if (!layer.blob) continue;
+      const path =
+        doc.paths.find((p) => p.id === layer.blob!.pathId) ?? null;
+      const lobes = blobLobes(layer.blob, path);
+      assert.deepEqual(lobes, blobLobes(layer.blob, path), layer.id);
+      const span = layer.end - layer.start;
+      for (const lobe of lobes)
+        for (let step = 0; step <= 6; step++) {
+          const t = (span * step) / 6;
+          assert.deepEqual(
+            lobeStateAt(
+              lobe,
+              layer.blob,
+              t,
+              span,
+              layer.material?.opaqueUntil ?? null,
+              path,
+            ),
+            lobeStateAt(
+              lobe,
+              layer.blob,
+              t,
+              span,
+              layer.material?.opaqueUntil ?? null,
+              path,
+            ),
+            `${id}/${layer.id}@${t}`,
+          );
+        }
+    }
+  }
+});

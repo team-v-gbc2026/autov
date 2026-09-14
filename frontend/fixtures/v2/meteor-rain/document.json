@@ -357,7 +357,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -403,7 +404,10 @@
      "rim": {
       "power": 3,
       "amount": 0.16
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.03,
@@ -526,7 +530,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -572,7 +577,10 @@
      "rim": {
       "power": 3,
       "amount": 0.16
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.03,
@@ -695,7 +703,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -741,7 +750,10 @@
      "rim": {
       "power": 3,
       "amount": 0.16
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.03,
@@ -864,7 +876,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -910,7 +923,10 @@
      "rim": {
       "power": 3,
       "amount": 0.16
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.03,
@@ -1033,7 +1049,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -1079,7 +1096,10 @@
      "rim": {
       "power": 3,
       "amount": 0.16
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.03,
@@ -1202,7 +1222,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -1452,7 +1473,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -1702,7 +1724,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -1952,7 +1975,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -2202,7 +2226,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -2457,7 +2482,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -2503,7 +2529,10 @@
      "rim": {
       "power": 3,
       "amount": 0.18
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.022,
@@ -2614,7 +2643,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -2660,7 +2690,10 @@
      "rim": {
       "power": 3,
       "amount": 0.18
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.022,
@@ -2771,7 +2804,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -2817,7 +2851,10 @@
      "rim": {
       "power": 3,
       "amount": 0.18
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.022,
@@ -2928,7 +2965,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -2974,7 +3012,10 @@
      "rim": {
       "power": 3,
       "amount": 0.18
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.022,
@@ -3085,7 +3126,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -3131,7 +3173,10 @@
      "rim": {
       "power": 3,
       "amount": 0.18
-     }
+     },
+     "colorSource": "fixed",
+     "shadowScale": 0.55,
+     "highlightMix": 0.35
     },
     "outline": {
      "width": 0.022,
@@ -3237,7 +3282,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -3462,7 +3508,8 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 2,
+     "blend": null
     },
     "opacity": 1,
     "mask": {
@@ -3691,7 +3738,11 @@
       }
      ],
      "displacementShift": 0,
-     "heightSpan": 2
+     "heightSpan": 1.8,
+     "blend": {
+      "space": "height",
+      "weight": 0.3
+     }
     },
     "opacity": 1,
     "mask": {
@@ -3867,7 +3918,48 @@
      "strip": null,
      "anchor": "center"
     },
-    "trail": null,
+    "trail": {
+     "segments": 8,
+     "spacing": 0.028,
+     "widthCurve": {
+      "keys": [
+       [
+        0,
+        1
+       ],
+       [
+        0.25,
+        0.9
+       ],
+       [
+        1,
+        0
+       ]
+      ],
+      "ease": "smooth"
+     },
+     "textureId": null,
+     "ramp": {
+      "space": "along",
+      "stops": [
+       {
+        "t": 0,
+        "color": "#ffd9a0",
+        "intensity": 2.4
+       },
+       {
+        "t": 0.4,
+        "color": "#ff8a3c",
+        "intensity": 1.2
+       },
+       {
+        "t": 1,
+        "color": "#6b2408",
+        "intensity": 0.2
+       }
+      ]
+     }
+    },
     "sub": null
    },
    "tracks": [],

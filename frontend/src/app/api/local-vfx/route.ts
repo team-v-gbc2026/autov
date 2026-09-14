@@ -10,6 +10,7 @@ import {
   applyRefinementV2,
   applyStructuralRefinement,
   applyStructuralRefinementV2,
+  applyExemplarCameraV2,
 } from "@/lib/vfx-lab/refine";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -531,6 +532,10 @@ export async function POST(request: Request) {
         await saveRun(run);
         throw new Error(problems[0]);
       }
+      // The one lint warning no prompt reliably fixes: a mesh-hero document
+      // framed in the particle band. It is a two-number correction against a
+      // measured reference, so it is applied here rather than asked for again.
+      doc = applyExemplarCameraV2(doc, createPresetV2(family));
       const warnings = lintDocumentV2(doc);
       run.documents.push(doc);
       await saveRun(run);
@@ -646,7 +651,7 @@ export async function POST(request: Request) {
         const family = recipeV2For(run.plan.recipe, run.prompt);
         const result = await callModel(
           StructuralRefinementV2Schema,
-          `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,
+          `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a ramp keyed on something that varies — material.ramp.space "height" or "sprite", or material.ramp.blend mixing a second space in — or a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,
           JSON.stringify({
             prompt: run.prompt,
             admittedDefects,
@@ -669,7 +674,14 @@ export async function POST(request: Request) {
           request.signal,
           32000,
         );
-        const next = applyStructuralRefinementV2(doc, result.value);
+        let next = applyStructuralRefinementV2(doc, result.value);
+        // The repair prompt forbids fixing a small silhouette with the camera,
+        // which is right for the geometry and wrong for the framing: a mesh
+        // hero still needs the exemplar's camera block. Applied only when the
+        // reviewer actually saw the defect, and only when the lint agrees the
+        // framing is in the particle band.
+        if (reviewV2!.defects.smallInFrame)
+          next = applyExemplarCameraV2(next, createPresetV2(family));
         run.documents.push(next);
         run.usages.push(result.usage);
         await saveRun(run);
