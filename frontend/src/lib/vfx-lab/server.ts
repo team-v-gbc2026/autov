@@ -71,8 +71,13 @@ export async function callModel<T extends z.ZodType>(
     Buffer.byteLength(system + text + JSON.stringify(format), "utf8") +
     4000 +
     images.length * 20000;
-  if (inputBound > 200000)
-    throw new Error("Input is too large for the local budget guard.");
+  // The v2 vocabulary, the technique brief and a full exemplar document put a
+  // candidate request near 300 kB; the guard only has to stop a runaway input,
+  // the reservation below still prices every byte.
+  if (inputBound > 480000)
+    throw new Error(
+      `Input is too large for the local budget guard (${Math.round(inputBound / 1000)} kB).`,
+    );
   const reservation = await reserve(inputBound, maxOutput);
   // On timeout, disconnection or failed parsing, retain the reservation: a remote call may still be billable.
   const client = new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 0 });
