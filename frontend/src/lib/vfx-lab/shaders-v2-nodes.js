@@ -13461,9 +13461,13 @@ export const streakFragmentBindings = {"uOpacity":{"type":"float","kind":"unifor
 
 export function sheetVertex( bindings ) {
 const vClipPosition = bindings.vClipPosition;
+const aSheetSeed = bindings.aSheetSeed;
+const aSheetAge = bindings.aSheetAge;
 const vN = bindings.vN;
 const vW = bindings.vW;
 const vUv = bindings.vUv;
+const vSeed = bindings.vSeed;
+const vAge = bindings.vAge;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate, frontFacing: gl_FrontFacing } = TSL;
 const uv = TSL.uv();
 
@@ -13472,8 +13476,15 @@ const uv = TSL.uv();
 
 	const gl_Position = property( 'vec4' );
 
+	// How far through its own life this sheet is. Per SHEET, not per layer: the
+	// membranes are born on staggered cadences, so a young one has barely started
+	// to come apart while an old one is nearly eaten. It rides on the geometry so
+	// that every sheet of a layer can still share one material.
+
 	const main = /*@__PURE__*/ Fn( () => {
 
+		vSeed.assign( aSheetSeed );
+		vAge.assign( aSheetAge );
 		vUv.assign( uv );
 		const wp = modelMatrix.mul( vec4( position, 1. ) ).toVar();
 		vN.assign( normalize( mat3( modelMatrix ).mul( normal ) ) );
@@ -13487,7 +13498,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const sheetVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"vN":{"type":"vec3","kind":"varying"},"vW":{"type":"vec3","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"}};
+export const sheetVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSheetSeed":{"type":"float","kind":"attribute"},"aSheetAge":{"type":"float","kind":"attribute"},"vN":{"type":"vec3","kind":"varying"},"vW":{"type":"vec3","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"vSeed":{"type":"float","kind":"varying"},"vAge":{"type":"float","kind":"varying"}};
 
 // Three.js Transpiler r186
 
@@ -13495,6 +13506,8 @@ export function sheetFragment( bindings ) {
 const vN = bindings.vN;
 const vW = bindings.vW;
 const vUv = bindings.vUv;
+const vSeed = bindings.vSeed;
+const vAge = bindings.vAge;
 const uShadow = bindings.uShadow;
 const uBody = bindings.uBody;
 const uHigh = bindings.uHigh;
@@ -13507,7 +13520,6 @@ const uRimAmt = bindings.uRimAmt;
 const uOpacity = bindings.uOpacity;
 const uTear = bindings.uTear;
 const uTearScale = bindings.uTearScale;
-const uSeed = bindings.uSeed;
 const uBandCount = bindings.uBandCount;
 const uBlendMode = bindings.uBlendMode;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate, frontFacing: gl_FrontFacing } = TSL;
@@ -13628,13 +13640,16 @@ const uv = TSL.uv();
 
 		// The torn edge: a low-frequency field raises the border threshold, so the
 		// membrane is eaten unevenly instead of ending on a straight cut.
+		// The border eats a little more as the sheet ages, so a membrane comes
+		// apart rather than simply shrinking.
 
 		If( uTear.greaterThan( 0. ), () => {
 
-			const fld = add( .5, mul( .5, snoise( vec3( vUv.x.mul( uTearScale ), vUv.y.mul( uTearScale ).mul( .65 ), uSeed ) ) ) ).toVar();
+			const tear = uTear.mul( add( .7, mul( .6, vAge ) ) ).toVar();
+			const fld = add( .5, mul( .5, snoise( vec3( vUv.x.mul( uTearScale ), vUv.y.mul( uTearScale ).mul( .65 ), vSeed ) ) ) ).toVar();
 			const edge = min( min( vUv.x, sub( 1., vUv.x ) ).mul( 2.2 ), min( vUv.y, sub( 1., vUv.y ) ).mul( 1.5 ) ).toVar();
 
-			If( edge.add( fld.mul( .55 ) ).lessThan( uTear ), () => {
+			If( edge.add( fld.mul( .55 ) ).lessThan( tear ), () => {
 
 				Discard();
 
@@ -13672,7 +13687,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const sheetFragmentBindings = {"vN":{"type":"vec3","kind":"varying"},"vW":{"type":"vec3","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uShadow":{"type":"vec3","kind":"uniform"},"uBody":{"type":"vec3","kind":"uniform"},"uHigh":{"type":"vec3","kind":"uniform"},"uRim":{"type":"vec3","kind":"uniform"},"uLight":{"type":"vec3","kind":"uniform"},"uCam":{"type":"vec3","kind":"uniform"},"uBands":{"type":"vec2","kind":"uniform"},"uRimPow":{"type":"float","kind":"uniform"},"uRimAmt":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uTear":{"type":"float","kind":"uniform"},"uTearScale":{"type":"float","kind":"uniform"},"uSeed":{"type":"float","kind":"uniform"},"uBandCount":{"type":"float","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"}};
+export const sheetFragmentBindings = {"vN":{"type":"vec3","kind":"varying"},"vW":{"type":"vec3","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"vSeed":{"type":"float","kind":"varying"},"vAge":{"type":"float","kind":"varying"},"uShadow":{"type":"vec3","kind":"uniform"},"uBody":{"type":"vec3","kind":"uniform"},"uHigh":{"type":"vec3","kind":"uniform"},"uRim":{"type":"vec3","kind":"uniform"},"uLight":{"type":"vec3","kind":"uniform"},"uCam":{"type":"vec3","kind":"uniform"},"uBands":{"type":"vec2","kind":"uniform"},"uRimPow":{"type":"float","kind":"uniform"},"uRimAmt":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uTear":{"type":"float","kind":"uniform"},"uTearScale":{"type":"float","kind":"uniform"},"uBandCount":{"type":"float","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"}};
 
 // Three.js Transpiler r186
 

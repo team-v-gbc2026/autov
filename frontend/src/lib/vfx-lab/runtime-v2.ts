@@ -849,6 +849,13 @@ interface LayerObject {
    * for that pass so only real receivers end up in the depth texture.
    */
   occluder?: boolean;
+  /** A second moment worth preparing, when the layer draws in a state its
+   * midpoint never reaches — a blob switches blend state at opaqueUntil, and
+   * the state is part of the pipeline. */
+  warmAt?: number;
+  /** The layer's own parts carry different blend states and open at different
+   * times, so preparation has to show all of them at once. */
+  warmAll?: boolean;
 }
 
 function spawnPeriod(emitter: Emitter, duration: number) {
@@ -3300,6 +3307,13 @@ function createBlobLayer(
     soft: false,
     trim: false,
     occluder: material.opaqueUntil !== null,
+    // Just past the switch from the solid body to the fading one: the two
+    // blend states are two pipelines, and the midpoint only reaches one.
+    warmAt:
+      material.opaqueUntil === null
+        ? undefined
+        : layer.start +
+          (layer.end - layer.start) * Math.min(1, material.opaqueUntil + 0.05),
     update(time, flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
       group.visible = visible;
@@ -3710,6 +3724,8 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
     source: layer,
     object: group,
     soft: false,
+    // A sliver's backing and fill open at different moments.
+    warmAll: true,
     trim: false,
     update(time, _flags, camera) {
       // A splash's three windows are fractions of the layer's own 0..1
@@ -4365,9 +4381,11 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
   group.name = layer.id;
   const blend = BLEND_INDEX[material.blend] ?? 1;
 
-  const parts = sheets.map((sheet) => {
-    const geometry = sheetGeometry(sheet, spec);
-    const uniforms: Record<string, IUniform> = {
+  // Every sheet of a layer shares one material: only the sheet's own hash
+  // differed, and it rides on the geometry instead. Their geometries are not
+  // interchangeable — each sheet is its own ribbon — so this is one program and
+  // one bind group for the layer rather than one of each per sheet.
+  const uniforms: Record<string, IUniform> = {
       uShadow: { value: new THREE.Color(material.toon!.shadow) },
       uBody: { value: new THREE.Color(material.toon!.body) },
       uHigh: { value: new THREE.Color(material.toon!.highlight) },
@@ -4381,22 +4399,36 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
       uOpacity: { value: material.opacity },
       uTear: { value: 0 },
       uTearScale: { value: spec.tear?.scale ?? 3 },
-      uSeed: { value: sheet.hash },
-      uBlendMode: { value: blend },
-    };
-    const shader = createV2NodeMaterial("sheet", uniforms, {
-      transparent: material.blend !== "alpha",
-      // Opaque and depth-writing: sheets intersect each other for real, which
-      // is the whole reason a water tail is mesh and not particles.
-      depthWrite: true,
-      side: THREE.DoubleSide,
-      ...blendingFor(material.blend),
-    });
+    uBlendMode: { value: blend },
+  };
+  const shader = createV2NodeMaterial("sheet", uniforms, {
+    transparent: material.blend !== "alpha",
+    // Opaque and depth-writing: sheets intersect each other for real, which is
+    // the whole reason a water tail is mesh and not particles.
+    depthWrite: true,
+    side: THREE.DoubleSide,
+    ...blendingFor(material.blend),
+  });
+  const parts = sheets.map((sheet) => {
+    const geometry = sheetGeometry(sheet, spec);
+    const vertices = geometry.getAttribute("position").count;
+    geometry.setAttribute(
+      "aSheetSeed",
+      new THREE.BufferAttribute(new Float32Array(vertices).fill(sheet.hash), 1),
+    );
+    // The one value that genuinely varies per sheet per frame. It rides on the
+    // geometry, which is this sheet's alone, so the layer keeps one material:
+    // a few dozen floats a frame against a material and a pipeline per sheet.
+    const ageAttribute = new THREE.BufferAttribute(
+      new Float32Array(vertices),
+      1,
+    );
+    geometry.setAttribute("aSheetAge", ageAttribute);
     const mesh = new THREE.Mesh(geometry, shader);
     mesh.frustumCulled = false;
     mesh.renderOrder = index;
     group.add(mesh);
-    return { sheet, geometry, shader, uniforms, mesh };
+    return { sheet, geometry, shader, uniforms, mesh, ageAttribute };
   });
 
   const basis = new THREE.Matrix4();
@@ -4443,24 +4475,25 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
         part.mesh.rotateX(state.roll);
         part.mesh.rotateY(state.yaw);
         part.mesh.scale.setScalar(state.scale);
-        const u = part.uniforms;
-        (u.uShadow.value as THREE.Color).set(m.toon!.shadow);
-        (u.uBody.value as THREE.Color).set(m.toon!.body);
-        (u.uHigh.value as THREE.Color).set(m.toon!.highlight);
-        (u.uRim.value as THREE.Color).set(m.toon!.highlight);
-        (u.uLight.value as THREE.Vector3).fromArray(m.toon!.light);
-        (u.uBands.value as THREE.Vector2).fromArray(m.toon!.thresholds);
-        u.uRimPow.value = m.toon!.rim.power;
-        u.uRimAmt.value = m.toon!.rim.amount;
-        u.uOpacity.value = m.opacity;
-        // The torn border eats a little more as the sheet ages, so a membrane
-        // comes apart rather than simply shrinking.
-        u.uTear.value = spec_.tear
-          ? spec_.tear.threshold * (0.7 + 0.6 * state.age01)
-          : 0;
-        u.uTearScale.value = spec_.tear?.scale ?? 3;
-        (u.uCam.value as THREE.Vector3).copy(camera.position);
+        // How far the torn border has eaten into this sheet, which is the one
+        // thing that differs between two sheets of a layer at the same instant.
+        (part.ageAttribute.array as Float32Array).fill(state.age01);
+        part.ageAttribute.needsUpdate = true;
       }
+      const u = uniforms;
+      (u.uShadow.value as THREE.Color).set(m.toon!.shadow);
+      (u.uBody.value as THREE.Color).set(m.toon!.body);
+      (u.uHigh.value as THREE.Color).set(m.toon!.highlight);
+      (u.uRim.value as THREE.Color).set(m.toon!.highlight);
+      (u.uLight.value as THREE.Vector3).fromArray(m.toon!.light);
+      (u.uBands.value as THREE.Vector2).fromArray(m.toon!.thresholds);
+      u.uRimPow.value = m.toon!.rim.power;
+      u.uRimAmt.value = m.toon!.rim.amount;
+      u.uOpacity.value = m.opacity;
+      // The base threshold; each sheet scales it by its own age in the shader.
+      u.uTear.value = spec_.tear ? spec_.tear.threshold : 0;
+      u.uTearScale.value = spec_.tear?.scale ?? 3;
+      (u.uCam.value as THREE.Vector3).copy(camera.position);
     },
     bounds(time, push) {
       const { layer: live, visible } = evaluateLayerV2(layer, time);
@@ -4485,10 +4518,8 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
         );
     },
     dispose() {
-      for (const part of parts) {
-        part.geometry.dispose();
-        part.shader.dispose();
-      }
+      for (const part of parts) part.geometry.dispose();
+      shader.dispose();
     },
   };
 }
@@ -4583,6 +4614,8 @@ function createCrescentLayer(layer: LayerV2, index: number): LayerObject {
     source: layer,
     object: group,
     soft: false,
+    // Each tonal copy carries its own blend mode and its own window.
+    warmAll: true,
     trim: false,
     update(time, _flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
@@ -5213,6 +5246,11 @@ export class VfxRuntimeV2 {
     if (this.disposed) return;
     if (this.deviceError) throw this.deviceError;
     if (this.options.preview && this.doc && this.preparedPreviewDocument !== this.doc) {
+      // compileAsync is deliberately not used here. It builds in a top-level
+      // render context, and on this scene graph it left the nested scene pass's
+      // pipelines unbuilt: ice-blast dropped from 23 pipelines at load to 7 and
+      // then built 28 during playback, stalling for ten seconds. The warm pass
+      // below draws through the real graph instead.
       this.warmPreview();
       this.preparedPreviewDocument = this.doc;
     }
@@ -5234,20 +5272,42 @@ export class VfxRuntimeV2 {
       // never draw. The cost here is dominated by the number of distinct
       // materials, not by how many states each one is warmed in.
       this.renderer.setSize(64, 64, false);
-      for (const object of this.objects) {
-        const layer = object.source;
-        object.update(layer.start + (layer.end - layer.start) * 0.5, this.flags, this.camera);
-        object.object.visible = layer.kind === "light";
+      // Each layer at its own midpoint, then — only if some layer asked for it —
+      // once more at the second moment it named. One extra frame, not a sweep:
+      // warming every layer at several times measured worse, because it builds
+      // pipelines for draws that never happen.
+      const extra = this.objects.some(object => object.warmAt !== undefined);
+      for (const pass of extra ? [false, true] : [false]) {
+        this.advanceFrame();
+        for (const object of this.objects) {
+          const layer = object.source;
+          const middle = layer.start + (layer.end - layer.start) * 0.5;
+          object.update(
+            pass ? (object.warmAt ?? middle) : middle,
+            this.flags,
+            this.camera,
+          );
+          // The depth pre-pass below draws the occluders and the lights, which
+          // is the set the real one draws: preparing it with only the lights
+          // visible left every occluder's depth pipeline to be built mid-play.
+          object.object.visible = layer.kind === "light" || !!object.occluder;
+        }
+        if (this.flags.softParticles && this.objects.some(object => object.soft)) {
+          this.renderer.setRenderTarget(this.depthTarget);
+          this.renderer.clear();
+          this.renderer.render(this.scene, this.camera);
+        }
+        this.renderer.setRenderTarget(null);
+        for (const object of this.objects) {
+          object.object.visible = true;
+          if (object.warmAll)
+            object.object.traverse(node => {
+              node.visible = true;
+            });
+        }
+        if (this.flags.post) this.post.render();
+        else this.renderer.render(this.scene, this.camera);
       }
-      if (this.flags.softParticles && this.objects.some(object => object.soft)) {
-        this.renderer.setRenderTarget(this.depthTarget);
-        this.renderer.clear();
-        this.renderer.render(this.scene, this.camera);
-      }
-      this.renderer.setRenderTarget(null);
-      for (const object of this.objects) object.object.visible = true;
-      if (this.flags.post) this.post.render();
-      else this.renderer.render(this.scene, this.camera);
     } finally {
       this.renderer.setSize(size.x, size.y, false);
       this.renderer.setRenderTarget(target);

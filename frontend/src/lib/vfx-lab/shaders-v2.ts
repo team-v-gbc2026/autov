@@ -2866,8 +2866,16 @@ void main(){
 // ---------------------------------------------------------------------------
 
 export const sheetVertexV2 = /* glsl */ `
-varying vec3 vN,vW; varying vec2 vUv;
+attribute float aSheetSeed;
+// How far through its own life this sheet is. Per SHEET, not per layer: the
+// membranes are born on staggered cadences, so a young one has barely started
+// to come apart while an old one is nearly eaten. It rides on the geometry so
+// that every sheet of a layer can still share one material.
+attribute float aSheetAge;
+varying vec3 vN,vW; varying vec2 vUv; varying float vSeed,vAge;
 void main(){
+  vSeed=aSheetSeed;
+  vAge=aSheetAge;
   vUv=uv;
   vec4 wp=modelMatrix*vec4(position,1.);
   vN=normalize(mat3(modelMatrix)*normal);
@@ -2878,19 +2886,22 @@ void main(){
 
 export const sheetFragmentV2 = /* glsl */ `
 precision highp float;
-varying vec3 vN,vW; varying vec2 vUv;
+varying vec3 vN,vW; varying vec2 vUv; varying float vSeed,vAge;
 uniform vec3 uShadow,uBody,uHigh,uRim,uLight,uCam;
 uniform vec2 uBands;
-uniform float uRimPow,uRimAmt,uOpacity,uTear,uTearScale,uSeed,uBandCount;
+uniform float uRimPow,uRimAmt,uOpacity,uTear,uTearScale,uBandCount;
 uniform int uBlendMode;
 ${glslNoise}
 void main(){
   // The torn edge: a low-frequency field raises the border threshold, so the
   // membrane is eaten unevenly instead of ending on a straight cut.
+  // The border eats a little more as the sheet ages, so a membrane comes
+  // apart rather than simply shrinking.
   if(uTear>0.){
-    float fld=.5+.5*snoise(vec3(vUv.x*uTearScale, vUv.y*uTearScale*.65, uSeed));
+    float tear=uTear*(.7+.6*vAge);
+    float fld=.5+.5*snoise(vec3(vUv.x*uTearScale, vUv.y*uTearScale*.65, vSeed));
     float edge=min(min(vUv.x,1.-vUv.x)*2.2, min(vUv.y,1.-vUv.y)*1.5);
-    if(edge+fld*.55 < uTear) discard;
+    if(edge+fld*.55 < tear) discard;
   }
   vec3 N=normalize(vN);
   if(!gl_FrontFacing) N=-N;
