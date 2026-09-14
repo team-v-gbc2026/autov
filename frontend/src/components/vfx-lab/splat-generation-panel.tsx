@@ -1,12 +1,16 @@
 "use client";
 
+/* Local uploaded images use blob/data URLs and must retain their original pixels. */
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useRef, useState } from "react";
+import styles from "./viewer-workspace.module.css";
 import type { BackdropController } from "@/lib/vfx-lab/backdrop-controller";
 
 const SAVED_CLEAN = "autov.vfx-lab.clean-image.v1";
 type Result = { error?: string; cleanId?: string; cleanImage?: string; splatUrl?: string };
 
-export function SplatGenerationPanel({ controller, panelStyle, labelStyle, buttonStyle }: {
+export function SplatGenerationPanel({ controller, buttonStyle }: {
   controller: BackdropController | null;
   panelStyle?: React.CSSProperties;
   labelStyle?: React.CSSProperties;
@@ -22,10 +26,17 @@ export function SplatGenerationPanel({ controller, panelStyle, labelStyle, butto
   const [busy, setBusy] = useState<"clean" | "import" | "splat" | "load" | null>(null);
   const [failed, setFailed] = useState(false);
 
+  const [referencePreview, setReferencePreview] = useState<string | null>(null);
+  useEffect(() => {
+    return () => { if (referencePreview) URL.revokeObjectURL(referencePreview); };
+  }, [referencePreview]);
+
   useEffect(() => {
     try {
       const id = localStorage.getItem(SAVED_CLEAN);
       if (id && /^[0-9a-f-]{36}$/.test(id)) {
+        // Restore browser storage after hydration.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setClean({ id, image: `/api/local-splat?id=${id}&kind=clean` });
         setStatus("Saved clean image restored. Review it, then generate the splat.");
       }
@@ -54,7 +65,7 @@ export function SplatGenerationPanel({ controller, panelStyle, labelStyle, butto
       const result = await post({ stage: "import", cleanImage });
       if (!result.cleanId || !result.cleanImage) throw new Error("No clean image was returned.");
       setClean({ id: result.cleanId, image: result.cleanImage });
-      setFile(null); setAdjustment(""); setSplatUrl(null);
+      setFile(null); setReferencePreview(null); setAdjustment(""); setSplatUrl(null);
       if (referenceInput.current) referenceInput.current.value = "";
       try { localStorage.setItem(SAVED_CLEAN, result.cleanId); } catch { /* optional persistence */ }
       setStatus("Clean image uploaded. Review it, then generate the splat when ready. No OpenAI cleanup was used.");
@@ -104,48 +115,58 @@ export function SplatGenerationPanel({ controller, panelStyle, labelStyle, butto
     finally { setBusy(null); }
   }
 
-  return <div style={panelStyle} data-testid="splat-generation-panel">
-    <span style={labelStyle}>Reference → Gaussian splat</span>
-    <p style={{ fontSize: 11, color: "#7d848c", lineHeight: 1.45 }}>Remove the effect, or upload an already-clean image. Review it, then reconstruct it in ComfyUI.</p>
-    <input ref={cleanInput} aria-label="Clean image" type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={!!busy} onChange={e => {
-      const upload = e.target.files?.[0];
-      e.target.value = "";
-      if (upload) void importClean(upload);
-    }} />
-    <button style={{ ...buttonStyle, width: "100%", marginBottom: 6 }} onClick={() => cleanInput.current?.click()} disabled={!!busy}>
-      {busy === "import" ? "Uploading clean image…" : "Upload clean image"}
-    </button>
-    <p style={{ fontSize: 11, color: "#7d848c" }}>Already clean: PNG, JPEG, or WebP, up to 20 MB. Skips OpenAI cleanup.</p>
-    <span style={{ ...labelStyle, display: "block", marginBottom: 6 }}>Or clean an original reference</span>
-    <input ref={referenceInput} aria-label="Reference image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => {
-      if (!e.target.files?.[0]) return;
-      setFile(e.target.files[0]); setClean(null); setSplatUrl(null); setAdjustment(""); setFailed(false);
-      try { localStorage.removeItem(SAVED_CLEAN); } catch { /* optional persistence */ }
-      setStatus(e.target.files?.[0]?.name || "Choose a reference image.");
-    }} disabled={!!busy} style={{ width: "100%", fontSize: 11 }} />
-    {!clean && <button style={{ ...buttonStyle, width: "100%", marginTop: 7 }} onClick={() => void generateClean()} disabled={!file || !!busy}>
-      {busy === "clean" ? "Generating clean image…" : "Generate clean image"}
-    </button>}
-    {clean && <section data-testid="clean-image-review" aria-label="Review clean image" style={{ border: "1px solid #39404a", padding: 8, marginTop: 10, borderRadius: 4 }}>
-      <span style={labelStyle}>Review clean image</span>
-      {/* Local image asset: deliberately retain its full aspect ratio. */}
-      <img src={clean.image} alt="Clean image for reconstruction" style={{ width: "100%", height: "auto", marginTop: 8, borderRadius: 4 }} />
-      <a href={clean.image} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>Open full clean image</a>
-      {file && <>
-      <label style={{ display: "block", fontSize: 11, marginTop: 8 }}>
-        What should change? (optional)
-        <textarea value={adjustment} onChange={e => setAdjustment(e.target.value)} maxLength={2000} disabled={!!busy || !file} placeholder="For example: keep the painted texture and remove the remaining glow." style={{ width: "100%", marginTop: 4, fontSize: 11 }} />
-      </label>
-      <button style={{ ...buttonStyle, width: "100%", marginTop: 6 }} onClick={() => void generateClean()} disabled={!file || !!busy}>
-        {busy === "clean" ? "Regenerating…" : "Regenerate clean image"}
-      </button>
-      </>}
-      <button style={{ ...buttonStyle, width: "100%", marginTop: 6 }} onClick={() => void generateSplat()} disabled={!!busy}>
-        {busy === "splat" ? "Reconstructing…" : "Use this image → Generate splat"}
-      </button>
-      <p style={{ fontSize: 11, color: "#7d848c", marginBottom: 0 }}>Reconstruction retries reuse this saved image.</p>
-    </section>}
-    {splatUrl && <button style={{ ...buttonStyle, width: "100%", marginTop: 6 }} onClick={() => void loadSplat()} disabled={!controller || !!busy}>Load splat into backdrop</button>}
-    <p role="status" style={{ fontSize: 11, color: failed ? "#e0806f" : "#7d848c", marginBottom: 0 }}>{status}</p>
-  </div>;
+  return <section className={styles.generation} data-testid="splat-generation-panel" aria-label="Image to Gaussian splat">
+    <div className={styles.sectionHeading}><h2>Image → Gaussian splat</h2><span>Review and approve before reconstruction</span></div>
+    <div className={styles.steps}>
+      <section className={styles.step} aria-label="Choose an input image">
+        <div className={styles.stepTitle}><span>1</span><h3>Choose your input</h3></div>
+        <div className={styles.inputOption}>
+          <h4>Original reference</h4><p>Has an effect to remove? Create a clean scene first.</p>
+          <input ref={referenceInput} aria-label="Reference image" hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => {
+            if (!e.target.files?.[0]) return;
+            setFile(e.target.files[0]); setReferencePreview(URL.createObjectURL(e.target.files[0])); setClean(null); setSplatUrl(null); setAdjustment(""); setFailed(false);
+            try { localStorage.removeItem(SAVED_CLEAN); } catch { /* optional persistence */ }
+            setStatus(e.target.files[0].name);
+          }} disabled={!!busy} />
+          <button type="button" style={buttonStyle} onClick={() => referenceInput.current?.click()} disabled={!!busy}>Upload reference image</button>
+          {file && <p className={styles.filename}>{file.name}</p>}
+          {referencePreview && <img className={styles.referencePreview} src={referencePreview} alt="Original reference with effect" />}
+          {!clean && file && <button className={styles.primary} onClick={() => void generateClean()} disabled={!!busy}>{busy === "clean" ? "Generating clean image…" : "Generate clean image"}</button>}
+        </div>
+        <div className={styles.orDivider}>OR</div>
+        <div className={styles.inputOption}>
+          <h4>Already-clean image</h4><p>Ready to reconstruct? Upload directly and skip cleanup.</p>
+          <input ref={cleanInput} aria-label="Clean image" type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={!!busy} onChange={e => {
+            const upload = e.target.files?.[0]; e.target.value = "";
+            if (upload) void importClean(upload);
+          }} />
+          <button style={buttonStyle} onClick={() => cleanInput.current?.click()} disabled={!!busy}>{busy === "import" ? "Uploading clean image…" : "Upload clean image"}</button>
+          <p className={styles.hint}>PNG, JPEG or WebP · up to 20 MB</p>
+        </div>
+      </section>
+      <section className={styles.step} aria-label="Review clean image" data-testid={clean ? "clean-image-review" : undefined}>
+        <div className={styles.stepTitle}><span>2</span><h3>Review clean image</h3></div>
+        <p>Check the scene before turning it into 3D.</p>
+        {clean ? <>
+          <a href={clean.image} target="_blank" rel="noreferrer" className={styles.cleanPreview}><img src={clean.image} alt="Clean image for reconstruction" /></a>
+          <a href={clean.image} target="_blank" rel="noreferrer">Open full clean image ↗</a>
+          {file ? <>
+            <label className={styles.adjustment}>What should change? (optional)
+              <textarea value={adjustment} onChange={e => setAdjustment(e.target.value)} maxLength={2000} disabled={!!busy} placeholder="Keep the painted texture and remove the remaining glow." rows={3} />
+            </label>
+            <button style={buttonStyle} onClick={() => void generateClean()} disabled={!!busy}>{busy === "clean" ? "Regenerating…" : "Regenerate clean image"}</button>
+          </> : <p className={styles.hint}>This saved image is ready for your approval. Upload an original reference to make a new cleanup.</p>}
+        </> : <div className={styles.emptyPreview}><span>Clean image preview</span><p>{busy === "clean" ? "Creating your clean image…" : "Generate from a reference or upload an already-clean image to begin."}</p></div>}
+      </section>
+      <section className={styles.step} aria-label="Generate and load splat">
+        <div className={styles.stepTitle}><span>3</span><h3>Create the splat</h3></div>
+        <p>Happy with the clean image? Approve it to start reconstruction.</p>
+        <div className={styles.approvalNote}><strong>{splatUrl ? "Your splat is ready" : clean ? "Ready for your approval" : "Waiting for a clean image"}</strong><p>{splatUrl ? "Load it into the scene below to inspect the result." : "Reconstruction starts only when you choose the button below."}</p></div>
+        <button className={styles.primary} onClick={() => void generateSplat()} disabled={!clean || !!busy}>{busy === "splat" ? "Reconstructing…" : "Use this image → Generate splat"}</button>
+        <p className={styles.hint}>Reconstruction retries reuse your saved clean image.</p>
+        {splatUrl && <button className={styles.primary} onClick={() => void loadSplat()} disabled={!controller || !!busy}>{busy === "load" ? "Loading splat…" : "Load splat into backdrop"}</button>}
+      </section>
+    </div>
+    <p role="status" className={styles.status} style={{ color: failed ? "#ffad9e" : undefined }}>{status}</p>
+  </section>;
 }

@@ -68,11 +68,18 @@ async function preflight(comfyUrl: string, signal: AbortSignal): Promise<Workflo
   const workflow: Workflow = structuredClone(workflowTemplate);
   if (workflow["1"]?.class_type !== "LoadImage" || !workflow["1"].inputs)
     throw new Error("TripoSplat workflow is missing its image input node.");
-  const response = await fetch(`${comfyUrl}/object_info`, {
-    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-  });
-  if (!response.ok) throw new Error(`ComfyUI prerequisite check failed (${response.status}).`);
-  const nodes = await response.json() as Record<string, { input?: { required?: Record<string, unknown[]>; optional?: Record<string, unknown[]> } }>;
+  let nodes: Record<string, { input?: { required?: Record<string, unknown[]>; optional?: Record<string, unknown[]> } }>;
+  try {
+    const response = await fetch(`${comfyUrl}/object_info`, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+    });
+    if (!response.ok) throw new Error(`ComfyUI prerequisite check failed (${response.status}).`);
+    nodes = await response.json();
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
+      throw new Error("ComfyUI setup check timed out. No image cleanup or reconstruction was started. Check the GPU connection and retry.");
+    throw error;
+  }
   for (const node of Object.values(workflow)) {
     const definition = nodes[node.class_type];
     if (!definition) throw new Error(`ComfyUI is missing required node: ${node.class_type}.`);
