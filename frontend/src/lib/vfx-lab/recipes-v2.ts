@@ -350,5 +350,10 @@ export function recipeV2For(id: string, prompt?: string): RecipeV2Id {
   if (prompt)
     for (const [pattern, family] of FAMILY_KEYWORDS)
       if (pattern.test(prompt)) return family;
+  // The benchmark planner supplies a legacy RecipeId, while the active Studio
+  // supplies the already-selected v2 family. Accept both contracts. Falling
+  // through here previously mapped most Studio families to fire-projectile.
+  if ((RECIPE_V2_IDS as readonly string[]).includes(id))
+    return id as RecipeV2Id;
   return V1_RECIPE_TO_V2[id as RecipeId] ?? "fire-projectile";
 }

@@ -10,15 +10,19 @@ import {
 } from "./generation-context";
 import { verifyIdentity, type Identity, type Operation } from "./server";
 import { TextureAssetSchema } from "../vfx-lab/schema";
-import { TECHNICAL_GUIDE_V2 } from "../vfx-lab/protocol-v2";
 import {
   DocumentV2WireSchema,
   fromWireV2,
   lintDocumentV2,
 } from "../vfx-lab/schema-v2";
 import { TECHNIQUE_IDS, TECHNIQUES_V2 } from "../vfx-lab/techniques-v2";
-import { createPresetV2, recipeV2For } from "../vfx-lab/recipes-v2";
-import { fitGpuBudget } from "../vfx-lab/candidate-v2";
+import { RECIPE_V2_IDS } from "../vfx-lab/recipes-v2";
+import {
+  CANDIDATE_V2_SYSTEM,
+  candidatePayloadV2,
+  fitGpuBudget,
+  repairCandidateV2,
+} from "../vfx-lab/candidate-v2";
 import { gpuCostV2, GPU_BUDGET_V2 } from "../vfx-lab/gpu-budget-v2";
 
 // Eve supplies the artistic decisions; the service performs one bounded JSON
@@ -27,7 +31,7 @@ export const AuthorCandidateSchema = GenerationSchema.extend({
   direction: ArtDirectionSchema,
   textures: TextureDirectionSchema,
   techniqueIds: z.array(z.enum(TECHNIQUE_IDS)).max(6),
-  family: z.string().min(1).max(64),
+  family: z.enum(RECIPE_V2_IDS),
   effectTextureOperationIds: z.array(z.string().uuid()).max(2).default([]),
 }).strict();
 export type AuthorCandidateInput = z.infer<typeof AuthorCandidateSchema>;
@@ -117,20 +121,32 @@ export async function authorCandidate(
     ...input.textureIds,
     ...(context.effectTextures ?? []).map((asset) => asset.id),
   ]);
-  const textures = resolveTextureBindings(input.direction.textureNeeds, input.textures, allowed);
-  const family = recipeV2For(input.family, input.prompt);
+  const textures = resolveTextureBindings(
+    input.direction.textureNeeds,
+    input.textures,
+    allowed,
+  );
+  const family = input.family;
+  const grounded = candidatePayloadV2({
+    prompt: context.brief,
+    intent: input.prompt,
+    plan: { direction: input.direction, textures },
+    family,
+    scale: true,
+  });
   const wire = await stage(
     identity,
     operation,
     "candidate",
     DocumentV2WireSchema,
-    `${TECHNICAL_GUIDE_V2}\nAuthor the supplied direction into a complete document. Explicit requirements and host constraints take precedence over reference interpretations, techniques and exemplar defaults. Preserve authored camera, scale and timing. Use only supplied texture IDs. Return only additional layers in add mode.`,
+    `${CANDIDATE_V2_SYSTEM}\nAuthor the supplied direction into a complete document. Explicit requirements and host constraints take precedence over reference interpretations and family guidance. Preserve explicitly requested camera, scale and timing. Otherwise use the measured exemplar scale and timing as the baseline. Use only supplied texture IDs. Return only additional layers in add mode.`,
     JSON.stringify({
+      ...grounded,
       brief: context.brief,
       direction: input.direction,
       textures,
-      techniques: input.techniqueIds.map((id) => TECHNIQUES_V2[id]),
-      example: documentForModel(createPresetV2(family)),
+      selectedTechniques: input.techniqueIds.map((id) => TECHNIQUES_V2[id]),
+      example: documentForModel(grounded.example),
     }),
     context.images,
     signal,
@@ -152,8 +168,17 @@ export async function authorCandidate(
       "INVALID_INPUT",
       "Candidate used a texture outside the inspected supplied set.",
     );
-  const warnings = fitGpuBudget(candidate);
-  const document = composeGeneration(context.base, candidate, input.mode);
+  // Replacing an effect may safely use the measured family camera correction.
+  // Add mode must retain the host scene's camera and globals byte-for-byte.
+  const repaired =
+    input.mode === "replace"
+      ? repairCandidateV2(candidate, family)
+      : { document: candidate, warnings: fitGpuBudget(candidate) };
+  const document = composeGeneration(
+    context.base,
+    repaired.document,
+    input.mode,
+  );
   const cost = gpuCostV2(document);
   if (
     cost.draws > GPU_BUDGET_V2.draws ||
@@ -166,7 +191,7 @@ export async function authorCandidate(
     );
   return {
     document,
-    warnings: [...warnings, ...lintDocumentV2(document)],
+    warnings: [...repaired.warnings, ...lintDocumentV2(document)],
     cost,
   };
 }

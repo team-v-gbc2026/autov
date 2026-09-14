@@ -14,8 +14,10 @@ capabilities from `feature/vfx-technique-cards` and authoring infrastructure fro
 4. Eve inspects library textures, or calls `generate_effect_texture` for a bounded
    static alpha mask, then inspects its board reference.
 5. `generate_vfx` accepts direction, texture bindings and technique IDs. One
-   budgeted structured-model call authors the complete document. The service
-   validates it, reduces generated counts when needed, checks the combined GPU
+   budgeted structured-model call authors the complete document with the routed
+   family's recipe knowledge, automatic technique brief, exemplar and measured
+   scale summary. The service validates it, repairs low-framed mesh heroes in
+   replace mode, reduces generated counts when needed, checks the combined GPU
    budget, and captures it without committing.
 6. Eve inspects the captured reference and loads `vfx-review`. Targeted
    `edit_vfx_candidate` calls create independently captured alternatives.
@@ -49,8 +51,9 @@ Inspection and commit are still required; a board image alone is not a commit.
 
 ### Authoring and commit guarantees
 
-- Explicit intent and host constraints override exemplar defaults. Studio does
-  not replace the authored camera with the exemplar camera.
+- Explicit intent and host constraints override exemplar defaults. In replace
+  mode, a generated mesh hero that falls below the established framing lint is
+  corrected from the family exemplar; add mode never replaces the host camera.
 - Add mode preserves original layers/global settings, allocates collision-free
   layer and path IDs, and remaps path/source/parent references.
 - Candidate edits cannot modify add-mode original layers or globals.

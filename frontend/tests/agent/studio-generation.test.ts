@@ -195,7 +195,8 @@ import {
 
 for (const mode of ["replace", "add"] as const) {
   test(
-    "Eve authoring preserves explicit framing and host constraints in " + mode,
+    "Eve authoring restores grounded scale and preserves host constraints in " +
+      mode,
     async () => {
       const base = lowFramedSmoke();
       const input = AuthorCandidateSchema.parse({
@@ -237,11 +238,21 @@ for (const mode of ["replace", "add"] as const) {
       assert.equal(calls[0][2], "candidate");
       const payload = JSON.parse(calls[0][5]);
       assert.deepEqual(payload.direction, input.direction);
-      assert.equal(payload.techniques[0].id, "cauliflower-blob-cluster");
+      assert.equal(
+        payload.selectedTechniques[0].id,
+        "cauliflower-blob-cluster",
+      );
+      assert.equal(payload.family, "smoke-burst");
+      assert.ok(payload.recipe);
+      assert.ok(payload.technique);
+      assert.ok(payload.scale);
+      assert.match(calls[0][4], /example is the scale reference/i);
       assert.equal(
         result.document.camera.framing,
-        0.65,
-        "authored framing wins over exemplar",
+        mode === "replace" ? 1 : 0.65,
+        mode === "replace"
+          ? "replace mode repairs a low-framed mesh hero from its exemplar"
+          : "add mode preserves the host camera",
       );
       assert.deepEqual(result.document.environment, base.environment);
       assert.equal(result.document.layers.length, mode === "add" ? 2 : 1);

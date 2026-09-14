@@ -1,4 +1,7 @@
-import { smokeLightingUniforms, updateSmokeLighting } from "./smoke-lighting-v2";
+import {
+  smokeLightingUniforms,
+  updateSmokeLighting,
+} from "./smoke-lighting-v2";
 import { layerBuildKey } from "./layer-build-key";
 import type { IUniform } from "three";
 import * as THREE from "three/webgpu";
@@ -9,12 +12,9 @@ import { createEnvironment, type EnvironmentV2 } from "./environment-v2";
 import { createPostStack, type PostStackV2 } from "./post-v2";
 import { evaluateLayerV2Readonly as evaluateLayerV2 } from "./evaluate-v2";
 import { pathEvents, resolveEventWindows } from "./events-v2";
-import { upgradeDocument } from "./migrate";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
 import { textureUrl } from "./asset-urls";
-import type { VfxDocument } from "./schema";
 import {
-  isV2,
   validateDocumentV2,
   validateWorkspaceDocumentV2,
   type Curve,
@@ -34,19 +34,11 @@ import {
   pathUniforms,
   writePathUniforms,
 } from "./paths-v2";
-import {
-  buildRibbonGeometry,
-  ribbonBounds,
-  sampleCurve,
-} from "./ribbon-v2";
+import { buildRibbonGeometry, ribbonBounds, sampleCurve } from "./ribbon-v2";
 import { buildWireBurstGeometry, wireBurstBounds } from "./wire-burst-v2";
 import { arcBounds, buildArcsGeometry } from "./arcs-v2";
 import { buildStreakGeometry, streakBurstBounds } from "./streak-burst-v2";
-import {
-  blobLobes,
-  blobBounds,
-  lobeStateAt,
-} from "./blob-v2";
+import { blobLobes, blobBounds, lobeStateAt } from "./blob-v2";
 import {
   crystalBounds,
   crystalGeometry,
@@ -435,12 +427,21 @@ function speedIntegral(curve: Curve, u: number) {
 // particlePositionV2 is synchronous and never calls user code; only `out`
 // escapes. Reuse its working vectors across sorting and bounds samples.
 const particleScratch = {
-  unit: new THREE.Vector3(), sphere: new THREE.Vector3(), axis: new THREE.Vector3(),
-  a1: new THREE.Vector3(), a2: new THREE.Vector3(), origin: new THREE.Vector3(),
-  base: new THREE.Vector3(), direction: new THREE.Vector3(),
-  front: new THREE.Vector3(), radial: new THREE.Vector3(),
-  turned: new THREE.Vector3(), cross: new THREE.Vector3(),
-  t1: new THREE.Vector3(), t2: new THREE.Vector3(), force: new THREE.Vector3(),
+  unit: new THREE.Vector3(),
+  sphere: new THREE.Vector3(),
+  axis: new THREE.Vector3(),
+  a1: new THREE.Vector3(),
+  a2: new THREE.Vector3(),
+  origin: new THREE.Vector3(),
+  base: new THREE.Vector3(),
+  direction: new THREE.Vector3(),
+  front: new THREE.Vector3(),
+  radial: new THREE.Vector3(),
+  turned: new THREE.Vector3(),
+  cross: new THREE.Vector3(),
+  t1: new THREE.Vector3(),
+  t2: new THREE.Vector3(),
+  force: new THREE.Vector3(),
 };
 
 /**
@@ -506,13 +507,12 @@ function particlePositionV2(
     const event = events[index % events.length];
     age = time - (event.time + ((s0 * 7.13 + 0.37) % 1) * spawnWindow);
   } else if (emitter.spawn.mode === "pathAnchored" && emitter.spawn.headCurve) {
-    age = time - invertCurve(emitter.spawn.headCurve, attrs.index[index]) * span;
+    age =
+      time - invertCurve(emitter.spawn.headCurve, attrs.index[index]) * span;
   } else if (emitter.spawn.mode === "frontAnchored" && front) {
     // The instance's own arc parameter is its s0 hash; the birth is the source
     // crescent's tail curve inverted at it, exactly as in the vertex program.
-    age =
-      time -
-      (invertCurve(front.tail, s0) * front.span + front.start);
+    age = time - (invertCurve(front.tail, s0) * front.span + front.start);
   } else {
     age = time - s0 * spawnWindow;
   }
@@ -521,7 +521,11 @@ function particlePositionV2(
   const ca = e0 * Math.PI * 2;
   const cz = e1 * 2 - 1;
   const cr = Math.sqrt(Math.max(0, 1 - cz * cz));
-  const unit = particleScratch.unit.set(cr * Math.cos(ca), cz, cr * Math.sin(ca));
+  const unit = particleScratch.unit.set(
+    cr * Math.cos(ca),
+    cz,
+    cr * Math.sin(ca),
+  );
   const fill = emitter.shape.surfaceOnly ? 1 : Math.sqrt(Math.max(e2, 0));
   const sph = particleScratch.sphere.copy(unit).multiplyScalar(fill);
   const bias = emitter.shape.bias;
@@ -725,7 +729,8 @@ function particlePositionV2(
     const rad = particleScratch.radial.copy(origin).addScaledVector(axis, -h);
     const r = Math.max(rad.length(), 1e-4);
     const w =
-      emitter.velocity.speed[1] * Math.pow(r / Math.max(shape.radius, 1e-3), -0.5);
+      emitter.velocity.speed[1] *
+      Math.pow(r / Math.max(shape.radius, 1e-3), -0.5);
     const angle = w * age;
     const turned = particleScratch.turned
       .copy(rad)
@@ -746,7 +751,10 @@ function particlePositionV2(
   // head envelope, so there is no ballistic trajectory to integrate at all.
   if (emitter.velocity.mode === "alongPath" && path) {
     const head = emitter.velocity.speedCurve
-      ? curveAt(emitter.velocity.speedCurve, clamp01(time / Math.max(span, 1e-4)))
+      ? curveAt(
+          emitter.velocity.speedCurve,
+          clamp01(time / Math.max(span, 1e-4)),
+        )
       : 0;
     const lag =
       emitter.velocity.speed[0] +
@@ -764,7 +772,11 @@ function particlePositionV2(
   if (base.lengthSq() < 1e-10) base.set(0, 1, 0);
   base.normalize();
   const dir = particleScratch.direction.set(0, 0, 0);
-  if (sites && shape.type === "layerInstances" && emitter.velocity.mode === "radial")
+  if (
+    sites &&
+    shape.type === "layerInstances" &&
+    emitter.velocity.mode === "radial"
+  )
     dir.fromArray(sites.axes, index * 3).normalize();
   else if (emitter.velocity.mode === "radial") {
     if (origin.lengthSq() > 1e-10) dir.copy(origin).normalize();
@@ -922,16 +934,18 @@ function stripeUniforms(material: Material) {
   };
 }
 
-function writeStripes(
-  uniforms: Record<string, IUniform>,
-  material: Material,
-) {
+function writeStripes(uniforms: Record<string, IUniform>, material: Material) {
   const stripes = material.stripes ?? [];
   const a = uniforms.uStripeA.value as THREE.Vector4[];
   const b = uniforms.uStripeB.value as THREE.Vector4[];
   for (let i = 0; i < 3; i++) {
     const s = stripes[i];
-    a[i].set(s?.frequency ?? 0, s?.speed ?? 0, s?.phase ?? 0, s?.sharpness ?? 0);
+    a[i].set(
+      s?.frequency ?? 0,
+      s?.speed ?? 0,
+      s?.phase ?? 0,
+      s?.sharpness ?? 0,
+    );
     b[i].set(s?.contrast ?? 0, 0, 0, 0);
   }
   uniforms.uStripeN.value = stripes.length;
@@ -967,10 +981,7 @@ function slabColour(hex: string | undefined) {
   return new THREE.Vector4(colour.r, colour.g, colour.b, 0);
 }
 
-function writeSlab(
-  uniforms: Record<string, IUniform>,
-  geometry: GeometryV2,
-) {
+function writeSlab(uniforms: Record<string, IUniform>, geometry: GeometryV2) {
   const tiers = geometry.slab?.tiers ?? [];
   const packed = uniforms.uSlabTier.value as THREE.Vector4[];
   for (let i = 0; i < 4; i++) {
@@ -1168,7 +1179,10 @@ function rimUniforms(material: Material, geometry: GeometryV2 | undefined) {
       value: Array.from(
         { length: 3 },
         (_, i) =>
-          new THREE.Vector2(line?.halo[i]?.falloff ?? 1, line?.halo[i]?.weight ?? 0),
+          new THREE.Vector2(
+            line?.halo[i]?.falloff ?? 1,
+            line?.halo[i]?.weight ?? 0,
+          ),
       ),
     },
     uBeadOn: { value: beads ? 1 : 0 },
@@ -1821,7 +1835,9 @@ function createParticleLayer(
     uFrontPh0: { value: frontSpec?.phase ?? 0 },
     uFrontSweep: { value: frontSpec?.sweep ?? 0 },
     uFrontSpan: {
-      value: frontSource ? Math.max(frontSource.end - frontSource.start, 1e-4) : 1,
+      value: frontSource
+        ? Math.max(frontSource.end - frontSource.start, 1e-4)
+        : 1,
     },
     uFrontStart: { value: frontSource ? frontSource.start - layer.start : 0 },
     ...curveUniforms("T", frontSpec?.window.tail ?? null),
@@ -1857,7 +1873,13 @@ function createParticleLayer(
   };
 
   const shaderMaterial = createV2NodeMaterial(
-    cel ? "strip" : needle ? "sliver" : parentEmitter ? "subParticle" : "particle",
+    cel
+      ? "strip"
+      : needle
+        ? "sliver"
+        : parentEmitter
+          ? "subParticle"
+          : "particle",
     uniforms,
     {
       transparent: true,
@@ -1949,10 +1971,9 @@ function createParticleLayer(
     );
     // aSub is per copy, not per needle, so it is written straight through.
     for (let i = 0; i < total; i++)
-      (secondaryInstances.attributes.aSub as THREE.InterleavedBufferAttribute).setX(
-        i,
-        subs[i],
-      );
+      (
+        secondaryInstances.attributes.aSub as THREE.InterleavedBufferAttribute
+      ).setX(i, subs[i]);
     for (const [name, attribute] of Object.entries(
       secondaryInstances.attributes,
     ))
@@ -1964,11 +1985,11 @@ function createParticleLayer(
       "sliver",
       { ...uniforms, uSecondary: { value: 1 } },
       {
-      transparent: true,
-      depthWrite: false,
-      depthTest: true,
-      side: THREE.DoubleSide,
-      ...blendingFor(material.blend),
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        side: THREE.DoubleSide,
+        ...blendingFor(material.blend),
       },
     );
     const bits = new THREE.Mesh(secondaryGeometry, secondaryMaterial);
@@ -2039,9 +2060,12 @@ function createParticleLayer(
     id: layer.id,
     source: layer,
     object: group,
-    soft: material.softParticle > 0 ||
-      layer.tracks.some(track => track.target === "material.softParticle") ||
-      layer.overrides.some(override => override.target === "material.softParticle"),
+    soft:
+      material.softParticle > 0 ||
+      layer.tracks.some((track) => track.target === "material.softParticle") ||
+      layer.overrides.some(
+        (override) => override.target === "material.softParticle",
+      ),
     trim: true,
     update(time, flags, camera) {
       const { layer: live, visible, age } = evaluateLayerV2(layer, time);
@@ -2063,9 +2087,7 @@ function createParticleLayer(
         for (let i = 0; i < CURVE_KEYS; i++) {
           const local = i * dt;
           const at = evaluateLayerV2(parentLayer, parentLayer.start + local);
-          table[i]
-            .fromArray(at.layer.transform.position)
-            .sub(group.position);
+          table[i].fromArray(at.layer.transform.position).sub(group.position);
         }
       }
 
@@ -2310,7 +2332,10 @@ function isShellSurface(layer: LayerV2) {
 export function bandGeometry(geometry: GeometryV2) {
   const band = geometry.band!;
   const radius = geometry.radius;
-  const dTheta = Math.min(Math.PI * 0.9, geometry.thickness / Math.max(radius, 1e-3));
+  const dTheta = Math.min(
+    Math.PI * 0.9,
+    geometry.thickness / Math.max(radius, 1e-3),
+  );
   const strip = new THREE.SphereGeometry(
     radius,
     Math.max(24, Math.min(256, geometry.segments)),
@@ -2457,7 +2482,10 @@ function meshGeometryFor(layer: LayerV2, seed = 0) {
   if (geometry.type === "band" && geometry.band) return bandGeometry(geometry);
   // A lattice layer IS the sphere its cells wrap; geometry.radius scales it.
   if (layer.material?.lattice)
-    return new THREE.IcosahedronGeometry(1, Math.max(3, Math.min(6, Math.round(geometry.segments / 12))));
+    return new THREE.IcosahedronGeometry(
+      1,
+      Math.max(3, Math.min(6, Math.round(geometry.segments / 12))),
+    );
   if (shell)
     // The shell's teardrop is analytic (see surfaceVertexV2): the sphere is the
     // parametric domain, not the silhouette.
@@ -2560,8 +2588,7 @@ function rippleOrigins(
   return Array.from({ length: 4 }, (_, i) => {
     const ripple = ripples[i];
     if (!ripple) return new THREE.Vector4(0, 1, 0, -1);
-    if (ripple.origin)
-      return new THREE.Vector4(...ripple.origin, ripple.time);
+    if (ripple.origin) return new THREE.Vector4(...ripple.origin, ripple.time);
     const a = ((hashSeed(seed, `ripple-${i}`) % 10007) / 10007) * Math.PI * 2;
     const y = 0.15 + 0.7 * ((hashSeed(seed, `ripple-y-${i}`) % 9973) / 9973);
     const r = Math.sqrt(Math.max(0, 1 - y * y));
@@ -2604,7 +2631,11 @@ function createMeshLayer(
     uTime: { value: 0 },
     uLayerU: { value: 0 },
     uFlipMode: {
-      value: material.mask.flipbook ? (material.mask.flipbook.mode === "life" ? 1 : 2) : 0,
+      value: material.mask.flipbook
+        ? material.mask.flipbook.mode === "life"
+          ? 1
+          : 2
+        : 0,
     },
     uFlipFps: { value: material.mask.flipbook?.fps ?? 12 },
     uAtlasCols: { value: material.mask.flipbook?.cols ?? 1 },
@@ -2665,7 +2696,10 @@ function createMeshLayer(
     uHasFresnel: { value: material.fresnel ? 1 : 0 },
     uFresnelPower: { value: material.fresnel?.power ?? 2 },
     uFresnelStrength: { value: material.fresnel?.strength ?? 0 },
-    ...smokeLightingUniforms(material.shading === "litSmoke", layer.kind === "sprite"),
+    ...smokeLightingUniforms(
+      material.shading === "litSmoke",
+      layer.kind === "sprite",
+    ),
     uOpacity: { value: material.opacity },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
     uProcedural: { value: proceduralIndex(material) },
@@ -2854,9 +2888,12 @@ function createMeshLayer(
     id: layer.id,
     source: layer,
     object,
-    soft: material.softParticle > 0 ||
-      layer.tracks.some(track => track.target === "material.softParticle") ||
-      layer.overrides.some(override => override.target === "material.softParticle"),
+    soft:
+      material.softParticle > 0 ||
+      layer.tracks.some((track) => track.target === "material.softParticle") ||
+      layer.overrides.some(
+        (override) => override.target === "material.softParticle",
+      ),
     trim: false,
     // A depth-writing band has to stay visible through the soft-particle depth
     // pre-pass, or the particles behind it would not be occluded by it.
@@ -2935,7 +2972,9 @@ function createMeshLayer(
       );
       uniforms.uDistort.value = flags.textures ? (m.noise?.distortion ?? 0) : 0;
       uniforms.uProcedural.value = proceduralIndex(m);
-      (uniforms.uProcParams.value as THREE.Vector4).fromArray(m.proceduralParams);
+      (uniforms.uProcParams.value as THREE.Vector4).fromArray(
+        m.proceduralParams,
+      );
       uniforms.uSplitOffset.value = m.rgbSplit?.offset ?? 0;
       uniforms.uSplitGrowth.value = m.rgbSplit?.growth ?? 0;
       uniforms.uHasFresnel.value = m.fresnel ? 1 : 0;
@@ -3041,7 +3080,9 @@ function createMeshLayer(
         // can ever see of it.
         const half = g.thickness * 0.5;
         const base = g.slab?.anchor === "base";
-        for (const z of base ? [0, g.length] : [-g.length * 0.5, g.length * 0.5])
+        for (const z of base
+          ? [0, g.length]
+          : [-g.length * 0.5, g.length * 0.5])
           for (const x of [-half, half])
             for (const y of [-half, half])
               push(point.set(x, y, z).applyMatrix4(matrix).clone());
@@ -3264,7 +3305,9 @@ function createBlobLayer(
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 1 },
     uLightOn: { value: spec.lightFrom ? 1 : 0 },
     uLightPos: {
-      value: new THREE.Vector3().fromArray(spec.lightFrom?.position ?? [0, 0, 0]),
+      value: new THREE.Vector3().fromArray(
+        spec.lightFrom?.position ?? [0, 0, 0],
+      ),
     },
     uLightFall: { value: spec.lightFrom?.falloff ?? 0 },
     ...rampUniforms(material.ramp),
@@ -3275,10 +3318,10 @@ function createBlobLayer(
   // compiling the same shader over and over, and paid for the draw calls again
   // on every frame.
   const LOBE_FIELDS = [
-    { name: "aLobeA", items: 4 },   // seed, amplitude, frequency, squash
-    { name: "aLobeB", items: 4 },   // curl, taper, rotation, hull inflation
-    { name: "aLobeC", items: 4 },   // lobe age, shade, alpha, unused
-    { name: "aLobeP", items: 4 },   // centre in layer space, radius
+    { name: "aLobeA", items: 4 }, // seed, amplitude, frequency, squash
+    { name: "aLobeB", items: 4 }, // curl, taper, rotation, hull inflation
+    { name: "aLobeC", items: 4 }, // lobe age, shade, alpha, unused
+    { name: "aLobeP", items: 4 }, // centre in layer space, radius
   ];
   const build = (hull: boolean) => {
     const instances = instanceAttributes(lobes.length, LOBE_FIELDS);
@@ -3388,7 +3431,14 @@ function createBlobLayer(
       // lobe happened to be mid-fade made it flicker frame to frame.
       const fading = m.opaqueUntil === null || u >= m.opaqueUntil;
       for (let i = 0; i < lobes.length; i++) {
-        const state = lobeStateAt(lobes[i], blob, age, span, m.opaqueUntil, blobPath);
+        const state = lobeStateAt(
+          lobes[i],
+          blob,
+          age,
+          span,
+          m.opaqueUntil,
+          blobPath,
+        );
         if (!state.alive) continue;
         const depth = scratchLobe
           .fromArray(state.position)
@@ -3439,7 +3489,9 @@ function createBlobLayer(
         fillArray[at + 7] = 0;
         // A constant world-space line: the hull is inflated in the lobe's own
         // unit space, so the push has to be divided by the live radius.
-        hullArray[at + 7] = outline ? outline.width / Math.max(radius, 0.12) : 0;
+        hullArray[at + 7] = outline
+          ? outline.width / Math.max(radius, 0.12)
+          : 0;
       }
       for (const draw of parts) {
         draw.instanced.instanceCount = drawOrder.length;
@@ -3708,7 +3760,12 @@ function createSplashLayer(layer: LayerV2, index: number): LayerObject {
 
   const parts = slivers.map((sliver) => {
     const geometry = sliverGeometry(sliver, spec.jaggedness);
-    const make = (color: string, dark: string, order: number, scale: number) => {
+    const make = (
+      color: string,
+      dark: string,
+      order: number,
+      scale: number,
+    ) => {
       const uniforms: Record<string, IUniform> = {
         uCol: { value: new THREE.Color(color) },
         uDark: { value: new THREE.Color(dark) },
@@ -4406,19 +4463,19 @@ function createSheetsLayer(layer: LayerV2, index: number): LayerObject {
   // interchangeable — each sheet is its own ribbon — so this is one program and
   // one bind group for the layer rather than one of each per sheet.
   const uniforms: Record<string, IUniform> = {
-      uShadow: { value: new THREE.Color(material.toon!.shadow) },
-      uBody: { value: new THREE.Color(material.toon!.body) },
-      uHigh: { value: new THREE.Color(material.toon!.highlight) },
-      uRim: { value: new THREE.Color(material.toon!.shadow) },
-      uLight: { value: new THREE.Vector3().fromArray(material.toon!.light) },
-      uCam: { value: new THREE.Vector3() },
-      uBands: { value: new THREE.Vector2().fromArray(material.toon!.thresholds) },
-      uBandCount: { value: material.toon!.bands },
-      uRimPow: { value: material.toon!.rim.power },
-      uRimAmt: { value: material.toon!.rim.amount },
-      uOpacity: { value: material.opacity },
-      uTear: { value: 0 },
-      uTearScale: { value: spec.tear?.scale ?? 3 },
+    uShadow: { value: new THREE.Color(material.toon!.shadow) },
+    uBody: { value: new THREE.Color(material.toon!.body) },
+    uHigh: { value: new THREE.Color(material.toon!.highlight) },
+    uRim: { value: new THREE.Color(material.toon!.shadow) },
+    uLight: { value: new THREE.Vector3().fromArray(material.toon!.light) },
+    uCam: { value: new THREE.Vector3() },
+    uBands: { value: new THREE.Vector2().fromArray(material.toon!.thresholds) },
+    uBandCount: { value: material.toon!.bands },
+    uRimPow: { value: material.toon!.rim.power },
+    uRimAmt: { value: material.toon!.rim.amount },
+    uOpacity: { value: material.opacity },
+    uTear: { value: 0 },
+    uTearScale: { value: spec.tear?.scale ?? 3 },
     uBlendMode: { value: blend },
   };
   const shader = createV2NodeMaterial("sheet", uniforms, {
@@ -4709,7 +4766,12 @@ function createCrescentLayer(layer: LayerV2, index: number): LayerObject {
           at(2).intensity,
           at(3).intensity,
         );
-        (un.uBandT.value as THREE.Vector4).set(at(0).t, at(1).t, at(2).t, at(3).t);
+        (un.uBandT.value as THREE.Vector4).set(
+          at(0).t,
+          at(1).t,
+          at(2).t,
+          at(3).t,
+        );
         copy.mesh.visible =
           window.head > 0.002 && window.tail < 0.999 && alpha > 0.008;
       }
@@ -5076,14 +5138,24 @@ export class VfxRuntimeV2 {
   private initialization: Promise<void>;
   private disposal?: Promise<void>;
   private preparedPreviewDocument?: VfxDocumentV2;
-  private lastPreviewRequest = { time: 0, solo: undefined as string | undefined };
+  private lastPreviewRequest = {
+    time: 0,
+    solo: undefined as string | undefined,
+  };
   private deviceError: Error | null = null;
   private removeDeviceErrorListener?: () => void;
-  private previewSample: { time: number; solo?: string; diagnostic: boolean } | null = null;
+  private previewSample: {
+    time: number;
+    solo?: string;
+    diagnostic: boolean;
+  } | null = null;
   private width = 1280;
   private height = 720;
 
-  constructor(readonly host: HTMLElement, private readonly options: { preview?: boolean } = {}) {
+  constructor(
+    readonly host: HTMLElement,
+    private readonly options: { preview?: boolean } = {},
+  ) {
     this.renderer = new THREE.WebGPURenderer({
       antialias: false,
       alpha: false,
@@ -5114,13 +5186,17 @@ export class VfxRuntimeV2 {
       // WebGPU validation errors are asynchronous and do not throw from render().
       // Surface them through the preview's existing error/retry state instead of
       // continuing to present a black canvas when a particle pipeline is rejected.
-      const device = (this.renderer.backend as unknown as { device: GPUDevice }).device;
+      const device = (this.renderer.backend as unknown as { device: GPUDevice })
+        .device;
       const onGpuError = (event: GPUUncapturedErrorEvent) => {
         if (!this.disposed)
-          this.deviceError = new Error(`WebGPU rendering failed: ${event.error.message}`);
+          this.deviceError = new Error(
+            `WebGPU rendering failed: ${event.error.message}`,
+          );
       };
       device.addEventListener("uncapturederror", onGpuError);
-      this.removeDeviceErrorListener = () => device.removeEventListener("uncapturederror", onGpuError);
+      this.removeDeviceErrorListener = () =>
+        device.removeEventListener("uncapturederror", onGpuError);
     });
     // Report through whenReady()/render(), including callers that mount then unmount.
     void this.initialization.catch((error) => {
@@ -5160,11 +5236,7 @@ export class VfxRuntimeV2 {
       depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
       depthBuffer: true,
     });
-    this.post = createPostStack(
-      this.renderer,
-      this.scene,
-      this.camera,
-    );
+    this.post = createPostStack(this.renderer, this.scene, this.camera);
     this.resize();
   }
 
@@ -5177,44 +5249,63 @@ export class VfxRuntimeV2 {
     if (aa !== this.flags.aa) this.rebuildPost();
   }
 
-  /** Accepts a v2 document, or a v1 document which is upgraded on the way in. */
-  setDocument(input: VfxDocumentV2 | VfxDocument, options: { preserveCamera?: boolean } = {}) {
+  /** The runtime has one document contract: autov.lab/2. */
+  setDocument(
+    input: VfxDocumentV2,
+    options: { preserveCamera?: boolean } = {},
+  ) {
     if (this.disposed) return;
     this.previewSample = null;
-    const doc = isV2(input)
-      ? (this.options.preview ? validateWorkspaceDocumentV2(input) : validateDocumentV2(input))
-      : upgradeDocument(input as VfxDocument);
+    const doc = this.options.preview
+      ? validateWorkspaceDocumentV2(input)
+      : validateDocumentV2(input);
     // layer.window: a layer whose start is an event on a path is moved onto
     // that moment ONCE, here, so the renderer, the framing pass and the capture
     // path all read the same times.
     const nextDoc = resolveEventWindows(applyStyle(doc));
     const preserveCamera = options.preserveCamera && this.doc !== undefined;
-    const previous = new Map(this.objects.map(object => [object.id, object]));
+    const previous = new Map(this.objects.map((object) => [object.id, object]));
     // Validation returns fresh objects. Compare content once per edit, including
     // every document value captured by layer factories and sub-emitter parents.
-    const sharedKey = JSON.stringify([nextDoc.seed, nextDoc.duration,
-      nextDoc.quality.particleDensity, nextDoc.post.motionBlur, nextDoc.textures]);
+    const sharedKey = JSON.stringify([
+      nextDoc.seed,
+      nextDoc.duration,
+      nextDoc.quality.particleDensity,
+      nextDoc.post.motionBlur,
+      nextDoc.textures,
+    ]);
     const keys = new Map<string, string>();
     const created: LayerObject[] = [];
     let nextObjects: LayerObject[];
     try {
-      nextObjects = nextDoc.layers.filter(layer => layer.enabled).map((layer, index) => {
-        const parent = layer.emitter?.sub
-          ? nextDoc.layers.find(item => item.id === layer.emitter!.sub!.parentLayerId) : null;
-        const key = JSON.stringify([sharedKey, index, layerBuildKey(layer), parent]);
-        keys.set(layer.id, key);
-        const existing = previous.get(layer.id);
-        if (existing && this.objectKeys.get(layer.id) === key) return existing;
-        const object = buildLayerObject(
-          nextDoc,
-          layer,
-          index,
-          this.textures,
-          this.depthTarget.depthTexture!,
-        );
-        created.push(object);
-        return object;
-      });
+      nextObjects = nextDoc.layers
+        .filter((layer) => layer.enabled)
+        .map((layer, index) => {
+          const parent = layer.emitter?.sub
+            ? nextDoc.layers.find(
+                (item) => item.id === layer.emitter!.sub!.parentLayerId,
+              )
+            : null;
+          const key = JSON.stringify([
+            sharedKey,
+            index,
+            layerBuildKey(layer),
+            parent,
+          ]);
+          keys.set(layer.id, key);
+          const existing = previous.get(layer.id);
+          if (existing && this.objectKeys.get(layer.id) === key)
+            return existing;
+          const object = buildLayerObject(
+            nextDoc,
+            layer,
+            index,
+            this.textures,
+            this.depthTarget.depthTexture!,
+          );
+          created.push(object);
+          return object;
+        });
     } catch (error) {
       for (const object of created) object.dispose();
       throw error;
@@ -5226,13 +5317,14 @@ export class VfxRuntimeV2 {
     }
     // Factories close over source; keep that object identity and replace its live values.
     for (const object of nextObjects) {
-      const updated = nextDoc.layers.find(layer => layer.id === object.id)!;
+      const updated = nextDoc.layers.find((layer) => layer.id === object.id)!;
       Object.assign(object.source, updated);
     }
     this.objects = nextObjects;
     this.objectKeys = keys;
     this.doc = nextDoc;
-    if (preserveCamera && created.length === 0) this.preparedPreviewDocument = nextDoc;
+    if (preserveCamera && created.length === 0)
+      this.preparedPreviewDocument = nextDoc;
     const lights = this.objects
       .filter((o) => o.source.kind === "light")
       .sort(
@@ -5267,7 +5359,11 @@ export class VfxRuntimeV2 {
     await Promise.all([this.initialization, this.textures.whenReady()]);
     if (this.disposed) return;
     if (this.deviceError) throw this.deviceError;
-    if (this.options.preview && this.doc && this.preparedPreviewDocument !== this.doc) {
+    if (
+      this.options.preview &&
+      this.doc &&
+      this.preparedPreviewDocument !== this.doc
+    ) {
       // compileAsync is deliberately not used here. It builds in a top-level
       // render context, and on this scene graph it left the nested scene pass's
       // pipelines unbuilt: ice-blast dropped from 23 pipelines at load to 7 and
@@ -5298,7 +5394,7 @@ export class VfxRuntimeV2 {
       // once more at the second moment it named. One extra frame, not a sweep:
       // warming every layer at several times measured worse, because it builds
       // pipelines for draws that never happen.
-      const extra = this.objects.some(object => object.warmAt !== undefined);
+      const extra = this.objects.some((object) => object.warmAt !== undefined);
       for (const pass of extra ? [false, true] : [false]) {
         this.advanceFrame();
         for (const object of this.objects) {
@@ -5314,7 +5410,10 @@ export class VfxRuntimeV2 {
           // visible left every occluder's depth pipeline to be built mid-play.
           object.object.visible = layer.kind === "light" || !!object.occluder;
         }
-        if (this.flags.softParticles && this.objects.some(object => object.soft)) {
+        if (
+          this.flags.softParticles &&
+          this.objects.some((object) => object.soft)
+        ) {
           this.renderer.setRenderTarget(this.depthTarget);
           this.renderer.clear();
           this.renderer.render(this.scene, this.camera);
@@ -5323,7 +5422,7 @@ export class VfxRuntimeV2 {
         for (const object of this.objects) {
           object.object.visible = true;
           if (object.warmAll)
-            object.object.traverse(node => {
+            object.object.traverse((node) => {
               node.visible = true;
             });
         }
@@ -5336,7 +5435,10 @@ export class VfxRuntimeV2 {
       this.previewSample = null;
       // Restore the requested image in the same task, before the browser can
       // present the temporary all-emitter frame. No timeline time is advanced.
-      this.renderPreview(this.lastPreviewRequest.time, this.lastPreviewRequest.solo);
+      this.renderPreview(
+        this.lastPreviewRequest.time,
+        this.lastPreviewRequest.solo,
+      );
     }
   }
 
@@ -5346,9 +5448,18 @@ export class VfxRuntimeV2 {
     if (samples !== this.postSamples) {
       this.postSamples = samples;
       this.post.dispose();
-      this.post = createPostStack(this.renderer, this.scene, this.camera, samples);
+      this.post = createPostStack(
+        this.renderer,
+        this.scene,
+        this.camera,
+        samples,
+      );
     }
-    if (doc) this.post.apply(doc, { post: this.flags.post, aa: this.flags.aa && !this.options.preview });
+    if (doc)
+      this.post.apply(doc, {
+        post: this.flags.post,
+        aa: this.flags.aa && !this.options.preview,
+      });
   }
 
   /**
@@ -5412,7 +5523,13 @@ export class VfxRuntimeV2 {
             : [];
         const spawn = boxOf(
           (time, push) =>
-            spawnBoundsV2(object.source, time, push, emitterPath, emitterEvents),
+            spawnBoundsV2(
+              object.source,
+              time,
+              push,
+              emitterPath,
+              emitterEvents,
+            ),
           0,
         );
         if (spawn) {
@@ -5487,32 +5604,64 @@ export class VfxRuntimeV2 {
   /** Fit the complete sampled effect into a CSS-pixel safe rectangle. The
    * asymmetric projection keeps orbit centered on the effect, not the UI gap.
    */
-  focus(area: { left: number; top: number; width: number; height: number }, solo?: string) {
+  focus(
+    area: { left: number; top: number; width: number; height: number },
+    solo?: string,
+  ) {
     if (!this.doc) return;
     const box = new THREE.Box3();
     for (const object of this.objects) {
       const layer = object.source;
-      if (!layer.enabled || layer.kind === "light" || (solo && layer.id !== solo)) continue;
+      if (
+        !layer.enabled ||
+        layer.kind === "light" ||
+        (solo && layer.id !== solo)
+      )
+        continue;
       for (let i = 0; i <= 48; i++)
-        object.bounds(layer.start + (layer.end - layer.start) * i / 48, point => box.expandByPoint(point));
+        object.bounds(
+          layer.start + ((layer.end - layer.start) * i) / 48,
+          (point) => box.expandByPoint(point),
+        );
     }
-    if (box.isEmpty()) box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
+    if (box.isEmpty())
+      box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const vertical = THREE.MathUtils.degToRad(this.doc.camera.fov) / 2;
-    const horizontal = Math.atan(Math.tan(vertical) * area.width / area.height);
-    const distance = Math.max(1, sphere.radius * 1.12 / Math.sin(Math.min(vertical, horizontal)));
-    const direction = this.camera.position.clone().sub(this.controls.target).normalize();
-    if (!direction.lengthSq()) direction.copy(directionOf(this.doc.camera.azimuth, this.doc.camera.elevation));
+    const horizontal = Math.atan(
+      (Math.tan(vertical) * area.width) / area.height,
+    );
+    const distance = Math.max(
+      1,
+      (sphere.radius * 1.12) / Math.sin(Math.min(vertical, horizontal)),
+    );
+    const direction = this.camera.position
+      .clone()
+      .sub(this.controls.target)
+      .normalize();
+    if (!direction.lengthSq())
+      direction.copy(
+        directionOf(this.doc.camera.azimuth, this.doc.camera.elevation),
+      );
     // Flush pending damping before taking ownership of the new pose.
     const damping = this.controls.enableDamping;
     this.controls.enableDamping = false;
     this.controls.update();
     this.controls.target.copy(sphere.center);
     this.controls.maxDistance = Math.max(60, distance * 2);
-    this.camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    this.camera.position
+      .copy(sphere.center)
+      .addScaledVector(direction, distance);
     this.camera.fov = this.doc.camera.fov;
     this.camera.far = Math.max(this.camera.far, distance + sphere.radius * 2);
-    this.camera.setViewOffset(area.width, area.height, -area.left, -area.top, this.width, this.height);
+    this.camera.setViewOffset(
+      area.width,
+      area.height,
+      -area.left,
+      -area.top,
+      this.width,
+      this.height,
+    );
     this.controls.update();
     this.controls.enableDamping = damping;
     this.previewSample = null;
@@ -5551,7 +5700,13 @@ export class VfxRuntimeV2 {
     // Interactive previews retain MSAA but cap raster work at one megapixel.
     // Offscreen evaluation/export keeps the document AA and requested resolution.
     if (this.options.preview)
-      this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5, Math.sqrt(1_000_000 / (w * h))));
+      this.renderer.setPixelRatio(
+        Math.min(
+          globalThis.devicePixelRatio || 1,
+          1.5,
+          Math.sqrt(1_000_000 / (w * h)),
+        ),
+      );
     this.renderer.setSize(w, h, false);
     const pixelWidth = this.renderer.domElement.width;
     const pixelHeight = this.renderer.domElement.height;
@@ -5660,7 +5815,12 @@ export class VfxRuntimeV2 {
     nodes.nodeFrame.frameId++;
   }
 
-  private renderSample(time: number, solo: string | undefined, diagnostic: boolean, skipUnchanged: boolean) {
+  private renderSample(
+    time: number,
+    solo: string | undefined,
+    diagnostic: boolean,
+    skipUnchanged: boolean,
+  ) {
     if (this.disposed || !this.doc) return;
     if (this.deviceError) throw this.deviceError;
     if (!this.initialized)
@@ -5668,21 +5828,42 @@ export class VfxRuntimeV2 {
     const cameraChanged = this.interactive && this.controls.update();
     // No emitter/light is alive and the camera has no authored motion: all
     // times in this interval produce the same environment image.
-    const sampleTime = skipUnchanged && !this.doc.camera.shake && !this.doc.camera.pushIn &&
-      !this.doc.layers.some(layer => layer.enabled && (!solo || layer.id === solo) && time >= layer.start && time < layer.end)
-      ? -Infinity : time;
-    if (skipUnchanged && !cameraChanged && this.previewSample?.time === sampleTime &&
-        this.previewSample.solo === solo && this.previewSample.diagnostic === diagnostic) return;
+    const sampleTime =
+      skipUnchanged &&
+      !this.doc.camera.shake &&
+      !this.doc.camera.pushIn &&
+      !this.doc.layers.some(
+        (layer) =>
+          layer.enabled &&
+          (!solo || layer.id === solo) &&
+          time >= layer.start &&
+          time < layer.end,
+      )
+        ? -Infinity
+        : time;
+    if (
+      skipUnchanged &&
+      !cameraChanged &&
+      this.previewSample?.time === sampleTime &&
+      this.previewSample.solo === solo &&
+      this.previewSample.diagnostic === diagnostic
+    )
+      return;
     this.advanceFrame();
     const move = this.applyCameraMove(time);
     const doc = this.doc;
     for (const object of this.objects) {
       if (object.source.kind === "light") {
         object.update(time, this.flags, this.camera);
-        if (solo && object.id !== solo) (object.object as THREE.PointLight).intensity = 0;
+        if (solo && object.id !== solo)
+          (object.object as THREE.PointLight).intensity = 0;
         continue;
       }
-      if ((solo && object.id !== solo) || time < object.source.start || time >= object.source.end) {
+      if (
+        (solo && object.id !== solo) ||
+        time < object.source.start ||
+        time >= object.source.end
+      ) {
         object.object.visible = false;
         continue;
       }
@@ -5699,7 +5880,9 @@ export class VfxRuntimeV2 {
         pools.map((pool) => {
           const centre = new THREE.Vector3().fromArray(pool.position);
           if (pool.followsLayerId) {
-            const owner = this.objects.find((o) => o.id === pool.followsLayerId);
+            const owner = this.objects.find(
+              (o) => o.id === pool.followsLayerId,
+            );
             if (owner)
               centre.fromArray(
                 evaluateLayerV2(owner.source, time).layer.transform.position,
@@ -5723,7 +5906,10 @@ export class VfxRuntimeV2 {
       time,
     );
 
-    if (this.flags.softParticles && this.objects.some((o) => o.soft && o.object.visible)) {
+    if (
+      this.flags.softParticles &&
+      this.objects.some((o) => o.soft && o.object.visible)
+    ) {
       // Depth pre-pass: opaque receivers only (ground + any depth-writing mesh).
       const hidden: THREE.Object3D[] = [];
       for (const object of this.objects)
