@@ -20,6 +20,7 @@
     "generate:v2-nodes": "node --import tsx scripts/webgpu/port-shaders.mts",
     "verify:webgpu": "node scripts/webgpu/verify-port.mjs",
     "verify:studio": "node scripts/webgpu/verify-studio.mjs",
+    "verify:perf": "node scripts/webgpu/verify-perf.mjs",
     "build:agent": "eve build",
     "test:agent": "node --import tsx --test tests/agent/*.test.ts"
   },

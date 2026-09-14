@@ -187,6 +187,132 @@ and Three's stage cache is keyed by the shader text. Fewer materials is the
 lever that works today; making the text identical would mean one node graph per
 kind with every per-material value resolved through the render context.
 
+## Performance contract
+
+A document's cost to the GPU is draw calls, distinct programs and instances —
+not layer count. All three are bounded, and `npm run verify:perf` is the gate.
+
+### One program per kind
+
+Three names a generated WGSL function and a uniform buffer's struct after the
+node's id, and ids come from one global counter. Helpers built inside each
+program factory therefore got fresh names for every material — `fn12` in one
+and `fn1776` in the next — and Three keys its program cache on the shader text,
+so two layers of one kind never shared a compiled pipeline. The generated file
+now builds every binding-free helper once at module load, and
+`createV2NodeMaterial` names each uniform array, so the text is a function of
+the kind and the baked structural values alone. The values that are still baked
+in on purpose — `uProcedural`, the ramp and curve lengths, the render mode — are
+the ones that let the GPU fold branches and unroll short loops; two layers that
+agree on them share one program, and two that do not are genuinely different
+shaders.
+
+| | Pipelines at install | During playback |
+| --- | ---: | ---: |
+| smoke-burst before | 557 | 30 |
+| smoke-burst after | 32 | 0-2 |
+| meteor-rain before | 673 | — |
+| meteor-rain after | 21 | 0 |
+| ice-blast after | 25 | 3 |
+
+`verify:perf` asserts it directly: two layers of every kind, same structural
+values, byte-identical vertex and fragment WGSL.
+
+### One material per layer
+
+| Kind | Was | Now |
+| --- | --- | --- |
+| blob | a material per lobe (85 in smoke-burst, 290 in meteor-rain) | one instanced fill and one hull, two blend states each |
+| crystals | one instanced draw, but nine vertex buffers | six spike attributes interleaved, four buffers |
+| sheets | a material per sheet (26 in water-projectile) | one material; the sheet's hash and its age ride on its geometry |
+| splash | two draws per sliver | unchanged: each sliver is its own geometry and its scale, offset and roll move every frame. One program, 16 draws in smoke-burst, no measurable cost |
+| crescent | one per tonal copy | unchanged: authored, at most a handful |
+| wireBurst | one, or three when the channels split | unchanged |
+| particles, arcs, streakBurst, licks, ribbon, surface | already one | unchanged |
+
+The blob's per-lobe features are all intact — toon bands, the outline hull,
+comma deformation, the colour ramps — they moved from uniforms to instance
+attributes. Instances are written far to near each frame, which is what the
+per-lobe render order did before.
+
+### The budget
+
+`gpu-budget-v2.ts` counts what a document will cost and `lintDocumentV2` reports
+it. The ceilings are roughly twice the busiest exemplar, so no exemplar is ever
+touched:
+
+| | Busiest exemplar | Ceiling |
+| --- | ---: | ---: |
+| Draw calls | 52 (water-projectile) | 120 |
+| Programs | 11 (ice-blast) | 24 |
+| Instances | 1308 (ice-blast) | 3000 |
+
+`repairCandidateV2` brings a generated document under it by scaling instance
+counts down and saying what it changed. It never drops a layer: a burst with
+half the debris is the same burst, where a burst missing its debris layer is a
+different effect. Programs are not repaired — using fewer means making layers
+share a palette or a procedural, which changes the look — so that one is
+reported and the candidate is regenerated instead. `describeGpuCostV2` puts the
+same numbers in front of the model.
+
+### Preparation, and the first frame
+
+Everything a document draws is built in `whenReady`, so the first play has no
+compile in it. `compileAsync` was tried here and removed: it builds in a
+top-level render context, and on this scene graph it left the nested scene
+pass's pipelines unbuilt, so ice-blast dropped from 23 pipelines at load to 7
+and then built 28 mid-playback, stalling for ten seconds. The warm pass in
+`whenReady` draws through the real graph instead — every layer at its own
+midpoint, occluders visible so the soft-particle depth pre-pass is prepared too,
+and one extra frame at a second moment for a layer that names one (a blob
+changes blend state at `opaqueUntil`, and the blend state is part of the
+pipeline).
+
+What that buys: the longest of a document's first six frames is 3-26 ms on
+fourteen exemplars and 69 ms on smoke-burst, against a 100 ms gate, and the
+worst any exemplar builds during playback is three pipelines (ice-blast's
+ground material and two draws entering the depth pre-pass). `verify:perf`
+asserts both.
+
+### Frames, and what they look like
+
+Warm frames at studio size (1264x790, preview runtime), longest of the first
+six frames alongside them:
+
+| Exemplar | Cold longest | Warm mean | Programs | Draws | Instances |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| beam | 10.5 | 2.0 | 8 | 13 | 642 |
+| energy-column | 9.3 | 2.1 | 10 | 12 | 244 |
+| fire-projectile | 9.0 | 3.0 | 5 | 8 | 756 |
+| fire-slash | 4.4 | 1.5 | 8 | 14 | 234 |
+| glitch-projectile | 25.6 | 2.3 | 9 | 15 | 298 |
+| healing-aura | 9.5 | 1.8 | 7 | 7 | 96 |
+| ice-blast | 26.4 | 1.9 | 11 | 13 | 1308 |
+| lightning-impact | 10.8 | 1.3 | 8 | 10 | 428 |
+| meteor-rain | 14.9 | 1.4 | 7 | 29 | 1140 |
+| playful-impact | 2.7 | 2.2 | 9 | 13 | 98 |
+| portal | 10.8 | 1.3 | 5 | 5 | 180 |
+| shield | 5.9 | 2.5 | 6 | 7 | 110 |
+| sky-vortex | 4.0 | 1.8 | 5 | 12 | 268 |
+| smoke-burst | 69.2 | 2.5 | 8 | 34 | 260 |
+| water-projectile | 9.6 | 1.7 | 3 | 52 | 0 |
+| every kind at the ceiling | 11.0 | 1.7 | 18 | 31 | 2997 |
+
+None of it costs a pixel. Nine frames across each exemplar's own duration,
+captured through the preview runtime before the change and after, are
+byte-identical: 135 frames, zero channels different. Toon bands, outline hulls,
+comma deformation, the ramps and the sort and blend order all come through
+untouched, which they have to — the sheets' per-sheet tear age and the blob's
+per-lobe values moved from uniforms onto geometry and instance attributes
+rather than being averaged away.
+
+### What is still slow
+
+First preparation of a document still compiles its programs, and the large
+surface program is 135 KB of WGSL: smoke-burst spends about four seconds in
+`whenReady` and meteor-rain about two and a half. That is loading, not
+playback, and it is where the remaining time is.
+
 ### What the merged renderer looks like next to the pre-merge branch
 
 `AUTOV_WEBGL_BASELINE` pointed at a standalone V2 bundle built from this

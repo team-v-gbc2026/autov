@@ -228,8 +228,20 @@ there is no runtime GLSL and no WebGL fallback left. `shaders-v2.ts` is the migr
 browser loads. `post.flash`/`post.glitch` and `environment.groundPool`/`backdrop` are node graphs now.
 The WebGL-only `npm run verify:shaders` is gone: `npm run verify:webgpu` renders all fifteen exemplars
 plus the workspace emitter and fails on any GPU error or blank frame, which is a superset of what the
-shader-link check caught. See `WEBGPU_PORT.md` for the programs, the converter extensions and the two
-device limits (eight vertex buffers, twelve uniform buffers per stage) that shaped the contract.
+shader-link check caught. `npm run verify:studio` covers the preview path the studio actually uses, and
+`npm run verify:perf` is the performance gate. See `WEBGPU_PORT.md` for the programs, the converter
+extensions and the two device limits (eight vertex buffers, twelve uniform buffers per stage) that
+shaped the contract.
+
+Performance contract: a document's cost is draw calls, distinct programs and instances, and all three
+are bounded. Two layers of one kind now generate byte-identical WGSL, so they share one compiled
+program — smoke-burst went from 557 pipelines to 32 and meteor-rain from 673 to 21, and the worst any
+exemplar builds during playback is three. Blob lobes are one instanced draw per layer instead of a
+material each, and sheets share one material. `lintDocumentV2` reports a document over the GPU budget
+(120 draws, 24 programs, 3000 instances — about twice the busiest exemplar) and `repairCandidateV2`
+scales instance counts down to fit without ever dropping a layer. Warm frames at studio size are
+1-3 ms for every exemplar and for a synthetic document holding every kind at the ceiling, the longest
+first frame is 69 ms, and nine frames across every exemplar are byte-identical to before the change.
 
 Budget: the OpenAI project cap is $80 (raised 2026-09-14). The local ledger (`budget.ts`) caps at $80
 by code and stood at $56.7 after `v2-fast-dev`; the validation cases (fx06, fx08, fx15) and the holdout
