@@ -1,0 +1,1451 @@
+{
+  "schemaVersion": "autov.lab/2",
+  "name": "Straight air blast",
+  "authoringFrame": {
+    "position": [
+      3,
+      1.15,
+      0
+    ],
+    "rotation": [
+      0,
+      -1.570796,
+      0
+    ]
+  },
+  "description": "An air blast that is mostly what it carries: a near-transparent pressure sheath read through its fresnel rim and heavy noise distortion, thin wind ribbons, and dust, grit and debris swept around the core by a vortex. Deliberately unlit and almost bloom-free \u2014 nothing about moving air glows. The cubic path is collinear for direct comparison.",
+  "seed": 55212,
+  "duration": 5,
+  "impact": 1,
+  "quality": {
+    "style": "modern",
+    "particleDensity": 1,
+    "aa": "msaa+smaa",
+    "softParticles": true
+  },
+  "environment": {
+    "ground": "grid",
+    "groundColor": "#50505c",
+    "groundReflect": 0.1,
+    "ambient": 1,
+    "groundY": 0,
+    "fog": {
+      "color": "#151821",
+      "density": 0.022
+    },
+    "background": "#151821"
+  },
+  "camera": {
+    "fov": 34,
+    "azimuth": -0.34,
+    "elevation": 0.3,
+    "framing": 0.75,
+    "shake": null,
+    "pushIn": null
+  },
+  "post": {
+    "bloom": {
+      "strength": 0.16,
+      "radius": 0.4,
+      "threshold": 1.5
+    },
+    "exposure": 1,
+    "grade": {
+      "contrast": 1.1,
+      "saturation": 0.92,
+      "tint": "#f2f5fa",
+      "lift": 0
+    },
+    "vignette": 0.42,
+    "chromatic": 0.004,
+    "motionBlur": 0.26
+  },
+  "textures": [],
+  "layers": [
+    {
+      "id": "pressure-sheath",
+      "name": "Pressure sheath \u2014 refraction only",
+      "role": "primary",
+      "kind": "beam",
+      "start": 0,
+      "end": 3.2,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "surface",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffffff",
+              "intensity": 0.5
+            },
+            {
+              "t": 0.35,
+              "color": "#dfe8f2",
+              "intensity": 0.34
+            },
+            {
+              "t": 0.75,
+              "color": "#a9b8c9",
+              "intensity": 0.18
+            },
+            {
+              "t": 1,
+              "color": "#6b7a8c",
+              "intensity": 0.06
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.16,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            3.8,
+            1.8
+          ],
+          "uvPan": [
+            -2.6,
+            0.4
+          ],
+          "distortion": 0.46,
+          "distortionPan": [
+            -1.9,
+            0.5
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.1
+              ],
+              [
+                0.5,
+                0.26
+              ],
+              [
+                1,
+                0.5
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.3,
+          "edgeWidth": 0.04,
+          "edgeColor": "#ffffff",
+          "edgeIntensity": 1.0,
+          "displacementProtect": 0,
+          "rimBias": 0.85
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 4.5,
+          "strength": 1.4
+        },
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "cylinder",
+        "segments": 96,
+        "radialSegments": 20,
+        "radius": 0.62,
+        "length": 7.4,
+        "thickness": 0.24,
+        "vertexNoise": {
+          "amplitude": 0.22,
+          "frequency": 2.4,
+          "speed": 2.6,
+          "bias": [
+            0,
+            1,
+            0
+          ],
+          "alongCurve": {
+            "keys": [
+              [
+                0,
+                0.1
+              ],
+              [
+                0.5,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          }
+        },
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "geometry.length",
+          "keys": [
+            [
+              0,
+              0.2
+            ],
+            [
+              0.26,
+              7.4
+            ],
+            [
+              2.5,
+              7.4
+            ],
+            [
+              2.72,
+              2.5160000000000005
+            ],
+            [
+              2.94,
+              0.06
+            ]
+          ],
+          "ease": "linear"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.2,
+              0.18
+            ],
+            [
+              2.4,
+              0.15
+            ],
+            [
+              2.95,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "path": {
+        "pathId": "stream-path",
+        "mode": "shape",
+        "range": [
+          0,
+          1
+        ],
+        "offset": [
+          0,
+          0
+        ],
+        "roll": 0
+      }
+    },
+    {
+      "id": "wind-ribbons",
+      "name": "Wind ribbons",
+      "role": "secondary",
+      "kind": "beam",
+      "start": 0,
+      "end": 3.2,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "surface",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffffff",
+              "intensity": 0.85
+            },
+            {
+              "t": 0.4,
+              "color": "#d3dfeb",
+              "intensity": 0.5
+            },
+            {
+              "t": 1,
+              "color": "#7e8ea0",
+              "intensity": 0
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.26,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-streak-tile-01",
+          "uvScale": [
+            9.5,
+            1.1
+          ],
+          "uvPan": [
+            -5.5,
+            0.08
+          ],
+          "distortion": 0.22,
+          "distortionPan": [
+            -2.4,
+            0.12
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.14
+              ],
+              [
+                0.5,
+                0.34
+              ],
+              [
+                1,
+                0.6
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.28,
+          "edgeWidth": 0.03,
+          "edgeColor": "#ffffff",
+          "edgeIntensity": 1.2,
+          "displacementProtect": 0,
+          "rimBias": 0.7
+        },
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 80,
+        "radialSegments": 12,
+        "radius": 0.7,
+        "length": 7.4,
+        "thickness": 0.14,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [
+        {
+          "target": "geometry.length",
+          "keys": [
+            [
+              0,
+              0.2
+            ],
+            [
+              0.26,
+              7.4
+            ],
+            [
+              2.5,
+              7.4
+            ],
+            [
+              2.72,
+              2.5160000000000005
+            ],
+            [
+              2.94,
+              0.06
+            ]
+          ],
+          "ease": "linear"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.2,
+              0.3
+            ],
+            [
+              2.4,
+              0.24
+            ],
+            [
+              2.95,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "path": {
+        "pathId": "stream-path",
+        "mode": "shape",
+        "range": [
+          0,
+          1
+        ],
+        "offset": [
+          0,
+          0
+        ],
+        "roll": 0
+      }
+    },
+    {
+      "id": "vortex-streaks",
+      "name": "Air twisting around the core",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.06,
+      "end": 3.6,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#eef4fb",
+              "intensity": 0.42
+            },
+            {
+              "t": 0.35,
+              "color": "#c3d2e2",
+              "intensity": 0.3
+            },
+            {
+              "t": 0.75,
+              "color": "#8c9cb0",
+              "intensity": 0.15
+            },
+            {
+              "t": 1,
+              "color": "#525f70",
+              "intensity": 0
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.3,
+        "mask": {
+          "textureId": "smoke-wisp-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            2.6,
+            2.6
+          ],
+          "uvPan": [
+            0.4,
+            0.2
+          ],
+          "distortion": 0.3,
+          "distortionPan": [
+            0.4,
+            0.2
+          ]
+        },
+        "erosion": null,
+        "softParticle": 0.5,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 300,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.5,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0.3,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.4,
+          "rate": 96,
+          "duration": 3.2,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "directional",
+          "speed": [
+            1.6,
+            4.2
+          ],
+          "direction": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "angle": 0,
+          "inherit": 0.5,
+          "speedCurve": null
+        },
+        "life": [
+          0.55,
+          1.5
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.3,
+            0
+          ],
+          "drag": 1.2,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "velocityStretch",
+          "stretch": 2.4,
+          "size": [
+            0.22,
+            0.7
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.5
+              ],
+              [
+                0.35,
+                1
+              ],
+              [
+                1,
+                1.3
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.12,
+                0.9
+              ],
+              [
+                0.6,
+                0.5
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -2,
+              2
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": [],
+      "path": {
+        "pathId": "stream-path",
+        "mode": "follow",
+        "range": [
+          0,
+          1
+        ],
+        "offset": [
+          0,
+          0
+        ],
+        "roll": 0
+      }
+    },
+    {
+      "id": "dust-motes",
+      "name": "Dust caught in the stream",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.1,
+      "end": 4.2,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#d8d2c4",
+              "intensity": 0.6
+            },
+            {
+              "t": 0.4,
+              "color": "#b3ab99",
+              "intensity": 0.42
+            },
+            {
+              "t": 1,
+              "color": "#6a6457",
+              "intensity": 0
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.55,
+        "mask": {
+          "textureId": "spark-dot-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 420,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.6,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0.4,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.6,
+          "rate": 120,
+          "duration": 3.4,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "tangential",
+          "speed": [
+            1.2,
+            3.6
+          ],
+          "direction": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "angle": 0.75,
+          "inherit": 0.4,
+          "speedCurve": null
+        },
+        "life": [
+          0.6,
+          1.8
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            -0.5,
+            0
+          ],
+          "drag": 1.0,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.02,
+            0.07
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.7
+              ],
+              [
+                0.4,
+                1
+              ],
+              [
+                1,
+                0.8
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.1,
+                1
+              ],
+              [
+                0.7,
+                0.7
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -3,
+              3
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": [],
+      "path": {
+        "pathId": "stream-path",
+        "mode": "emit",
+        "range": [
+          0,
+          1
+        ],
+        "offset": [
+          0,
+          0
+        ],
+        "roll": 0
+      }
+    },
+    {
+      "id": "carried-debris",
+      "name": "Leaves and grit carried along",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.16,
+      "end": 4.2,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#c9bfa8",
+              "intensity": 0.75
+            },
+            {
+              "t": 0.45,
+              "color": "#9b8f77",
+              "intensity": 0.5
+            },
+            {
+              "t": 1,
+              "color": "#4f4a3d",
+              "intensity": 0
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.8,
+        "mask": {
+          "textureId": "debris-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0.2,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 180,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.55,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0.35,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.5,
+          "rate": 58,
+          "duration": 3.2,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "tangential",
+          "speed": [
+            1.4,
+            3.8
+          ],
+          "direction": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "angle": 0.65,
+          "inherit": 0.45,
+          "speedCurve": null
+        },
+        "life": [
+          0.8,
+          2.0
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            -2.2,
+            0
+          ],
+          "drag": 1.1,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.07,
+            0.24
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.8
+              ],
+              [
+                0.4,
+                1
+              ],
+              [
+                1,
+                0.9
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.1,
+                1
+              ],
+              [
+                0.72,
+                0.85
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -7,
+              7
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": [],
+      "path": {
+        "pathId": "stream-path",
+        "mode": "emit",
+        "range": [
+          0,
+          1
+        ],
+        "offset": [
+          0,
+          0
+        ],
+        "roll": 0
+      }
+    },
+    {
+      "id": "haze-puffs",
+      "name": "Displaced haze",
+      "role": "residue",
+      "kind": "particles",
+      "start": 0.2,
+      "end": 4.6,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#eef3f9",
+              "intensity": 0.3
+            },
+            {
+              "t": 0.4,
+              "color": "#c4cdd8",
+              "intensity": 0.2
+            },
+            {
+              "t": 1,
+              "color": "#6d7684",
+              "intensity": 0
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.22,
+        "mask": {
+          "textureId": "smoke-puff-03",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-02",
+          "uvScale": [
+            2.0,
+            2.0
+          ],
+          "uvPan": [
+            0.2,
+            0.4
+          ],
+          "distortion": 0.3,
+          "distortionPan": [
+            0.2,
+            0.4
+          ]
+        },
+        "erosion": null,
+        "softParticle": 0.6,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 200,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.7,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0.45,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.8,
+          "rate": 60,
+          "duration": 3.6,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            0.3,
+            1.2
+          ],
+          "direction": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "angle": 1.4,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          1.1,
+          2.4
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.35,
+            0
+          ],
+          "drag": 2.6,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.5,
+            1.5
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.5
+              ],
+              [
+                0.4,
+                1
+              ],
+              [
+                1,
+                1.7
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.18,
+                0.7
+              ],
+              [
+                0.6,
+                0.4
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -0.4,
+              0.4
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": [],
+      "path": {
+        "pathId": "stream-path",
+        "mode": "emit",
+        "range": [
+          0,
+          1
+        ],
+        "offset": [
+          0,
+          0
+        ],
+        "roll": 0
+      }
+    },
+    {
+      "id": "air-light",
+      "name": "Faint sky bounce",
+      "role": "impact",
+      "kind": "light",
+      "start": 0,
+      "end": 3.4,
+      "enabled": true,
+      "transform": {
+        "position": [
+          3,
+          1.15,
+          0
+        ],
+        "rotation": [
+          0,
+          -1.570796,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "light": {
+        "color": "#cfe2f5",
+        "intensity": {
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.14,
+              2.2
+            ],
+            [
+              0.5,
+              1.5
+            ],
+            [
+              0.9,
+              1.1
+            ],
+            [
+              1,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        },
+        "radius": 9,
+        "decay": 2
+      },
+      "tracks": [],
+      "overrides": []
+    }
+  ],
+  "paths": [
+    {
+      "id": "stream-path",
+      "points": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          2.6666666667
+        ],
+        [
+          0,
+          0,
+          5.3333333333
+        ],
+        [
+          0,
+          0,
+          8
+        ]
+      ]
+    }
+  ]
+}
