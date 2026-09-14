@@ -6,11 +6,12 @@ import { BackdropPanel } from "../vfx-lab/backdrop-panel";
 import { SplatGenerationPanel } from "../vfx-lab/splat-generation-panel";
 import styles from "./studio-backdrop.module.css";
 
-export default function StudioBackdrop({ open, onClose, controller, snapshot, cleanImageStorageKey }: {
+export default function StudioBackdrop({ open, onClose, controller, snapshot, cleanImageStorageKey, onUseDescription }: {
   open: boolean;
   onClose: () => void;
   controller: BackdropController | null;
   snapshot: BackdropSnapshot;
+  onUseDescription?: (description: string) => void;
   cleanImageStorageKey: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -25,7 +26,7 @@ export default function StudioBackdrop({ open, onClose, controller, snapshot, cl
       <button type="button" autoFocus onClick={onClose} aria-label="Close backdrop settings">Close</button>
     </header>
     <div className={styles.body}>
-      <SplatGenerationPanel controller={controller} cleanImageStorageKey={cleanImageStorageKey} />
+      <SplatGenerationPanel controller={controller} cleanImageStorageKey={cleanImageStorageKey} onUseDescription={onUseDescription} />
       <section className={styles.settings} aria-label="Import and place a backdrop">
         <h3>Import and place a Gaussian splat</h3>
         <p>Import a Gaussian splat PLY file or URL. Close this panel to inspect it in the scene.</p>

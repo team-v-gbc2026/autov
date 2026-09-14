@@ -22,11 +22,9 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
   const [generating, setGenerating] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
-  const [drop, setDrop] = useState(false);
   const [nativeSizes, setNativeSizes] = useState<Record<string, { width: number; height: number }>>({});
   const viewport = useRef<HTMLDivElement>(null);
   const transform = useRef<ReactZoomPanPinchRef>(null);
-  const input = useRef<HTMLInputElement>(null);
   const known = useRef(new Set(state.references.map(item => item.id)));
   const refs = state.references;
   const sizes: Record<string, { width: number; height: number }> = Object.fromEntries(refs.map(ref => {
@@ -107,28 +105,25 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
   }
   return <aside className={`glass ${styles.panel} ${expanded ? styles.expanded : ""}`}>
     <div className="panel-heading"><div><h2>Board</h2><span className="count">{refs.length + notes.length}</span></div><div>
-      <Tooltip content="Add images" side="bottom"><IconButton name="plus" label="Add images" disabled={state.busy || locked} onClick={() => input.current?.click()} /></Tooltip>
       <Tooltip content="Generate images" side="bottom"><button type="button" className={styles.smallButton} aria-label="Generate images" disabled={state.busy || locked} onClick={() => setGenerating(true)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z" /></svg></button></Tooltip>
       <Tooltip content="Add note" side="bottom"><button type="button" className={styles.smallButton} aria-label="Add note" disabled={locked} onClick={addNote}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V10l-7-7Z M14 3v7h7M7 14h10M7 17h6" /></svg></button></Tooltip>
       <Tooltip content={expanded ? "Minimize board" : "Expand board"} side="bottom"><button className={styles.smallButton} aria-label={expanded ? "Minimize board" : "Expand board"} onClick={() => setExpanded(!expanded)}>{expanded ? "↙" : "↗"}</button></Tooltip>
       <IconButton name="panel" label="Collapse board" onClick={onCollapse} />
     </div></div>
-    <input ref={input} hidden type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => { void state.addFiles(event.target.files); event.target.value = ""; }} />
-    <div ref={viewport} className={`${styles.viewport} ${drop ? styles.dropping : ""}`} tabIndex={0} aria-label="Reference mood board. Drag images to arrange, drag background to pan. Scroll to move, control-scroll to zoom."
+    <div ref={viewport} className={styles.viewport} tabIndex={0} aria-label="Reference mood board. Drag images to arrange, drag background to pan. Scroll to move, control-scroll to zoom."
       onKeyDown={event => {
         if (event.target !== event.currentTarget) return;
         const api = transform.current;
         const directions: Record<string, [number, number]> = { ArrowLeft: [40, 0], ArrowRight: [-40, 0], ArrowUp: [0, 40], ArrowDown: [0, -40] };
         if (api && directions[event.key]) { event.preventDefault(); const [x, y] = directions[event.key]; api.setTransform(api.state.positionX + x, api.state.positionY + y, api.state.scale, 0); }
       }}
-      onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDrop(true); } }}
-      onDragLeave={() => setDrop(false)} onDrop={event => { event.preventDefault(); setDrop(false); if (!locked) void state.addFiles(event.dataTransfer.files); }}>
+      >
       <TransformWrapper ref={transform} minScale={.001} maxScale={2.5} limitToBounds={false} centerZoomedOut={false} panning={{ excluded: ["board-card"], velocityDisabled: true }} wheel={{ step: 0.005, activationKeys: keys => keys.includes("Control") || keys.includes("Meta") }} doubleClick={{ disabled: true }} onTransform={(_api, view) => setScale(view.scale)}>
         <TransformComponent wrapperStyle={{ width: "100%", height: "100%" }} contentStyle={{ width: "100%", height: "100%" }}>
           <div className={styles.plane}>{refs.map((reference, index) => <BoardCard key={reference.id} reference={reference} position={positions[index]} size={sizes[reference.id] || { width: 160, height: 116 }} onSize={size => setNativeSizes(current => current[reference.id]?.width === size.width && current[reference.id]?.height === size.height ? current : { ...current, [reference.id]: size })} scale={scale} onResize={(size, corner) => update(reference.id, { ...positions[index], ...size, x: positions[index].x + (corner.endsWith("left") ? sizes[reference.id].width - size.width : 0), y: positions[index].y + (corner.startsWith("top") ? sizes[reference.id].height - size.height : 0) })} onMove={position => update(reference.id, position)} onStop={reportPersistence} onRename={name => { update(reference.id, { ...positions[index], name }); reportPersistence(); }} onPreview={() => setPreviewId(reference.id)} onMention={() => { onMention(reference); setExpanded(false); }} onError={() => state.setError("Image unavailable. Reopen this project to refresh image links.")} disabled={locked} />)}{notes.map(note => <BoardNote key={note.id} note={note} scale={scale} autoFocus={activeNote === note.id} disabled={locked} onChange={patch => { if (!changeNotes(current => current.map(item => item.id === note.id ? { ...item, ...patch } : item))) state.setError("Notes could not be saved in this browser."); }} onRemove={() => { if (!changeNotes(current => current.filter(item => item.id !== note.id))) state.setError("Notes could not be saved in this browser."); }} />)}</div>
         </TransformComponent>
       </TransformWrapper>
-      {!refs.length && !notes.length && <button className={styles.empty} disabled={state.busy || locked} onClick={() => input.current?.click()}><span>+</span>Add images<small>Drop images or browse</small></button>}
+      {!refs.length && !notes.length && <p className={styles.empty}>No references yet<small>Add a reference image from the Backdrop panel, or generate one above.</small></p>}
     </div>
     <div className={styles.toolbar}><Tooltip content="Fit board" side="top"><button className={styles.smallButton} onClick={fitAll} aria-label="Fit board"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5" /><rect x="8" y="8" width="8" height="8" rx="1" /></svg></button></Tooltip><div><button aria-label="Zoom out" onClick={() => transform.current?.zoomOut(0.04)}>−</button><span>{Math.round(scale * 100)}%</span><button aria-label="Zoom in" onClick={() => transform.current?.zoomIn(0.04)}>+</button></div></div>
     {(state.busy || state.error) && <div className={styles.notice} role={state.error ? "alert" : "status"}>{state.error || "Uploading..."}</div>}

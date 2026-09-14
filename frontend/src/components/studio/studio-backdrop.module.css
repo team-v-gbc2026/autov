@@ -1,15 +1,124 @@
-.dialog { width:min(1240px,calc(100vw - 40px)); max-height:calc(100dvh - 48px); padding:0; border:1px solid #34455d; border-radius:16px; background:#10151e; color:#e6eaf0; box-shadow:0 24px 100px #0009; }
-.dialog::backdrop { background:#03070bbb; backdrop-filter:blur(5px); }
-.dialog * { box-sizing:border-box; }
-.header { display:flex; gap:20px; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1px solid #34455d; }
-.header h2 { margin:0; font-size:20px; }
-.header p,.settings p { color:#a5afbe; font-size:13px; line-height:1.5; }
-.body { padding:24px; display:grid; gap:24px; }
-.dialog button { cursor:pointer; border:1px solid #44536a; border-radius:6px; background:#26364c; color:#e6eaf0; padding:8px 12px; }
-.dialog button:disabled { opacity:.45; cursor:not-allowed; }
-.dialog :is(button,a,input,textarea):focus-visible { outline:2px solid #a2c8ff; outline-offset:3px; }
-.dialog a { color:#9dc2ff; }
-.settings { border:1px solid #34455d; padding:20px; border-radius:12px; max-width:520px; width:100%; }
-.settings h3 { margin:0; }
-.settings input[type=text],.settings select { color:#e6eaf0; background:#101722; border:1px solid #44536a; border-radius:4px; }
-@media(max-width:700px) { .dialog { width:calc(100vw - 16px); max-height:calc(100dvh - 16px); } .body,.header { padding:14px; } }
+/* Backdrop dialog shell.
+   Two regions: the generation pipeline (fluid) and the import/place controls
+   (fixed sidebar). The sidebar is a sidebar rather than a trailing block so the
+   splat controls sit beside the pipeline instead of below it, and stay reachable
+   while the pipeline scrolls. */
+
+.dialog {
+  /* Wide enough for four pipeline steps on a large display; the cap keeps line
+     length readable on ultrawides rather than stretching to 2560px. */
+  width: min(2040px, calc(100vw - 48px));
+  /* Height follows content and only caps at the viewport. A fixed height left
+     two thirds of the dialog empty whenever the pipeline had no images yet. */
+  /* A STABLE height, not fit-content. The pipeline grows as images arrive, and
+     a content-sized modal re-centres on every change — the whole dialog, and
+     every panel in it, jumps under the pointer. Fixing the height makes new
+     content scroll inside a frame that never moves. */
+  height: min(980px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  /* The UA centres a modal with `inset:0; margin:auto`, but only while both are
+     in force; set them explicitly so the dialog cannot land in the corner. */
+  inset: 0;
+  margin: auto;
+  padding: 0;
+  border: 1px solid #34455d;
+  border-radius: 16px;
+  background: #10151e;
+  color: #e6eaf0;
+  box-shadow: 0 24px 100px #0009;
+  overflow: hidden;
+}
+
+/* Only when open. A bare `display:flex` on .dialog outranks the UA's
+   `dialog:not([open]){display:none}` (class beats element), which leaves the
+   closed dialog painted over the scene. Column flex so the header stays put
+   and only .body scrolls. */
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.dialog::backdrop { background: #03070bbb; backdrop-filter: blur(5px); }
+.dialog * { box-sizing: border-box; }
+
+.header {
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px clamp(16px, 2vw, 28px);
+  border-bottom: 1px solid #34455d;
+  background: #121926;
+  flex-shrink: 0;
+}
+.header h2 { margin: 0; font-size: 20px; letter-spacing: -.2px; }
+.header p, .settings p { color: #a5afbe; font-size: 13px; line-height: 1.5; }
+.header p { margin: 4px 0 0; }
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(16px, 2vw, 28px);
+  display: grid;
+  /* Pipeline takes the slack; the controls column is a constant so the sliders
+     and the URL field keep a stable, comfortable width at every viewport. */
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: clamp(16px, 1.6vw, 28px);
+  align-items: start;
+}
+
+.dialog button { cursor: pointer; border: 1px solid #44536a; border-radius: 6px; background: #26364c; color: #e6eaf0; padding: 8px 12px; }
+.dialog button:hover:not(:disabled) { background: #2f4262; }
+.dialog button:disabled { opacity: .45; cursor: not-allowed; }
+.dialog :is(button, a, input, textarea):focus-visible { outline: 2px solid #a2c8ff; outline-offset: 3px; }
+.dialog a { color: #9dc2ff; }
+
+.settings {
+  border: 1px solid #34455d;
+  border-radius: 12px;
+  background: #131a24;
+  padding: 20px;
+  width: 100%;
+  /* Follows the pipeline scroll: placing a splat is a back-and-forth with the
+     scene, not a one-shot at the end of the form. */
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.settings h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.settings p { margin: 0; }
+.settings input[type=text], .settings select { color: #e6eaf0; background: #101722; border: 1px solid #44536a; border-radius: 4px; }
+
+/* The dialog frames this content and each step carries its own card, so the
+   panel's outer card would be a third nested border. Flatten it here only; the
+   standalone workspace page still wants the card. Keyed on the stable test id
+   rather than :first-child so reordering the body cannot silently unstyle it. */
+.body [data-testid="splat-generation-panel"] {
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* The panel's own "Image -> Gaussian splat" heading lives inside the left
+   column, so it pushes the step cards ~30px below the sidebar and the two
+   columns stop lining up. The dialog header already names this view, so the
+   heading is redundant here — drop it and both columns start on the same line.
+   The standalone workspace page keeps it. */
+.body [data-testid="splat-generation-panel"] > div:first-child { display: none; }
+
+/* Below this the sidebar has no room to be a sidebar; it becomes a final block,
+   but the pipeline above it has already collapsed to fewer columns. */
+@media (max-width: 1180px) {
+  .body { grid-template-columns: minmax(0, 1fr); }
+  .settings { position: static; max-width: 560px; }
+}
+
+@media (max-width: 700px) {
+  .dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); border-radius: 12px; }
+  .body, .header { padding: 14px; }
+  .header { flex-wrap: wrap; }
+}

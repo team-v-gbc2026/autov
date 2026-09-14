@@ -377,7 +377,15 @@ export default function Studio({
         actions={headerActions}
       />
       {environmentControls}
-      <StudioBackdrop key={workspaceStorageKey} open={backdropOpen} onClose={() => setBackdropOpen(false)} controller={backdropController} snapshot={backdropSnapshot} cleanImageStorageKey={`${workspaceStorageKey}.clean-image.v1`} />
+      <StudioBackdrop key={workspaceStorageKey} open={backdropOpen} onClose={() => setBackdropOpen(false)} controller={backdropController} snapshot={backdropSnapshot} cleanImageStorageKey={`${workspaceStorageKey}.clean-image.v1`}
+        onUseDescription={description => {
+          // Close the backdrop, open the chat and drop the edited description in
+          // as a prompt. The user still presses send: extraction proposes, the
+          // user decides.
+          setBackdropOpen(false);
+          setRight(true);
+          chat.current?.setText(description);
+        }} />
       <input
         ref={importInput}
         hidden
