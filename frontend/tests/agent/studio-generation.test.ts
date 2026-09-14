@@ -1,9 +1,24 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { modelStage } from "../../src/lib/studio-tools/generation";
+import {
+  generateCandidate,
+  modelStage,
+} from "../../src/lib/studio-tools/generation";
 import type { Operation } from "../../src/lib/studio-tools/server";
 import type { callStructuredModel } from "../../src/lib/vfx-lab/model-provider";
+import { CANDIDATE_V2_SYSTEM } from "../../src/lib/vfx-lab/candidate-v2";
+import {
+  createPresetV2,
+  exampleScaleSummary,
+  RECIPES_V2,
+} from "../../src/lib/vfx-lab/recipes-v2";
+import { techniqueBrief } from "../../src/lib/vfx-lab/techniques-v2";
+import {
+  lintDocumentV2,
+  validateDocumentV2,
+  type VfxDocumentV2,
+} from "../../src/lib/vfx-lab/schema-v2";
 const originalFetch = globalThis.fetch;
 after(() => {
   globalThis.fetch = originalFetch;
@@ -140,4 +155,153 @@ test("budget rejection happens before invoking the provider", async () => {
     ),
     /budget exceeded/,
   );
+});
+
+// --- the candidate prompt and its deterministic repairs --------------------
+
+/** The wire contract asks for every kind slot explicitly; runtime documents omit them. */
+function toWire(doc: VfxDocumentV2) {
+  const wire: Record<string, unknown> = {
+    ...structuredClone(doc),
+    layers: doc.layers.map((layer) => ({
+      ...structuredClone(layer),
+      material: layer.material ?? null,
+      emitter: layer.emitter ?? null,
+      geometry: layer.geometry ?? null,
+      light: layer.light ?? null,
+      blob: layer.blob ?? null,
+      splash: layer.splash ?? null,
+      ribbon: layer.ribbon ?? null,
+      wireBurst: layer.wireBurst ?? null,
+      crystals: layer.crystals ?? null,
+      arcs: layer.arcs ?? null,
+      streakBurst: layer.streakBurst ?? null,
+      reflection: layer.reflection ?? null,
+      sheets: layer.sheets ?? null,
+      crescent: layer.crescent ?? null,
+      licks: layer.licks ?? null,
+    })),
+  };
+  delete wire.textures;
+  return wire;
+}
+/**
+ * A blob-hero candidate framed in the particle band: the lint's one repairable
+ * defect. Reduced to the hero layer so "add" mode stays inside the layer budget.
+ */
+function lowFramedSmoke() {
+  const preset = createPresetV2("smoke-burst");
+  return validateDocumentV2({
+    ...structuredClone(preset),
+    layers: [structuredClone(preset.layers.find((l) => l.id === "pink-ring")!)],
+    paths: [],
+    camera: { ...preset.camera, framing: 0.65 },
+  });
+}
+const plan = {
+  name: "Smoke burst",
+  recipe: "smoke",
+  intent: "A billowing burst of smoke",
+  palette: ["#c8c4bd", "#7a7670", "#3a3835"],
+  duration: 2,
+  textures: [],
+  impact: 0.4,
+  motion: { emissionShape: "sphere", trajectory: "rising", timing: "fast" },
+  layers: [{ id: "pink-ring", kind: "blob", responsibility: "hero" }],
+  criteria: ["a", "b", "c"],
+};
+/** Drives generateCandidate end to end: state, reservations and both stages. */
+function stubGeneration(candidate: unknown, base: VfxDocumentV2) {
+  const seen: { system: string; text: string }[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const href = String(typeof url === "string" ? url : (url as URL).toString());
+    if (href.includes("/rpc/studio_transition"))
+      return Response.json({
+        replayed: false,
+        status: "running",
+        call: { id: "reserve-1", result: null, reserved_usd: 1 },
+      });
+    if (href.includes("/studio_documents"))
+      return Response.json({ revision: 7, document: base });
+    if (href.includes("/projects"))
+      return Response.json({ id: identity.projectId });
+    throw new Error(`Unexpected request ${href}`);
+  }) as typeof globalThis.fetch;
+  const provider = (async (...args: Parameters<typeof callStructuredModel>) => {
+    seen.push({ system: args[1], text: args[2] });
+    return {
+      value: seen.length === 1 ? plan : candidate,
+      usage: {},
+      elapsedSeconds: 0,
+    };
+  }) as unknown as typeof callStructuredModel;
+  return { seen, provider };
+}
+test("the candidate prompt carries the routed family's knowledge and technique cards", async () => {
+  const base = lowFramedSmoke();
+  const { seen, provider } = stubGeneration(toWire(lowFramedSmoke()), base);
+  await generateCandidate(
+    identity,
+    operation,
+    {
+      expectedRevision: 7,
+      prompt: "A billowing burst of smoke",
+      referenceIds: [],
+      mode: "replace",
+    },
+    signal,
+    provider,
+  );
+  const candidate = seen[1];
+  const payload = JSON.parse(candidate.text);
+  assert.equal(payload.family, "smoke-burst");
+  assert.equal(payload.recipe, RECIPES_V2["smoke-burst"].knowledge);
+  assert.equal(
+    payload.technique,
+    techniqueBrief("smoke-burst", "A billowing burst of smoke"),
+  );
+  assert.ok(payload.technique.length > 0);
+  assert.deepEqual(payload.scale, exampleScaleSummary("smoke-burst"));
+  assert.deepEqual(payload.example, createPresetV2("smoke-burst"));
+  assert.equal(candidate.system, CANDIDATE_V2_SYSTEM);
+});
+test("a mesh hero framed in the particle band comes back with the exemplar camera", async () => {
+  const base = lowFramedSmoke();
+  const { provider } = stubGeneration(toWire(lowFramedSmoke()), base);
+  const document = await generateCandidate(
+    identity,
+    operation,
+    {
+      expectedRevision: 7,
+      prompt: "A billowing burst of smoke",
+      referenceIds: [],
+      mode: "replace",
+    },
+    signal,
+    provider,
+  );
+  assert.ok(document.camera.framing >= 0.8);
+  assert.equal(
+    document.camera.framing,
+    createPresetV2("smoke-burst").camera.framing,
+  );
+  assert.deepEqual(lintDocumentV2(document), []);
+});
+test("add mode appends layers and leaves the existing camera alone", async () => {
+  const base = lowFramedSmoke();
+  const { provider } = stubGeneration(toWire(lowFramedSmoke()), base);
+  const document = await generateCandidate(
+    identity,
+    operation,
+    {
+      expectedRevision: 7,
+      prompt: "Add a billowing burst of smoke",
+      referenceIds: [],
+      mode: "add",
+    },
+    signal,
+    provider,
+  );
+  assert.equal(document.camera.framing, 0.65);
+  assert.equal(document.layers.length, base.layers.length * 2);
 });

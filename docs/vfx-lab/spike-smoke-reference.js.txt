@@ -1,0 +1,528 @@
+// autoV toolbox v2 — S2 hand-built spike: "anime smoke burst" (no LLM)
+// Blob-mesh technique: the silhouette is a cluster of cel-shaded round primitives.
+// Everything is state = f(time, seed). No simulation, no history. Seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+const params = {
+  play: true, time: 0, speed: 1, duration: 2.8,
+  lobes: true, outline: true, splash: true, glow: true, bands3: true, post: true,
+  lightAz: -34, lightEl: 58, bloom: 0.5, threshold: 0.55,
+};
+window.spikeParams = params;
+
+// ---------- palette ----------
+const PAL = {
+  purple: { shadow: "#2a1470", body: "#5a3ce0", high: "#a794f7", rim: "#b7a8ff", line: "#241060" },
+  pink:   { shadow: "#9c0f88", body: "#e81eb4", high: "#ff7ad6", rim: "#ffa8ea", line: "#8a0a78" },
+  hot:    { shadow: "#a6a4dc", body: "#d2d0e8", high: "#eceaf8", rim: "#bcbde0", line: "#9a98cc" },
+};
+
+// ---------- GLSL ----------
+const glslNoise = /* glsl */`
+vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.); const vec4 D=vec4(0.,.5,1.,2.);
+  vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));
+  float n_=.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.*x_);
+  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.+1.; vec4 s1=floor(b1)*2.+1.; vec4 sh=-step(h,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.); m=m*m;
+  return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+`;
+
+// radius field of one lobe: unit sphere + positive-biased fbm -> cauliflower bumps
+const glslRadius = /* glsl */`
+uniform float uTime,uSeed,uAmp,uFreq,uSpeed,uSquash,uCurl,uTaper,uRot;
+float lobeR(vec3 n){
+  vec3 q=n*uFreq+vec3(uSeed*7.3,uSeed*3.1-uTime*uSpeed,uSeed*11.7);
+  float f=.6*snoise(q)+.3*snoise(q*2.1+5.)+.15*snoise(q*4.3+11.);
+  return 1.+uAmp*(.45*f+.55*abs(f));
+}
+// comma: taper one end to a tail, then bend the whole lobe around the z axis
+vec3 lobeP(vec3 n){
+  vec3 p=n*lobeR(n);
+  float s=clamp(p.y*.5+.5,0.,1.);
+  p.xz*=mix(1.,1.-uTaper,smoothstep(.2,1.,s));
+  float a=uCurl*p.y;
+  p.xy=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xy;
+  p.xy=mat2(cos(uRot),-sin(uRot),sin(uRot),cos(uRot))*p.xy;
+  p.y*=uSquash;
+  return p;
+}
+`;
+
+const lobeVert = /* glsl */`
+varying vec3 vN; varying vec3 vV;
+${glslNoise}
+${glslRadius}
+uniform float uInflate;
+void main(){
+  vec3 n=normalize(position);
+  vec3 p=lobeP(n);
+  vec3 up=abs(n.y)<.9?vec3(0.,1.,0.):vec3(1.,0.,0.);
+  vec3 t1=normalize(cross(n,up)); vec3 t2=normalize(cross(n,t1));
+  float e=.055;
+  vec3 na=normalize(n+t1*e), nb=normalize(n+t2*e);
+  vec3 nrm=normalize(cross(lobeP(na)-p,lobeP(nb)-p));
+  if(dot(nrm,n)<0.) nrm=-nrm;
+  p+=nrm*uInflate;
+  vec4 wp=modelMatrix*vec4(p,1.);
+  vN=normalize(mat3(modelMatrix)*nrm);
+  vV=normalize(cameraPosition-wp.xyz);
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}`;
+
+const lobeFrag = /* glsl */`
+precision highp float;
+varying vec3 vN; varying vec3 vV;
+uniform vec3 uShadow,uBody,uHigh,uRim,uLight;
+uniform float uBands,uOpacity,uRimPow,uRimAmt,uFlat;
+void main(){
+  vec3 N=normalize(vN);
+  if(uFlat>.5){ gl_FragColor=vec4(uBody,uOpacity); return; }
+  float ndl=dot(N,normalize(uLight))*.5+.5;
+  vec3 c;
+  if(uBands>2.5) c = ndl<.48 ? uShadow : (ndl<.74 ? uBody : uHigh);
+  else           c = ndl<.56 ? uShadow : uHigh;
+  float rim=pow(1.-clamp(dot(N,normalize(vV)),0.,1.),uRimPow);
+  c+=uRim*rim*uRimAmt;
+  gl_FragColor=vec4(c,uOpacity);
+}`;
+
+// ---------- scene ----------
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 100);
+camera.position.set(0, 2.55, 10.5);
+camera.lookAt(0, 1.9, 0);
+
+function hex(h) { return new THREE.Color(h); }
+
+// plain dark grey gradient backdrop (a big quad behind everything)
+const bg = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 22),
+  new THREE.ShaderMaterial({
+    depthWrite: false, depthTest: false,
+    uniforms: { uTop: { value: hex("#3c3c40") }, uMid: { value: hex("#1b1b1e") }, uBot: { value: hex("#121214") } },
+    vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader: `varying vec2 vUv; uniform vec3 uTop,uMid,uBot;
+      void main(){ float y=vUv.y; vec3 c=mix(uBot,uMid,smoothstep(0.,.42,y)); c=mix(c,uTop,smoothstep(.5,1.,y));
+      gl_FragColor=vec4(c,1.); }`,
+  })
+);
+bg.position.set(0, 1.9, -8); bg.renderOrder = -10; scene.add(bg);
+
+// ---------- lobes ----------
+const lobeGeo = new THREE.IcosahedronGeometry(1, 3);
+const lobeBase = new THREE.ShaderMaterial({
+  vertexShader: lobeVert, fragmentShader: lobeFrag,
+  uniforms: {
+    uTime: { value: 0 }, uSeed: { value: 0 }, uAmp: { value: 0.14 }, uFreq: { value: 2.2 },
+    uSpeed: { value: 0.5 }, uSquash: { value: 1 }, uInflate: { value: 0 },
+    uCurl: { value: 0 }, uTaper: { value: 0 }, uRot: { value: 0 },
+    uShadow: { value: hex("#000") }, uBody: { value: hex("#888") }, uHigh: { value: hex("#fff") },
+    uRim: { value: hex("#fff") }, uLight: { value: new THREE.Vector3(-0.5, 0.8, 0.5) },
+    uBands: { value: 3 }, uOpacity: { value: 1 }, uRimPow: { value: 3.0 }, uRimAmt: { value: 0.42 },
+    uFlat: { value: 0 },
+  },
+});
+
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function smoothstep(a, b, x) { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+function hash(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+// tail points away from the cluster centre, hook curls back
+function comma(i, x, y, curlMin, curlMax, taper) {
+  const h = hash(i), dx = x, dy = Math.max(0.25, y * 0.35);
+  const len = Math.hypot(dx, dy) || 1;
+  return { curl: (curlMin + (curlMax - curlMin) * h) * (dx < 0 ? -1 : 1), taper,
+    rot: -Math.atan2(dx / len, dy / len) };
+}
+
+const lobes = [];
+function addLobe(d) {
+  const pal = PAL[d.family];
+  const mat = lobeBase.clone();
+  mat.uniforms.uShadow.value = hex(pal.shadow);
+  mat.uniforms.uBody.value = hex(pal.body);
+  mat.uniforms.uHigh.value = hex(pal.high);
+  mat.uniforms.uRim.value = hex(pal.rim);
+  mat.uniforms.uSeed.value = d.seed;
+  mat.uniforms.uAmp.value = d.amp ?? 0.15;
+  mat.uniforms.uFreq.value = d.freq ?? 2.3;
+  mat.uniforms.uSquash.value = d.squash ?? 1;
+  mat.uniforms.uRimAmt.value = d.rimAmt ?? 0.42;
+  mat.uniforms.uCurl.value = d.curl ?? 0;
+  mat.uniforms.uTaper.value = d.taper ?? 0;
+  mat.uniforms.uRot.value = d.rot ?? 0;
+  const mesh = new THREE.Mesh(lobeGeo, mat);
+  mesh.renderOrder = d.order ?? 10;
+
+  const omat = lobeBase.clone();
+  omat.side = THREE.BackSide;
+  omat.uniforms.uFlat.value = 1;
+  omat.uniforms.uBody.value = hex(pal.line);
+  omat.uniforms.uSeed.value = d.seed;
+  omat.uniforms.uAmp.value = d.amp ?? 0.15;
+  omat.uniforms.uFreq.value = d.freq ?? 2.3;
+  omat.uniforms.uSquash.value = d.squash ?? 1;
+  omat.uniforms.uCurl.value = d.curl ?? 0;
+  omat.uniforms.uTaper.value = d.taper ?? 0;
+  omat.uniforms.uRot.value = d.rot ?? 0;
+  const outline = new THREE.Mesh(lobeGeo, omat);
+  outline.renderOrder = (d.order ?? 10) - 1;
+
+  scene.add(mesh); scene.add(outline);
+  lobes.push({ d, mesh, outline, mat, omat });
+}
+
+// ---- lobe schedule (the whole burst is this table) ----
+let sd = 0;
+const seed = () => (sd += 1) * 1.37;
+
+// hot white core at the base — small, sits inside the purple mound
+addLobe({ family: "hot", t0: 0.20, life: 0.58, R0: 0.52, base: [0, 0.58, -0.1], drift: [0, 0], rise: 0.4, g: 0.2, k: 5, seed: seed(), amp: 0.10, freq: 2.2, squash: 0.95, order: 11, rimAmt: 0.15 });
+addLobe({ family: "hot", t0: 0.24, life: 0.52, R0: 0.26, base: [-0.30, 0.40, -0.1], drift: [-0.12, 0], rise: 0.3, g: 0.2, k: 5, seed: seed(), amp: 0.12, squash: 0.9, order: 11, rimAmt: 0.15 });
+addLobe({ family: "hot", t0: 0.24, life: 0.52, R0: 0.25, base: [0.32, 0.38, -0.1], drift: [0.12, 0], rise: 0.3, g: 0.2, k: 5, seed: seed(), amp: 0.12, squash: 0.9, order: 11, rimAmt: 0.15 });
+
+// the mound: a tall egg of purple lobes wrapping the hot ball; becomes the foot of the column
+const MOUND = [
+  [-1.00, 0.42, 0.1, 0.42], [-0.94, 1.18, -0.3, 0.48], [-0.50, 1.95, 0.2, 0.52],
+  [0.14, 2.35, -0.1, 0.54], [0.62, 1.85, 0.25, 0.50], [0.98, 1.14, -0.3, 0.46],
+  [1.00, 0.42, 0.1, 0.40], [-0.46, 0.30, 0.5, 0.36], [0.48, 0.28, 0.5, 0.36],
+  [-0.22, 1.35, 0.55, 0.46], [0.30, 0.98, -0.55, 0.44],
+];
+MOUND.forEach((m, i) => addLobe({
+  family: "purple", t0: 0.27 + 0.010 * i, life: 0.78, R0: m[3], base: [m[0], m[1], m[2]],
+  drift: [m[0] * 0.18, 0], rise: 1.5, g: 0.6, k: 6.0, seed: seed(), amp: 0.16, freq: 1.9, order: 12,
+}));
+
+// the column: paired lobes per level, rise grows with height -> one fused stack that shoots up
+const COL = [];
+for (let j = 0; j < 13; j++) {
+  const wob = 0.15 * Math.sin(j * 0.8);
+  const w = 0.23 - j * 0.013;
+  const rise = 2.2 + j * 0.98;
+  const R = 0.42 - j * 0.014;
+  COL.push({ t0: 0.38 + j * 0.011, R: R * (1 + 0.10 * Math.sin(j * 2.3)), x: wob - w, rise, life: 1.24 - j * 0.03 });
+  COL.push({ t0: 0.39 + j * 0.011, R: R * (1 - 0.08 * Math.sin(j * 1.7)), x: wob + w, rise: rise * 1.03, life: 1.22 - j * 0.03 });
+  // smoother core behind the pair: fills the gap so the contour stays continuous
+  COL.push({ t0: 0.38 + j * 0.011, R: R * 1.3, x: wob, rise: rise * 1.015, life: 1.23 - j * 0.03, core: 1 });
+}
+// wider cap on top of the column
+COL.push({ t0: 0.49, R: 0.54, x: -0.22, rise: 14.5, life: 0.80 });
+COL.push({ t0: 0.50, R: 0.48, x: 0.20, rise: 13.8, life: 0.80 });
+COL.push({ t0: 0.52, R: 0.40, x: -0.02, rise: 16.0, life: 0.74 });
+COL.forEach((c, i) => addLobe({
+  family: "purple", t0: c.t0, life: c.life, R0: c.R,
+  base: [c.x, 1.5, c.core ? -0.15 : 0.35 + (i % 3 - 1) * 0.16],
+  drift: [c.x * 0.5, 0], rise: c.rise, g: c.rise * 0.5, k: 4.5, seed: seed(),
+  amp: c.core ? 0.07 : 0.13, freq: c.core ? 1.5 : 2.0, order: c.core ? 11 : 12,
+  outlineW: c.core ? 0.055 : 0.02,
+}));
+
+// second column pulse — keeps a purple stalk standing while the pink spreads
+const COL2 = [
+  { t0: 0.78, R: 0.40, x: -0.16, rise: 2.4, life: 0.86 },
+  { t0: 0.82, R: 0.38, x: 0.18, rise: 3.1, life: 0.84 },
+  { t0: 0.86, R: 0.36, x: -0.12, rise: 3.9, life: 0.82 },
+  { t0: 0.90, R: 0.34, x: 0.14, rise: 4.8, life: 0.80 },
+  { t0: 0.94, R: 0.32, x: -0.08, rise: 5.8, life: 0.78 },
+  { t0: 0.98, R: 0.30, x: 0.10, rise: 6.8, life: 0.74 },
+];
+COL2.forEach((c, i) => addLobe({
+  family: "purple", t0: c.t0, life: c.life, R0: c.R, base: [c.x, 1.0, 0.55],
+  drift: [c.x * 0.8, 0], rise: c.rise, g: c.rise * 0.5, k: 4.5, seed: seed(),
+  amp: 0.22, freq: 2.4, squash: 1.15, order: 15,
+}));
+
+// pink base billows — two clusters, left and right; the centre stays open
+const PINK = [
+  { x: -1.36, y: 0.52, t0: 0.72, R: 0.78, dx: -0.42, rise: 0.9 },
+  { x: -0.56, y: 0.34, t0: 0.76, R: 0.62, dx: -0.30, rise: 0.8 },
+  { x: -1.50, y: 1.55, t0: 0.86, R: 0.62, dx: -0.55, rise: 1.9 },
+  { x: -0.88, y: 1.50, t0: 0.90, R: 0.54, dx: -0.40, rise: 2.1 },
+  { x: 1.36, y: 0.52, t0: 0.73, R: 0.78, dx: 0.42, rise: 0.9 },
+  { x: 0.56, y: 0.34, t0: 0.77, R: 0.62, dx: 0.30, rise: 0.8 },
+  { x: 1.50, y: 1.55, t0: 0.87, R: 0.62, dx: 0.55, rise: 1.9 },
+  { x: 0.88, y: 1.50, t0: 0.91, R: 0.54, dx: 0.40, rise: 2.1 },
+  { x: -0.18, y: 0.30, t0: 0.82, R: 0.46, dx: -0.15, rise: 0.6 },
+  { x: 0.20, y: 0.30, t0: 0.83, R: 0.46, dx: 0.15, rise: 0.6 },
+];
+PINK.forEach((p, i) => addLobe(Object.assign({
+  family: "pink", t0: p.t0, life: 0.92, R0: p.R, base: [p.x, p.y, (i % 3 - 1) * 0.3],
+  drift: [p.dx, 0], rise: p.rise, g: 0.6, k: 3.4, seed: seed(), amp: 0.14, freq: 1.9, order: 14,
+}, comma(i + 3, p.x, p.y, 0.35, 0.55, 0.26))));
+
+// separation: pink pieces break off and drift outward/upward
+const PINK2 = [
+  { x: -1.75, y: 1.05, t0: 1.16, R: 0.38, dx: -0.9, rise: 1.4 },
+  { x: -1.05, y: 1.55, t0: 1.22, R: 0.32, dx: -0.6, rise: 1.7 },
+  { x: -0.60, y: 0.70, t0: 1.30, R: 0.28, dx: -0.5, rise: 1.2 },
+  { x: 1.05, y: 1.55, t0: 1.20, R: 0.32, dx: 0.6, rise: 1.7 },
+  { x: 1.75, y: 1.05, t0: 1.17, R: 0.38, dx: 0.9, rise: 1.4 },
+  { x: 0.62, y: 0.70, t0: 1.31, R: 0.28, dx: 0.5, rise: 1.2 },
+  { x: -1.30, y: 0.50, t0: 1.36, R: 0.24, dx: -0.7, rise: 1.0 },
+  { x: 1.30, y: 0.50, t0: 1.37, R: 0.24, dx: 0.7, rise: 1.0 },
+];
+PINK2.forEach((p, i) => addLobe(Object.assign({
+  family: "pink", t0: p.t0, life: Math.min(0.60, 1.86 - p.t0), R0: p.R, base: [p.x, p.y, (i % 3 - 1) * 0.25],
+  drift: [p.dx, 0], rise: p.rise, g: 0.8, k: 4, seed: seed(), amp: 0.13, freq: 2.4, squash: 1.25, order: 14,
+}, comma(i + 31, p.x, p.y, 1.15, 1.75, 0.62))));
+
+// thin vertical string of purple wisps — the last thing alive, fading from the bottom up
+const WISP = [];
+for (let i = 0; i < 5; i++) WISP.push({
+  t0: 1.14 + 0.21 * i, y: 0.50, R: 0.30 - 0.028 * i, rise: 3.2 - 0.12 * i,
+  x: (i % 2 ? -1 : 1) * (0.10 + 0.03 * i), life: 1.02 - 0.10 * i,
+});
+WISP.forEach((w, i) => addLobe(Object.assign({
+  family: "purple", t0: w.t0, life: w.life, R0: w.R, base: [w.x, w.y, 0.7], drift: [w.x * 1.6, 0],
+  rise: w.rise, g: 0.5, k: 4, seed: seed(), amp: 0.16, freq: 2.6,
+  squash: 1.6 + 0.15 * i, order: 15, sway: [0.22 + 0.05 * i, 4.2, i * 1.7],
+}, comma(i + 61, w.x, w.y, 1.05, 1.60, 0.58))));
+
+// ---------- grey splash (flat unlit jagged shards) ----------
+const splashMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  uniforms: { uCol: { value: hex("#8a8a97") }, uDark: { value: hex("#41414e") }, uOpacity: { value: 1 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader: `varying vec2 vUv; uniform vec3 uCol,uDark; uniform float uOpacity;
+    void main(){ vec3 c=mix(uDark,uCol,smoothstep(.0,.55,vUv.y)); gl_FragColor=vec4(c,uOpacity);}`,
+});
+
+// one sliver: pointed both ends, independently jagged edges, hashed asymmetry
+function sliverGeo(len, width, curve, taper, h) {
+  const N = 34, pos = [], uv = [], idx = [];
+  const nL = 2 + Math.floor(hash(h) * 3), nR = 2 + Math.floor(hash(h + 7) * 3);
+  const oL = hash(h + 3), oR = hash(h + 11);
+  const dL = 0.34 + 0.30 * hash(h + 5), dR = 0.34 + 0.30 * hash(h + 13);
+  const edge = (t, base, n, off, depth) => base * (1 - depth * ((t * n + off) % 1));
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = (Math.sin(Math.PI * t * 0.5) - 0.25 * Math.sin(Math.PI * t)) * curve;
+    const y = len * t;
+    const base = width * Math.pow(1 - t, taper) * Math.pow(smoothstep(0, 0.3, t), 0.7);
+    pos.push(x - edge(t, base, nL, oL, dL), y, 0, x + edge(t, base, nR, oR, dR), y, 0);
+    uv.push(0, 1 - t, 1, 1 - t);
+  }
+  for (let i = 0; i < N; i++) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+const SPLASH = [];
+for (let k = 0; k < 8; k++) {
+  const h = k * 9 + 1;
+  let ang = -104 + k * 29.5 + (hash(h) - 0.5) * 18;
+  if (Math.abs(ang) < 38) ang = ang < 0 ? -38 : 38;
+  if (Math.abs(ang) > 94) ang = ang < 0 ? -94 : 94;
+  const mul = 0.5 + 1.1 * hash(h + 2);          // short bowl-huggers .. long shards
+  const long = mul > 1.25;
+  SPLASH.push({
+    ang, len: 2.0 * mul, w: 0.22 + 0.2 * hash(h + 4), curve: (ang < 0 ? 1 : -1) * (0.9 + 0.9 * hash(h + 6)),
+    t0: 0.84 + 0.12 * hash(h + 8), z: hash(h + 10) < 0.3 ? 0.9 : -0.9,
+    r: 1.25 + 0.7 * hash(h + 12), y: 0.40 + 0.6 * hash(h + 14), h,
+    fly: [(ang < 0 ? -1 : 1) * (0.8 + 1.0 * hash(h + 16)), 0.3 + 1.2 * hash(h + 18)],
+    long, fade: long ? [1.55, 1.95] : [1.34, 1.72],
+  });
+}
+
+const splashes = SPLASH.map((s) => {
+  const g = sliverGeo(s.len, s.w, s.curve, 1.6, s.h);
+  const m = splashMat.clone();
+  const mesh = new THREE.Mesh(g, m);
+  const dark = new THREE.Mesh(g, (() => { const d = splashMat.clone(); d.uniforms.uCol.value = hex("#40404c"); d.uniforms.uDark.value = hex("#2a2a34"); return d; })());
+  dark.scale.setScalar(1.14);
+  const grp = new THREE.Group();
+  grp.add(dark); grp.add(mesh);
+  grp.renderOrder = 6; dark.renderOrder = 5; mesh.renderOrder = 6;
+  scene.add(grp);
+  return { s, grp, m, dark };
+});
+
+// ---------- additive glow + glint ----------
+function addQuad(frag, size, uniforms, order) {
+  const m = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: Object.assign({ uOpacity: { value: 1 }, uCol: { value: hex("#fff") } }, uniforms),
+    vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader: frag,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), m);
+  mesh.renderOrder = order; scene.add(mesh); return mesh;
+}
+
+const softGlow = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpacity;
+  void main(){ float d=length(vUv-.5)*2.; float a=pow(max(0.,1.-d),2.6); gl_FragColor=vec4(uCol*a,a*uOpacity); }`, 1, {}, 20);
+const glint = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpacity;
+  void main(){ vec2 p=(vUv-.5)*2.; float c=cos(.38),s=sin(.38); p=vec2(p.x*c-p.y*s,p.x*s+p.y*c);
+    float r=length(p); float core=pow(max(0.,1.-r),6.);
+    float ax=pow(max(0.,1.-abs(p.x)),2.)*pow(max(0.,1.-abs(p.y)*7.),2.5);
+    float ay=pow(max(0.,1.-abs(p.y)),2.)*pow(max(0.,1.-abs(p.x)*7.),2.5);
+    float a=clamp(core*1.2+ax+ay,0.,2.); gl_FragColor=vec4(uCol*a,min(1.,a)*uOpacity); }`, 1, {}, 22);
+const groundRing = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpacity;
+  void main(){ vec2 p=(vUv-.5)*vec2(1.,2.6); float d=length(p)*2.;
+    float a=smoothstep(.28,.78,d)*(1.-smoothstep(.78,1.05,d)); a=pow(a,1.4);
+    gl_FragColor=vec4(uCol*a,a*uOpacity); }`, 1, {}, 5);
+const groundGlow = addQuad(`varying vec2 vUv; uniform vec3 uCol; uniform float uOpacity;
+  void main(){ vec2 p=(vUv-.5)*vec2(1.,3.2); float d=length(p)*2.; float a=pow(max(0.,1.-d),2.2); gl_FragColor=vec4(uCol*a,a*uOpacity); }`, 1, {}, 4);
+
+// ---------- post ----------
+let composer, bloomPass, smaaPass;
+function buildPost() {
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), params.bloom, 0.5, params.threshold);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+  smaaPass = new SMAAPass(); composer.addPass(smaaPass);
+}
+function resize() {
+  const host = canvas.parentElement;
+  const w = host.clientWidth, h = Math.round(w * 9 / 16);
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  buildPost();
+}
+window.addEventListener("resize", resize); resize();
+
+// ---------- per-frame evaluation: state = f(t) ----------
+const lightDir = new THREE.Vector3();
+function evalLight() {
+  const az = params.lightAz * Math.PI / 180, el = params.lightEl * Math.PI / 180;
+  lightDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
+}
+
+function evalLobes(t) {
+  for (const L of lobes) {
+    const d = L.d;
+    const a = (t - d.t0) / d.life;
+    const alive = a > 0 && a < 1 && params.lobes;
+    L.mesh.visible = alive; L.outline.visible = alive && params.outline;
+    if (!alive) continue;
+    const r = d.R0 * easeOutCubic(Math.min(a * (d.k ?? 3), 1)) * (1 - smoothstep(0.7, 1, a));
+    const sa = Math.sqrt(a);
+    const x = d.base[0] + d.drift[0] * sa + (d.sway ? d.sway[0] * Math.sin(d.sway[1] * a + d.sway[2]) : 0);
+    const y = d.base[1] + d.rise * a - 0.5 * d.g * a * a;
+    const z = d.base[2] + d.drift[1] * sa;
+    L.mesh.position.set(x, y, z); L.mesh.scale.setScalar(Math.max(r, 1e-4));
+    L.outline.position.set(x, y, z); L.outline.scale.setScalar(Math.max(r, 1e-4));
+    // opaque until the last 25% of life
+    const fade = 1 - smoothstep(0.75, 1, a);
+    const tr = a > 0.75;
+    L.mat.transparent = tr; L.mat.depthWrite = !tr; L.mat.uniforms.uOpacity.value = fade;
+    L.omat.transparent = tr; L.omat.depthWrite = !tr; L.omat.uniforms.uOpacity.value = fade;
+    L.mat.uniforms.uTime.value = t; L.omat.uniforms.uTime.value = t;
+    L.mat.uniforms.uBands.value = params.bands3 ? 3 : 2;
+    L.mat.uniforms.uLight.value.copy(lightDir);
+    L.omat.uniforms.uInflate.value = (d.outlineW ?? 0.055) / Math.max(r, 0.12);
+  }
+}
+
+function evalSplash(t) {
+  for (const S of splashes) {
+    const { s, grp, m, dark } = S;
+    const a = (t - s.t0) / 0.34;                // scale-out
+    const det = smoothstep(s.long ? 1.10 : 1.24, s.long ? 1.70 : 1.60, t); // detach + fly outward
+    const fade = 1 - smoothstep(s.fade[0], s.fade[1], t);
+    const vis = params.splash && t > s.t0 && fade > 0.01;
+    grp.visible = vis;
+    if (!vis) continue;
+    const sc = easeOutCubic(Math.min(1, a)) * (1 + 0.22 * det);
+    const rad = s.ang * Math.PI / 180;
+    grp.position.set(Math.sin(rad) * s.r + s.fly[0] * det, s.y + s.fly[1] * det, s.z);
+    grp.rotation.z = -rad + det * Math.sign(s.ang) * 0.5;
+    grp.scale.set(sc * (1 - (s.long ? 0.55 : 0.35) * det), sc * (1 - 0.15 * det), 1);
+    m.uniforms.uOpacity.value = fade;
+    dark.material.uniforms.uOpacity.value = fade * 0.85;
+  }
+}
+
+const cWhite = hex("#fff4ff"), cPink = hex("#ff8fe0"), cBlue = hex("#6a7cff"), cYellow = hex("#ffd02a");
+function evalGlow(t) {
+  const on = params.glow;
+  // base glow: white -> pink, 0.25 .. 1.45
+  const gA = (smoothstep(0.20, 0.30, t) * (1 - smoothstep(1.05, 1.45, t))) * 0.9 * (1 - 0.3 * (1 - smoothstep(0.45, 0.62, t)));
+  softGlow.visible = on && gA > 0.01;
+  if (softGlow.visible) {
+    const mixv = smoothstep(0.6, 1.0, t);
+    softGlow.material.uniforms.uCol.value.copy(cWhite).lerp(cPink, mixv);
+    softGlow.material.uniforms.uOpacity.value = gA;
+    const s = 1.4 + 1.5 * smoothstep(0.25, 1.1, t);
+    softGlow.scale.set(s, s * 0.85, 1);
+    softGlow.position.set(0, 0.55, 0.6);
+  }
+  // ground disc: faint blue early, pink/white later
+  const dA = smoothstep(0.24, 0.34, t) * (1 - smoothstep(1.3, 1.8, t));
+  groundGlow.visible = on && dA > 0.01;
+  if (groundGlow.visible) {
+    groundGlow.material.uniforms.uCol.value.copy(cBlue).lerp(cPink, smoothstep(0.5, 1.0, t));
+    groundGlow.material.uniforms.uOpacity.value = dA * 0.5;
+    const s = 2.2 + 2.0 * smoothstep(0.3, 1.2, t);
+    groundGlow.scale.set(s, s * 0.5, 1);
+    groundGlow.position.set(0, 0.12, -0.4);
+  }
+  // faint blue ring on the ground under the hot ball
+  const rA = smoothstep(0.24, 0.33, t) * (1 - smoothstep(0.62, 0.90, t));
+  groundRing.visible = on && rA > 0.01;
+  if (groundRing.visible) {
+    groundRing.material.uniforms.uCol.value.copy(cBlue);
+    groundRing.material.uniforms.uOpacity.value = rA * 0.75;
+    const s = 2.4 + 1.6 * smoothstep(0.26, 0.75, t);
+    groundRing.scale.set(s, s * 0.42, 1);
+    groundRing.position.set(0, 0.10, -0.5);
+  }
+  // yellow glint 0.00 .. 0.24 with a pulse, then a soft yellow ball
+  const pulse = Math.min(1, t / 0.06) * (1 - smoothstep(0.13, 0.26, t));
+  glint.visible = on && pulse > 0.01;
+  if (glint.visible) {
+    glint.material.uniforms.uCol.value.copy(cYellow);
+    glint.material.uniforms.uOpacity.value = pulse;
+    const s = 0.8 + 1.1 * easeOutCubic(Math.min(1, t / 0.12)) + 0.2 * Math.sin(t * 70);
+    glint.scale.set(s, s, 1);
+    glint.position.set(0, 0.62, 0.8);
+  }
+}
+
+// ---------- frame ----------
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (params.play) { params.time += dt * params.speed; if (params.time > params.duration) params.time = 0; }
+  const t = params.time;
+  evalLight(); evalLobes(t); evalSplash(t); evalGlow(t);
+  bloomPass.strength = params.bloom; bloomPass.threshold = params.threshold;
+  if (params.post) composer.render(); else renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.spikeRebuildPost = buildPost;
+window.spikeReady = true;

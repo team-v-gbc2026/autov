@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "dev:local": "AUTOV_LOCAL_MODE=1 next dev --hostname 127.0.0.1 --port 3000",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/agent/*.test.ts",
     "typecheck": "tsc --noEmit",
     "bundle:runtime": "node scripts/bundle-runtime.mjs",
     "predev:local": "npm run bundle:runtime",
@@ -19,6 +19,8 @@
     "upload:vfx-assets": "node scripts/upload-vfx-assets.mjs",
     "generate:v2-nodes": "node --import tsx scripts/webgpu/port-shaders.mts",
     "verify:webgpu": "node scripts/webgpu/verify-port.mjs",
+    "verify:studio": "node scripts/webgpu/verify-studio.mjs",
+    "verify:perf": "node scripts/webgpu/verify-perf.mjs",
     "build:agent": "eve build",
     "test:agent": "node --import tsx --test tests/agent/*.test.ts"
   },

@@ -47,7 +47,7 @@ The static `.autov-local/trials/index.html` works from the filesystem after the 
 
 ## Spending and assets
 
-Text and image calls use one cumulative local ledger, defaulting to $30. `OPENAI_VFX_BUDGET_USD` can configure an explicitly authorized limit up to $60. Changing the limit preserves all prior entries and pending reservations. `AUTOV_DATA_DIR` can point multiple local checkouts to the same ledger. Images reserve $2 before sending a request; settlement uses returned token usage and official input/output rates. Definitive authorization/validation rejections settle at zero; missing usage and interrupted requests stay reserved. A reservation overrun halts further generation. This is an application reservation, **not** a provider-enforced billing cap.
+Text and image calls use one cumulative local ledger, defaulting to $30. `OPENAI_VFX_BUDGET_USD` can configure an explicitly authorized limit up to $80. Changing the limit preserves all prior entries and pending reservations. `AUTOV_DATA_DIR` can point multiple local checkouts to the same ledger. Images reserve $2 before sending a request; settlement uses returned token usage and official input/output rates. Definitive authorization/validation rejections settle at zero; missing usage and interrupted requests stay reserved. A reservation overrun halts further generation. This is an application reservation, **not** a provider-enforced billing cap.
 
 Do not copy a new empty ledger over a used one. A separate checkout has a separate `.autov-local` directory; preserve the intended cumulative ledger when moving an existing API configuration. Keys, source benchmark media, per-run results and ledgers are ignored by Git.
 

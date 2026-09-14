@@ -17,7 +17,7 @@ Automatic image cleanup and custom parameter metadata are not included.
 3. Studio tools are always enabled and require the storage configuration and migration above.
 4. Keep `OPENAI_VFX_MODEL=gpt-6-astra`; the inherited conservative cost formula is
    tied to that model. `OPENAI_VFX_BUDGET_USD` defaults to 30, accepts positive values
-   up to 60, and applies cumulatively per project to generation provider calls.
+   up to 80, and applies cumulatively per project to generation provider calls.
 5. Build Eve (`npm run build:agent`) and the app. Keep a WebGPU-capable studio tab
    open for previews and generation validation. Server credentials never go to it.
 
@@ -49,6 +49,33 @@ and inspection accept only current project board IDs.
 All returned preview contact sheets are saved to the board with operation/revision
 and timestamp provenance before pixels are sent to Eve. They are not automatically
 added to later generation inputs. Original references remain unchanged.
+
+## What the generation prompt contains
+
+`generate_vfx` runs two provider stages, plan then candidate, and the candidate
+stage is the one that has to produce a complete v2 document. It shares its system
+prompt and payload builder with the dev pipeline (`/api/local-vfx`) through
+`lib/vfx-lab/candidate-v2.ts`, so neither path can drift ahead of the other.
+
+- **Family routing.** The planner names a v1 recipe; `recipeV2For(plan.recipe,
+  prompt)` reads it as the nearest v2 family and lets the user's own words win for
+  the families the v1 vocabulary cannot name (aura/heal, glitch, column, portal,
+  vortex, water, playful). In `add` mode the routing reads the user's prompt, not
+  the existing document appended to it for context.
+- **Payload keys.** `prompt`, `plan`, `family`, `recipe` (that family's
+  construction knowledge), `technique` (the technique cards the family and the
+  prompt select, `techniqueBrief`), `scale` (`exampleScaleSummary`: the exemplar's
+  measured duration, layer count, framing, hero extent and particle budget), and
+  `example` (the exemplar document itself, as the scale reference).
+- **Deterministic repairs.** After `fromWireV2` the candidate is linted. The one
+  warning no prompt reliably fixes — a mesh hero (blob, crystals, crescent,
+  ribbon) framed in the particle band — is corrected without a model call by
+  `applyExemplarCameraV2`, which copies the exemplar's camera block and keeps the
+  candidate's own shake and push-in. There is no paid repair stage on this path:
+  the dev pipeline's second model call is deliberately not ported here.
+- **`add` mode.** Generated layers are appended with `appendGenerated`; the
+  existing scene keeps its camera and environment, so nothing re-frames a shot the
+  user did not ask about.
 
 ## Failures and recovery
 

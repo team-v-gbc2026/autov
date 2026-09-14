@@ -17,6 +17,10 @@ const args = process.argv.slice(2),
     return i < 0 ? fallback : args[i + 1];
   };
 const live = args.includes("--live"),
+  // Video export (recordVideo) is a separate, best-effort step after a case's
+  // evidence is already saved; --no-video skips it entirely, e.g. while its
+  // GL capture path is unreliable for some documents.
+  noVideo = args.includes("--no-video"),
   root = await realpath(
     arg("--dataset", "../../benchmark-verified-2026-09-13"),
   ),
@@ -193,7 +197,33 @@ function clipKeysFor(caseId, data) {
   for (const key of REFERENCE_CLIP_PREFIXES[caseId] || []) push(key);
   return keys;
 }
+// Verified clip per case (benchmark-verified-2026-09-13); the metadata lookup
+// below is kept for datasets that carry their own mapping.
+const CLIP_BY_CASE = {
+  "fx01-lightning-impact": "X132B3-final",
+  "fx02-fire-projectile": "P6lbvB-fire",
+  "fx03-water-projectile": "P6lbvB-water",
+  "fx04-glitch-magic": "kw4Rnl-final",
+  "fx06-playful-impact": "y4NzBn-final",
+  "fx07-fire-slash": "OGNX6k-final",
+  "fx08-ice-blast": "K3NbvB-final",
+  "fx09-meteor-rain": "8B9kvx-view1",
+  "fx10-stylized-lightning": "L4POgl-single",
+  "fx11-staggered-lightning": "L4POgl-triple",
+  "fx12-smoke-burst": "03rPr8-final",
+  "fx13-sustained-beam": "g0kq88-final",
+  "fx14-rectangular-portal": "2qzwGx-final",
+  "fx15-healing-aura": "NyaNzN-final",
+  "fx16-energy-overload": "Zag96G-final",
+  "fx17-sky-vortex": "WB4B2y-final",
+};
+
 function referenceClipFor(caseId, data) {
+  const known = CLIP_BY_CASE[caseId];
+  if (known) {
+    const match = clipFiles.find((file) => file.startsWith(known));
+    if (match) return path.join(root, "references/videos", match);
+  }
   for (const key of clipKeysFor(caseId, data)) {
     const match = clipFiles.find(
       (file) => file === key || file.startsWith(`${key}-`) || file.startsWith(`${key}.`),
@@ -227,6 +257,10 @@ const report = {
   live,
   cases: [],
 };
+// Tracked separately from report.cases[].status: a video export failure does
+// not fail the case (its evidence is still valid and saved), but the run as a
+// whole should still exit non-zero so it isn't mistaken for a clean pass.
+let videoExportFailed = false;
 await writeFile(
   path.join(output, "manifest.json"),
   JSON.stringify(
@@ -349,15 +383,30 @@ try {
         path.join(dir, "contact-sheet.jpg"),
         decode(rendered.evidence.sheet),
       );
-      const videoCapture = await recordVideo(
-        page,
-        result.selected.document,
-        path.join(dir, "output.webm"),
-        await readFile(
-          path.join(output, schema === "v2" ? "runtime-v2.js" : "runtime.js"),
-          "utf8",
-        ),
-      );
+      // Video export is best-effort: it runs after this case's evidence
+      // (pipeline/effect/contact-sheet) is already written, so a failure here
+      // must never lose that evidence or abort the remaining cases. --no-video
+      // skips the step outright.
+      let videoCapture = null;
+      if (!noVideo) {
+        try {
+          videoCapture = await recordVideo(
+            page,
+            result.selected.document,
+            path.join(dir, "output.webm"),
+            await readFile(
+              path.join(
+                output,
+                schema === "v2" ? "runtime-v2.js" : "runtime.js",
+              ),
+              "utf8",
+            ),
+          );
+        } catch (e) {
+          videoExportFailed = true;
+          console.error(`${c.data.case_id}: video export failed: ${e.message}`);
+        }
+      }
       for (let i = 0; i < rendered.frames.length; i++)
         await writeFile(
           path.join(dir, `frame-${i}.png`),
@@ -376,7 +425,7 @@ try {
           time: f.time,
           file: `frame-${i}.png`,
         })),
-        video: "output.webm",
+        video: videoCapture ? "output.webm" : null,
         videoCapture,
         reviewer: null,
         acceptance: "not_claimed",
@@ -406,7 +455,8 @@ try {
   await browser.close();
 }
 console.log(`Benchmark evidence: ${output}`);
-if (report.cases.some((c) => c.status === "failed")) process.exitCode = 1;
+if (report.cases.some((c) => c.status === "failed") || videoExportFailed)
+  process.exitCode = 1;
 try {
   execFileSync(process.execPath, ["scripts/build-trial-gallery.mjs"], {
     stdio: "inherit",

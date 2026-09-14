@@ -22,6 +22,11 @@
 //                | (all stops scale by the same ratio)                    | key (0..20), all
 //                |                                                        | keys scale by ratio
 //   Radius       | emitter.shape.radius (0..12)    | geometry.radius      | light.radius
+//                | blob.radius[1] / splash.length[1] / ribbon.width /
+//                | wireBurst.radius / crystals.length[1] / arcs.radius[1] /
+//                | streakBurst.length[1] / sheets.length[1] / crescent.radius /
+//                | licks.length[1] on the generated kinds,
+//                | scaled as a band so the population keeps its size hierarchy
 //                |                                 | (0.01..8)            | (0.5..30)
 //   Opacity      | material.opacity (0..1)         | material.opacity     | — (no material)
 //   Speed        | max |emitter.velocity.speed|    | geometry.vertexNoise | —
@@ -77,6 +82,7 @@ const NOISE_SPEED: Range = V2_TARGET_RANGES["geometry.vertexNoise.speed"];
 const CURL: Range = V2_TARGET_RANGES["emitter.forces.curl.strength"];
 const NOISE_AMPLITUDE: Range = V2_TARGET_RANGES["geometry.vertexNoise.amplitude"];
 const EROSION: Range = [0, 1];
+const RIBBON_WIDTH: Range = V2_TARGET_RANGES["ribbon.width"];
 const BLOOM: Range = [0, 2];
 const EXPOSURE: Range = [0.3, 2];
 
@@ -131,7 +137,27 @@ function layerRadius(layer: LayerV2) {
     return toUi(layer.light.radius, LIGHT_RADIUS);
   if (layer.kind === "particles" && layer.emitter)
     return toUi(layer.emitter.shape.radius, PARTICLE_RADIUS);
+  // A generated kind has no geometry: its "radius" is the lobe band's top and
+  // the sliver band's top, the numbers that set how big the thing reads.
+  if (layer.blob) return toUi(layer.blob.radius[1], MESH_RADIUS);
+  if (layer.splash) return toUi(layer.splash.length[1], MESH_RADIUS);
+  // A ribbon's "radius" is its strand width; a burst's is how far it throws.
+  if (layer.ribbon) return toUi(layer.ribbon.width, RIBBON_WIDTH);
+  if (layer.wireBurst) return toUi(layer.wireBurst.radius, MESH_RADIUS);
+  // A crystal cluster's "radius" is the longest spike it grows.
+  if (layer.crystals) return toUi(layer.crystals.length[1], MESH_RADIUS);
+  // An arc cage's "radius" is its helix band; a streak fan's is its reach.
+  if (layer.arcs) return toUi(layer.arcs.radius[1], MESH_RADIUS);
+  if (layer.streakBurst) return toUi(layer.streakBurst.length[1], MESH_RADIUS);
+  // A tail of sheets reads at its longest membrane, a blade at its own arc and
+  // a lick layer at its longest strip.
+  if (layer.sheets) return toUi(layer.sheets.length[1], MESH_RADIUS);
+  if (layer.crescent) return toUi(layer.crescent.radius, MESH_RADIUS);
+  if (layer.licks) return toUi(layer.licks.length[1], MESH_RADIUS);
   if (layer.geometry) return toUi(layer.geometry.radius, MESH_RADIUS);
+  // A reflection has no size of its own: it draws its source's geometry, and
+  // reflection.scale is how far the floor foreshortens it.
+  if (layer.reflection) return toUi(layer.reflection.scale * 2, MESH_RADIUS);
   return 0;
 }
 
@@ -156,7 +182,10 @@ function projectParameters(layer: LayerV2): Record<ParameterName, number> {
   return {
     Intensity: layerIntensity(layer),
     Radius: layerRadius(layer),
-    Opacity: toUi(layer.material?.opacity ?? 0, OPACITY),
+    Opacity: toUi(
+      layer.material?.opacity ?? layer.reflection?.opacity ?? 0,
+      OPACITY,
+    ),
     Speed: layerSpeed(layer),
     Turbulence: layerTurbulence(layer),
     Erosion: toUi(erosionLevel(layer), EROSION),
@@ -165,7 +194,8 @@ function projectParameters(layer: LayerV2): Record<ParameterName, number> {
 
 function projectLayer(layer: LayerV2): VfxLayer {
   const stops = rampStops(layer);
-  const color = stops[0]?.color ?? layer.light?.color ?? FALLBACK_COLOR;
+  const color =
+    stops[0]?.color ?? layer.light?.color ?? layer.reflection?.tint ?? FALLBACK_COLOR;
   return {
     id: layer.id,
     name: layer.name,
@@ -270,7 +300,75 @@ function writeRadius(layer: LayerV2, ui: number) {
     layer.light.radius = fromUi(ui, LIGHT_RADIUS);
   else if (layer.kind === "particles" && layer.emitter)
     layer.emitter.shape.radius = fromUi(ui, PARTICLE_RADIUS);
-  else if (layer.geometry) layer.geometry.radius = fromUi(ui, MESH_RADIUS);
+  else if (layer.blob) {
+    // Scale the whole band, keeping its shape, so a cluster never collapses
+    // into one uniform lobe size.
+    const target = Math.min(3, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.blob.radius[1], 1e-6);
+    layer.blob.radius = [
+      clamp(layer.blob.radius[0] * factor, 0.05, 3),
+      target,
+    ];
+  } else if (layer.splash) {
+    const target = Math.min(8, Math.max(0.2, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.splash.length[1], 1e-6);
+    layer.splash.length = [
+      clamp(layer.splash.length[0] * factor, 0.2, 8),
+      target,
+    ];
+  } else if (layer.ribbon) {
+    layer.ribbon.width = fromUi(ui, RIBBON_WIDTH);
+  } else if (layer.crystals) {
+    // The band, not one number: spikes that all grow to the same length read as
+    // a mace, not as ice.
+    const target = Math.min(6, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.crystals.length[1], 1e-6);
+    layer.crystals.length = [
+      clamp(layer.crystals.length[0] * factor, 0.05, 6),
+      target,
+    ];
+  } else if (layer.arcs) {
+    const target = fromUi(ui, MESH_RADIUS);
+    const factor = target / Math.max(layer.arcs.radius[1], 1e-6);
+    layer.arcs.radius = [
+      clamp(layer.arcs.radius[0] * factor, 0.02, 8),
+      clamp(target, 0.02, 8),
+    ];
+    layer.arcs.span = clamp(layer.arcs.span * factor, 0.05, 12);
+  } else if (layer.streakBurst) {
+    const target = fromUi(ui, MESH_RADIUS);
+    const factor = target / Math.max(layer.streakBurst.length[1], 1e-6);
+    layer.streakBurst.length = [
+      clamp(layer.streakBurst.length[0] * factor, 0.1, 12),
+      clamp(target, 0.1, 12),
+    ];
+  } else if (layer.sheets) {
+    // The band, not one number: sheets that are all the same length read as a
+    // comb rather than as a tail.
+    const target = Math.min(4, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.sheets.length[1], 1e-6);
+    layer.sheets.length = [clamp(layer.sheets.length[0] * factor, 0.05, 4), target];
+  } else if (layer.crescent) {
+    const target = Math.min(8, Math.max(0.05, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.crescent.radius, 1e-6);
+    layer.crescent.radius = target;
+    layer.crescent.thickness.max = clamp(
+      layer.crescent.thickness.max * factor,
+      0.01,
+      3,
+    );
+  } else if (layer.licks) {
+    const target = Math.min(4, Math.max(0.02, fromUi(ui, MESH_RADIUS)));
+    const factor = target / Math.max(layer.licks.length[1], 1e-6);
+    layer.licks.length = [clamp(layer.licks.length[0] * factor, 0.02, 4), target];
+  } else if (layer.wireBurst) {
+    // The band, not one number: a burst whose outlines grow without flying
+    // further just turns into a solid ball.
+    const target = fromUi(ui, MESH_RADIUS);
+    const factor = target / Math.max(layer.wireBurst.radius, 1e-6);
+    layer.wireBurst.radius = clamp(target, 0.05, 6);
+    layer.wireBurst.travel = clamp(layer.wireBurst.travel * factor, 0, 8);
+  } else if (layer.geometry) layer.geometry.radius = fromUi(ui, MESH_RADIUS);
 }
 
 function writeSpeed(layer: LayerV2, ui: number) {
@@ -554,8 +652,13 @@ export function addLayer(doc: VfxDocumentV2, index: number): VfxDocumentV2 {
       position: [0, 0.6, 0],
       rotation: [0, 0, 0],
       scale: [1, 1, 1],
+      squash: null,
     },
     motion: null,
+    jitter: null,
+    frame: null,
+    collapse: null,
+    window: null,
     material: defaultMaterial(),
     emitter: defaultEmitter(),
     tracks: [],

@@ -235,12 +235,189 @@ export function applyKnobs(
           0.01,
           12,
         );
+        // A frame's bar width and its corner round are part of its size: a
+        // doorway scaled to twice the height with the same bar reads as a
+        // different object, not as a bigger one.
+        if (layer.geometry.type === "frame") {
+          layer.geometry.thickness = clamp(
+            layer.geometry.thickness * kMeshScale,
+            0.001,
+            3,
+          );
+          if (layer.geometry.frame)
+            layer.geometry.frame.corner = clamp(
+              layer.geometry.frame.corner * kMeshScale,
+              0,
+              Math.min(layer.geometry.radius, layer.geometry.length * 0.5),
+            );
+        }
       }
     }
+    // A reflection has no geometry of its own: it draws its source's, which the
+    // knob has already scaled. Nothing to do, and scaling reflection.scale would
+    // change the FLOOR's foreshortening rather than the effect's size.
 
-    // K6 — ramp intensity, every layer that has a ramp.
+    // K5/K9 — the generated kinds: a blob's cluster dimensions and a splash's
+    // slivers scale with meshScale, and verticalStretch reaches only the blob's
+    // vertical shape (height, reach, squash) the same way it reaches a mesh's
+    // y scale. Lobe counts and the arrangement are topology, not scale, so the
+    // knob space never touches them.
+    if (layer.blob) {
+      const b = layer.blob;
+      b.radius = [
+        clamp(b.radius[0] * kMeshScale, 0.05, 3),
+        clamp(b.radius[1] * kMeshScale, 0.05, 3),
+      ];
+      b.spread = clamp(b.spread * kMeshScale, 0, 8);
+      b.height = clamp(b.height * kMeshScale * kVertical, 0, 12);
+      // An "orbit" re-reads `rise` as an ANGULAR SPEED, and an angle does not
+      // scale with metres: a wider ring that also turned faster would not be
+      // the same effect at a different size.
+      if (b.arrangement !== "orbit") {
+        b.rise = clamp(b.rise * kMeshScale * kVertical, -12, 20);
+        b.gravity = clamp(b.gravity * kMeshScale * kVertical, -20, 20);
+      }
+      b.drift = clamp(b.drift * kMeshScale, -8, 8);
+      b.squash = clamp(b.squash * kVertical, 0.3, 3);
+      b.life = [
+        clamp(b.life[0] * kLife, 0.05, 12),
+        clamp(b.life[1] * kLife, 0.05, 12),
+      ];
+    }
+    if (layer.splash) {
+      const sp = layer.splash;
+      sp.length = [
+        clamp(sp.length[0] * kMeshScale, 0.2, 8),
+        clamp(sp.length[1] * kMeshScale, 0.2, 8),
+      ];
+      sp.width = clamp(sp.width * kMeshScale, 0.02, 1.5);
+    }
+    // A crystal cluster scales by how long and how fat its spikes are and how
+    // far their bases sit out; verticalStretch reaches only the length, so the
+    // cluster changes proportion the way a mesh's y scale does. The count, the
+    // groups and the elevation band are topology, so the knob space never
+    // touches them.
+    if (layer.crystals) {
+      const c = layer.crystals;
+      c.length = [
+        clamp(c.length[0] * kMeshScale * kVertical, 0.05, 6),
+        clamp(c.length[1] * kMeshScale * kVertical, 0.05, 6),
+      ];
+      c.width = [
+        clamp(c.width[0] * kMeshScale, 0.005, 1),
+        clamp(c.width[1] * kMeshScale, 0.005, 1),
+      ];
+      c.baseRadius = clamp(c.baseRadius * kMeshScale, 0, 4);
+    }
+    // A ribbon's size is its strand width and how far the strands sit apart;
+    // its path is the effect's geometry and belongs to the document, so
+    // meshScale deliberately does not move it. verticalStretch has nothing to
+    // reach: the strip has no axis of its own.
+    if (layer.ribbon) {
+      const r = layer.ribbon;
+      r.width = clamp(r.width * kMeshScale, 0.002, 1);
+      r.strands.spread = clamp(r.strands.spread * kMeshScale, 0, 1);
+    }
+    // An arc cage scales by its helix radius and the height band it covers;
+    // verticalStretch reaches only the span, the way it reaches a mesh's y.
+    // The wire count, the blink and the jitter are topology and timing, so the
+    // knob space never touches them.
+    if (layer.arcs) {
+      const a = layer.arcs;
+      a.radius = [
+        clamp(a.radius[0] * kMeshScale, 0.02, 8),
+        clamp(a.radius[1] * kMeshScale, 0.02, 8),
+      ];
+      a.span = clamp(a.span * kMeshScale * kVertical, 0.05, 12);
+      a.width = clamp(a.width * kMeshScale, 0.002, 0.4);
+    }
+    // A streak fan scales by how long and how fat its speed lines are; the
+    // bundle structure and the hues are topology.
+    if (layer.streakBurst) {
+      const b = layer.streakBurst;
+      b.length = [
+        clamp(b.length[0] * kMeshScale, 0.1, 12),
+        clamp(b.length[1] * kMeshScale, 0.1, 12),
+      ];
+      b.width = [
+        clamp(b.width[0] * kMeshScale, 0.005, 1),
+        clamp(b.width[1] * kMeshScale, 0.005, 1),
+      ];
+    }
+    // A tail of sheets scales by how long and how wide its membranes are and how
+    // fast they travel, so the tail keeps its proportions as the head grows.
+    // verticalStretch reaches only the length, the way it reaches a mesh's y.
+    // The class cadences are timing and the count is topology.
+    if (layer.sheets) {
+      const sh = layer.sheets;
+      sh.length = [
+        clamp(sh.length[0] * kMeshScale * kVertical, 0.05, 4),
+        clamp(sh.length[1] * kMeshScale * kVertical, 0.05, 4),
+      ];
+      sh.width = [
+        clamp(sh.width[0] * kMeshScale, 0.02, 3),
+        clamp(sh.width[1] * kMeshScale, 0.02, 3),
+      ];
+      sh.speed = [
+        clamp(sh.speed[0] * kMeshScale, 0, 12),
+        clamp(sh.speed[1] * kMeshScale, 0, 12),
+      ];
+      sh.spawn = {
+        axisFrom: clamp(sh.spawn.axisFrom * kMeshScale, -4, 4),
+        axisTo: clamp(sh.spawn.axisTo * kMeshScale, -4, 4),
+      };
+    }
+    // A blade scales by its arc radius and its thickness; the sweep, the plane
+    // lean and the two window curves are the SHAPE of the slash and belong to
+    // the document. verticalStretch reaches the thickness, which is the only
+    // dimension across the arc.
+    if (layer.crescent) {
+      const cr = layer.crescent;
+      cr.radius = clamp(cr.radius * kMeshScale, 0.05, 8);
+      cr.thickness.max = clamp(cr.thickness.max * kMeshScale * kVertical, 0.01, 3);
+      cr.erosionFront.width = clamp(cr.erosionFront.width, 0.01, 2);
+    }
+    // Licks scale by their own strips; the flipbook rate is timing.
+    if (layer.licks) {
+      const lk = layer.licks;
+      lk.length = [
+        clamp(lk.length[0] * kMeshScale, 0.02, 4),
+        clamp(lk.length[1] * kMeshScale, 0.02, 4),
+      ];
+      lk.width = [
+        clamp(lk.width[0] * kMeshScale, 0.01, 2),
+        clamp(lk.width[1] * kMeshScale, 0.01, 2),
+      ];
+    }
+    // A sliver needle scales the way a mesh does; the retract and the secondary
+    // bits are timing and topology.
+    if (layer.emitter?.render.sliver) {
+      const sl = layer.emitter.render.sliver;
+      sl.length = [
+        clamp(sl.length[0] * kMeshScale, 0.05, 8),
+        clamp(sl.length[1] * kMeshScale, 0.05, 8),
+      ];
+      sl.width = [
+        clamp(sl.width[0] * kMeshScale, 0.005, 1),
+        clamp(sl.width[1] * kMeshScale, 0.005, 1),
+      ];
+    }
+    // A burst scales by how big its outlines are and how far they fly; the
+    // shape and spoke counts are topology, so the knob space never moves them.
+    if (layer.wireBurst) {
+      const w = layer.wireBurst;
+      w.radius = clamp(w.radius * kMeshScale, 0.05, 6);
+      w.travel = clamp(w.travel * kMeshScale, 0, 8);
+    }
+
+    // K6 — ramp intensity, every layer that has a ramp. A per-particle trail
+    // carrying its own ramp is one of them: leaving it out would brighten a
+    // spark and not the streamer behind it.
     if (layer.material)
       for (const stop of layer.material.ramp.stops)
+        stop.intensity = clamp(stop.intensity * kRamp, 0, 8);
+    if (layer.emitter?.trail?.ramp)
+      for (const stop of layer.emitter.trail.ramp.stops)
         stop.intensity = clamp(stop.intensity * kRamp, 0, 8);
 
     // K7 — light intensity curves.

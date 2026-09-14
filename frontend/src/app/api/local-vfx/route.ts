@@ -10,6 +10,7 @@ import {
   applyRefinementV2,
   applyStructuralRefinement,
   applyStructuralRefinementV2,
+  applyExemplarCameraV2,
 } from "@/lib/vfx-lab/refine";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -37,6 +38,12 @@ import {
   RECIPES_V2,
   recipeV2For,
 } from "@/lib/vfx-lab/recipes-v2";
+import { techniqueBrief } from "@/lib/vfx-lab/techniques-v2";
+import {
+  CANDIDATE_V2_SYSTEM,
+  candidatePayloadV2,
+  repairCandidateV2,
+} from "@/lib/vfx-lab/candidate-v2";
 import {
   DocumentV2Schema,
   DocumentV2WireSchema,
@@ -46,6 +53,7 @@ import {
   type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
 import {
+  describeGpuCostV2,
   describeLayersV2,
   REVIEW_V2_DEFECTS,
   REVIEW_V2_SYSTEM,
@@ -331,11 +339,13 @@ export async function POST(request: Request) {
                 {
                   name: RECIPES[id].name,
                   prompt: RECIPES[id].prompt,
-                  family: recipeV2For(id),
-                  knowledge: RECIPES_V2[recipeV2For(id)].knowledge,
+                  // The prompt decides for the two families the v1 recipe
+                  // vocabulary cannot name (aura/heal, glitch/digital).
+                  family: recipeV2For(id, body.prompt),
+                  knowledge: RECIPES_V2[recipeV2For(id, body.prompt)].knowledge,
                   // The planner never sees the example document itself, so it
                   // gets the scale it has to plan for.
-                  scale: exampleScaleSummary(recipeV2For(id)),
+                  scale: exampleScaleSummary(recipeV2For(id, body.prompt)),
                 },
               ]),
             )
@@ -456,17 +466,13 @@ export async function POST(request: Request) {
     if (body.action === "candidate" && run.schema === "v2") {
       if (body.index >= (run.mode === "fast" ? 1 : 3))
         throw new Error("Candidate outside selected generation mode.");
-      const family = recipeV2For(run.plan.recipe);
+      const family = recipeV2For(run.plan.recipe, run.prompt);
       const result = await callModel(
         DocumentV2WireSchema,
-        `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete autov.lab/2 document. The example is the scale reference: match its particle counts, sizes, light intensity and silhouette extent, and change the shapes, colors and timing to fit the plan. Give this candidate a distinctive structure: ${directions[body.index]}`,
-        JSON.stringify({
-          prompt: run.prompt,
-          plan: run.plan,
-          family,
-          recipe: RECIPES_V2[family].knowledge,
-          example: createPresetV2(family),
-        }),
+        `${CANDIDATE_V2_SYSTEM} Give this candidate a distinctive structure: ${directions[body.index]}`,
+        JSON.stringify(
+          candidatePayloadV2({ prompt: run.prompt, plan: run.plan, family }),
+        ),
         run.references,
         request.signal,
         32000,
@@ -527,7 +533,9 @@ export async function POST(request: Request) {
         await saveRun(run);
         throw new Error(problems[0]);
       }
-      const warnings = lintDocumentV2(doc);
+      const repaired = repairCandidateV2(doc, family);
+      doc = repaired.document;
+      const warnings = repaired.warnings;
       run.documents.push(doc);
       await saveRun(run);
       return json({
@@ -639,13 +647,15 @@ export async function POST(request: Request) {
           throw Error("No admitted defect or director note to repair.");
         run.structuralAttempted = true;
         await saveRun(run);
+        const family = recipeV2For(run.plan.recipe, run.prompt);
         const result = await callModel(
           StructuralRefinementV2Schema,
-          `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,
+          `${TECHNICAL_GUIDE_V2}\nRepair the admitted defects and director notes below — visible structural problems that scalar adjustments cannot solve. Return the COMPLETE document with the repair applied. Keep seed, duration and impact exactly as given. Preserve every layer that already satisfies the prompt, including its ID. You may add at most two layers, at most one of them a light: a missing ground contact is a light plus a decal, a flat palette is a ramp keyed on something that varies — material.ramp.space "height" or "sprite", or material.ramp.blend mixing a second space in — or a secondary layer with its own ramp, a small silhouette is fixed by geometry and particle scale, never by the camera. Never raise bloom strength or exposure. The output contact sheet is the image after the appearance references.${body.alignedSheet ? " The LAST image is a phase-aligned comparison: four rows, the render on the left and the reference at the matching measured phase on the right (anticipation, peak, peak+, dissipation). Read it for what is structurally missing or misplaced, never for exact pixel values." : ""}`,
           JSON.stringify({
             prompt: run.prompt,
             admittedDefects,
             directorNotes: reviewV2!.directorNotes,
+            technique: techniqueBrief(family, run.prompt),
             document: {
               ...doc,
               textures: doc.textures?.map((a) => ({
@@ -663,7 +673,14 @@ export async function POST(request: Request) {
           request.signal,
           32000,
         );
-        const next = applyStructuralRefinementV2(doc, result.value);
+        let next = applyStructuralRefinementV2(doc, result.value);
+        // The repair prompt forbids fixing a small silhouette with the camera,
+        // which is right for the geometry and wrong for the framing: a mesh
+        // hero still needs the exemplar's camera block. Applied only when the
+        // reviewer actually saw the defect, and only when the lint agrees the
+        // framing is in the particle band.
+        if (reviewV2!.defects.smallInFrame)
+          next = applyExemplarCameraV2(next, createPresetV2(family));
         run.documents.push(next);
         run.usages.push(result.usage);
         await saveRun(run);
@@ -688,6 +705,9 @@ export async function POST(request: Request) {
             renderedActivity: body.temporal,
             jitterScore: body.jitter,
             layers,
+            // What the document costs the GPU, so a review can see a candidate
+            // that is expensive rather than only one that looks wrong.
+            gpu: describeGpuCostV2(doc),
           }),
           [...run.references, body.sheet, ...(body.strip ? [body.strip] : [])],
           request.signal,

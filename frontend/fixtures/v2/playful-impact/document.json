@@ -1,0 +1,2487 @@
+{
+  "schemaVersion": "autov.lab/2",
+  "name": "Playful impact",
+  "description": "A cute cartoon impact on a blue vignette: a pin-prick of anticipation, a drawn five-point star with a screentone fill and a white-hot core, then bear faces, hearts, bolts and white star lines spreading out into the screen plane and gone by three seconds.",
+  "seed": 911,
+  "duration": 3.0,
+  "impact": 0.2,
+  "quality": {
+    "style": "modern",
+    "particleDensity": 1,
+    "aa": "msaa+smaa",
+    "softParticles": true
+  },
+  "environment": {
+    "ground": "none",
+    "groundColor": "#3f6394",
+    "groundReflect": 0,
+    "ambient": 0.6,
+    "groundY": 0,
+    "fog": {
+      "color": "#0c2a55",
+      "density": 0.0
+    },
+    "background": "#0c2a55",
+    "groundPool": null,
+    "backdrop": {
+      "mode": "radial",
+      "hot": "#3d8ada",
+      "cold": "#0c2a55",
+      "center": [
+        0.5,
+        0.46
+      ],
+      "aspect": 1.1,
+      "topFalloff": 0.4
+    }
+  },
+  "camera": {
+    "fov": 32,
+    "azimuth": -0.42,
+    "elevation": 0.3,
+    "framing": 0.95,
+    "shake": null,
+    "pushIn": null
+  },
+  "post": {
+    "bloom": {
+      "strength": 0.3,
+      "radius": 0.45,
+      "threshold": 1.25
+    },
+    "exposure": 1.12,
+    "grade": {
+      "contrast": 1,
+      "saturation": 1.05,
+      "tint": "#ffffff",
+      "lift": 0
+    },
+    "vignette": 0.1,
+    "chromatic": 0.0015,
+    "motionBlur": 0,
+    "glitch": null,
+    "flash": null
+  },
+  "layers": [
+    {
+      "id": "anticipation-dot",
+      "name": "Anticipation dot \u2014 the pin-prick before the hit",
+      "role": "anticipation",
+      "kind": "sprite",
+      "start": 0,
+      "end": 0.3,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              0.07
+            ],
+            [
+              0.2,
+              0.22
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.06,
+              0.9
+            ],
+            [
+              0.19,
+              0.9
+            ],
+            [
+              0.27,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffd8f2",
+              "intensity": 1.6
+            },
+            {
+              "t": 1,
+              "color": "#ff9ad8",
+              "intensity": 0.8
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.9,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "softRadial"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 0.07,
+        "length": 0.14,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      }
+    },
+    {
+      "id": "anticipation-sparks",
+      "name": "Anticipation sparks \u2014 pulled inward before the flash",
+      "role": "anticipation",
+      "kind": "particles",
+      "start": 0,
+      "end": 0.24,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffb8e6",
+              "intensity": 1.5
+            },
+            {
+              "t": 1,
+              "color": "#ff72c6",
+              "intensity": 0.6
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "softRadial"
+      },
+      "emitter": {
+        "count": 30,
+        "shape": {
+          "type": "ring",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.9,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.06,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            -4.2,
+            -3.0
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                1,
+                2
+              ]
+            ],
+            "ease": "smooth"
+          }
+        },
+        "life": [
+          0.16,
+          0.23
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0,
+            0
+          ],
+          "drag": 0,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.05,
+            0.1
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.55
+              ]
+            ],
+            "ease": "linear"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.12,
+                1
+              ],
+              [
+                0.8,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              0
+            ],
+            "speed": [
+              0,
+              0
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "residual",
+      "name": "Residual glow \u2014 the magenta wash that outlives every symbol",
+      "role": "residue",
+      "kind": "sprite",
+      "start": 0.2,
+      "end": 2.0,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              1.0
+            ],
+            [
+              1.25,
+              1.5
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.14,
+              0.42
+            ],
+            [
+              0.6,
+              0.36
+            ],
+            [
+              1.75,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#c145d8",
+              "intensity": 0.85
+            },
+            {
+              "t": 1,
+              "color": "#7b2ba0",
+              "intensity": 0.3
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.42,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "softRadial"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 1.0,
+        "length": 2.0,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      }
+    },
+    {
+      "id": "halo",
+      "name": "Halo \u2014 the hot bloom under the star",
+      "role": "impact",
+      "kind": "sprite",
+      "start": 0.2,
+      "end": 1.05,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              0.8
+            ],
+            [
+              0.42,
+              1.1
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.1,
+              0.55
+            ],
+            [
+              0.44,
+              0.4
+            ],
+            [
+              0.85,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffb0e2",
+              "intensity": 0.9
+            },
+            {
+              "t": 1,
+              "color": "#e03cb0",
+              "intensity": 0.42
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.55,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "softRadial"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 0.8,
+        "length": 1.6,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      }
+    },
+    {
+      "id": "cloud-lobes",
+      "name": "Cloud lobes \u2014 flat cel puffs behind the star",
+      "role": "impact",
+      "kind": "particles",
+      "start": 0.25,
+      "end": 1.0,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#d232a4",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#a01e7c",
+              "intensity": 1
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.9,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "cloudLobe",
+        "proceduralParams": [
+          4,
+          0.3,
+          0,
+          0
+        ],
+        "symbol": {
+          "fill": "#d232a4",
+          "outline": "#ff7ed2",
+          "highlight": "#ff7ed2",
+          "ink": "#a01e7c",
+          "hot": null
+        }
+      },
+      "emitter": {
+        "count": 6,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.62,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 0.8
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.05,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            0.4,
+            0.7
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.42,
+          0.76
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0,
+            0
+          ],
+          "drag": 3.0,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.62,
+            1.0
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.15
+              ],
+              [
+                0.22,
+                1.15
+              ],
+              [
+                0.45,
+                1
+              ],
+              [
+                1,
+                0.78
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.08,
+                1
+              ],
+              [
+                0.62,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              -1.5,
+              1.5
+            ],
+            "speed": [
+              -1.4,
+              1.4
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "star-lines",
+      "name": "Star lines \u2014 the long white rays",
+      "role": "impact",
+      "kind": "particles",
+      "start": 0.245,
+      "end": 0.9,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffe8fb",
+              "intensity": 1.1
+            },
+            {
+              "t": 1,
+              "color": "#b083ff",
+              "intensity": 0.7
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.52,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "solid"
+      },
+      "emitter": {
+        "count": 10,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.2,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 0.42
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.04,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            0.3,
+            0.75
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.34,
+          0.52
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0,
+            0
+          ],
+          "drag": 2.4,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "sliver",
+          "stretch": 0,
+          "size": [
+            1,
+            1
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.1
+              ],
+              [
+                0.16,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "linear"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                1
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              0
+            ],
+            "speed": [
+              0,
+              0
+            ]
+          },
+          "sortMode": "none",
+          "sliver": {
+            "length": [
+              1.35,
+              2.6
+            ],
+            "width": [
+              0.07,
+              0.14
+            ],
+            "curve": 0.16,
+            "taper": 2.05,
+            "jaggedness": 0.22
+          },
+          "retract": {
+            "start": 0.42,
+            "end": 0.96,
+            "from": "root"
+          }
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "fat-sparkles",
+      "name": "Fat sparkles \u2014 the short pink chunks",
+      "role": "impact",
+      "kind": "particles",
+      "start": 0.245,
+      "end": 0.85,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ff7ad2",
+              "intensity": 1.1
+            },
+            {
+              "t": 1,
+              "color": "#ff2fa8",
+              "intensity": 0.7
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.7,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "solid"
+      },
+      "emitter": {
+        "count": 5,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.26,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 0.7
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.04,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            0.3,
+            0.75
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.34,
+          0.52
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0,
+            0
+          ],
+          "drag": 2.4,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "sliver",
+          "stretch": 0,
+          "size": [
+            1,
+            1
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.1
+              ],
+              [
+                0.16,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "linear"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                1
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              0
+            ],
+            "speed": [
+              0,
+              0
+            ]
+          },
+          "sortMode": "none",
+          "sliver": {
+            "length": [
+              0.45,
+              0.78
+            ],
+            "width": [
+              0.13,
+              0.2
+            ],
+            "curve": 0.16,
+            "taper": 1.15,
+            "jaggedness": 0.22
+          },
+          "retract": {
+            "start": 0.42,
+            "end": 0.96,
+            "from": "root"
+          }
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "solid-star",
+      "name": "Solid star \u2014 the drawn centre of the burst",
+      "role": "impact",
+      "kind": "sprite",
+      "start": 0.2,
+      "end": 0.95,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          -0.12
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              0.34
+            ],
+            [
+              0.1,
+              0.8
+            ],
+            [
+              0.42,
+              0.93
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.07,
+              0.95
+            ],
+            [
+              0.42,
+              0.95
+            ],
+            [
+              0.72,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "transform.rotation[2]",
+          "keys": [
+            [
+              0,
+              -0.12
+            ],
+            [
+              0.5,
+              -0.02
+            ]
+          ],
+          "ease": "smooth"
+        },
+        {
+          "target": "material.proceduralParams[2]",
+          "keys": [
+            [
+              0,
+              0.105
+            ],
+            [
+              0.5,
+              0.047
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ff4fc4",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#c81f8e",
+              "intensity": 1
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.95,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "starSolid",
+        "proceduralParams": [
+          5,
+          0.46,
+          0.105,
+          0.36
+        ],
+        "symbol": {
+          "fill": "#ff4fc4",
+          "outline": "#fff2fb",
+          "highlight": "#ff8ad8",
+          "ink": "#c81f8e",
+          "hot": {
+            "color": "#fff0cf",
+            "intensity": 0.3,
+            "alpha": {
+              "keys": [
+                [
+                  0,
+                  1
+                ],
+                [
+                  0.12,
+                  0.85
+                ],
+                [
+                  0.26,
+                  0
+                ]
+              ],
+              "ease": "smooth"
+            }
+          }
+        },
+        "screentone": {
+          "pitch": 0.062,
+          "color": "#c81f8e",
+          "space": "uv"
+        }
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 0.8,
+        "length": 1.6,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      }
+    },
+    {
+      "id": "star-flash",
+      "name": "Star flash \u2014 the quick white sparkle over the drawn star",
+      "role": "impact",
+      "kind": "sprite",
+      "start": 0.2,
+      "end": 0.46,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0.26
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [
+        {
+          "target": "geometry.radius",
+          "keys": [
+            [
+              0,
+              0.16
+            ],
+            [
+              0.09,
+              0.5
+            ],
+            [
+              0.24,
+              0.62
+            ]
+          ],
+          "ease": "outCubic"
+        },
+        {
+          "target": "material.opacity",
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.04,
+              0.6
+            ],
+            [
+              0.09,
+              0.55
+            ],
+            [
+              0.22,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        }
+      ],
+      "overrides": [],
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff0cf",
+              "intensity": 1.9
+            },
+            {
+              "t": 1,
+              "color": "#ff49bc",
+              "intensity": 0.6
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 0.92,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "star"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 64,
+        "radialSegments": 16,
+        "radius": 0.3,
+        "length": 0.6,
+        "thickness": 0.08,
+        "vertexNoise": null,
+        "lightning": null
+      }
+    },
+    {
+      "id": "hearts",
+      "name": "Hearts \u2014 the little pink puffs thrown outward",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.275,
+      "end": 1.75,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ff6fd0",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#ff6fd0",
+              "intensity": 1
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 1.0,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "heart",
+        "proceduralParams": [
+          0.1,
+          0,
+          0,
+          0
+        ],
+        "symbol": {
+          "fill": "#ff6fd0",
+          "outline": "#ffe4f6",
+          "highlight": "#ffb0e4",
+          "ink": "#c81f8e",
+          "hot": null
+        }
+      },
+      "emitter": {
+        "count": 8,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.14,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 0.7,
+          "angleBias": 0.18
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.14,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            2.0,
+            3.6
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.9,
+          1.45
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            -0.4,
+            0
+          ],
+          "drag": 2.8,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.115,
+            0.19
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.05
+              ],
+              [
+                0.1,
+                1.16
+              ],
+              [
+                0.24,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.04,
+                1
+              ],
+              [
+                0.68,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              -0.45,
+              0.45
+            ],
+            "speed": [
+              -2.5,
+              2.5
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "faces",
+      "name": "Faces \u2014 six cartoon bear heads on ballistic arcs",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.275,
+      "end": 2.3,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ff3cb4",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#ff3cb4",
+              "intensity": 1
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 1.0,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "face",
+        "proceduralParams": [
+          3,
+          0.085,
+          0.235,
+          1.0
+        ],
+        "symbol": {
+          "fill": "#ff3cb4",
+          "outline": "#fff0fa",
+          "highlight": "#ff8ad8",
+          "ink": "#4a0b33",
+          "hot": null
+        }
+      },
+      "emitter": {
+        "count": 6,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.16,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 0.75,
+          "angleBias": 0.55
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.14,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            1.15,
+            2.85
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          1.1,
+          1.9
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            -0.55,
+            0
+          ],
+          "drag": 3.4,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.36,
+            0.52
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.05
+              ],
+              [
+                0.1,
+                1.16
+              ],
+              [
+                0.24,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.04,
+                1
+              ],
+              [
+                0.68,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              -0.45,
+              0.45
+            ],
+            "speed": [
+              -0.8,
+              0.8
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "bolts",
+      "name": "Bolts \u2014 white lightning glyphs flicked past the rim",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.29,
+      "end": 0.9,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ffffff",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#ffffff",
+              "intensity": 1
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 1.0,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "bolt",
+        "proceduralParams": [
+          0.13,
+          0.45,
+          0,
+          0
+        ],
+        "symbol": {
+          "fill": "#ffffff",
+          "outline": "#b9d0ff",
+          "highlight": "#ffffff",
+          "ink": "#b9d0ff",
+          "hot": null
+        }
+      },
+      "emitter": {
+        "count": 3,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.95,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 0.9,
+          "angleBias": 0.9
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.14,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            0.9,
+            1.6
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.5,
+          0.78
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0,
+            0
+          ],
+          "drag": 3.0,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.24,
+            0.34
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.05
+              ],
+              [
+                0.1,
+                1.16
+              ],
+              [
+                0.24,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.04,
+                1
+              ],
+              [
+                0.68,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              -0.45,
+              0.45
+            ],
+            "speed": [
+              -0.5,
+              0.5
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "spray",
+      "name": "Spray \u2014 thirty tiny white dots flicked past the rays",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0.205,
+      "end": 1.1,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "frame": "camera",
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff0ff",
+              "intensity": 1.4
+            },
+            {
+              "t": 1,
+              "color": "#ffb8e6",
+              "intensity": 0.5
+            }
+          ],
+          "displacementShift": 0,
+          "heightSpan": 2
+        },
+        "opacity": 1.0,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "softRadial"
+      },
+      "emitter": {
+        "count": 30,
+        "shape": {
+          "type": "radialFan",
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "length": 0,
+          "radius": 0.16,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ],
+          "angleJitter": 1.2
+        },
+        "spawn": {
+          "mode": "burst",
+          "window": 0.09,
+          "rate": 0,
+          "duration": 0,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "radial",
+          "speed": [
+            2.2,
+            4.8
+          ],
+          "direction": [
+            0,
+            1,
+            0
+          ],
+          "angle": 0.6,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.22,
+          0.48
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0,
+            0
+          ],
+          "drag": 3.6,
+          "curl": null,
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "velocityStretch",
+          "stretch": 1.6,
+          "size": [
+            0.016,
+            0.034
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0.6
+              ]
+            ],
+            "ease": "linear"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              0
+            ],
+            "speed": [
+              0,
+              0
+            ]
+          },
+          "sortMode": "none"
+        },
+        "trail": null,
+        "sub": null
+      }
+    },
+    {
+      "id": "burst-light",
+      "name": "Burst light \u2014 the pink the floor catches",
+      "role": "impact",
+      "kind": "light",
+      "start": 0.18,
+      "end": 1.4,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0,
+          1.05,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "tracks": [],
+      "overrides": [],
+      "light": {
+        "color": "#ff7ad2",
+        "intensity": {
+          "keys": [
+            [
+              0,
+              0
+            ],
+            [
+              0.05,
+              9.0
+            ],
+            [
+              0.35,
+              3.5
+            ],
+            [
+              1,
+              0
+            ]
+          ],
+          "ease": "smooth"
+        },
+        "radius": 6.0,
+        "decay": 2
+      }
+    }
+  ]
+}

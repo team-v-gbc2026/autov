@@ -1,0 +1,706 @@
+// autoV toolbox v2 — S11 spike: stylized meteor rain (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+// The smoke language is the S2 blob-lobe spike verbatim: radius-space fbm on a unit
+// sphere, 3-band toon against a FIXED light, dark inverted hull, opaque until late life.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 6.0;
+const N_MET = 5;
+const N_ANCHOR = 22;   // trail lobes are anchored at fixed path parameters
+const N_BURST = 22;    // ground-burst lobes per impact, on an expanding ring
+const N_DEBRIS = 30;   // dark chips per impact
+const N_SPARK = 20;
+const T_OUT0 = 4.0, T_OUT1 = 5.9;
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.35,
+  threshold: 1.0,
+  exposure: 1.0,
+  layers: { tips: true, trails: true, impacts: true, debris: true, post: true },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const h11 = (p) => { const x = Math.sin(p * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const easeOutCubic = (x) => 1 - Math.pow(1 - clamp01(x), 3);
+const easeOutExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -8 * x));
+const hex = (h) => new THREE.Color(h);
+
+// ---------------------------------------------------------------- the five paths
+// straight descent from the upper-left sky to a hashed impact point; the flight is
+// constant velocity with a slight easeIn, so the tip is closed form in t.
+const METEORS = [];
+for (let i = 0; i < N_MET; i++) {
+  const h1 = h11(i * 3.7 + 1.3), h2 = h11(i * 5.1 + 8.9), h3 = h11(i * 2.3 + 17.1);
+  // the five impacts fan across the lower-right ground; the starts fan wider still, so
+  // the five descent lines stay apart on screen instead of stacking into one streak
+  const imp = new THREE.Vector3(-0.55 + [0.0, 1.55, 3.00, 4.35, 5.65][i] + h1 * 0.5, 0,
+    1.95 - [0.0, 1.20, 2.20, 3.20, 4.20][i] + h2 * 0.6);
+  const start = imp.clone().add(new THREE.Vector3(-5.1 - h3 * 1.3, 7.3 + h1 * 1.1, -1.2 - h2 * 1.6));
+  const t0 = [0.60, 1.05, 1.50, 1.95, 2.45][i];
+  const flight = [1.35, 1.30, 1.20, 1.15, 1.10][i];
+  METEORS.push({
+    i, start, imp, t0, flight, tImp: t0 + flight,
+    dir: imp.clone().sub(start).normalize(),
+    len: imp.distanceTo(start),
+  });
+}
+// slight easeIn along the flight: u(s) = 0.76 s + 0.24 s²
+const uOf = (s) => 0.76 * s + 0.24 * s * s;
+const tipAt = (m, s, out) => out.copy(m.start).lerp(m.imp, uOf(clamp01(s)));
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x000000, 1);
+
+const scene = new THREE.Scene();
+// fixed elevated oblique camera: the whole descent and the impact zone stay in frame
+const camera = new THREE.PerspectiveCamera(40, 1280 / 720, 0.1, 200);
+camera.position.set(8.4, 6.1, 14.0);
+camera.lookAt(1.7, 2.7, -0.6);
+
+const GLSL = /* glsl */`
+float ssm(float a, float b, float x){ float t=clamp((x-a)/(b-a),0.,1.); return t*t*(3.-2.*t); }
+float h11f(float p){ return fract(sin(p*127.1+311.7)*43758.5453); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  float a=h11f(i.x+i.y*57.), b=h11f(i.x+1.+i.y*57.);
+  float c=h11f(i.x+(i.y+1.)*57.), d=h11f(i.x+1.+(i.y+1.)*57.);
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+`;
+
+// simplex noise + the lobe radius field — the smoke spike's cauliflower, unchanged
+const glslNoise = /* glsl */`
+vec3 mod289(vec3 x){return x-floor(x*(1./289.))*289.;}
+vec4 mod289(vec4 x){return x-floor(x*(1./289.))*289.;}
+vec4 permute(vec4 x){return mod289(((x*34.)+1.)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1./6.,1./3.); const vec4 D=vec4(0.,.5,1.,2.);
+  vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(i.z+vec4(0.,i1.z,i2.z,1.))+i.y+vec4(0.,i1.y,i2.y,1.))+i.x+vec4(0.,i1.x,i2.x,1.));
+  float n_=.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.*x_);
+  vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.+1.; vec4 s1=floor(b1)*2.+1.; vec4 sh=-step(h,vec4(0.));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.); m=m*m;
+  return 42.*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+`;
+const glslRadius = /* glsl */`
+uniform float uTime,uSeed,uAmp,uFreq,uSpeed,uSquash,uCurl,uTaper,uRot;
+float lobeR(vec3 n){
+  vec3 q=n*uFreq+vec3(uSeed*7.3,uSeed*3.1-uTime*uSpeed,uSeed*11.7);
+  float f=.6*snoise(q)+.3*snoise(q*2.1+5.)+.15*snoise(q*4.3+11.);
+  return 1.+uAmp*(.45*f+.55*abs(f));
+}
+vec3 lobeP(vec3 n){
+  vec3 p=n*lobeR(n);
+  float s=clamp(p.y*.5+.5,0.,1.);
+  p.xz*=mix(1.,1.-uTaper,smoothstep(.2,1.,s));
+  float a=uCurl*p.y;
+  p.xy=mat2(cos(a),-sin(a),sin(a),cos(a))*p.xy;
+  p.xy=mat2(cos(uRot),-sin(uRot),sin(uRot),cos(uRot))*p.xy;
+  p.y*=uSquash;
+  return p;
+}
+`;
+const lobeVert = /* glsl */`
+varying vec3 vN; varying vec3 vV;
+${glslNoise}
+${glslRadius}
+uniform float uInflate;
+void main(){
+  vec3 n=normalize(position);
+  vec3 p=lobeP(n);
+  vec3 up=abs(n.y)<.9?vec3(0.,1.,0.):vec3(1.,0.,0.);
+  vec3 t1=normalize(cross(n,up)); vec3 t2=normalize(cross(n,t1));
+  float e=.055;
+  vec3 na=normalize(n+t1*e), nb=normalize(n+t2*e);
+  vec3 nrm=normalize(cross(lobeP(na)-p,lobeP(nb)-p));
+  if(dot(nrm,n)<0.) nrm=-nrm;
+  p+=nrm*uInflate;
+  vec4 wp=modelMatrix*vec4(p,1.);
+  vN=normalize(mat3(modelMatrix)*nrm);
+  vV=normalize(cameraPosition-wp.xyz);
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}`;
+const lobeFrag = /* glsl */`
+precision highp float;
+varying vec3 vN; varying vec3 vV;
+uniform vec3 uShadow,uBody,uHigh,uRim,uLight;
+uniform float uBands,uOpacity,uRimPow,uRimAmt,uFlat;
+void main(){
+  vec3 N=normalize(vN);
+  if(uFlat>.5){ gl_FragColor=vec4(uBody,uOpacity); return; }
+  float ndl=dot(N,normalize(uLight))*.5+.5;
+  vec3 c = ndl<.46 ? uShadow : (ndl<.72 ? uBody : uHigh);
+  float rim=pow(1.-clamp(dot(N,normalize(vV)),0.,1.),uRimPow);
+  c+=uRim*rim*uRimAmt;
+  gl_FragColor=vec4(c,uOpacity);
+}`;
+
+// upper-left key light, fixed in world space for every lobe in the shot
+const LIGHT = new THREE.Vector3(-0.62, 0.70, 0.35).normalize();
+
+const PAL = {
+  // the trail: near-black blue-violet body, a barely-lit upper side, faint violet rim
+  dark:   { shadow: "#040209", body: "#0c0618", high: "#1c1434", rim: "#5a42a8", line: "#010004" },
+  // the occasional lighter chunk inside the trail
+  lit:    { shadow: "#0e0820", body: "#22153f", high: "#412f66", rim: "#8468c8", line: "#050210" },
+  // the ground burst: pale, near-white
+  pale:   { shadow: "#75738c", body: "#a9a7bf", high: "#d8d6e6", rim: "#ece9fa", line: "#43415a" },
+};
+
+const lobeGeo = new THREE.IcosahedronGeometry(1, 3);
+const lobeGeoLo = new THREE.IcosahedronGeometry(1, 2);   // the trail runs hundreds of lobes
+const lobeBase = new THREE.ShaderMaterial({
+  vertexShader: lobeVert, fragmentShader: lobeFrag,
+  uniforms: {
+    uTime: { value: 0 }, uSeed: { value: 0 }, uAmp: { value: 0.16 }, uFreq: { value: 2.3 },
+    uSpeed: { value: 0.4 }, uSquash: { value: 1 }, uInflate: { value: 0 },
+    uCurl: { value: 0 }, uTaper: { value: 0 }, uRot: { value: 0 },
+    uShadow: { value: hex("#000") }, uBody: { value: hex("#888") }, uHigh: { value: hex("#fff") },
+    uRim: { value: hex("#fff") }, uLight: { value: LIGHT.clone() },
+    uBands: { value: 3 }, uOpacity: { value: 1 }, uRimPow: { value: 3.0 }, uRimAmt: { value: 0.42 },
+    uFlat: { value: 0 },
+  },
+});
+
+const lobes = [];
+function addLobe(d) {
+  const pal = PAL[d.family];
+  const mat = lobeBase.clone();
+  mat.uniforms.uShadow.value = hex(pal.shadow);
+  mat.uniforms.uBody.value = hex(pal.body);
+  mat.uniforms.uHigh.value = hex(pal.high);
+  mat.uniforms.uRim.value = hex(pal.rim);
+  mat.uniforms.uSeed.value = d.seed;
+  mat.uniforms.uAmp.value = d.amp ?? 0.17;
+  mat.uniforms.uFreq.value = d.freq ?? 2.4;
+  mat.uniforms.uSquash.value = d.squash ?? 1;
+  mat.uniforms.uRimAmt.value = d.rimAmt ?? 0.42;
+  mat.uniforms.uCurl.value = d.curl ?? 0;
+  mat.uniforms.uTaper.value = d.taper ?? 0;
+  mat.uniforms.uRot.value = d.rot ?? 0;
+  const geo = d.lo ? lobeGeoLo : lobeGeo;
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = d.order ?? 10;
+
+  const omat = lobeBase.clone();
+  omat.side = THREE.BackSide;
+  omat.uniforms.uFlat.value = 1;
+  omat.uniforms.uBody.value = hex(pal.line);
+  for (const k of ["uSeed", "uAmp", "uFreq", "uSquash", "uCurl", "uTaper", "uRot"]) {
+    omat.uniforms[k].value = mat.uniforms[k].value;
+  }
+  const outline = new THREE.Mesh(geo, omat);
+  outline.renderOrder = (d.order ?? 10) - 1;
+
+  scene.add(mesh); scene.add(outline);
+  const L = { d, mesh, outline, mat, omat };
+  lobes.push(L);
+  return L;
+}
+
+// ---------------------------------------------------------------- trail lobes
+// path-anchored: lobe k of meteor i owns the fixed path parameter s_k and is born the
+// instant the tip passes it. Nothing about the trail depends on previous frames.
+let sd = 0;
+const seed = () => (sd += 1) * 1.37;
+const trail = [];
+for (const m of METEORS) {
+  for (let k = 0; k < N_ANCHOR; k++) {
+    const s = (k + 0.55) / N_ANCHOR;
+    const anchor = tipAt(m, s, new THREE.Vector3());
+    // two lobes per anchor, offset across the path -> a thick chunky column, not a string
+    for (let j = 0; j < 3; j++) {
+      const hs = h11(m.i * 71.3 + k * 13.7 + j * 5.1);
+      const hr = h11(m.i * 37.1 + k * 9.3 + j * 3.3);
+      const hf = h11(m.i * 17.9 + k * 21.1 + j * 7.7);
+      const across = new THREE.Vector3().crossVectors(m.dir, new THREE.Vector3(0, 1, 0)).normalize();
+      const up2 = new THREE.Vector3().crossVectors(across, m.dir).normalize();
+      const core = j === 0;
+      const off = across.clone().multiplyScalar((hs - 0.5) * (core ? 0.20 : 0.78))
+        .addScaledVector(up2, (hr - 0.5) * (core ? 0.18 : 0.62))
+        .addScaledVector(m.dir, (hf - 0.5) * (core ? 0.10 : 0.30));
+      const L = addLobe({
+        family: hf < 0.20 ? "lit" : "dark",       // ~20% lighter violet chunks
+        lo: true, seed: seed(), amp: core ? 0.14 : 0.44 + 0.12 * hs,
+        freq: core ? 1.3 : 1.7 + 0.6 * hr,
+        squash: 0.90 + 0.24 * hf, order: core ? 11 : 12, rimAmt: core ? 0.05 : 0.09 + 0.10 * hf,
+      });
+      L.tr = {
+        m, s, anchor: anchor.clone().add(off),
+        birth: m.t0 + m.flight * s,
+        life: 2.30 + 0.55 * hs,
+        R0: (core ? 0.430 : 0.340 + 0.150 * hr) * (0.62 + 0.50 * (1 - s)),  // thins toward the tail
+        back: 0.10 + 0.16 * hr,                          // drift opposite the velocity
+        rise: 0.05 + 0.10 * hs,
+        grow: 12.0 + 7.0 * hf,
+        outlineW: core ? 0.050 : 0.028,
+      };
+      trail.push(L);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- ground burst lobes
+// a ring of pale lobes rolling outward from the impact; comma deformation so each one
+// reads as a billow tumbling away rather than a sphere sliding.
+const burst = [];
+for (const m of METEORS) {
+  for (let k = 0; k < N_BURST; k++) {
+    const h1 = h11(m.i * 53.7 + k * 11.1), h2 = h11(m.i * 29.3 + k * 19.7);
+    const inner = k >= 15;                       // 15 on the rolling rim, 7 filling the middle
+    const ang = ((inner ? (k - 15) / 7 + 0.5 / 7 : k / 15)) * Math.PI * 2 + (h1 - 0.5) * 0.40;
+    const L = addLobe({
+      family: "pale", seed: seed(), amp: 0.30 + 0.10 * h1, freq: 1.9 + 0.8 * h2,
+      squash: 0.46 + 0.14 * h1, order: 14, rimAmt: 0.16,
+      curl: (0.40 + 0.35 * h2) * (Math.cos(ang) < 0 ? -1 : 1),
+      taper: 0.24 + 0.16 * h1,
+      rot: -ang + Math.PI * 0.5,
+    });
+    L.bu = {
+      m, ang, h1, h2,
+      birth: m.tImp + 0.02 + 0.10 * h1,
+      life: 2.6 + 0.9 * h2,
+      R0: (0.22 + 0.20 * h1) * (inner ? 0.88 : 1),
+      r0: 0.26 * (inner ? 0.5 : 1), r1: (0.90 + 0.30 * h2) * (inner ? 0.40 : 1),
+      y: 0.10 + 0.10 * h1,
+      outlineW: 0.022,
+    };
+    burst.push(L);
+  }
+}
+
+// ---------------------------------------------------------------- additive billboards
+// one shared "streak" quad: a world-space card that stretches along the projected
+// velocity, so the tip and its speed lines always lie on the direction of travel.
+const streakVert = /* glsl */`
+uniform vec3 uPos, uVel; uniform float uLen, uWid;
+varying vec2 vUv;
+void main(){
+  vUv = uv;
+  vec4 mv = viewMatrix * vec4(uPos, 1.0);
+  vec3 vv = (viewMatrix * vec4(uVel, 0.0)).xyz;
+  vec2 al = normalize(vv.xy + vec2(1e-5, 1e-5));
+  vec2 ac = vec2(-al.y, al.x);
+  mv.xy += al * ((position.x - 0.5) * uLen) + ac * (position.y * uWid);
+  gl_Position = projectionMatrix * mv;
+}`;
+
+function streakQuad(frag, uniforms, order) {
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: streakVert, fragmentShader: `${GLSL}\n${frag}`,
+    uniforms: Object.assign({
+      uPos: { value: new THREE.Vector3() }, uVel: { value: new THREE.Vector3(0, -1, 0) },
+      uLen: { value: 1 }, uWid: { value: 1 }, uI: { value: 1 }, uT: { value: 0 },
+    }, uniforms),
+    transparent: true, depthWrite: false, depthTest: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  mesh.renderOrder = order; mesh.frustumCulled = false; scene.add(mesh);
+  return mesh;
+}
+
+// the tip: an elongated teardrop core stretched along the velocity, plus a hemisphere
+// speed-line cap — fract(u*20 - t*8) dashes riding the leading half.
+const TIP_FRAG = /* glsl */`
+varying vec2 vUv; uniform float uI, uT; uniform vec3 uCore, uHalo;
+void main(){
+  // u = 0 at the tail, 1 at the leading point
+  float u = vUv.x, v = (vUv.y - 0.5) * 2.0;
+  float w = mix(0.30, 1.0, ssm(0.0, 0.62, u)) * (1.0 - ssm(0.86, 1.0, u));
+  float d = abs(v) / max(w, 1e-3);
+  float body = pow(max(0.0, 1.0 - d), 2.2);
+  float core = pow(max(0.0, 1.0 - d * 2.4), 5.0) * ssm(0.20, 0.80, u);
+  float halo = pow(max(0.0, 1.0 - length(vec2((u - 0.80) * 2.1, v * 1.05))), 2.4);
+  float lines = step(0.62, fract(u * 20.0 - uT * 8.0)) * pow(max(0.0, 1.0 - d * 1.4), 3.0)
+              * ssm(0.0, 0.35, u) * (1.0 - ssm(0.55, 0.85, u));
+  vec3 c = uHalo * (body * 0.9 + halo * 1.3 + lines * 0.8) + uCore * (core * 2.4 + halo * 0.7);
+  float a = clamp(body * 0.8 + core + halo * 1.1 + lines * 0.7, 0.0, 1.0);
+  gl_FragColor = vec4(c * uI, a * uI);
+}`;
+
+// a short bright wake segment left inside the trail by the passing tip
+const WAKE_FRAG = /* glsl */`
+varying vec2 vUv; uniform float uI, uT; uniform vec3 uCore, uHalo;
+void main(){
+  float u = vUv.x, v = (vUv.y - 0.5) * 2.0;
+  float w = (1.0 - ssm(0.0, 1.0, u)) * 0.8 + 0.2;
+  float d = abs(v) / w;
+  float body = pow(max(0.0, 1.0 - d), 3.0) * (1.0 - ssm(0.55, 1.0, u));
+  float core = pow(max(0.0, 1.0 - d * 3.0), 6.0);
+  gl_FragColor = vec4((uHalo * body + uCore * core) * uI, clamp(body + core, 0.0, 1.0) * uI);
+}`;
+
+const C_CORE = hex("#f0e8ff"), C_HALO = hex("#b48cff"), C_FLASH = hex("#ffd4ef");
+const tips = METEORS.map(() => streakQuad(TIP_FRAG, { uCore: { value: C_CORE }, uHalo: { value: C_HALO } }, 30));
+const wakes = [];
+for (const m of METEORS) {
+  for (let k = 0; k < 6; k++) {
+    const s = 0.14 + 0.155 * k;
+    const q = streakQuad(WAKE_FRAG, { uCore: { value: C_CORE }, uHalo: { value: C_HALO } }, 29);
+    const ho = h11(m.i * 13.3 + k * 27.7);
+    q.wk = { m, s, off: (ho - 0.5) * 0.34, birth: m.t0 + m.flight * s, life: 1.45 + 0.7 * h11(m.i * 7.1 + k * 3.9) };
+    wakes.push(q);
+  }
+}
+
+// flat additive discs on the ground: the impact flash and its short-lived shock ring
+function groundDisc(frag, order) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uI: { value: 0 }, uCol: { value: C_FLASH }, uT: { value: 0 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `${GLSL}\n${frag}`,
+    transparent: true, depthWrite: false, depthTest: true,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.renderOrder = order; mesh.frustumCulled = false; scene.add(mesh);
+  return mesh;
+}
+const flashes = METEORS.map(() => groundDisc(`
+  varying vec2 vUv; uniform float uI; uniform vec3 uCol;
+  void main(){ float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),1.9);
+    vec3 c = mix(uCol, vec3(1.0), pow(max(0.0,1.0-d*1.8),3.0));
+    gl_FragColor=vec4(c*a*1.6*uI, a*uI); }`, 26));
+const rings = METEORS.map(() => groundDisc(`
+  varying vec2 vUv; uniform float uI; uniform vec3 uCol;
+  void main(){ float d=length(vUv-0.5)*2.0;
+    float a=ssm(0.55,0.92,d)*(1.0-ssm(0.92,1.06,d)); a=pow(a,1.3);
+    gl_FragColor=vec4(uCol*a*1.2*uI, a*uI); }`, 25));
+
+// ---------------------------------------------------------------- debris + sparks
+// one instanced draw each; every chip is ballistic from its own impact, floor-clamped.
+function ballisticGeo(base, count) {
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = base.index; g.attributes = base.attributes;
+  const seeds = new Float32Array(count * N_MET), mid = new Float32Array(count * N_MET);
+  for (let i = 0; i < N_MET; i++) {
+    for (let k = 0; k < count; k++) { seeds[i * count + k] = h11(i * 91.3 + k * 7.7) * 100; mid[i * count + k] = i; }
+  }
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 1));
+  g.setAttribute("aMet", new THREE.InstancedBufferAttribute(mid, 1));
+  g.instanceCount = count * N_MET;
+  return g;
+}
+const BALLISTIC = /* glsl */`
+attribute float aSeed, aMet;
+uniform float uT, uTimp[${N_MET}];
+uniform vec3 uImp[${N_MET}], uDir[${N_MET}];
+uniform float uSpeed, uLife, uG, uSize, uUp;
+varying float vA, vS;
+void main(){
+  int mi = int(aMet + 0.5);
+  float timp = uTimp[0]; vec3 imp = uImp[0]; vec3 dir = uDir[0];
+  for (int j = 1; j < ${N_MET}; j++) { if (j == mi) { timp = uTimp[j]; imp = uImp[j]; dir = uDir[j]; } }
+  float a = uT - timp;
+  float h1 = h11f(aSeed), h2 = h11f(aSeed + 3.1), h3 = h11f(aSeed + 7.9), h4 = h11f(aSeed + 11.3);
+  vA = clamp(a / uLife, 0.0, 1.0);
+  vS = h4;
+  // hemisphere spray biased forward along the meteor's own travel direction
+  float th = h1 * 6.2831;
+  vec3 flat3 = normalize(vec3(dir.x, 0.0, dir.z) + vec3(cos(th), 0.0, sin(th)) * (0.7 + 1.3 * h2));
+  vec3 v = flat3 * (uSpeed * (0.35 + 0.95 * h2)) + vec3(0.0, uUp * (0.45 + 0.9 * h3), 0.0);
+  vec3 p = imp + v * a - vec3(0.0, 0.5 * uG * a * a, 0.0);
+  p.y = max(p.y, 0.035 + 0.05 * h4);
+  float sc = uSize * (0.45 + 0.9 * h3) * (a > 0.0 ? 1.0 : 0.0) * (1.0 - ssm(0.75, 1.0, vA));
+  // tumble
+  float r = a * (2.0 + 6.0 * h1) + h2 * 6.28;
+  mat2 rr = mat2(cos(r), -sin(r), sin(r), cos(r));
+  vec3 lp = position; lp.xy = rr * lp.xy; lp.yz = rr * lp.yz;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  mv.xyz += lp * sc;
+  gl_Position = projectionMatrix * mv;
+}`;
+const debrisGeo = ballisticGeo(new THREE.TetrahedronGeometry(1, 0), N_DEBRIS);
+const debrisMat = new THREE.RawShaderMaterial({
+  vertexShader: `precision highp float;
+attribute vec3 position; uniform mat4 modelViewMatrix, projectionMatrix;
+${GLSL}
+${BALLISTIC}`,
+  fragmentShader: `precision highp float; varying float vA, vS; uniform float uI;
+${GLSL}
+void main(){ vec3 c = mix(vec3(0.030,0.018,0.055), vec3(0.075,0.050,0.130), vS);
+  gl_FragColor = vec4(c, uI * (1.0 - ssm(0.78,1.0,vA))); }`,
+  transparent: true, depthWrite: true,
+});
+debrisMat.uniforms = {
+  uT: { value: 0 }, uI: { value: 1 },
+  uTimp: { value: METEORS.map((m) => m.tImp) },
+  uImp: { value: METEORS.map((m) => m.imp.clone()) },
+  uDir: { value: METEORS.map((m) => m.dir.clone()) },
+  uSpeed: { value: 2.2 }, uLife: { value: 1.5 }, uG: { value: 9.0 },
+  uSize: { value: 0.090 }, uUp: { value: 3.4 },
+};
+const debris = new THREE.Mesh(debrisGeo, debrisMat);
+debris.frustumCulled = false; debris.renderOrder = 16; scene.add(debris);
+
+const sparkGeo = ballisticGeo(new THREE.PlaneGeometry(1, 1), N_SPARK);
+const sparkMat = new THREE.RawShaderMaterial({
+  vertexShader: `precision highp float;
+    attribute vec3 position; attribute vec2 uv; uniform mat4 modelViewMatrix, projectionMatrix;
+    varying vec2 vUv2;
+    ${GLSL}
+    ${BALLISTIC.replace("void main(){", "void main(){ vUv2 = uv;")}`,
+  fragmentShader: `precision highp float; varying float vA, vS; varying vec2 vUv2; uniform float uI;
+    ${GLSL}
+    void main(){ float d=length(vUv2-0.5)*2.0; float a=pow(max(0.0,1.0-d),2.5);
+      vec3 c = mix(vec3(0.70,0.55,1.0), vec3(1.0,0.95,1.0), vS);
+      gl_FragColor = vec4(c*a*1.8, a*uI*(1.0-ssm(0.55,1.0,vA))); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+});
+sparkMat.uniforms = {
+  uT: { value: 0 }, uI: { value: 1 },
+  uTimp: { value: METEORS.map((m) => m.tImp) },
+  uImp: { value: METEORS.map((m) => m.imp.clone()) },
+  uDir: { value: METEORS.map((m) => m.dir.clone()) },
+  uSpeed: { value: 3.4 }, uLife: { value: 0.85 }, uG: { value: 7.0 },
+  uSize: { value: 0.10 }, uUp: { value: 4.0 },
+};
+const sparks = new THREE.Mesh(sparkGeo, sparkMat);
+sparks.frustumCulled = false; sparks.renderOrder = 31; scene.add(sparks);
+
+// ---------------------------------------------------------------- backdrop + ground
+const skyMat = new THREE.ShaderMaterial({
+  uniforms: {},
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv;
+    void main(){
+      float y = vUv.y;
+      // dark violet-grey: a little lift low in the sky, black overhead
+      vec3 col = mix(vec3(0.0800,0.0730,0.1180), vec3(0.0165,0.0140,0.0290), ssm(0.02, 0.78, y));
+      col *= 1.0 - 0.14 * vnoise(vUv * vec2(9.0, 5.0));
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+  depthWrite: false, depthTest: false,
+});
+const sky = new THREE.Mesh(new THREE.PlaneGeometry(320, 180), skyMat);
+sky.position.set(0, 12, -70); sky.renderOrder = -30; sky.frustumCulled = false; scene.add(sky);
+
+const groundMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uT: { value: 0 },
+    uTip: { value: METEORS.map(() => new THREE.Vector3()) },
+    uTipI: { value: METEORS.map(() => 0) },
+    uImp: { value: METEORS.map((m) => m.imp.clone()) },
+    uFlash: { value: METEORS.map(() => 0) },
+    uScorch: { value: METEORS.map(() => 0) },
+  },
+  vertexShader: `varying vec3 vP;
+    void main(){ vP = position.xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec3 vP;
+    uniform float uT;
+    uniform vec3 uTip[${N_MET}], uImp[${N_MET}];
+    uniform float uTipI[${N_MET}], uFlash[${N_MET}], uScorch[${N_MET}];
+    void main(){
+      vec2 p = vec2(vP.x, -vP.y);           // the plane is rotated -90 about x
+      float r = length(p);
+      vec3 col = vec3(0.0720, 0.0690, 0.0810) * (1.0 - 0.45 * ssm(5.0, 22.0, r));
+      // faint grid
+      vec2 g = abs(fract(p * 0.5) - 0.5);
+      float line = (1.0 - ssm(0.0, 0.035, min(g.x, g.y))) * (1.0 - ssm(3.0, 15.0, r));
+      col += vec3(0.020, 0.020, 0.026) * line;
+      for (int i = 0; i < ${N_MET}; i++) {
+        // the violet pool the falling tip throws onto the ground (a light substitute)
+        vec2 d = p - vec2(uTip[i].x, -uTip[i].z);
+        float hgt = max(uTip[i].y, 0.05);
+        float w = 0.55 + 0.30 * hgt;
+        col += vec3(0.36, 0.22, 0.85) * uTipI[i] * exp(-dot(d, d) / (w * w)) / (1.0 + 0.55 * hgt);
+        // the flash, and the scorch that outlasts it
+        vec2 di = p - vec2(uImp[i].x, -uImp[i].z);
+        float rr = length(di);
+        col += vec3(1.0, 0.72, 0.92) * uFlash[i] * exp(-pow(rr / 1.30, 2.0));
+        col *= 1.0 - 0.62 * uScorch[i] * exp(-pow(rr / 0.55, 2.0));
+      }
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120, 1, 1), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.renderOrder = -20;
+scene.add(ground);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 1.0, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- per-frame state
+const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+
+function apply(t) {
+  const L = P.layers;
+  const out = 1 - ss(T_OUT0, T_OUT1, t);       // everything is gone by 6 s
+
+  // --- tips + wakes
+  for (let i = 0; i < N_MET; i++) {
+    const m = METEORS[i];
+    const s = (t - m.t0) / m.flight;
+    const flying = s > 0 && s < 1;
+    const q = tips[i], u = q.material.uniforms;
+    q.visible = L.tips && flying;
+    if (flying) {
+      tipAt(m, s, tmpA);
+      u.uPos.value.copy(tmpA);
+      u.uVel.value.copy(m.dir);
+      u.uLen.value = 1.30 + 0.85 * ss(0.05, 0.55, s);
+      u.uWid.value = 0.225;
+      u.uI.value = 1.55 * ss(0, 0.06, s) * (1 - 0.25 * ss(0.9, 1.0, s));
+      u.uT.value = t;
+    }
+    // the violet pool the tip drops on the ground
+    groundMat.uniforms.uTip.value[i].copy(flying ? tmpA : m.imp);
+    groundMat.uniforms.uTipI.value[i] = flying && L.tips ? 0.26 * ss(0, 0.1, s) : 0;
+  }
+  for (const q of wakes) {
+    const { m, s, birth, life } = q.wk;
+    const a = (t - birth) / life;
+    const on = L.tips && a > 0 && a < 1;
+    q.visible = on;
+    if (!on) continue;
+    const u = q.material.uniforms;
+    tipAt(m, s, tmpA);
+    tmpB.crossVectors(m.dir, new THREE.Vector3(0, 1, 0)).normalize();
+    u.uPos.value.copy(tmpA).addScaledVector(m.dir, -0.30 * a).addScaledVector(tmpB, q.wk.off);
+    u.uVel.value.copy(m.dir);
+    u.uLen.value = 1.05 + 0.75 * a;
+    u.uWid.value = 0.100 * (1 - 0.30 * a);
+    u.uI.value = 1.05 * (1 - a) * (1 - a) * out;
+    u.uT.value = t;
+  }
+
+  // --- trail lobes: born as the tip passes the anchor, drift back and up, then shrink
+  for (const Lo of trail) {
+    const d = Lo.tr;
+    const a = (t - d.birth) / d.life;
+    const alive = L.trails && a > 0 && a < 1;
+    Lo.mesh.visible = alive; Lo.outline.visible = alive;
+    if (!alive) continue;
+    const sa = Math.sqrt(a);
+    const r = d.R0 * easeOutCubic(Math.min(a * d.grow, 1)) * (1 - ss(0.72, 1, a));
+    tmpB.copy(d.anchor).addScaledVector(d.m.dir, -d.back * sa);
+    tmpB.y += d.rise * sa;
+    // the whole trail shrinks from the tail end over 4..6 s
+    const tailCut = 1 - ss(T_OUT0 - 0.3 + d.s * 1.1, T_OUT0 + 0.9 + d.s * 1.1, t);
+    const rr = Math.max(r * (0.35 + 0.65 * tailCut), 1e-4);
+    Lo.mesh.position.copy(tmpB); Lo.mesh.scale.setScalar(rr);
+    Lo.outline.position.copy(tmpB); Lo.outline.scale.setScalar(rr);
+    const fade = (1 - ss(0.78, 1, a)) * tailCut;
+    const tr = fade < 0.98;
+    Lo.mat.transparent = tr; Lo.mat.depthWrite = !tr; Lo.mat.uniforms.uOpacity.value = fade;
+    Lo.omat.transparent = tr; Lo.omat.depthWrite = !tr; Lo.omat.uniforms.uOpacity.value = fade;
+    Lo.mat.uniforms.uTime.value = t; Lo.omat.uniforms.uTime.value = t;
+    Lo.omat.uniforms.uInflate.value = d.outlineW / Math.max(rr, 0.10);
+  }
+
+  // --- ground burst: a ring of pale lobes rolling outward, lingering, then thinning
+  for (const Lo of burst) {
+    const d = Lo.bu;
+    const a = (t - d.birth) / d.life;
+    const alive = L.impacts && a > 0 && a < 1;
+    Lo.mesh.visible = alive; Lo.outline.visible = alive;
+    if (!alive) continue;
+    const roll = easeOutCubic(Math.min((t - d.birth) / 0.60, 1));
+    const rad = d.r0 + (d.r1 - d.r0) * roll;
+    const r = Math.max(d.R0 * easeOutCubic(Math.min(a * 9.0, 1)) * (1 - ss(0.70, 1, a))
+      * (1 - 0.35 * ss(4.4, 5.95, t)), 1e-4);
+    const x = d.m.imp.x + Math.cos(d.ang) * rad;
+    const z = d.m.imp.z + Math.sin(d.ang) * rad;
+    const y = d.y + 0.10 * Math.sqrt(Math.max(a, 0)) + 0.04 * Math.sin(a * 5.0 + d.h1 * 6.0);
+    Lo.mesh.position.set(x, y, z); Lo.mesh.scale.setScalar(r);
+    Lo.outline.position.set(x, y, z); Lo.outline.scale.setScalar(r);
+    const fade = (1 - ss(0.58, 1, a)) * (1 - ss(4.6, 5.95, t));
+    const tr = fade < 0.98;
+    Lo.mat.transparent = tr; Lo.mat.depthWrite = !tr; Lo.mat.uniforms.uOpacity.value = fade;
+    Lo.omat.transparent = tr; Lo.omat.depthWrite = !tr; Lo.omat.uniforms.uOpacity.value = fade;
+    Lo.mat.uniforms.uTime.value = t; Lo.omat.uniforms.uTime.value = t;
+    Lo.omat.uniforms.uInflate.value = d.outlineW / Math.max(r, 0.10);
+  }
+
+  // --- flash disc + shock ring + the scorch the ground keeps
+  for (let i = 0; i < N_MET; i++) {
+    const m = METEORS[i];
+    const a = t - m.tImp;
+    const fa = 0.95 * ss(0, 0.03, a) * (1 - ss(0.05, 0.18, a));
+    flashes[i].visible = L.impacts && fa > 1e-3;
+    if (flashes[i].visible) {
+      const sc = 1.1 + 2.4 * easeOutExpo(clamp01(a / 0.16));
+      flashes[i].scale.set(sc, sc, 1);
+      flashes[i].position.set(m.imp.x, 0.035, m.imp.z);
+      flashes[i].material.uniforms.uI.value = fa;
+    }
+    const rk = clamp01(a / 0.45);
+    const ra = 0.75 * ss(0, 0.04, a) * Math.pow(1 - rk, 1.7);
+    rings[i].visible = L.impacts && ra > 1e-3;
+    if (rings[i].visible) {
+      const sc = 0.8 + 3.2 * (1 - Math.pow(1 - rk, 2.4));
+      rings[i].scale.set(sc, sc, 1);
+      rings[i].position.set(m.imp.x, 0.03, m.imp.z);
+      rings[i].material.uniforms.uI.value = ra;
+    }
+    groundMat.uniforms.uFlash.value[i] = L.impacts ? 0.85 * ss(0, 0.03, a) * (1 - ss(0.06, 0.30, a)) : 0;
+    groundMat.uniforms.uScorch.value[i] = L.impacts ? ss(0, 0.10, a) * (1 - 0.55 * ss(4.2, 5.9, t)) : 0;
+  }
+  groundMat.uniforms.uT.value = t;
+
+  debrisMat.uniforms.uT.value = t;
+  debrisMat.uniforms.uI.value = out;
+  debris.visible = L.debris && t > METEORS[0].tImp;
+  sparkMat.uniforms.uT.value = t;
+  sparkMat.uniforms.uI.value = out;
+  sparks.visible = L.debris && t > METEORS[0].tImp;
+
+  bloom.enabled = L.post;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1e3);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  if (P.layers.post) composer.render(); else renderer.render(scene, camera);
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+window.spikeImpactScreen = (i) => {
+  const v = METEORS[i].imp.clone().project(camera);
+  return [(v.x * 0.5 + 0.5) * 1280, (-v.y * 0.5 + 0.5) * 720, METEORS[i].tImp];
+};
+window.__spikeReady = true;

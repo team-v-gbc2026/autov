@@ -487,11 +487,16 @@ test("every v2 recipe example is a valid, lint-clean document", () => {
       doc.layers.some((l) => l.kind === "light"),
       `${id} has no light layer`,
     );
+    // A particles layer needs a silhouette: a library mask, or a billboard
+    // procedural (star4, softRadial, solid, flame, smoke) that IS one.
     assert.ok(
       doc.layers
         .filter((l) => l.kind === "particles")
-        .every((l) => l.material?.mask.textureId),
-      `${id} has an unmasked particles layer`,
+        .every(
+          (l) =>
+            l.material?.mask.textureId || l.material?.procedural !== "none",
+        ),
+      `${id} has a particles layer with neither a mask nor a procedural`,
     );
   }
 });
@@ -509,6 +514,18 @@ test("every v1 recipe id maps onto a v2 family", () => {
     "portal",
   ] as const)
     assert.ok(RECIPE_V2_IDS.includes(recipeV2For(id)), id);
+  // Water has a family of its own now, with or without a prompt; the playful
+  // burst is prompt-routed the way aura and glitch are.
+  assert.equal(recipeV2For("water"), "water-projectile");
+  assert.equal(
+    recipeV2For("projectile", "a splash of water"),
+    "water-projectile",
+  );
+  assert.equal(
+    recipeV2For("projectile", "a cute cartoon hit with faces"),
+    "playful-impact",
+  );
+  assert.equal(recipeV2For("slash"), "fire-slash");
 });
 
 test("scalar refinement translates director notes into v2 paths", () => {
@@ -576,7 +593,23 @@ test("structural repair is bounded by the baseline document", () => {
     };
     delete copy.textures;
     for (const layer of copy.layers)
-      for (const slot of ["material", "emitter", "geometry", "light"])
+      for (const slot of [
+        "material",
+        "emitter",
+        "geometry",
+        "light",
+        "blob",
+        "splash",
+        "ribbon",
+        "wireBurst",
+        "crystals",
+        "arcs",
+        "streakBurst",
+        "reflection",
+        "sheets",
+        "crescent",
+        "licks",
+      ])
         if (layer[slot] === undefined) layer[slot] = null;
     return { document: copy, explanation: "repair" };
   };

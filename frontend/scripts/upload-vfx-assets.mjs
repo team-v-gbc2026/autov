@@ -199,6 +199,9 @@ async function upload(entry) {
     {
       method: "POST",
       headers: {
+        // Storage requires both: apikey identifies the project, the bearer
+        // carries the secret (sb_secret_… or a service-role JWT).
+        authorization: `Bearer ${serviceKey}`,
         apikey: serviceKey,
         "content-type": contentType(entry.localPath),
         "cache-control": `max-age=${CACHE_CONTROL}`,
