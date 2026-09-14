@@ -1,0 +1,1990 @@
+{
+  "schemaVersion": "autov.lab/2",
+  "name": "Fire projectile",
+  "description": "Stylized fire projectile: an eroded teardrop shell with lifting tongues, a volume of small and large flame pieces streaming back along the tail, embers, velocity-stretched sparks and a purple-grey smoke plume over a lit grid ground. Ported from the hand-built v2 spike (round 4).",
+  "seed": 11,
+  "duration": 3.5,
+  "impact": 0.4,
+  "quality": {
+    "style": "modern",
+    "particleDensity": 1,
+    "aa": "msaa+smaa",
+    "softParticles": true
+  },
+  "environment": {
+    "ground": "grid",
+    "groundColor": "#4a4952",
+    "groundReflect": 0,
+    "ambient": 1,
+    "groundY": 0,
+    "fog": {
+      "color": "#1b1a1f",
+      "density": 0.03
+    },
+    "background": "#1b1a1f"
+  },
+  "camera": {
+    "fov": 32,
+    "azimuth": -0.55,
+    "elevation": 0.4,
+    "framing": 0.9,
+    "shake": null,
+    "pushIn": null
+  },
+  "post": {
+    "bloom": {
+      "strength": 0.45,
+      "radius": 0.4,
+      "threshold": 1.3
+    },
+    "exposure": 1,
+    "grade": {
+      "contrast": 1,
+      "saturation": 1,
+      "tint": "#ffffff",
+      "lift": 0
+    },
+    "vignette": 0.35,
+    "chromatic": 0.0025,
+    "motionBlur": 0
+  },
+  "textures": [],
+  "layers": [
+    {
+      "id": "smoke-puffs",
+      "name": "Smoke plume \u2014 dense puffs",
+      "role": "residue",
+      "kind": "particles",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.105007,
+          0.634941,
+          -0.267173
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "premultiplied",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#5a2a6a",
+              "intensity": 0.48
+            },
+            {
+              "t": 0.3,
+              "color": "#30204a",
+              "intensity": 0.42
+            },
+            {
+              "t": 0.7,
+              "color": "#221a38",
+              "intensity": 0.34
+            },
+            {
+              "t": 1,
+              "color": "#16121e",
+              "intensity": 0.26
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "smoke-puff-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            1.2,
+            1.2
+          ],
+          "uvPan": [
+            0.03,
+            0.12
+          ],
+          "distortion": 0.22,
+          "distortionPan": [
+            0.03,
+            0.12
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.05
+              ],
+              [
+                0.5,
+                0.2
+              ],
+              [
+                1,
+                0.8
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.5,
+          "edgeWidth": 0,
+          "edgeColor": "#ff6a2a",
+          "edgeIntensity": 0,
+          "displacementProtect": 0,
+          "rimBias": 0
+        },
+        "softParticle": 0.6,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 200,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
+          "length": 1.9,
+          "radius": 0.22,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 2.4,
+          "rate": 83.33,
+          "duration": 3.5,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "cone",
+          "speed": [
+            0.35,
+            0.8
+          ],
+          "direction": [
+            0.786378,
+            0.331771,
+            -0.521093
+          ],
+          "angle": 0.35,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          1.1,
+          1.9
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.1,
+            0
+          ],
+          "drag": 1.6,
+          "curl": {
+            "strength": 0.3,
+            "frequency": 1,
+            "speed": 0.5,
+            "envelope": {
+              "keys": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "ease": "smooth"
+            }
+          },
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": {
+            "y": 0.35,
+            "softness": 0.15
+          }
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.7,
+            1.15
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.4
+              ],
+              [
+                0.35,
+                1
+              ],
+              [
+                1,
+                1.35
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                0.4
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                0.65,
+                0.7
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -0.5,
+              0.5
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "smoke-wisps",
+      "name": "Smoke plume \u2014 torn wisps",
+      "role": "residue",
+      "kind": "particles",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.105007,
+          0.634941,
+          -0.267173
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "premultiplied",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#5a2a6a",
+              "intensity": 0.48
+            },
+            {
+              "t": 0.3,
+              "color": "#30204a",
+              "intensity": 0.42
+            },
+            {
+              "t": 0.7,
+              "color": "#221a38",
+              "intensity": 0.34
+            },
+            {
+              "t": 1,
+              "color": "#16121e",
+              "intensity": 0.26
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "smoke-puff-03",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            1.2,
+            1.2
+          ],
+          "uvPan": [
+            0.03,
+            0.12
+          ],
+          "distortion": 0.22,
+          "distortionPan": [
+            0.03,
+            0.12
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.05
+              ],
+              [
+                0.5,
+                0.2
+              ],
+              [
+                1,
+                0.8
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.5,
+          "edgeWidth": 0,
+          "edgeColor": "#ff6a2a",
+          "edgeIntensity": 0,
+          "displacementProtect": 0,
+          "rimBias": 0
+        },
+        "softParticle": 0.6,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 100,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
+          "length": 1.9,
+          "radius": 0.22,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 2.4,
+          "rate": 41.67,
+          "duration": 3.5,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "cone",
+          "speed": [
+            0.35,
+            0.8
+          ],
+          "direction": [
+            0.786378,
+            0.331771,
+            -0.521093
+          ],
+          "angle": 0.35,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          1.1,
+          1.9
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.1,
+            0
+          ],
+          "drag": 1.6,
+          "curl": {
+            "strength": 0.3,
+            "frequency": 1,
+            "speed": 0.5,
+            "envelope": {
+              "keys": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "ease": "smooth"
+            }
+          },
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": {
+            "y": 0.35,
+            "softness": 0.15
+          }
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.8,
+            1.3
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.4
+              ],
+              [
+                0.35,
+                1
+              ],
+              [
+                1,
+                1.35
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.06,
+                0.4
+              ],
+              [
+                0.3,
+                0.85
+              ],
+              [
+                0.65,
+                0.7
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -0.5,
+              0.5
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "ground-glow",
+      "name": "Ground glow under the head",
+      "role": "secondary",
+      "kind": "decal",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          -0.25,
+          0.01,
+          0
+        ],
+        "rotation": [
+          -1.570796,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "layerTime",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#ff7a2a",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#ff7a2a",
+              "intensity": 0.85
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.28,
+        "mask": {
+          "textureId": "ground-glow-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "geometry": {
+        "type": "plane",
+        "segments": 8,
+        "radialSegments": 3,
+        "radius": 1.3,
+        "length": 2.6,
+        "thickness": 0.01,
+        "vertexNoise": null,
+        "lightning": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "flame-shell",
+      "name": "Flame shell \u2014 teardrop body and tongues",
+      "role": "primary",
+      "kind": "shell",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          -0.6,
+          0.55,
+          0.2
+        ],
+        "rotation": [
+          0.100097,
+          2.156013,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "alpha",
+        "ramp": {
+          "space": "surface",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff2c8",
+              "intensity": 2.0
+            },
+            {
+              "t": 0.08,
+              "color": "#ffbe10",
+              "intensity": 0.85
+            },
+            {
+              "t": 0.28,
+              "color": "#ff8f1e",
+              "intensity": 0.9
+            },
+            {
+              "t": 0.55,
+              "color": "#e03a2e",
+              "intensity": 0.8
+            },
+            {
+              "t": 0.78,
+              "color": "#7a2470",
+              "intensity": 0.45
+            },
+            {
+              "t": 1,
+              "color": "#2a1233",
+              "intensity": 0.25
+            }
+          ],
+          "displacementShift": -0.45
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": null,
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-02",
+          "uvScale": [
+            1.5,
+            1.6
+          ],
+          "uvPan": [
+            0,
+            -0.7
+          ],
+          "distortion": 0,
+          "distortionPan": [
+            0,
+            0
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.28,
+                0
+              ],
+              [
+                1,
+                0.97
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.045,
+          "edgeWidth": 0.03,
+          "edgeColor": "#ff8040",
+          "edgeIntensity": 1.8,
+          "displacementProtect": 0.55,
+          "rimBias": 0.12
+        },
+        "softParticle": 0,
+        "fresnel": {
+          "power": 2,
+          "strength": 0.12
+        },
+        "procedural": "flame"
+      },
+      "geometry": {
+        "type": "teardrop",
+        "segments": 96,
+        "radialSegments": 64,
+        "radius": 0.42,
+        "length": 3.6,
+        "thickness": 0.06,
+        "vertexNoise": {
+          "amplitude": 0.42,
+          "frequency": 2.2,
+          "speed": 3.2,
+          "bias": [
+            0,
+            1,
+            0
+          ],
+          "alongCurve": {
+            "keys": [
+              [
+                0,
+                0.03
+              ],
+              [
+                0.35,
+                0.25
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          }
+        },
+        "lightning": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "fire-volume",
+      "name": "Fire volume \u2014 small eroded pieces",
+      "role": "primary",
+      "kind": "particles",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.187949,
+          0.644934,
+          -0.322134
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff0b0",
+              "intensity": 0.8
+            },
+            {
+              "t": 0.25,
+              "color": "#ffb428",
+              "intensity": 0.7
+            },
+            {
+              "t": 0.55,
+              "color": "#ff5a1a",
+              "intensity": 0.6
+            },
+            {
+              "t": 0.8,
+              "color": "#b0203a",
+              "intensity": 0.3
+            },
+            {
+              "t": 1,
+              "color": "#3a1040",
+              "intensity": 0.1
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.6,
+        "mask": {
+          "textureId": "flame-tongue-02",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            2.2,
+            2.2
+          ],
+          "uvPan": [
+            0.1,
+            0.9
+          ],
+          "distortion": 0.32,
+          "distortionPan": [
+            0.1,
+            0.9
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.15
+              ],
+              [
+                0.35,
+                0.3
+              ],
+              [
+                0.7,
+                0.6
+              ],
+              [
+                1,
+                0.98
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.14,
+          "edgeWidth": 0.1,
+          "edgeColor": "#ffb040",
+          "edgeIntensity": 2,
+          "displacementProtect": 0,
+          "rimBias": 0
+        },
+        "softParticle": 0.35,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 180,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
+          "length": 1.4,
+          "radius": 0.16,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0.6,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.4,
+          "rate": 128.57,
+          "duration": 3.5,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "cone",
+          "speed": [
+            1.6,
+            3
+          ],
+          "direction": [
+            0.80244,
+            0.270824,
+            -0.531737
+          ],
+          "angle": 0.55,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.3,
+          0.65
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
+          "drag": 1.8,
+          "curl": {
+            "strength": 0.3,
+            "frequency": 1.6,
+            "speed": 1.2,
+            "envelope": {
+              "keys": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "ease": "smooth"
+            }
+          },
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.16,
+            0.38
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                1.25
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.08,
+                1
+              ],
+              [
+                0.6,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                0
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1.5,
+              1.5
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "fire-big",
+      "name": "Fire volume \u2014 large tears",
+      "role": "primary",
+      "kind": "particles",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          0.187949,
+          0.644934,
+          -0.322134
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff0b0",
+              "intensity": 0.8
+            },
+            {
+              "t": 0.25,
+              "color": "#ffb428",
+              "intensity": 0.7
+            },
+            {
+              "t": 0.55,
+              "color": "#ff5a1a",
+              "intensity": 0.6
+            },
+            {
+              "t": 0.8,
+              "color": "#b0203a",
+              "intensity": 0.3
+            },
+            {
+              "t": 1,
+              "color": "#3a1040",
+              "intensity": 0.1
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 0.5,
+        "mask": {
+          "textureId": "flame-lick-cluster-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            2.2,
+            2.2
+          ],
+          "uvPan": [
+            0.1,
+            0.9
+          ],
+          "distortion": 0.32,
+          "distortionPan": [
+            0.1,
+            0.9
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.15
+              ],
+              [
+                0.35,
+                0.3
+              ],
+              [
+                0.7,
+                0.6
+              ],
+              [
+                1,
+                0.98
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.2,
+          "edgeWidth": 0.1,
+          "edgeColor": "#ffb040",
+          "edgeIntensity": 2,
+          "displacementProtect": 0,
+          "rimBias": 0
+        },
+        "softParticle": 0.35,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 36,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
+          "length": 1.4,
+          "radius": 0.16,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0.6,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.4,
+          "rate": 25.71,
+          "duration": 3.5,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "cone",
+          "speed": [
+            1.6,
+            3
+          ],
+          "direction": [
+            0.80244,
+            0.270824,
+            -0.531737
+          ],
+          "angle": 0.55,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.45,
+          0.85
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
+          "drag": 1.8,
+          "curl": {
+            "strength": 0.3,
+            "frequency": 1.6,
+            "speed": 1.2,
+            "envelope": {
+              "keys": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "ease": "smooth"
+            }
+          },
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.34,
+            0.62
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                1.25
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.08,
+                1
+              ],
+              [
+                0.6,
+                0.9
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                0
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -1.5,
+              1.5
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "embers",
+      "name": "Embers peeling off the head",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          -0.6,
+          0.55,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff6d0",
+              "intensity": 2.5
+            },
+            {
+              "t": 0.4,
+              "color": "#ff9a20",
+              "intensity": 1.6
+            },
+            {
+              "t": 0.8,
+              "color": "#ff3a10",
+              "intensity": 1
+            },
+            {
+              "t": 1,
+              "color": "#4a1020",
+              "intensity": 0.3
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "flame-tongue-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": true,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": {
+          "textureId": "noise-cloud-tile-01",
+          "uvScale": [
+            1.8,
+            1.8
+          ],
+          "uvPan": [
+            0.1,
+            0.4
+          ],
+          "distortion": 0.15,
+          "distortionPan": [
+            0.1,
+            0.4
+          ]
+        },
+        "erosion": {
+          "curve": {
+            "keys": [
+              [
+                0,
+                0.1
+              ],
+              [
+                0.5,
+                0.4
+              ],
+              [
+                1,
+                0.95
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "softness": 0.05,
+          "edgeWidth": 0.1,
+          "edgeColor": "#ffd060",
+          "edgeIntensity": 3,
+          "displacementProtect": 0,
+          "rimBias": 0
+        },
+        "softParticle": 0.3,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 90,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
+          "length": 0.7,
+          "radius": 0.35,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.2,
+          "rate": 75,
+          "duration": 3.5,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "cone",
+          "speed": [
+            0.8,
+            1.9
+          ],
+          "direction": [
+            0.773452,
+            0.372943,
+            -0.512528
+          ],
+          "angle": 0.8,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.25,
+          0.6
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.6,
+            0
+          ],
+          "drag": 2.5,
+          "curl": {
+            "strength": 0.3,
+            "frequency": 2.5,
+            "speed": 1.5,
+            "envelope": {
+              "keys": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "ease": "smooth"
+            }
+          },
+          "vortex": null,
+          "wind": [
+            0,
+            0,
+            0
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "billboard",
+          "stretch": 0,
+          "size": [
+            0.06,
+            0.16
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.5
+              ],
+              [
+                0.3,
+                1
+              ],
+              [
+                1,
+                0.3
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.1,
+                1
+              ],
+              [
+                0.6,
+                0.8
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              6.283185
+            ],
+            "speed": [
+              -2,
+              2
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "sparks",
+      "name": "Sparks",
+      "role": "secondary",
+      "kind": "particles",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          -0.6,
+          0.6,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "material": {
+        "blend": "additive",
+        "ramp": {
+          "space": "life",
+          "stops": [
+            {
+              "t": 0,
+              "color": "#fff6d0",
+              "intensity": 5
+            },
+            {
+              "t": 0.3,
+              "color": "#ffc040",
+              "intensity": 4
+            },
+            {
+              "t": 0.8,
+              "color": "#ff5a10",
+              "intensity": 2.2
+            },
+            {
+              "t": 1,
+              "color": "#7a1010",
+              "intensity": 0.6
+            }
+          ],
+          "displacementShift": 0
+        },
+        "opacity": 1,
+        "mask": {
+          "textureId": "spark-dot-01",
+          "uvScale": [
+            1,
+            1
+          ],
+          "uvPan": [
+            0,
+            0
+          ],
+          "rotation": 0,
+          "randomRotation": false,
+          "atlas": null,
+          "flipbook": null
+        },
+        "noise": null,
+        "erosion": null,
+        "softParticle": 0.1,
+        "fresnel": null,
+        "procedural": "none"
+      },
+      "emitter": {
+        "count": 150,
+        "shape": {
+          "type": "line",
+          "axis": [
+            0.82942,
+            0.09993,
+            -0.549615
+          ],
+          "length": 1.6,
+          "radius": 0.3,
+          "innerRadius": 0,
+          "angle": 0,
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "surfaceOnly": false,
+          "bias": [
+            0,
+            0,
+            0
+          ]
+        },
+        "spawn": {
+          "mode": "continuous",
+          "window": 1.6,
+          "rate": 93.75,
+          "duration": 3.5,
+          "bursts": []
+        },
+        "velocity": {
+          "mode": "cone",
+          "speed": [
+            0.6,
+            2.2
+          ],
+          "direction": [
+            0.242536,
+            0.970143,
+            0
+          ],
+          "angle": 0.9,
+          "inherit": 0,
+          "speedCurve": null
+        },
+        "life": [
+          0.5,
+          1.5
+        ],
+        "forces": {
+          "gravity": [
+            0,
+            0.5,
+            0
+          ],
+          "drag": 1.6,
+          "curl": {
+            "strength": 0.6,
+            "frequency": 2.2,
+            "speed": 1.5,
+            "envelope": {
+              "keys": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  0.25,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ],
+              "ease": "smooth"
+            }
+          },
+          "vortex": null,
+          "wind": [
+            0.331768,
+            0.039972,
+            -0.219846
+          ],
+          "floor": null
+        },
+        "render": {
+          "mode": "velocityStretch",
+          "stretch": 0.25,
+          "size": [
+            0.06,
+            0.15
+          ],
+          "sizeCurve": {
+            "keys": [
+              [
+                0,
+                0.6
+              ],
+              [
+                0.2,
+                1
+              ],
+              [
+                1,
+                0.2
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaCurve": {
+            "keys": [
+              [
+                0,
+                0
+              ],
+              [
+                0.05,
+                1
+              ],
+              [
+                0.6,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "ease": "smooth"
+          },
+          "alphaAlongSpawn": null,
+          "rotation": {
+            "initial": [
+              0,
+              0
+            ],
+            "speed": [
+              0,
+              0
+            ]
+          },
+          "sortMode": "byDistance"
+        },
+        "trail": null,
+        "sub": null
+      },
+      "tracks": [],
+      "overrides": []
+    },
+    {
+      "id": "fire-light",
+      "name": "Fire point light",
+      "role": "primary",
+      "kind": "light",
+      "start": 0,
+      "end": 3.5,
+      "enabled": true,
+      "transform": {
+        "position": [
+          -0.45,
+          0.7,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "motion": null,
+      "light": {
+        "color": "#ffa24a",
+        "intensity": {
+          "keys": [
+            [
+              0,
+              12
+            ],
+            [
+              0.35,
+              10.2
+            ],
+            [
+              0.7,
+              12.6
+            ],
+            [
+              1,
+              11.4
+            ]
+          ],
+          "ease": "smooth"
+        },
+        "radius": 14,
+        "decay": 2
+      },
+      "tracks": [],
+      "overrides": []
+    }
+  ]
+}
