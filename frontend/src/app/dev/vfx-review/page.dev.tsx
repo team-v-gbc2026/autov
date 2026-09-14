@@ -215,7 +215,6 @@ export default function VfxReviewPage() {
   // editing fixtures/** and new benchmark runs land while this page is open.
   useEffect(() => {
     let cancelled = false;
-    setFixturesLoading(true);
     fetch("/dev/vfx-v2/fixtures", { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error(`fixtures route returned ${res.status}`);
@@ -244,7 +243,6 @@ export default function VfxReviewPage() {
   // reloading the page, since new runs can land at any time.
   useEffect(() => {
     let cancelled = false;
-    setRunsLoading(true);
     fetch("/dev/vfx-review/runs", { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error(`runs route returned ${res.status}`);
@@ -267,7 +265,6 @@ export default function VfxReviewPage() {
   }, [runsNonce]);
 
   const selectedKey = selectionKeyOf(selection);
-  const selectedFixture = fixtures[selectedKey] ?? null;
 
   // The family behind a generated selection (for its reference video/image
   // and for the "Compare with exemplar" A/B toggle).
@@ -318,7 +315,6 @@ export default function VfxReviewPage() {
       runtime?.dispose();
       runtimeRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeMod]);
 
   // Push the document to display into the runtime. Time/duration only reset
@@ -477,7 +473,10 @@ export default function VfxReviewPage() {
               <span style={{ ...labelStyle, marginBottom: 0 }}>Generated</span>
               <button
                 style={{ ...smallButtonStyle, marginLeft: "auto" }}
-                onClick={() => setRunsNonce((n) => n + 1)}
+                onClick={() => {
+                  setRunsLoading(true);
+                  setRunsNonce((n) => n + 1);
+                }}
               >
                 Refresh runs
               </button>
@@ -641,7 +640,13 @@ export default function VfxReviewPage() {
               <button style={buttonStyle} onClick={syncViewportToVideo} disabled={!reference || reference.kind !== "video"}>
                 Sync viewport → video time
               </button>
-              <button style={buttonStyle} onClick={() => setReloadNonce((n) => n + 1)}>
+              <button
+                style={buttonStyle}
+                onClick={() => {
+                  setFixturesLoading(true);
+                  setReloadNonce((n) => n + 1);
+                }}
+              >
                 Reload document
               </button>
               {canCompare && (
