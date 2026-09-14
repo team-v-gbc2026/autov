@@ -1,6 +1,6 @@
 # Eve studio tools
 
-The nine authored tools call shared operations in `src/lib/studio-tools`.
+The authored tools call shared operations in `src/lib/studio-tools`.
 Document tools use persisted project revisions; browser tools use expiring operation
 leases and Eve workflow waits. `defaultTools: false` keeps shell/filesystem/web tools
 disabled. All adapters derive identity from the authenticated Eve session and verify

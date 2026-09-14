@@ -144,7 +144,7 @@ export default function MoodBoard({ projectId, state, onMention, onCollapse, loc
     </div>
     <div className={styles.toolbar}><Tooltip content="Fit board" side="top"><button className={styles.smallButton} onClick={fitAll} aria-label="Fit board"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5" /><rect x="8" y="8" width="8" height="8" rx="1" /></svg></button></Tooltip><div><button aria-label="Zoom out" onClick={() => transform.current?.zoomOut(0.04)}>−</button><span>{Math.round(scale * 100)}%</span><button aria-label="Zoom in" onClick={() => transform.current?.zoomIn(0.04)}>+</button></div></div>
     {(state.busy || state.error) && <div className={styles.notice} role={state.error ? "alert" : "status"}>{state.error || "Uploading..."}</div>}
-    {generating && <ReferencePreview reference={null} disabled={locked} onClose={() => setGenerating(false)} onRename={() => {}} onMention={() => {}} onRemove={() => {}} />}
+    {generating && <ReferencePreview reference={null} onEdit={state.generateImage} disabled={state.busy || locked} onClose={() => setGenerating(false)} onRename={() => {}} onMention={() => {}} onRemove={() => {}} />}
     {preview && <ReferencePreview key={preview.id} reference={preview} onEdit={state.editImage ? prompt => state.editImage!(preview.id, prompt) : undefined} disabled={state.busy || locked} onClose={() => setPreviewId(null)} onRename={name => {
       const position = positions[refs.findIndex(ref => ref.id === preview.id)] || defaultPosition(0);
       update(preview.id, { ...position, name }); reportPersistence();

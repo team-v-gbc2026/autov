@@ -324,7 +324,8 @@ const editingHints = ["Shaping your effect…", "Fine-tuning the particles…", 
 const referenceHints = ["Looking at your references…", "Exploring the details…", "Taking a closer look…"];
 const previewHints = ["Preparing your preview…", "Framing your effect…", "Capturing the moment…"];
 function ToolHint({ tools, submitting, projectId, generationCallId }: { tools: string[]; submitting: boolean; projectId: string; generationCallId?: string }) {
-  const hints = tools.includes("generate_vfx") ? generationHints
+  const hints = tools.includes("generate_reference_image") ? ["Creating your image…", "Bringing your reference to life…", "Working on the details…"]
+    : tools.includes("generate_vfx") ? generationHints
     : tools.includes("preview_vfx") ? previewHints
     : tools.some(tool => tool.includes("reference")) ? referenceHints
     : tools.some(tool => tool === "edit_vfx" || tool === "undo_vfx_edit") ? editingHints

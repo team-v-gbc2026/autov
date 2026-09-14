@@ -31,11 +31,11 @@ export function useReferences(projectId: string, userId: string, initialReferenc
     if (lock.current) return;
     if (next.map(item => item.id).join() !== latest.current.map(item => item.id).join()) { latest.current = next; setReferences(next); }
   }
-  async function editImage(referenceId: string, prompt: string) {
+  async function requestImage(prompt: string, referenceId?: string) {
     if (lock.current) throw new Error("Wait for the current image operation to finish.");
     lock.current = true;
     try {
-      const response = await fetch("/api/references/edit", { method: "POST", headers: { ...await agentHeaders(projectId), "Content-Type": "application/json" }, body: JSON.stringify({ referenceId, prompt }) });
+      const response = await fetch(`/api/references/${referenceId ? "edit" : "generate"}`, { method: "POST", headers: { ...await agentHeaders(projectId), "Content-Type": "application/json" }, body: JSON.stringify({ referenceId, prompt }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not edit this image.");
       if (result.url) {
@@ -44,6 +44,8 @@ export function useReferences(projectId: string, userId: string, initialReferenc
       } else router.refresh();
     } finally { lock.current = false; }
   }
+  const editImage = (referenceId: string, prompt: string) => requestImage(prompt, referenceId);
+  const generateImage = (prompt: string) => requestImage(prompt);
   async function uploadFile(file: File): Promise<Reference> {
     if (lock.current) throw new Error("Wait for the current upload to finish.");
     if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type) || file.size === 0 || file.size > 20 * 1024 * 1024) throw new Error("Use PNG, JPEG, WebP or GIF images up to 20 MB.");
@@ -91,6 +93,6 @@ export function useReferences(projectId: string, userId: string, initialReferenc
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not remove reference."); }
     finally { lock.current = false; setBusy(false); }
   }
-  return { editImage, reconcileAssets, references, busy, error, setError, addFiles, uploadFile, removeReference, refresh: () => router.refresh() };
+  return { generateImage, editImage, reconcileAssets, references, busy, error, setError, addFiles, uploadFile, removeReference, refresh: () => router.refresh() };
 }
-export type ReferenceState = Omit<ReturnType<typeof useReferences>, "reconcileAssets" | "editImage"> & { editImage?: ReturnType<typeof useReferences>["editImage"]; reconcileAssets?: ReturnType<typeof useReferences>["reconcileAssets"] };
+export type ReferenceState = Omit<ReturnType<typeof useReferences>, "reconcileAssets" | "editImage" | "generateImage"> & { generateImage?: ReturnType<typeof useReferences>["generateImage"]; editImage?: ReturnType<typeof useReferences>["editImage"]; reconcileAssets?: ReturnType<typeof useReferences>["reconcileAssets"] };

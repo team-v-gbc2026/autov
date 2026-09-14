@@ -4,7 +4,8 @@ Eve can inspect, edit, generate, preview and undo v2 effects in authenticated pr
 chats. References and emitters use clickable `@[name](reference:uuid)` and
 `#[name](emitter:encoded-id)` tags. References focus the board; emitters select and
 open their editor. Generation creates one candidate from existing texture assets.
-Image generation, image cleanup and custom parameter metadata are not included.
+Reference image generation/editing is available through `generate_reference_image`.
+Automatic image cleanup and custom parameter metadata are not included.
 
 ## Enable locally or on the deployed server
 
@@ -110,5 +111,9 @@ submit. The server uses `OPENAI_API_KEY` with `gpt-image-1.5` (one medium-qualit
 1024×1024 image) and adds a new board asset; the source stays unchanged. Image edits
 use a separate provider call and are not included in the VFX generation spending
 ledger. Provider retries are disabled. Image-model access is required. This action
-is available in authenticated project boards; standalone local boards and the
-text-only image-generation dialog are not connected.
+is available in authenticated project boards; standalone local boards are not connected. The board’s Generate Images dialog also
+supports creating an image from a text prompt using the same model and settings.
+
+Chat examples: “Generate a reference image of blue magical sparks” or
+“Make @[Smoke](reference:UUID) purple and save a new version.” Eve uses
+`generate_reference_image` with a prompt and an optional board reference ID.
