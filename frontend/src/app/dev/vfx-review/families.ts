@@ -28,7 +28,7 @@ export interface FamilyReference {
 export const FAMILY_REFERENCES: Record<string, FamilyReference> = {
   "fire-projectile": { caseId: "fx02-fire-projectile", file: "P6lbvB-fire", kind: "video" },
   "water-projectile": { caseId: "fx03-water-projectile", file: "P6lbvB-water", kind: "video" },
-  "glitch-projectile": { caseId: "fx04-glitch-projectile", file: "kw4Rnl-final", kind: "video" },
+  "glitch-projectile": { caseId: "fx04-glitch-magic", file: "kw4Rnl-final", kind: "video" },
   shield: { caseId: "fx05-shield", file: "reference-01", kind: "image" },
   "playful-impact": { caseId: "fx06-playful-impact", file: "y4NzBn-final", kind: "video" },
   "fire-slash": { caseId: "fx07-fire-slash", file: "OGNX6k-final", kind: "video" },
@@ -36,12 +36,26 @@ export const FAMILY_REFERENCES: Record<string, FamilyReference> = {
   "meteor-rain": { caseId: "fx09-meteor-rain", file: "8B9kvx-view1", kind: "video" },
   "lightning-impact": { caseId: "fx01-lightning-impact", file: "X132B3-final", kind: "video" },
   "smoke-burst": { caseId: "fx12-smoke-burst", file: "03rPr8-final", kind: "video" },
-  beam: { caseId: "fx13-beam", file: "g0kq88-final", kind: "video" },
-  portal: { caseId: "fx14-portal", file: "2qzwGx-final", kind: "video" },
+  beam: { caseId: "fx13-sustained-beam", file: "g0kq88-final", kind: "video" },
+  portal: { caseId: "fx14-rectangular-portal", file: "2qzwGx-final", kind: "video" },
   "healing-aura": { caseId: "fx15-healing-aura", file: "NyaNzN-final", kind: "video" },
-  "energy-column": { caseId: "fx16-energy-column", file: "Zag96G-final", kind: "video" },
+  "energy-column": { caseId: "fx16-energy-overload", file: "Zag96G-final", kind: "video" },
   "sky-vortex": { caseId: "fx17-sky-vortex", file: "WB4B2y-final", kind: "video" },
 };
+
+/**
+ * Benchmark case id -> family id, derived from FAMILY_REFERENCES. Used to
+ * find a generated result's family (for its reference video/image and for
+ * the "Compare with exemplar" A/B toggle) from the case id recorded in its
+ * benchmark run (report.json / pipeline.json).
+ */
+export const CASE_TO_FAMILY: Record<string, string> = Object.fromEntries(
+  Object.entries(FAMILY_REFERENCES).map(([familyId, ref]) => [ref.caseId, familyId]),
+);
+
+export function familyForCase(caseId: string): string | null {
+  return CASE_TO_FAMILY[caseId] ?? null;
+}
 
 /** Family id -> "/dev/vfx-v2/spike-<key>" suffix; "" means the bare /spike route. */
 export const FAMILY_SPIKE_KEYS: Record<string, string> = {

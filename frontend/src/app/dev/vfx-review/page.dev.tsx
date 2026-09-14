@@ -3,18 +3,23 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FIXTURE_IDS } from "@/lib/vfx-lab/asset-urls";
-import { FAMILY_REFERENCES, spikeHref } from "./families";
+import { FAMILY_REFERENCES, familyForCase, spikeHref } from "./families";
 
-// Review page: play every v2 exemplar family in a live viewport next to its
-// benchmark reference video/image, and jump to the hand-built spike page for
-// the same family.
+// Review page: play every v2 exemplar family (and every locally generated
+// benchmark result) in a live viewport next to its benchmark reference
+// video/image, and jump to the hand-built spike page for the same family.
 //
 // Reuses the same VfxRuntimeV2 / validateDocumentV2 contract as the
 // /dev/vfx-v2 toolbox gallery (src/app/dev/vfx-v2/page.dev.tsx): both are
 // loaded via a trivial-template dynamic import so this page still compiles
-// and renders a "not built yet" state if either file is ever removed, and
-// fixtures are fetched from the same /dev/vfx-v2/fixtures route rather than
-// duplicating fixture-loading logic.
+// and renders a "not built yet" state if either file is ever removed.
+//
+// Fixture *documents* (exemplar and generated alike) come from the existing
+// /dev/vfx-v2/fixtures route rather than re-parsing effect.json here — that
+// route already reads <dataDir>/benchmarks/<run>/<case>/effect.json for
+// generated results (id: "<run>/<case>", group: "generated"). This page adds
+// its own /dev/vfx-review/runs route only for the metadata that route
+// doesn't carry: review score, run commit and contact-sheet presence.
 
 type VfxDocumentV2 = unknown;
 
@@ -64,6 +69,25 @@ type FixtureEntry = {
   group?: "exemplar" | "generated";
 };
 
+type GeneratedCase = {
+  caseId: string;
+  effectName: string | null;
+  score: { average: number; breakdown: Record<string, number> } | null;
+  hasContactSheet: boolean;
+};
+
+type GeneratedRun = {
+  run: string;
+  commit: string | null;
+  dirty: boolean | null;
+  created: string | null;
+  cases: GeneratedCase[];
+};
+
+type Selection =
+  | { kind: "family"; id: string }
+  | { kind: "generated"; run: string; caseId: string };
+
 const panelStyle: React.CSSProperties = {
   background: "#181a1d",
   border: "1px solid #2a2d31",
@@ -88,6 +112,12 @@ const buttonStyle: React.CSSProperties = {
   padding: "6px 10px",
   fontSize: 12,
   cursor: "pointer",
+};
+
+const smallButtonStyle: React.CSSProperties = {
+  ...buttonStyle,
+  padding: "2px 8px",
+  fontSize: 11,
 };
 
 function noteStyle(kind: "info" | "warn" = "info"): React.CSSProperties {
@@ -115,16 +145,27 @@ function docStats(doc: unknown): { layerCount: number; kinds: string[] } {
   return { layerCount: layers.length, kinds: [...kinds].sort() };
 }
 
+function selectionKeyOf(selection: Selection): string {
+  return selection.kind === "family" ? selection.id : `${selection.run}/${selection.caseId}`;
+}
+
 export default function VfxReviewPage() {
   const families = useMemo(() => [...FIXTURE_IDS].sort(), []);
-  const [selectedFamily, setSelectedFamily] = useState<string | null>(
-    families[0] ?? null,
+
+  const [selection, setSelection] = useState<Selection>(() =>
+    families[0] ? { kind: "family", id: families[0] } : { kind: "family", id: "" },
   );
+  const [compareMode, setCompareMode] = useState(false);
 
   const [fixtures, setFixtures] = useState<Record<string, FixtureEntry>>({});
   const [fixtureError, setFixtureError] = useState<string | null>(null);
   const [fixturesLoading, setFixturesLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
+
+  const [generatedRuns, setGeneratedRuns] = useState<GeneratedRun[]>([]);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [runsLoading, setRunsLoading] = useState(true);
+  const [runsNonce, setRunsNonce] = useState(0);
 
   const [runtimeMod, setRuntimeMod] = useState<ModuleState<VfxRuntimeV2Ctor>>({
     status: "loading",
@@ -145,6 +186,15 @@ export default function VfxReviewPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef<number | null>(null);
+  const lastSelectedKeyRef = useRef<string | null>(null);
+  const timeRef = useRef(0);
+
+  // Kept in sync so the document-push effect below can repaint at the
+  // current time without depending on `time` itself (which would defeat the
+  // "keep the same t when only the A/B toggle flips" behavior).
+  useEffect(() => {
+    timeRef.current = time;
+  }, [time]);
 
   // Load the module-level runtime + schema once.
   useEffect(() => {
@@ -160,12 +210,12 @@ export default function VfxReviewPage() {
     };
   }, []);
 
-  // Load the fixture document for the selected family (fetched on demand and
-  // cached per family; "Reload document" bumps reloadNonce to force a
-  // re-fetch while the other agent is still editing fixtures/**).
+  // Load every fixture document (exemplars + generated results) once, and
+  // whenever "Reload document" bumps reloadNonce — the other agent is still
+  // editing fixtures/** and new benchmark runs land while this page is open.
   useEffect(() => {
-    if (!selectedFamily) return;
     let cancelled = false;
+    setFixturesLoading(true);
     fetch("/dev/vfx-v2/fixtures", { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error(`fixtures route returned ${res.status}`);
@@ -187,10 +237,67 @@ export default function VfxReviewPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFamily, reloadNonce]);
+  }, [reloadNonce]);
 
-  const selectedFixture = selectedFamily ? fixtures[selectedFamily] ?? null : null;
+  // Load generated-run metadata (score / commit / contact-sheet presence)
+  // separately — "Refresh runs" re-lists without touching fixtures or
+  // reloading the page, since new runs can land at any time.
+  useEffect(() => {
+    let cancelled = false;
+    setRunsLoading(true);
+    fetch("/dev/vfx-review/runs", { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`runs route returned ${res.status}`);
+        return res.json();
+      })
+      .then((body: { runs: GeneratedRun[] }) => {
+        if (cancelled) return;
+        setGeneratedRuns(body.runs ?? []);
+        setRunsError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setRunsError(String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setRunsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runsNonce]);
+
+  const selectedKey = selectionKeyOf(selection);
+  const selectedFixture = fixtures[selectedKey] ?? null;
+
+  // The family behind a generated selection (for its reference video/image
+  // and for the "Compare with exemplar" A/B toggle).
+  const mappedFamily = selection.kind === "generated" ? familyForCase(selection.caseId) : null;
+  const canCompare = selection.kind === "generated" && !!mappedFamily && !!fixtures[mappedFamily];
+
+  // What's actually pushed into the viewport: the selection, unless A/B
+  // compare is toggled on, in which case it's the mapped family's exemplar
+  // — swapped in place, at the same playback time.
+  const displayKey = compareMode && canCompare ? (mappedFamily as string) : selectedKey;
+  const displayFixture = fixtures[displayKey] ?? null;
+
+  const generatedCaseMeta: GeneratedCase | null =
+    selection.kind === "generated"
+      ? generatedRuns.find((r) => r.run === selection.run)?.cases.find((c) => c.caseId === selection.caseId) ?? null
+      : null;
+
+  const referenceFamilyId = selection.kind === "family" ? selection.id : mappedFamily;
+
+  const selectFamily = useCallback((id: string) => {
+    setSelection({ kind: "family", id });
+    setCompareMode(false);
+    setPlaying(false);
+  }, []);
+
+  const selectGenerated = useCallback((run: string, caseId: string) => {
+    setSelection({ kind: "generated", run, caseId });
+    setCompareMode(false);
+    setPlaying(false);
+  }, []);
 
   // Runtime construction and document loading are external-system
   // synchronization (WebGL context + three.js scene), not derived render
@@ -214,23 +321,38 @@ export default function VfxReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeMod]);
 
+  // Push the document to display into the runtime. Time/duration only reset
+  // when the underlying *selection* changes (a new family/generated pick) —
+  // not when the A/B toggle alone swaps which document is displayed, so
+  // flipping "Compare with exemplar" keeps the same playback time.
   useEffect(() => {
     const runtime = runtimeRef.current;
-    if (!runtime || !selectedFixture) return;
+    if (!runtime || !displayFixture) return;
     try {
       const validate = schemaMod.status === "ready" ? schemaMod.value : (d: unknown) => d;
-      const doc = validate(selectedFixture.document);
+      const doc = validate(displayFixture.document);
       runtime.setDocument(doc);
       runtime.resetCamera();
-      const maybeDuration = (doc as { duration?: number })?.duration;
-      setDuration(typeof maybeDuration === "number" ? maybeDuration : 4);
-      setTime(0);
+      let renderAt = timeRef.current;
+      if (lastSelectedKeyRef.current !== selectedKey) {
+        lastSelectedKeyRef.current = selectedKey;
+        const maybeDuration = (doc as { duration?: number })?.duration;
+        setDuration(typeof maybeDuration === "number" ? maybeDuration : 4);
+        renderAt = 0;
+        setTime(0);
+      }
+      // setDocument() alone doesn't repaint the canvas. The [time] effect
+      // below only fires when `time` itself changes, which it deliberately
+      // doesn't on a pure A/B toggle (same selection, same t) — so render
+      // explicitly here too, otherwise flipping "Compare with exemplar"
+      // updates the label but leaves the old frame on screen.
+      runtime.render(renderAt);
       setDocError(null);
     } catch (err) {
       setDocError(`Document rejected: ${String(err)}`);
     }
 
-  }, [selectedFixture, runtimeMod, schemaMod]);
+  }, [displayFixture, selectedKey, runtimeMod, schemaMod]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Drive the viewport off the shared clock.
@@ -296,9 +418,9 @@ export default function VfxReviewPage() {
     setTime(Math.min(duration, v.currentTime));
   }, [duration]);
 
-  const reference = selectedFamily ? FAMILY_REFERENCES[selectedFamily] : undefined;
-  const stats = selectedFixture ? docStats(selectedFixture.document) : null;
-  const spike = selectedFamily ? spikeHref(selectedFamily) : null;
+  const reference = referenceFamilyId ? FAMILY_REFERENCES[referenceFamilyId] : undefined;
+  const stats = displayFixture ? docStats(displayFixture.document) : null;
+  const spike = referenceFamilyId ? spikeHref(referenceFamilyId) : null;
 
   return (
     <main
@@ -321,23 +443,23 @@ export default function VfxReviewPage() {
       </header>
 
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", minWidth: 1000 }}>
-        {/* Left: family list */}
-        <div style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        {/* Left: family list + generated runs */}
+        <div style={{ width: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={panelStyle}>
             <span style={labelStyle}>Families ({families.length})</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {families.map((familyId) => {
                 const ref = FAMILY_REFERENCES[familyId];
+                const isSelected = selection.kind === "family" && selection.id === familyId;
                 return (
                   <button
                     key={familyId}
-                    onClick={() => setSelectedFamily(familyId)}
+                    onClick={() => selectFamily(familyId)}
                     style={{
                       ...buttonStyle,
                       textAlign: "left",
-                      background: familyId === selectedFamily ? "#33507a" : buttonStyle.background,
-                      borderColor:
-                        familyId === selectedFamily ? "#5b7fb5" : (buttonStyle.borderColor as string),
+                      background: isSelected ? "#33507a" : buttonStyle.background,
+                      borderColor: isSelected ? "#5b7fb5" : (buttonStyle.borderColor as string),
                     }}
                   >
                     {familyId}
@@ -349,12 +471,86 @@ export default function VfxReviewPage() {
               })}
             </div>
           </div>
+
+          <div style={panelStyle}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ ...labelStyle, marginBottom: 0 }}>Generated</span>
+              <button
+                style={{ ...smallButtonStyle, marginLeft: "auto" }}
+                onClick={() => setRunsNonce((n) => n + 1)}
+              >
+                Refresh runs
+              </button>
+            </div>
+            {runsLoading && <div style={noteStyle()}>loading…</div>}
+            {runsError && <div style={noteStyle("warn")}>{runsError}</div>}
+            {!runsLoading && !runsError && generatedRuns.length === 0 && (
+              <div style={noteStyle()}>
+                No generated runs under
+                <br />
+                .autov-local/benchmarks yet.
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {generatedRuns.map((run) => (
+                <div key={run.run}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "#7d848c",
+                      display: "flex",
+                      gap: 6,
+                      alignItems: "baseline",
+                      marginBottom: 4,
+                    }}
+                  >
+                    <strong style={{ color: "#c6cad0", fontWeight: 600 }}>{run.run}</strong>
+                    {run.commit && (
+                      <span title={run.commit + (run.dirty ? " (dirty)" : "")}>
+                        {run.commit.slice(0, 8)}
+                        {run.dirty ? "+" : ""}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {run.cases.map((c) => {
+                      const isSelected =
+                        selection.kind === "generated" &&
+                        selection.run === run.run &&
+                        selection.caseId === c.caseId;
+                      return (
+                        <button
+                          key={c.caseId}
+                          onClick={() => selectGenerated(run.run, c.caseId)}
+                          style={{
+                            ...buttonStyle,
+                            textAlign: "left",
+                            background: isSelected ? "#33507a" : buttonStyle.background,
+                            borderColor: isSelected ? "#5b7fb5" : (buttonStyle.borderColor as string),
+                          }}
+                        >
+                          {c.caseId}
+                          <div style={{ fontSize: 10, color: "#9aa0a6" }}>
+                            {c.effectName ?? "untitled"}
+                            {c.score ? ` · score ${c.score.average.toFixed(2)}` : ""}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Center: viewport + controls */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 }}>
           <div style={panelStyle}>
-            <span style={labelStyle}>Viewport {selectedFamily ? `— ${selectedFamily}` : ""}</span>
+            <span style={labelStyle}>
+              Viewport — {displayKey}
+              {compareMode && canCompare ? " (exemplar, comparing)" : ""}
+            </span>
             <div
               ref={hostRef}
               style={{
@@ -373,9 +569,9 @@ export default function VfxReviewPage() {
                   src/lib/vfx-lab/runtime-v2.ts (export {"{"} VfxRuntimeV2 {"}"})
                 </div>
               )}
-              {runtimeMod.status === "ready" && !selectedFixture && !fixturesLoading && (
+              {runtimeMod.status === "ready" && !displayFixture && !fixturesLoading && (
                 <div style={noteStyle()}>
-                  {fixtureError ? fixtureError : "No document for this family yet."}
+                  {fixtureError ? fixtureError : "No document for this selection yet."}
                 </div>
               )}
               {docError && <div style={noteStyle("warn")}>{docError}</div>}
@@ -411,7 +607,7 @@ export default function VfxReviewPage() {
               <button
                 style={buttonStyle}
                 onClick={() => runtimeRef.current?.resetCamera()}
-                disabled={runtimeMod.status !== "ready" || !selectedFixture}
+                disabled={runtimeMod.status !== "ready" || !displayFixture}
               >
                 Reset camera
               </button>
@@ -445,12 +641,14 @@ export default function VfxReviewPage() {
               <button style={buttonStyle} onClick={syncViewportToVideo} disabled={!reference || reference.kind !== "video"}>
                 Sync viewport → video time
               </button>
-              <button
-                style={buttonStyle}
-                onClick={() => setReloadNonce((n) => n + 1)}
-              >
+              <button style={buttonStyle} onClick={() => setReloadNonce((n) => n + 1)}>
                 Reload document
               </button>
+              {canCompare && (
+                <button style={buttonStyle} onClick={() => setCompareMode((c) => !c)}>
+                  {compareMode ? "Show generated" : "Compare with exemplar"}
+                </button>
+              )}
               {spike && (
                 <Link href={spike} style={{ ...buttonStyle, textDecoration: "none" }} target="_blank">
                   Open spike →
@@ -458,6 +656,27 @@ export default function VfxReviewPage() {
               )}
             </div>
           </div>
+
+          {selection.kind === "generated" && (
+            <div style={panelStyle}>
+              <span style={labelStyle}>Generated info</span>
+              <div style={{ fontSize: 12, color: "#c6cad0", lineHeight: 1.6 }}>
+                <div>run: {selection.run}</div>
+                <div>case: {selection.caseId}</div>
+                <div>family: {mappedFamily ?? "unmapped (add to families.ts)"}</div>
+                {generatedCaseMeta?.score && (
+                  <div style={{ marginTop: 4 }}>
+                    score: {generatedCaseMeta.score.average.toFixed(2)}
+                    <div style={{ fontSize: 10, color: "#9aa0a6" }}>
+                      {Object.entries(generatedCaseMeta.score.breakdown)
+                        .map(([k, v]) => `${k} ${v}`)
+                        .join(" · ")}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {stats && (
             <div style={panelStyle}>
@@ -477,11 +696,11 @@ export default function VfxReviewPage() {
           )}
         </div>
 
-        {/* Right: reference video/image */}
+        {/* Right: reference video/image + contact sheet */}
         <div style={{ width: 320, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={panelStyle}>
             <span style={labelStyle}>Reference{reference ? ` (${reference.caseId})` : ""}</span>
-            {!reference && <div style={noteStyle()}>No benchmark reference for this family.</div>}
+            {!reference && <div style={noteStyle()}>No benchmark reference for this selection.</div>}
             {reference?.kind === "video" && (
               <video
                 ref={videoRef}
@@ -490,18 +709,30 @@ export default function VfxReviewPage() {
                 muted
                 playsInline
                 style={{ width: "100%", borderRadius: 4, background: "#000" }}
-                src={`/dev/vfx-review/reference/${selectedFamily}`}
+                src={`/dev/vfx-review/reference/${referenceFamilyId}`}
               />
             )}
             {reference?.kind === "image" && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/dev/vfx-review/reference/${selectedFamily}`}
+                src={`/dev/vfx-review/reference/${referenceFamilyId}`}
                 alt={`${reference.caseId} reference`}
                 style={{ width: "100%", borderRadius: 4, display: "block" }}
               />
             )}
           </div>
+
+          {selection.kind === "generated" && generatedCaseMeta?.hasContactSheet && (
+            <div style={panelStyle}>
+              <span style={labelStyle}>Contact sheet</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/dev/vfx-review/contact-sheet/${selection.run}/${selection.caseId}`}
+                alt={`${selection.run}/${selection.caseId} contact sheet`}
+                style={{ width: "100%", borderRadius: 4, display: "block" }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </main>
