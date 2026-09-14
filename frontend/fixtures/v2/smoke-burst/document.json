@@ -342,18 +342,18 @@
               "intensity": 1.0
             },
             {
-              "t": 0.5,
+              "t": 0.45,
               "color": "#5a3ce0",
               "intensity": 1.0
             },
             {
               "t": 1,
-              "color": "#b9a6ff",
+              "color": "#8a74ff",
               "intensity": 1.0
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 3.0,
+          "heightSpan": 3.5,
           "blend": null
         },
         "opacity": 1.0,
@@ -475,18 +475,18 @@
               "intensity": 1.0
             },
             {
-              "t": 0.5,
+              "t": 0.45,
               "color": "#5a3ce0",
               "intensity": 1.0
             },
             {
               "t": 1,
-              "color": "#b9a6ff",
+              "color": "#8a74ff",
               "intensity": 1.0
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 3.0,
+          "heightSpan": 3.5,
           "blend": null
         },
         "opacity": 1.0,
@@ -608,18 +608,18 @@
               "intensity": 1.0
             },
             {
-              "t": 0.5,
+              "t": 0.45,
               "color": "#5a3ce0",
               "intensity": 1.0
             },
             {
               "t": 1,
-              "color": "#b9a6ff",
+              "color": "#8a74ff",
               "intensity": 1.0
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 3.0,
+          "heightSpan": 3.5,
           "blend": null
         },
         "opacity": 1.0,
@@ -1013,18 +1013,18 @@
               "intensity": 1.0
             },
             {
-              "t": 0.5,
+              "t": 0.45,
               "color": "#5a3ce0",
               "intensity": 1.0
             },
             {
               "t": 1,
-              "color": "#b9a6ff",
+              "color": "#8a74ff",
               "intensity": 1.0
             }
           ],
           "displacementShift": 0,
-          "heightSpan": 3.0,
+          "heightSpan": 3.5,
           "blend": null
         },
         "opacity": 1.0,

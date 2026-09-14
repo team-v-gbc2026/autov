@@ -1945,10 +1945,13 @@ test("the smoke exemplar grades its cel bands and carries a sprite-keyed spray",
   assert.equal(column.material!.toon!.bands, 3);
   assert.equal(column.material!.toon!.colorSource, "ramp");
   assert.equal(column.material!.ramp.space, "height");
-  assert.equal(column.material!.ramp.heightSpan, 3);
+  assert.equal(column.material!.ramp.heightSpan, 3.5);
   assert.equal(column.material!.ramp.stops.length, 3);
   assert.equal(column.material!.ramp.stops[0].color, "#2c1a7a");
-  assert.equal(column.material!.ramp.stops[2].color, "#b9a6ff");
+  // The top stop is a light VIOLET, not a lilac-white: a paler crown washes the
+  // plume toward white and loses the banded reference's own hue, which is the
+  // opposite of what keying the body colour on height is for.
+  assert.equal(column.material!.ramp.stops[2].color, "#8a74ff");
   const pink = doc.layers.find((l) => l.id === "pink-ring")!;
   assert.equal(pink.material!.toon!.colorSource, "ramp");
   assert.equal(pink.material!.ramp.space, "height");

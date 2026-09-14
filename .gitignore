@@ -24,3 +24,4 @@ supabase/.temp/
 # Overnight experiment data stays local
 *.local.md
 astra/
+frontend/scratchpad/

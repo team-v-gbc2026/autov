@@ -589,10 +589,12 @@ forty lobes was three flat purples wherever they were.
 Exemplars rewritten to demonstrate it, all still lint-clean and seek-deterministic:
 
 - `fixtures/v2/smoke-burst`: the four violet lobe layers and the two pink ones take
-  `toon.colorSource:"ramp"` over a height ramp (#2c1a7a → #5a3ce0 → #b9a6ff, and the pink
-  #9c0f88 → #e81eb4 → #ff7ad6, both over `heightSpan` 3), so the plume grades from a deep plum base
-  to a light lavender crown while every lobe still reads as three cel bands. A new `pop-sparks`
-  particles layer is `space:"sprite"` with `blend {space:"height", weight 0.4}` on
+  `toon.colorSource:"ramp"` over a height ramp — violet #2c1a7a → #5a3ce0 (at 0.45) → #8a74ff over
+  `heightSpan` 3.5, pink #9c0f88 → #e81eb4 → #ff7ad6 over `heightSpan` 3 — so the plume grades from
+  a deep plum base to a light VIOLET crown while every lobe still reads as three cel bands. The climb
+  is deliberately gentle: a top stop pale enough to wash toward white (the first pass used #b9a6ff
+  over a 3 m span) loses the reference's violet reading, which is the opposite of the point. A new
+  `pop-sparks` particles layer is `space:"sprite"` with `blend {space:"height", weight 0.4}` on
   `velocityStretch` / `anchor:"head"`: each glint carries a head-to-tail gradient and the spray
   shifts with the column.
 - `fixtures/v2/healing-aura`: the sparkles key `life` blended 45% into `height` over a 2.4 m span,
