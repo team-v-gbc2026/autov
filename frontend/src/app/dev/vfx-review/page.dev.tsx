@@ -149,6 +149,17 @@ function selectionKeyOf(selection: Selection): string {
   return selection.kind === "family" ? selection.id : `${selection.run}/${selection.caseId}`;
 }
 
+// This list shows the raw fixture id as its own label, so the two recovered
+// main exemplars (which share a name with the current "fire-slash" /
+// "ice-blast" generation exemplars) need a suffix to stay disambiguated.
+const FAMILY_LABEL_OVERRIDES: Record<string, string> = {
+  "fire-slash-classic": "fire-slash (main)",
+  "ice-blast-classic": "ice-blast (main)",
+};
+function familyLabel(familyId: string): string {
+  return FAMILY_LABEL_OVERRIDES[familyId] ?? familyId;
+}
+
 export default function VfxReviewPage() {
   const families = useMemo(() => [...FIXTURE_IDS].sort(), []);
 
@@ -458,7 +469,7 @@ export default function VfxReviewPage() {
                       borderColor: isSelected ? "#5b7fb5" : (buttonStyle.borderColor as string),
                     }}
                   >
-                    {familyId}
+                    {familyLabel(familyId)}
                     <div style={{ fontSize: 10, color: "#9aa0a6" }}>
                       {ref ? `${ref.caseId} · ${ref.kind}` : "no reference"}
                     </div>
