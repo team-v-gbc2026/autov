@@ -3641,7 +3641,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, add, Discard, mat2 } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, fract, int, add, Discard, mat2 } = TSL;
 
 	const gl_FragColor = property( 'vec4' );
 
@@ -3855,6 +3855,87 @@ const uv = TSL.uv();
 
 	}, { uv: 'vec2', cell: 'vec2', return: 'float' } );
 
+	/** Reflect into one 30-degree wedge of the hexagonal point group. Ice Ih is
+	 * hexagonal, and this fold is what makes a snowflake six-fold symmetric: every
+	 * pattern evaluated after it is repeated around the axis twelve times. */
+
+	const hexFold = /*@__PURE__*/ Fn( ( [ p_immutable ] ) => {
+
+		const p = p_immutable.toVar();
+		p.x.assign( abs( p.x ) );
+		const mirrorA = vec2( - .8660254, .5 ).toVar(), mirrorB = vec2( .8660254, .5 ).toVar();
+		p.subAssign( mul( 2., min( 0., dot( p, mirrorA ) ) ).mul( mirrorA ) );
+		p.subAssign( mul( 2., min( 0., dot( p, mirrorB ) ) ).mul( mirrorB ) );
+
+		return p;
+
+	} );
+
+	const iceHash = /*@__PURE__*/ Fn( ( [ c ] ) => {
+
+		const h = fract( vec3( c.xyx ).mul( vec3( .1031, .1030, .0973 ) ) ).toVar();
+		h.addAssign( dot( h, h.yzx.add( 33.33 ) ) );
+
+		return fract( vec2( h.x.add( h.y ).mul( h.z ), h.x.add( h.z ).mul( h.y ) ) );
+
+	} );
+
+	/** Worley F2-F1: near zero on a grain boundary, large inside a grain, so the
+	 * zero set is the facet web between crystal grains rather than a blob field. */
+
+	const iceFacets = /*@__PURE__*/ Fn( ( [ p ] ) => {
+
+		const cellId = floor( p ).toVar(), offset = p.sub( cellId ).toVar();
+		const f1 = float( 8. ).toVar(), f2 = float( 8. ).toVar();
+
+		Loop( { start: int( - 1 ), end: 1, name: 'j', condition: '<=' }, ( { j } ) => {
+
+			Loop( { start: int( - 1 ), end: 1, condition: '<=' }, ( { i } ) => {
+
+				const o = vec2( float( i ), float( j ) ).toVar();
+				const d = length( o.add( iceHash( cellId.add( o ) ) ).sub( offset ) ).toVar();
+
+				// Branchless "keep the two smallest": max(f1,d) is d only once d clears f1.
+
+				f2.assign( min( f2, max( f1, d ) ) );
+				f1.assign( min( f1, d ) );
+
+			} );
+
+		} );
+
+		// x: boundary web, y: distance to this grain's seed, which shades its face.
+
+
+		return vec2( f2.sub( f1 ), f1 );
+
+	} );
+
+	/** The same fold-and-facet rule at three scales, each an irrational step apart
+	 * so the levels never line up into visible tiling. Self-similar by
+	 * construction: a grain of ice is grains of ice. */
+
+	const iceCrystal = /*@__PURE__*/ Fn( ( [ uv, cell ] ) => {
+
+		const p = uv.sub( .5 ).mul( max( cell, vec2( .02 ) ) ).mul( 9. ).toVar();
+		const web = float( 0. ).toVar(), face = float( 0. ).toVar(), weight = float( 0. ).toVar(), scale = float( 1. ).toVar(), amp = float( 1. ).toVar();
+
+		Loop( 3, () => {
+
+			const q = hexFold( p.mul( scale ) ).toVar();
+			const f = iceFacets( q.mul( 2.4 ) ).toVar();
+			web.addAssign( amp.mul( sub( 1., smoothstep( .02, .20, f.x ) ) ) );
+			face.addAssign( amp.mul( sub( 1., smoothstep( .28, .95, f.y ) ) ) );
+			weight.addAssign( amp );
+			scale.mulAssign( 2.718282 );
+			amp.mulAssign( .55 );
+
+		} );
+
+		return vec2( web, face ).div( max( weight, 1e-4 ) );
+
+	} );
+
 	// uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 	// 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon.
 
@@ -3890,12 +3971,11 @@ const uv = TSL.uv();
 
 		If( mode.equal( 5 ), () => {
 
-			// Frozen body: a fresnel-lit interior crossed by thin veins.
+			// Frozen body: a fresnel-lit interior behind a self-similar facet web.
 
-			const field = add( .5, mul( .5, snoise( vec3( uv.mul( vec2( 12., 6. ) ).mul( max( cell, vec2( .02 ) ) ), 1. ) ) ) ).toVar();
-			const veins = sub( 1., smoothstep( .012, .03, abs( field.sub( .5 ) ) ) ).toVar();
+			const crystal = iceCrystal( uv, cell ).toVar();
 
-			return clamp( add( .12, mul( .55, fres ).mul( fres ) ).add( mul( .80, veins ) ), 0., 1. );
+			return clamp( add( .10, mul( .40, fres ).mul( fres ) ).add( mul( .92, crystal.x ) ).add( mul( .16, crystal.y ) ), 0., 1. );
 
 		} );
 
@@ -4598,7 +4678,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, add, mat2, Discard } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, fract, int, add, mat2, Discard } = TSL;
 
 	const gl_FragColor = property( 'vec4' );
 
@@ -4788,6 +4868,87 @@ const uv = TSL.uv();
 
 	}, { uv: 'vec2', cell: 'vec2', return: 'float' } );
 
+	/** Reflect into one 30-degree wedge of the hexagonal point group. Ice Ih is
+	 * hexagonal, and this fold is what makes a snowflake six-fold symmetric: every
+	 * pattern evaluated after it is repeated around the axis twelve times. */
+
+	const hexFold = /*@__PURE__*/ Fn( ( [ p_immutable ] ) => {
+
+		const p = p_immutable.toVar();
+		p.x.assign( abs( p.x ) );
+		const mirrorA = vec2( - .8660254, .5 ).toVar(), mirrorB = vec2( .8660254, .5 ).toVar();
+		p.subAssign( mul( 2., min( 0., dot( p, mirrorA ) ) ).mul( mirrorA ) );
+		p.subAssign( mul( 2., min( 0., dot( p, mirrorB ) ) ).mul( mirrorB ) );
+
+		return p;
+
+	} );
+
+	const iceHash = /*@__PURE__*/ Fn( ( [ c ] ) => {
+
+		const h = fract( vec3( c.xyx ).mul( vec3( .1031, .1030, .0973 ) ) ).toVar();
+		h.addAssign( dot( h, h.yzx.add( 33.33 ) ) );
+
+		return fract( vec2( h.x.add( h.y ).mul( h.z ), h.x.add( h.z ).mul( h.y ) ) );
+
+	} );
+
+	/** Worley F2-F1: near zero on a grain boundary, large inside a grain, so the
+	 * zero set is the facet web between crystal grains rather than a blob field. */
+
+	const iceFacets = /*@__PURE__*/ Fn( ( [ p ] ) => {
+
+		const cellId = floor( p ).toVar(), offset = p.sub( cellId ).toVar();
+		const f1 = float( 8. ).toVar(), f2 = float( 8. ).toVar();
+
+		Loop( { start: int( - 1 ), end: 1, name: 'j', condition: '<=' }, ( { j } ) => {
+
+			Loop( { start: int( - 1 ), end: 1, condition: '<=' }, ( { i } ) => {
+
+				const o = vec2( float( i ), float( j ) ).toVar();
+				const d = length( o.add( iceHash( cellId.add( o ) ) ).sub( offset ) ).toVar();
+
+				// Branchless "keep the two smallest": max(f1,d) is d only once d clears f1.
+
+				f2.assign( min( f2, max( f1, d ) ) );
+				f1.assign( min( f1, d ) );
+
+			} );
+
+		} );
+
+		// x: boundary web, y: distance to this grain's seed, which shades its face.
+
+
+		return vec2( f2.sub( f1 ), f1 );
+
+	} );
+
+	/** The same fold-and-facet rule at three scales, each an irrational step apart
+	 * so the levels never line up into visible tiling. Self-similar by
+	 * construction: a grain of ice is grains of ice. */
+
+	const iceCrystal = /*@__PURE__*/ Fn( ( [ uv, cell ] ) => {
+
+		const p = uv.sub( .5 ).mul( max( cell, vec2( .02 ) ) ).mul( 9. ).toVar();
+		const web = float( 0. ).toVar(), face = float( 0. ).toVar(), weight = float( 0. ).toVar(), scale = float( 1. ).toVar(), amp = float( 1. ).toVar();
+
+		Loop( 3, () => {
+
+			const q = hexFold( p.mul( scale ) ).toVar();
+			const f = iceFacets( q.mul( 2.4 ) ).toVar();
+			web.addAssign( amp.mul( sub( 1., smoothstep( .02, .20, f.x ) ) ) );
+			face.addAssign( amp.mul( sub( 1., smoothstep( .28, .95, f.y ) ) ) );
+			weight.addAssign( amp );
+			scale.mulAssign( 2.718282 );
+			amp.mulAssign( .55 );
+
+		} );
+
+		return vec2( web, face ).div( max( weight, 1e-4 ) );
+
+	} );
+
 	// uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 	// 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon.
 
@@ -4823,12 +4984,11 @@ const uv = TSL.uv();
 
 		If( mode.equal( 5 ), () => {
 
-			// Frozen body: a fresnel-lit interior crossed by thin veins.
+			// Frozen body: a fresnel-lit interior behind a self-similar facet web.
 
-			const field = add( .5, mul( .5, snoise( vec3( uv.mul( vec2( 12., 6. ) ).mul( max( cell, vec2( .02 ) ) ), 1. ) ) ) ).toVar();
-			const veins = sub( 1., smoothstep( .012, .03, abs( field.sub( .5 ) ) ) ).toVar();
+			const crystal = iceCrystal( uv, cell ).toVar();
 
-			return clamp( add( .12, mul( .55, fres ).mul( fres ) ).add( mul( .80, veins ) ), 0., 1. );
+			return clamp( add( .10, mul( .40, fres ).mul( fres ) ).add( mul( .92, crystal.x ) ).add( mul( .16, crystal.y ) ), 0., 1. );
 
 		} );
 

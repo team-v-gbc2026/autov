@@ -126,6 +126,54 @@ float hexCells(vec2 uv, vec2 cell){
   float edge=abs(max(abs(h.x),abs(h.x)*.5+abs(h.y)*.866025)-.866025);
   return 1.-smoothstep(.035,.10,edge);
 }
+/** Reflect into one 30-degree wedge of the hexagonal point group. Ice Ih is
+ * hexagonal, and this fold is what makes a snowflake six-fold symmetric: every
+ * pattern evaluated after it is repeated around the axis twelve times. */
+vec2 hexFold(vec2 p){
+  p.x=abs(p.x);
+  vec2 mirrorA=vec2(-.8660254,.5), mirrorB=vec2(.8660254,.5);
+  p-=2.*min(0.,dot(p,mirrorA))*mirrorA;
+  p-=2.*min(0.,dot(p,mirrorB))*mirrorB;
+  return p;
+}
+vec2 iceHash(vec2 c){
+  vec3 h=fract(vec3(c.xyx)*vec3(.1031,.1030,.0973));
+  h+=dot(h,h.yzx+33.33);
+  return fract(vec2((h.x+h.y)*h.z,(h.x+h.z)*h.y));
+}
+/** Worley F2-F1: near zero on a grain boundary, large inside a grain, so the
+ * zero set is the facet web between crystal grains rather than a blob field. */
+vec2 iceFacets(vec2 p){
+  vec2 cellId=floor(p), offset=p-cellId;
+  float f1=8., f2=8.;
+  for(int j=-1;j<=1;j++){
+    for(int i=-1;i<=1;i++){
+      vec2 o=vec2(float(i),float(j));
+      float d=length(o+iceHash(cellId+o)-offset);
+      // Branchless "keep the two smallest": max(f1,d) is d only once d clears f1.
+      f2=min(f2,max(f1,d));
+      f1=min(f1,d);
+    }
+  }
+  // x: boundary web, y: distance to this grain's seed, which shades its face.
+  return vec2(f2-f1,f1);
+}
+/** The same fold-and-facet rule at three scales, each an irrational step apart
+ * so the levels never line up into visible tiling. Self-similar by
+ * construction: a grain of ice is grains of ice. */
+vec2 iceCrystal(vec2 uv, vec2 cell){
+  vec2 p=(uv-.5)*max(cell,vec2(.02))*9.;
+  float web=0., face=0., weight=0., scale=1., amp=1.;
+  for(int i=0;i<3;i++){
+    vec2 q=hexFold(p*scale);
+    vec2 f=iceFacets(q*2.4);
+    web+=amp*(1.-smoothstep(.02,.20,f.x));
+    face+=amp*(1.-smoothstep(.28,.95,f.y));
+    weight+=amp;
+    scale*=2.718282; amp*=.55;
+  }
+  return vec2(web,face)/max(weight,1e-4);
+}
 // uProcedural: 0 none (soft disc), 1 flame, 2 smoke, 3 solid, 4 hexagon,
 // 5 ice, 6 water, 7 water-streaks, 8 star, 9 sparkle, 10 portal, 11 energy-ribbon.
 float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, vec3 dims, int mode){
@@ -136,10 +184,9 @@ float proceduralShape(vec2 p, vec2 uv, float n, float t, float fres, vec2 cell, 
   vec2 q=p*2.;
   if(mode==4) return clamp(.10+.90*hexCells(uv,cell),0.,1.);
   if(mode==5){
-    // Frozen body: a fresnel-lit interior crossed by thin veins.
-    float field=.5+.5*snoise(vec3(uv*vec2(12.,6.)*max(cell,vec2(.02)),1.));
-    float veins=1.-smoothstep(.012,.03,abs(field-.5));
-    return clamp(.12+.55*fres*fres+.80*veins,0.,1.);
+    // Frozen body: a fresnel-lit interior behind a self-similar facet web.
+    vec2 crystal=iceCrystal(uv,cell);
+    return clamp(.10+.40*fres*fres+.92*crystal.x+.16*crystal.y,0.,1.);
   }
   if(mode==6 || mode==7){
     float bend=sin(q.y*2.8-t*2.2)*.12;
