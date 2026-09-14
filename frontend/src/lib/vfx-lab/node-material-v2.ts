@@ -89,8 +89,15 @@ export function createV2NodeMaterial(
         // lets the GPU unroll short curve/ramp loops and discard unused shapes.
         // Edits install new materials; animated keys preserve the same lengths.
         bindings[name] = int(uniforms[name].value);
-      } else if (binding.size)
-        bindings[name] = uniformArray(uniforms[name].value, binding.type);
+      } else if (binding.size) {
+        // Three names a uniform buffer's WGSL struct after the node's id unless
+        // the node carries a name. Naming it keeps the generated text identical
+        // between two materials of the same kind, which is what lets them share
+        // a compiled program.
+        const node = uniformArray(uniforms[name].value, binding.type);
+        node.setName(name);
+        bindings[name] = node;
+      }
       else
         bindings[name] = reference(
           "value",
