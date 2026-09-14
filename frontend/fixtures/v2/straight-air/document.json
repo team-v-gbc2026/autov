@@ -95,23 +95,23 @@
           "stops": [
             {
               "t": 0,
+              "color": "#8e9dae",
+              "intensity": 0.35
+            },
+            {
+              "t": 0.32,
               "color": "#ffffff",
-              "intensity": 0.95
+              "intensity": 1.0
             },
             {
-              "t": 0.35,
-              "color": "#dfe8f2",
-              "intensity": 0.7
-            },
-            {
-              "t": 0.75,
+              "t": 0.72,
               "color": "#a9b8c9",
-              "intensity": 0.42
+              "intensity": 0.5
             },
             {
               "t": 1,
               "color": "#6b7a8c",
-              "intensity": 0.2
+              "intensity": 0.22
             }
           ],
           "displacementShift": 0
@@ -153,15 +153,19 @@
             "keys": [
               [
                 0,
-                0.05
+                0.74
               ],
               [
-                0.5,
-                0.14
+                0.22,
+                0.06
+              ],
+              [
+                0.6,
+                0.1
               ],
               [
                 1,
-                0.3
+                0.22
               ]
             ],
             "ease": "smooth"
@@ -171,7 +175,7 @@
           "edgeColor": "#ffffff",
           "edgeIntensity": 1.0,
           "displacementProtect": 0,
-          "rimBias": 0.5
+          "rimBias": 0.45
         },
         "softParticle": 0,
         "fresnel": {
@@ -184,7 +188,7 @@
         "type": "cylinder",
         "segments": 96,
         "radialSegments": 20,
-        "radius": 0.92,
+        "radius": 0.55,
         "length": 7.4,
         "thickness": 0.24,
         "vertexNoise": {
@@ -407,8 +411,8 @@
         "velocity": {
           "mode": "directional",
           "speed": [
-            1.6,
-            4.2
+            2.4,
+            6.0
           ],
           "direction": [
             0.0,
@@ -420,8 +424,8 @@
           "speedCurve": null
         },
         "life": [
-          0.55,
-          1.5
+          0.8,
+          2.2
         ],
         "forces": {
           "gravity": [
@@ -622,8 +626,8 @@
         "velocity": {
           "mode": "tangential",
           "speed": [
-            1.2,
-            3.6
+            2.0,
+            5.4
           ],
           "direction": [
             0.0,
@@ -635,8 +639,8 @@
           "speedCurve": null
         },
         "life": [
-          0.6,
-          1.8
+          0.9,
+          2.4
         ],
         "forces": {
           "gravity": [
@@ -837,8 +841,8 @@
         "velocity": {
           "mode": "tangential",
           "speed": [
-            1.4,
-            3.8
+            2.2,
+            5.0
           ],
           "direction": [
             0.0,
@@ -850,8 +854,8 @@
           "speedCurve": null
         },
         "life": [
-          0.8,
-          2.0
+          1.0,
+          2.6
         ],
         "forces": {
           "gravity": [

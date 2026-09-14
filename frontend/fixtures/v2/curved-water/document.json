@@ -330,23 +330,28 @@
           "stops": [
             {
               "t": 0,
-              "color": "#f2feff",
-              "intensity": 1.5
+              "color": "#3f9cc4",
+              "intensity": 0.5
             },
             {
-              "t": 0.3,
-              "color": "#7ae0f4",
-              "intensity": 1.25
+              "t": 0.26,
+              "color": "#ddf8ff",
+              "intensity": 1.7
             },
             {
-              "t": 0.7,
-              "color": "#2ba0d6",
-              "intensity": 1.0
+              "t": 0.55,
+              "color": "#1d7fb4",
+              "intensity": 0.85
+            },
+            {
+              "t": 0.8,
+              "color": "#4fbde0",
+              "intensity": 1.2
             },
             {
               "t": 1,
-              "color": "#166fa6",
-              "intensity": 0.78
+              "color": "#0d456c",
+              "intensity": 0.55
             }
           ],
           "displacementShift": 0
@@ -388,15 +393,19 @@
             "keys": [
               [
                 0,
-                0.07
+                0.74
               ],
               [
-                0.6,
-                0.24
+                0.2,
+                0.12
+              ],
+              [
+                0.65,
+                0.26
               ],
               [
                 1,
-                0.5
+                0.52
               ]
             ],
             "ease": "smooth"
@@ -602,15 +611,19 @@
             "keys": [
               [
                 0,
-                0.06
+                0.7
               ],
               [
-                0.5,
-                0.18
+                0.18,
+                0.14
+              ],
+              [
+                0.55,
+                0.2
               ],
               [
                 1,
-                0.34
+                0.36
               ]
             ],
             "ease": "smooth"
@@ -734,23 +747,23 @@
           "stops": [
             {
               "t": 0,
-              "color": "#ffffff",
-              "intensity": 1.4
+              "color": "#cdefff",
+              "intensity": 0.95
             },
             {
               "t": 0.35,
-              "color": "#8fdcf5",
-              "intensity": 1.05
+              "color": "#6cc8e8",
+              "intensity": 0.8
             },
             {
               "t": 1,
-              "color": "#1d6c9c",
+              "color": "#14577f",
               "intensity": 0
             }
           ],
           "displacementShift": 0
         },
-        "opacity": 0.9,
+        "opacity": 0.62,
         "mask": {
           "textureId": "droplet-01",
           "uvScale": [
@@ -768,7 +781,7 @@
         },
         "noise": null,
         "erosion": null,
-        "softParticle": 0.25,
+        "softParticle": 0.35,
         "fresnel": null,
         "procedural": "none"
       },
@@ -843,8 +856,8 @@
           "mode": "velocityStretch",
           "stretch": 1.1,
           "size": [
-            0.045,
-            0.15
+            0.03,
+            0.1
           ],
           "sizeCurve": {
             "keys": [
@@ -949,23 +962,23 @@
           "stops": [
             {
               "t": 0,
-              "color": "#eafaff",
-              "intensity": 1.2
+              "color": "#bfe8f8",
+              "intensity": 0.85
             },
             {
               "t": 0.4,
-              "color": "#79cfec",
-              "intensity": 0.9
+              "color": "#5cbcdd",
+              "intensity": 0.65
             },
             {
               "t": 1,
-              "color": "#18608f",
+              "color": "#12527a",
               "intensity": 0
             }
           ],
           "displacementShift": 0
         },
-        "opacity": 0.82,
+        "opacity": 0.58,
         "mask": {
           "textureId": "droplet-01",
           "uvScale": [
@@ -983,7 +996,7 @@
         },
         "noise": null,
         "erosion": null,
-        "softParticle": 0.25,
+        "softParticle": 0.35,
         "fresnel": null,
         "procedural": "none"
       },
