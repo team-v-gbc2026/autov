@@ -146,13 +146,21 @@ export function appendGenerated(
   const ratio = base.duration / generated.duration;
   const ids = new Set(base.layers.map((layer) => layer.id));
   const layers = structuredClone(generated.layers);
+  const generatedIds = new Map<string, string>();
   for (const layer of layers) {
     const stem = layer.id.slice(0, 40);
     let id = stem;
     let suffix = 2;
     while (ids.has(id)) id = `${stem}-${suffix++}`;
+    generatedIds.set(layer.id, id);
     layer.id = id;
     ids.add(id);
+  }
+  // Resolve references after allocating every ID, including parents listed after children.
+  for (const layer of layers) {
+    const sub = layer.emitter?.sub;
+    if (sub)
+      sub.parentLayerId = generatedIds.get(sub.parentLayerId) ?? sub.parentLayerId;
     layer.start *= ratio;
     layer.end *= ratio;
     if (layer.motion)

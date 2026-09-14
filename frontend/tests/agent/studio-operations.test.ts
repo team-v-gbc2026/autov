@@ -100,6 +100,50 @@ test("additive generation preserves globals and old layers with non-colliding ID
   );
   assert.deepEqual({ ...next, layers: [] }, { ...base, layers: [] });
 });
+for (const collision of [false, true]) {
+  for (const childFirst of [false, true]) {
+    test(`additive generation preserves emitter parents (collision=${collision}, childFirst=${childFirst})`, () => {
+      const base = createPresetV2("fire-projectile");
+      const generated = structuredClone(base);
+      const [parent, child] = generated.layers
+        .filter((layer) => layer.kind === "particles")
+        .slice(0, 2);
+      if (!collision) {
+        parent.id = "generated-parent";
+        child.id = "generated-child";
+      }
+      parent.emitter!.sub = null;
+      child.emitter!.sub = {
+        parentLayerId: parent.id,
+        offset: [0, 0],
+        mode: "continuous",
+        inheritVelocity: 0,
+      };
+      generated.layers = childFirst ? [child, parent] : [parent, child];
+      const baseSnapshot = structuredClone(base);
+      const generatedSnapshot = structuredClone(generated);
+
+      const next = appendGenerated(base, generated);
+      const added = next.layers.slice(base.layers.length);
+      const addedParent = added[childFirst ? 1 : 0];
+      const addedChild = added[childFirst ? 0 : 1];
+      assert.equal(addedChild.emitter!.sub!.parentLayerId, addedParent.id);
+      if (collision) {
+        assert.notEqual(addedParent.id, parent.id);
+        assert.notEqual(addedChild.id, child.id);
+      } else {
+        assert.deepEqual(added, generated.layers);
+      }
+      assert.deepEqual(next.layers.slice(0, base.layers.length), base.layers);
+      assert.equal(
+        new Set(next.layers.map((layer) => layer.id)).size,
+        next.layers.length,
+      );
+      assert.deepEqual(base, baseSnapshot);
+      assert.deepEqual(generated, generatedSnapshot);
+    });
+  }
+}
 test("tags retain stable IDs, decode emitters, tolerate malformed and streaming text", () => {
   const id = "10000000-0000-4000-8000-000000000001";
   assert.deepEqual(
