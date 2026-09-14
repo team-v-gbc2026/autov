@@ -9,14 +9,18 @@ import {
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-// Default remains $30. Explicit local configuration may authorize up to $60, never an unlimited budget.
+// Default remains $30. Explicit local configuration may authorize up to $80 —
+// the OpenAI project cap — never an unlimited budget.
+export const MAX_SPEND_LIMIT_USD = 80;
 export const SPEND_LIMIT_USD = Number(process.env.OPENAI_VFX_BUDGET_USD || 30);
 if (
   !Number.isFinite(SPEND_LIMIT_USD) ||
   SPEND_LIMIT_USD <= 0 ||
-  SPEND_LIMIT_USD > 60
+  SPEND_LIMIT_USD > MAX_SPEND_LIMIT_USD
 )
-  throw new Error("Budget must be greater than zero and at most $60.");
+  throw new Error(
+    `Budget must be greater than zero and at most $${MAX_SPEND_LIMIT_USD}.`,
+  );
 export const DATA_DIR = path.resolve(
   /* turbopackIgnore: true */ process.env.AUTOV_DATA_DIR ||
     path.join(process.cwd(), ".autov-local"),
@@ -54,7 +58,7 @@ async function read(): Promise<Ledger> {
       value.version !== 1 ||
       !Number.isFinite(value.limit) ||
       value.limit <= 0 ||
-      value.limit > 60 ||
+      value.limit > MAX_SPEND_LIMIT_USD ||
       !Array.isArray(value.entries) ||
       value.entries.some((e) => !Number.isFinite(e.usd) || e.usd < 0)
     )

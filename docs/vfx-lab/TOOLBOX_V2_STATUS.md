@@ -231,10 +231,16 @@ plus the workspace emitter and fails on any GPU error or blank frame, which is a
 shader-link check caught. See `WEBGPU_PORT.md` for the programs, the converter extensions and the two
 device limits (eight vertex buffers, twelve uniform buffers per stage) that shaped the contract.
 
-Budget: the OpenAI project cap is $80 (raised 2026-09-14). The local ledger (`budget.ts`) caps at $60
+Budget: the OpenAI project cap is $80 (raised 2026-09-14). The local ledger (`budget.ts`) caps at $80
 by code and stood at $56.7 after `v2-fast-dev`; the validation cases (fx06, fx08, fx15) and the holdout
 five were not run. To run more, archive `.autov-local/budget.json` and start a fresh ledger; holdout
 additionally needs `--final-evaluation`.
+
+Studio path: the product generator (`studio-tools/generation.ts`, behind `generate_vfx` and
+`/api/studio`) now shares the candidate system prompt, payload builder (family routing, technique
+brief, exemplar scale summary) and the model-free exemplar-camera repair with `/api/local-vfx` via
+`lib/vfx-lab/candidate-v2.ts`; it adds no paid repair stage and `add` mode still leaves the camera
+alone. See "What the generation prompt contains" in `docs/EVE_STUDIO_TOOLS.md`.
 
 Next: PR `feature/vfx-technique-cards` → `main` after merging `main` in; then make the improvement loop
 act on framing/timing/luminance (exemplar camera + timing copy on `smallInFrame`, a luminance cap

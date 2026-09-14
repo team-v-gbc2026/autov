@@ -2,7 +2,12 @@ import { z } from "zod";
 import { callStructuredModel, modelCost, structuredInput } from "../vfx-lab/model-provider";
 import { PlanSchema } from "../vfx-lab/protocol";
 import { TECHNICAL_GUIDE_V2 } from "../vfx-lab/protocol-v2";
-import { RECIPES_V2, createPresetV2, recipeV2For } from "../vfx-lab/recipes-v2";
+import { recipeV2For } from "../vfx-lab/recipes-v2";
+import {
+  CANDIDATE_V2_SYSTEM,
+  candidatePayloadV2,
+  repairCandidateV2,
+} from "../vfx-lab/candidate-v2";
 import {
   DocumentV2WireSchema,
   fromWireV2,
@@ -29,11 +34,14 @@ export async function modelStage<T extends z.ZodType>(
   maxOutput: number,
   provider: typeof callStructuredModel = callStructuredModel,
 ) {
+  // Same ceiling as vfx-lab/budget.ts MAX_SPEND_LIMIT_USD, read here rather
+  // than imported: a bad configuration must surface as an OperationError on
+  // the request, not as a module-load throw in the product path.
   const limit = Number(process.env.OPENAI_VFX_BUDGET_USD || 30);
-  if (!Number.isFinite(limit) || limit <= 0 || limit > 60)
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 80)
     throw new OperationError(
       "UNAVAILABLE",
-      "Configure a generation budget between $0 and $60.",
+      "Configure a generation budget between $0 and $80.",
     );
   signal.throwIfAborted();
   if (!process.env.OPENAI_API_KEY) throw new OperationError("UNAVAILABLE", "Configure OPENAI_API_KEY on the server before generating.");
@@ -99,6 +107,7 @@ export async function generateCandidate(
   operation: Operation,
   input: z.infer<typeof GenerationSchema>,
   signal: AbortSignal,
+  provider: typeof callStructuredModel = callStructuredModel,
 ): Promise<VfxDocumentV2> {
   const state = await readState(identity);
   if (state.revision !== input.expectedRevision)
@@ -124,26 +133,38 @@ export async function generateCandidate(
     images,
     signal,
     12000,
+    provider,
   );
-  const family = recipeV2For(plan.recipe);
+  // Routing reads the user's own words, never the serialized document that
+  // "add" mode appends to the prompt for context.
+  const family = recipeV2For(plan.recipe, input.prompt);
   const wire = await modelStage(
     identity,
     operation,
     "candidate",
     DocumentV2WireSchema,
-    `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete v2 document. Use the example as the scale reference.`,
-    JSON.stringify({
-      prompt,
-      plan: { ...plan, textures: [] },
-      recipe: RECIPES_V2[family].knowledge,
-      example: createPresetV2(family),
-    }),
+    CANDIDATE_V2_SYSTEM,
+    JSON.stringify(
+      candidatePayloadV2({
+        prompt,
+        intent: input.prompt,
+        plan: { ...plan, textures: [] },
+        family,
+        scale: true,
+      }),
+    ),
     images,
     signal,
     32000,
+    provider,
   );
   const generated = fromWireV2(wire, []);
-  return input.mode === "add"
-    ? appendGenerated(state.document, generated)
-    : { ...generated, environment: structuredClone(state.document.environment) };
+  // "add" contributes layers to a scene that already has its own camera:
+  // re-framing it against an exemplar would move a shot nobody asked about.
+  if (input.mode === "add") return appendGenerated(state.document, generated);
+  const { document } = repairCandidateV2(generated, family);
+  return {
+    ...document,
+    environment: structuredClone(state.document.environment),
+  };
 }

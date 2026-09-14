@@ -40,6 +40,11 @@ import {
 } from "@/lib/vfx-lab/recipes-v2";
 import { techniqueBrief } from "@/lib/vfx-lab/techniques-v2";
 import {
+  CANDIDATE_V2_SYSTEM,
+  candidatePayloadV2,
+  repairCandidateV2,
+} from "@/lib/vfx-lab/candidate-v2";
+import {
   DocumentV2Schema,
   DocumentV2WireSchema,
   fromWireV2,
@@ -463,15 +468,10 @@ export async function POST(request: Request) {
       const family = recipeV2For(run.plan.recipe, run.prompt);
       const result = await callModel(
         DocumentV2WireSchema,
-        `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete autov.lab/2 document. The example is the scale reference: match its particle counts, sizes, light intensity and silhouette extent, and change the shapes, colors and timing to fit the plan. Give this candidate a distinctive structure: ${directions[body.index]}`,
-        JSON.stringify({
-          prompt: run.prompt,
-          plan: run.plan,
-          family,
-          recipe: RECIPES_V2[family].knowledge,
-          technique: techniqueBrief(family, run.prompt),
-          example: createPresetV2(family),
-        }),
+        `${CANDIDATE_V2_SYSTEM} Give this candidate a distinctive structure: ${directions[body.index]}`,
+        JSON.stringify(
+          candidatePayloadV2({ prompt: run.prompt, plan: run.plan, family }),
+        ),
         run.references,
         request.signal,
         32000,
@@ -532,11 +532,9 @@ export async function POST(request: Request) {
         await saveRun(run);
         throw new Error(problems[0]);
       }
-      // The one lint warning no prompt reliably fixes: a mesh-hero document
-      // framed in the particle band. It is a two-number correction against a
-      // measured reference, so it is applied here rather than asked for again.
-      doc = applyExemplarCameraV2(doc, createPresetV2(family));
-      const warnings = lintDocumentV2(doc);
+      const repaired = repairCandidateV2(doc, family);
+      doc = repaired.document;
+      const warnings = repaired.warnings;
       run.documents.push(doc);
       await saveRun(run);
       return json({
