@@ -23,3 +23,27 @@ test("forged project identity is rejected before trusted transitions", async () 
   const response = await GET(new Request("http://localhost/api/studio", { headers: { "x-autov-project-id": projectId, Authorization: "Bearer user-token" } }));
   assert.equal(response.status, 404);
 });
+
+test("studio polling checks ownership once and returns current state", async () => {
+  const { createPresetV2 } = await import("../../src/lib/vfx-lab/recipes-v2");
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://database.example.com";
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "test-publishable";
+  process.env.SUPABASE_SECRET_KEY = "test-secret";
+  let ownershipReads = 0;
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/auth/v1/user") return Response.json({ id: projectId });
+    if (url.pathname === "/rest/v1/projects") {
+      ownershipReads++;
+      return Response.json({ id: projectId });
+    }
+    assert.equal(url.searchParams.get("project_id"), `eq.${projectId}`);
+    if (url.pathname === "/rest/v1/studio_documents") return Response.json({ revision: 3, document: createPresetV2("fire-projectile") });
+    if (["/rest/v1/studio_operations", "/rest/v1/assets"].includes(url.pathname)) return Response.json([]);
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  };
+  const response = await GET(new Request("http://localhost/api/studio", { headers: { "x-autov-project-id": projectId, Authorization: "Bearer user-token" } }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).revision, 3);
+  assert.equal(ownershipReads, 1);
+});

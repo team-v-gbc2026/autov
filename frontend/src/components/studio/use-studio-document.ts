@@ -217,7 +217,7 @@ export function useStudioDocument(
       }
     };
     void synchronize();
-    const interval = setInterval(() => void synchronize(), 1000);
+    const interval = setInterval(() => void synchronize(), 5000);
     const client = createClient();
     const channel = client
       .channel(`studio-${projectId}-${crypto.randomUUID()}`)
@@ -231,10 +231,18 @@ export function useStudioDocument(
         },
         () => void synchronize(),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "studio_operations", filter: `project_id=eq.${projectId}` },
+        () => void synchronize(),
+      )
       .subscribe();
+    const onFocus = () => void synchronize();
+    window.addEventListener("focus", onFocus);
     return () => {
       active = false;
       clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
       void client.removeChannel(channel);
     };
   }, [projectId, standalone]);

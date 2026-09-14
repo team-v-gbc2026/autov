@@ -54,24 +54,29 @@ export async function GET(request: Request) {
   try {
     const access = await authorizeProject(request),
       identity = { userId: access.userId, projectId: access.project.id };
-    const state = await readState(identity);
     const client = admin();
-    const { data: operations, error } = await client
-      .from("studio_operations")
-      .select("id,kind,status,expected_revision,input,expires_at")
-      .eq("project_id", identity.projectId)
-      .in("kind", ["view", "reference_view", "preview", "capture_candidate"])
-      .in("status", ["pending", "running"])
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at");
-    if (error) throw new Error("Operation storage unavailable");
-    const { data: assets, error: assetError } = await access.client
-      .from("assets")
-      .select("id,name,storage_path,mime_type")
-      .eq("project_id", identity.projectId)
-      .eq("archived", false)
-      .order("created_at");
-    if (assetError) throw new Error("Reference storage unavailable");
+    // Authorization already checked ownership; use the user's RLS-scoped client for reads.
+    const [documentResult, operationResult, assetResult] = await Promise.all([
+      access.client.from("studio_documents").select("revision,document")
+        .eq("project_id", identity.projectId).single(),
+      client.from("studio_operations")
+        .select("id,kind,status,expected_revision,input,expires_at")
+        .eq("project_id", identity.projectId)
+        .in("kind", ["view", "reference_view", "preview", "capture_candidate"])
+        .in("status", ["pending", "running"])
+        .gt("expires_at", new Date().toISOString()).order("created_at"),
+      access.client.from("assets").select("id,name,storage_path,mime_type")
+        .eq("project_id", identity.projectId).eq("archived", false).order("created_at"),
+    ]);
+    if (documentResult.error || !documentResult.data)
+      throw new OperationError("UNAVAILABLE", "Open the studio to initialize this effect.");
+    if (operationResult.error) throw new Error("Operation storage unavailable");
+    if (assetResult.error) throw new Error("Reference storage unavailable");
+    const state = {
+      revision: Number(documentResult.data.revision),
+      document: validateWorkspaceDocumentV2(documentResult.data.document),
+    };
+    const operations = operationResult.data, assets = assetResult.data;
     return Response.json(
       { ...state, operations, assets },
       { headers: { "Cache-Control": "no-store" } },

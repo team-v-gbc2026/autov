@@ -95,3 +95,10 @@ not to chat components. Share the provider transport with local generation, but
 inject project-backed persistence and spending. New image-producing steps must use
 the board asset registration boundary before returning image pixels or referencing
 those images in later generation calls.
+
+Prepared reference JPEGs use a process-local cache capped at 32 MiB with a five-minute
+TTL and least-recently-used eviction. Every inspection still checks project ownership
+and current asset availability. Keys include project, asset ID, storage path, MIME type,
+and file size; names are read fresh. Board uploads use unique paths. An external overwrite
+at the same path with unchanged metadata can remain cached until expiry. Restarts clear
+the cache, and instances do not share it. Documents and generation results are not cached.

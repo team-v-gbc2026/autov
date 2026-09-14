@@ -5,7 +5,9 @@ import sharp from "sharp";
 import { referenceParts } from "../../agent/lib/references";
 const projectId = "10000000-0000-4000-8000-000000000001";
 const id = "10000000-0000-4000-8000-000000000002";
+let fixture = 0;
 function fakeClient(bytes: Uint8Array, available = true) {
+  const path = `owned/reference-${fixture++}`;
   const query = {
     select() { return this; },
     eq(key: string, value: unknown) {
@@ -13,7 +15,7 @@ function fakeClient(bytes: Uint8Array, available = true) {
       if (key === "archived") assert.equal(value, false);
       return this;
     },
-    async in() { return { data: available ? [{ id, name: "Blue flame", storage_path: "owned/reference", mime_type: "image/png" }] : [], error: null }; },
+    async in() { return { data: available ? [{ id, name: "Blue flame", storage_path: path, mime_type: "image/png" }] : [], error: null }; },
   };
   return { from: () => query, storage: { from: () => ({ download: async () => ({ data: new Blob([Buffer.from(bytes)]), error: null }) }) } } as unknown as SupabaseClient;
 }
@@ -37,4 +39,22 @@ test("unavailable or cross-project references fail before image download", async
 });
 test("corrupt image input gives a useful rejection", async () => {
   await assert.rejects(referenceParts(fakeClient(new Uint8Array([1, 2, 3])), projectId, [id]), { code: "INVALID_IMAGE" });
+});
+
+test("repeated inspection reuses bytes but still checks asset availability", async () => {
+  const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: "red" } }).png().toBuffer();
+  const client = fakeClient(bytes);
+  let downloads = 0;
+  const storage = client.storage.from.bind(client.storage);
+  client.storage.from = ((bucket: string) => {
+    downloads++;
+    return storage(bucket);
+  }) as typeof client.storage.from;
+  const first = await referenceParts(client, projectId, [id]);
+  const second = await referenceParts(client, projectId, [id]);
+  assert.deepEqual(second, first);
+  assert.equal(downloads, 1);
+  client.from = fakeClient(bytes, false).from;
+  await assert.rejects(referenceParts(client, projectId, [id]), { code: "INVALID_REFERENCES" });
+  assert.equal(downloads, 1);
 });
