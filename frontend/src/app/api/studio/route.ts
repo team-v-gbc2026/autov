@@ -12,6 +12,8 @@ import {
 } from "@/lib/studio-tools/server";
 import { OperationError } from "@/lib/studio-tools/operations";
 import { registerCapture } from "@/lib/studio-tools/references";
+import { renewCaptureLease } from "@/lib/studio-tools/capture-lease";
+import { startHeartbeat } from "@/lib/studio-tools/heartbeat";
 import { validateWorkspaceDocumentV2 } from "@/lib/vfx-lab/schema-v2";
 export const runtime = "nodejs";
 const uuid = z.string().uuid();
@@ -26,6 +28,7 @@ const RequestSchema = z.discriminatedUnion("action", [
     })
     .strict(),
   z.object({ action: z.literal("claim"), id: uuid, leaseId: uuid }).strict(),
+  z.object({ action: z.literal("renew"), id: uuid, leaseId: uuid }).strict(),
   z
     .object({
       action: z.literal("ack"),
@@ -129,13 +132,18 @@ export async function POST(request: Request) {
         await commit(identity, operation, document, "Saved studio edits."),
       );
     }
-    if (body.action === "claim")
-      return Response.json(
-        await transition(identity, "claim", {
+    if (body.action === "renew")
+      return Response.json(await renewCaptureLease(identity, body.id, body.leaseId));
+    if (body.action === "claim") {
+      const claimed = await transition(identity, "claim", {
           id: body.id,
           leaseId: body.leaseId,
-        }),
-      );
+        });
+      if (claimed?.status === "running" && claimed.lease_id === body.leaseId &&
+          ["preview", "capture_candidate"].includes(claimed.kind))
+        return Response.json(await renewCaptureLease(identity, body.id, body.leaseId));
+      return Response.json(claimed);
+    }
     const op = (await transition(identity, "poll", {
       id: body.id,
     })) as Operation;
@@ -155,11 +163,17 @@ export async function POST(request: Request) {
         body.renderedPixels === undefined
       )
         throw new OperationError("INVALID_INPUT", "Missing renderer evidence.");
-      result = {
-        ...(await registerCapture(identity, op, body.sheet, body.times)),
-        times: body.times,
-        renderedPixels: body.renderedPixels,
-      };
+      await renewCaptureLease(identity, body.id, body.leaseId);
+      const stopHeartbeat = startHeartbeat(() => renewCaptureLease(identity, body.id, body.leaseId));
+      try {
+        result = {
+          ...(await registerCapture(identity, op, body.sheet, body.times)),
+          times: body.times,
+          renderedPixels: body.renderedPixels,
+        };
+      } finally {
+        await stopHeartbeat();
+      }
     }
     return Response.json(
       await transition(identity, "ack", {

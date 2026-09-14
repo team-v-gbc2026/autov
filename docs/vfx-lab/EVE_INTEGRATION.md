@@ -32,6 +32,23 @@ do not call it. `generation.ts` contains provider accounting and context loading
 
 ## Preserved constraints
 
+### Capture timeout and recovery
+
+Claimed previews/candidates renew their browser lease every ten seconds during
+rendering and server-side image upload. Each renewal grants up to two minutes,
+bounded by ten minutes from operation creation. Conditional updates require
+project ownership, the same live lease, running status and unexpired deadlines;
+cancelled/expired operations cannot be revived. No schema migration is required.
+
+A terminal capture failure returns its stored reason and recovery handles to
+Eve rather than throwing a receipt step that retries the same terminal result.
+On user request, `recover_vfx_candidate` creates a fresh capture from the exact
+saved document without another generation call. It requires the original
+conversation, an open parent generation, and an unchanged scene revision.
+Inspection and commit are still required; a board image alone is not a commit.
+
+### Authoring and commit guarantees
+
 - Explicit intent and host constraints override exemplar defaults. Studio does
   not replace the authored camera with the exemplar camera.
 - Add mode preserves original layers/global settings, allocates collision-free

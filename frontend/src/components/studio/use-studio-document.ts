@@ -7,6 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 import { agentHeaders } from "@/lib/agent/client";
+import { startHeartbeat } from "@/lib/studio-tools/heartbeat";
 import { createClient } from "@/lib/supabase/client";
 import {
   validateWorkspaceDocumentV2,
@@ -35,6 +36,10 @@ export async function studioRequest(projectId: string, body?: unknown) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const result = await response.json();
+  if (!response.ok && body && typeof body === "object" && "action" in body &&
+      body.action === "renew" && typeof result.error === "string" &&
+      /discriminator/i.test(result.error))
+    throw new Error("The Studio server is outdated and does not support capture renewal. Export unsaved edits, restart or deploy the updated Next.js server and Eve together, then refresh Studio.");
   if (!response.ok)
     throw new Error(result.error || "Studio synchronization failed.");
   return result;
@@ -176,6 +181,12 @@ export function useStudioDocument(
           });
           if (!claimed || claimed.status !== "running") continue;
           handled.add(operation.id);
+          const stopHeartbeat = ["preview", "capture_candidate"].includes(operation.kind)
+            ? startHeartbeat(async () => {
+                if (!active) throw new Error("Studio closed during capture.");
+                await studioRequest(projectId, { action: "renew", id: operation.id, leaseId });
+              })
+            : async () => {};
           try {
             if (operation.expected_revision !== current.revision)
               throw new Error("Effect changed before browser action.");
@@ -189,20 +200,26 @@ export function useStudioDocument(
               current.revision !== operation.expected_revision
             )
               throw new Error("Effect changed during browser action.");
-            await studioRequest(projectId, {
+            // The acknowledgement handler renews throughout image upload.
+            await stopHeartbeat();
+            const acknowledged = await studioRequest(projectId, {
               action: "ack",
               id: operation.id,
               leaseId,
               ...result,
             });
+            if (acknowledged.status !== "completed")
+              throw new Error(acknowledged.result?.message || "Browser acknowledgement did not complete.");
           } catch (cause) {
+            await stopHeartbeat().catch(() => {});
+            if (active) setError(cause instanceof Error ? cause.message : "Capture failed.");
             await studioRequest(projectId, {
               action: "ack",
               id: operation.id,
               leaseId,
               error:
                 cause instanceof Error
-                  ? cause.message
+                  ? cause.message.slice(0, 500)
                   : "Browser action failed.",
             }).catch(() => {});
           }

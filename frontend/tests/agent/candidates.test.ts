@@ -5,6 +5,7 @@ import {
   commitCandidate,
   editCandidate,
   candidateReceipt,
+  recoverCandidate,
 } from "../../agent/lib/candidates";
 import { createDocument } from "../../src/lib/vfx-lab/ui-bridge";
 import type { Operation } from "../../src/lib/studio-tools/server";
@@ -101,7 +102,43 @@ test("candidate receipt is uncommitted and includes every layer's editable data"
   const result = await candidateReceipt(operationId, capture);
   assert.equal(result.committed, false);
   assert.equal(result.referenceId, referenceId);
+  assert.ok(result.document);
   assert.deepEqual(result.document.layers, document.layers);
+});
+
+test("expired receipt returns the stored reason and recovery handle without throwing/retries", async () => {
+  const { capture } = mock();
+  capture.status = "expired";
+  capture.result = { message: "Capture lease expired." };
+  const result = await candidateReceipt(operationId, capture);
+  assert.equal(result.committed, false);
+  assert.equal(result.error, "Capture lease expired.");
+  assert.equal(result.captureId, captureId);
+  assert.match(result.next, /recover_vfx_candidate/);
+});
+
+test("blank completed capture returns failure without claiming success", async () => {
+  const { capture } = mock();
+  capture.result!.renderedPixels = 0;
+  const result = await candidateReceipt(operationId, capture);
+  assert.match(result.error!, /nonblank/);
+});
+
+test("recovery reuses a saved document with only a new capture operation", async () => {
+  const { capture, writes } = mock();
+  capture.status = "expired";
+  const result = await recoverCandidate(ctx, captureId);
+  assert.equal(result.operation.id, operationId);
+  assert.deepEqual(writes, ["create"]);
+});
+
+test("recovery rejects stale scene and cancelled capture without writes", async () => {
+  const { capture, writes } = mock({ revision: 8 });
+  capture.status = "expired";
+  await assert.rejects(recoverCandidate(ctx, captureId), /scene changed/);
+  capture.status = "cancelled";
+  await assert.rejects(recoverCandidate(ctx, captureId), /Only a finished/);
+  assert.deepEqual(writes, []);
 });
 test("commit rejects a capture belonging to another operation", async () => {
   const { writes } = mock({ foreign: true, inspected: true });

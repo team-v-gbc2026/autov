@@ -161,12 +161,20 @@ export async function candidateReceipt(
   if (
     capture.status !== "completed" ||
     !Number.isFinite(Number(capture.result?.renderedPixels)) ||
-    Number(capture.result?.renderedPixels) < 8
+    Number(capture.result?.renderedPixels) < 8 ||
+    typeof capture.result?.referenceId !== "string"
   )
-    throw new OperationError(
-      "UNAVAILABLE",
-      "Candidate capture failed. Previous effect preserved.",
-    );
+    return {
+      operationId,
+      captureId: capture.id,
+      committed: false,
+      captureStatus: capture.status,
+      error:
+        typeof capture.result?.message === "string"
+          ? capture.result.message
+          : "Capture completed without nonblank renderer evidence.",
+      next: "Previous effect preserved. Do not regenerate. On user request, use recover_vfx_candidate with this captureId to re-capture the saved document, then inspect and commit it.",
+    };
   const document = validateWorkspaceDocumentV2(capture.input.document);
   return {
     operationId,
@@ -183,6 +191,53 @@ export async function candidateReceipt(
     ),
     next: "Inspect reference pixels, then edit_vfx_candidate or commit_vfx_candidate.",
   };
+}
+
+export async function recoverCandidate(
+  ctx: WorkflowToolContext,
+  captureId: string,
+) {
+  "use step";
+  const identity = await toolIdentity(ctx);
+  const source = await ownedOperation(identity, ctx.session.id, captureId);
+  if (
+    source.kind !== "capture_candidate" ||
+    !["failed", "expired", "completed"].includes(source.status) ||
+    typeof source.input.candidateOperationId !== "string"
+  )
+    throw new OperationError(
+      "INVALID_INPUT",
+      "Only a finished candidate capture can be recovered.",
+    );
+  const operation = await ownedOperation(
+    identity,
+    ctx.session.id,
+    source.input.candidateOperationId,
+  );
+  const state = await readState(identity);
+  if (
+    operation.kind !== "generate" ||
+    !["pending", "running"].includes(operation.status) ||
+    state.revision !== operation.expected_revision ||
+    source.expected_revision !== operation.expected_revision
+  )
+    throw new OperationError(
+      "CONFLICT",
+      "The scene changed or generation was closed. Recovery cannot overwrite it.",
+    );
+  const document = validateWorkspaceDocumentV2(source.input.document);
+  const capture = await createOperation(
+    identity,
+    ctx.session.id,
+    `${ctx.callId}:recovery`,
+    "capture_candidate",
+    state.revision,
+    { document, candidateOperationId: operation.id, recoveredFrom: source.id },
+    true,
+    ctx.session.turn.id,
+    operation.id,
+  );
+  return { identity, operation, capture };
 }
 
 export async function editCandidate(

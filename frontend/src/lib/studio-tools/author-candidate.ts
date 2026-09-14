@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GenerationSchema, OperationError } from "./operations";
 import { ArtDirectionSchema, TextureDirectionSchema } from "./art-direction";
+import { resolveTextureBindings } from "./texture-bindings";
 import { modelStage, resolveGenerationContext } from "./generation";
 import {
   composeGeneration,
@@ -116,18 +117,7 @@ export async function authorCandidate(
     ...input.textureIds,
     ...(context.effectTextures ?? []).map((asset) => asset.id),
   ]);
-  if (
-    input.textures.bindings.length !== input.direction.textureNeeds.length ||
-    input.textures.bindings.some(
-      (binding, index) =>
-        binding.role !== input.direction.textureNeeds[index]?.role ||
-        (binding.textureId !== null && !allowed.has(binding.textureId)),
-    )
-  )
-    throw new OperationError(
-      "INVALID_INPUT",
-      "Texture bindings must refer to inspected supplied assets.",
-    );
+  const textures = resolveTextureBindings(input.direction.textureNeeds, input.textures, allowed);
   const family = recipeV2For(input.family, input.prompt);
   const wire = await stage(
     identity,
@@ -138,7 +128,7 @@ export async function authorCandidate(
     JSON.stringify({
       brief: context.brief,
       direction: input.direction,
-      textures: input.textures,
+      textures,
       techniques: input.techniqueIds.map((id) => TECHNIQUES_V2[id]),
       example: documentForModel(createPresetV2(family)),
     }),
