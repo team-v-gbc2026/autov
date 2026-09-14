@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "autov-dev",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd frontend && AUTOV_LOCAL_MODE=1 VFX_FIXTURES_LOCAL_ONLY=1 npx next dev --hostname 127.0.0.1 --port 3032"
+      ],
+      "port": 3032
+    }
+  ]
+}

@@ -102,6 +102,11 @@ const cards = [
     body: "Flaming crescent slash with a three-tone stack and a tearing tail, served from dev-assets/vfx-v2/spike-slash.html.",
   },
   {
+    href: "/dev/vfx-review",
+    title: "VFX review",
+    body: "Every v2 exemplar family next to its benchmark reference video, with a jump to its spike page.",
+  },
+  {
     href: "/dev/vfx-lab",
     title: "Legacy local studio",
     body: "The original local VFX Lab studio: generate, refine and export effects with a local OpenAI key.",
