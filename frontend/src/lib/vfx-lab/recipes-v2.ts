@@ -113,6 +113,7 @@ type MaterialOptions = {
 function mat(options: MaterialOptions): Material {
   const base = defaultMaterial();
   return {
+    shading: "unlit",
     blend: options.blend ?? "additive",
     ramp: {
       space: options.space ?? "layerTime",
@@ -747,7 +748,7 @@ export const RECIPES_V2: Record<
     name: "Smoke burst",
     subtitle: "A grounded puff with a rising eroded column.",
     knowledge:
-      "A yellow glint anticipates the pop, then a thin accent ring snaps outward and a pink billow spreads at the base. The plume is three particle layers sharing one emission wave, each with a different puff mask, a different size band and a ramp in one broad tone \u2014 dark plum cores, a mid purple body, small light violet caps \u2014 so the lobes read as shaded shapes rather than a fuzzy cloud. Alpha blend, low erosion softness and a large-scale noise keep the silhouettes crisp. Wisps with the wisp masks and stronger erosion start as the plume tears, and everything is gone before the end. A continuous emitter is only visible for one spawn period, so set spawn.window to the emission span plus the longest life and spawn.duration to the emission span.",
+      "A yellow glint anticipates the pop, then a thin accent ring snaps outward and a pink billow spreads at the base. The plume is three particle layers sharing one emission wave, each with a different puff mask, a different size band and a ramp in one broad tone \u2014 dark plum cores, a mid purple body, small light violet caps \u2014 so the lobes read as shaded shapes rather than a fuzzy cloud. Alpha blend, low erosion softness and a large-scale noise keep the silhouettes crisp. Wisps with the wisp masks and stronger erosion start as the plume tears, and everything is gone before the end. For continuous emission, slots recycle every count/rate seconds; choose a period at least as long as the longest life, distribute initial births with spawn.window, and set spawn.duration to the emission span. Keep the layer alive for the desired tail.",
   },
   "lightning-impact": {
     name: "Lightning impact",
@@ -759,7 +760,7 @@ export const RECIPES_V2: Record<
     name: "Fire slash",
     subtitle: "An airborne arc with a hot core and dim body.",
     knowledge:
-      "A wind-up glow and an ignition flash sprite precede two full-circle ribbon geometries (radius = 2π) grown by animating transform.scale, not geometry.length: an additive hot core (leading edge) and a wider alpha-blended dim body (trailing edge), sharing one position/rotation so they read as one blade. Each ribbon drives per-stop material.erosion.curve.keys[i][1] tracks so the burn front advances stop by stop instead of eroding as a whole. A line emitter along the same arc axis throws curl-forced embers, velocity-stretched sparks and dot glints; alpha-blended, heavily eroded smoke trails last and longest. One orange point light lands it — no ground decal, since the sweep happens in the air.",
+      "A wind-up glow and an ignition flash sprite precede two full-circle ribbon geometries (length = 2π radians, radius = spatial radius) grown by animating transform.scale or geometry.radius; animate geometry.length only to change the swept angle: an additive hot core (leading edge) and a wider alpha-blended dim body (trailing edge), sharing one position/rotation so they read as one blade. Each ribbon drives per-stop material.erosion.curve.keys[i][1] tracks so the burn front advances stop by stop instead of eroding as a whole. A line emitter along the same arc axis throws curl-forced embers, velocity-stretched sparks and dot glints; alpha-blended, heavily eroded smoke trails last and longest. One orange point light lands it — no ground decal, since the sweep happens in the air.",
   },
   beam: {
     name: "Sustained beam",
@@ -783,7 +784,7 @@ export const RECIPES_V2: Record<
     name: "Ice blast",
     subtitle: "Erupting crystals with frost and mist.",
     knowledge:
-      "A frost decal and cold-pool glow ease in under a cold anticipation sprite before a crystal-cluster shell erupts by tracking transform.scale on all three axes through an overshoot-and-settle curve (not geometry.length), using the ice procedural, a blue-to-white surface ramp and fresnel. An expanding, thinning torus ring, a disc-shaped ground mist with floor collision, a two-burst mist eruption, hemisphere-burst ice shards and continuous sphere-emitted glitter fly outward on gravity and drag. A late burst of ground frost glints adds a final flourish near the base. One blue-white point light and the frost decal, already faded in before impact, tie it together.",
+      "A frost decal and cold-pool glow ease in under a cold anticipation sprite before a crystal-cluster shell erupts by tracking transform.scale on all three axes through an overshoot-and-settle curve (not geometry.length), using the ice procedural, a blue-to-white surface ramp and fresnel. An expanding, thinning torus ring, a disc-shaped ground mist with a soft floor constraint, a two-burst mist eruption, hemisphere-burst ice shards and continuous sphere-emitted glitter fly outward on gravity and drag. A late burst of ground frost glints adds a final flourish near the base. One blue-white point light and the frost decal, already faded in before impact, tie it together.",
   },
 };
 

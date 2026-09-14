@@ -47,6 +47,9 @@ export const GenerationSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
     prompt: z.string().trim().min(1).max(10000),
+    requirements: z.array(z.string().trim().min(1).max(200)).max(5).default([]),
+    avoid: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+    textureIds: z.array(z.string().max(48)).max(4).default([]),
     referenceIds: z.array(z.string().uuid()).max(8),
     mode: z.enum(["replace", "add"]),
   })
@@ -160,7 +163,8 @@ export function appendGenerated(
   for (const layer of layers) {
     const sub = layer.emitter?.sub;
     if (sub)
-      sub.parentLayerId = generatedIds.get(sub.parentLayerId) ?? sub.parentLayerId;
+      sub.parentLayerId =
+        generatedIds.get(sub.parentLayerId) ?? sub.parentLayerId;
     layer.start *= ratio;
     layer.end *= ratio;
     if (layer.motion)
@@ -188,8 +192,23 @@ export function appendGenerated(
       ];
     }
   }
+  const textures = new Map(
+    (base.textures ?? []).map((asset) => [asset.id, asset]),
+  );
+  for (const asset of generated.textures ?? []) {
+    if (
+      textures.has(asset.id) &&
+      textures.get(asset.id)!.sha256 !== asset.sha256
+    )
+      throw new OperationError(
+        "INVALID_INPUT",
+        "Generated texture conflicts with an existing asset.",
+      );
+    textures.set(asset.id, asset);
+  }
   return validateWorkspaceDocumentV2({
     ...structuredClone(base),
+    textures: [...textures.values()],
     layers: [...base.layers, ...layers],
   });
 }
@@ -199,6 +218,9 @@ export function summarize(document: VfxDocumentV2, layerIds: string[] = []) {
       throw new OperationError("NOT_FOUND", `Layer ${id} is unavailable.`);
   return {
     name: document.name,
+    textures: (document.textures ?? []).map(
+      ({ data: _data, ...metadata }) => metadata,
+    ),
     duration: document.duration,
     impact: document.impact,
     camera: document.camera,

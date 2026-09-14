@@ -22,6 +22,16 @@ const FIXTURE = path.join(
 const raw = JSON.parse(readFileSync(FIXTURE, "utf8"));
 const load = (): VfxDocumentV2 => structuredClone(raw);
 
+test("existing documents retain unlit shading and can opt into smoke lighting", () => {
+  const document = DocumentV2Schema.parse(load());
+  for (const layer of document.layers) {
+    if (!layer.material) continue;
+    assert.equal(layer.material.shading, "unlit");
+    layer.material.shading = "litSmoke";
+  }
+  assert.equal(DocumentV2Schema.safeParse(document).success, true);
+});
+
 test("the fire projectile exemplar validates as autov.lab/2", () => {
   const doc = validateDocumentV2(load());
   assert.equal(doc.schemaVersion, "autov.lab/2");

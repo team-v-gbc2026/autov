@@ -113,6 +113,7 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
   ];
   const wantsErosion = p.erosion > 0 || animated.has("erosion");
   return {
+    shading: "unlit",
     blend: p.blend === "normal" ? "alpha" : "additive",
     ramp: {
       space: layer.kind === "particles" ? "life" : "layerTime",

@@ -27,6 +27,8 @@ const vAlpha = bindings.vAlpha;
 const vRot = bindings.vRot;
 const vSeed = bindings.vSeed;
 const vTile = bindings.vTile;
+const vNextTile = bindings.vNextTile;
+const vFrameMix = bindings.vFrameMix;
 const vWp = bindings.vWp;
 const uCurveA = bindings.uCurveA;
 const uCurveAN = bindings.uCurveAN;
@@ -79,7 +81,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep, mod } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, mod, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -292,6 +294,44 @@ const uv = TSL.uv();
 		} );
 
 		return v;
+
+	} );
+
+	const flipFrame = /*@__PURE__*/ Fn( ( [ life, age, tiles, mode, fps ] ) => {
+
+		const frame = float( 0. ).toVar();
+
+		If( mode.equal( 1 ), () => {
+
+			frame.assign( clamp( life, 0., 1. ).mul( max( tiles.sub( 1. ), 0. ) ) );
+
+		} ).ElseIf( mode.equal( 2 ), () => {
+
+			frame.assign( mod( max( age, 0. ).mul( fps ), tiles ) );
+
+		} );
+
+		return frame;
+
+	} );
+
+	const nextFlipFrame = /*@__PURE__*/ Fn( ( [ frame, tiles, mode ] ) => {
+
+		const next = min( floor( frame ).add( 1. ), tiles.sub( 1. ) ).toVar();
+
+		If( mode.equal( 2 ), () => {
+
+			next.assign( mod( floor( frame ).add( 1. ), tiles ) );
+
+		} );
+
+		return next;
+
+	} );
+
+	const tileOffset = /*@__PURE__*/ Fn( ( [ frame, cols, rows ] ) => {
+
+		return vec2( mod( floor( frame ), cols ).div( cols ), floor( floor( frame ).div( cols ) ).div( rows ) );
 
 	} );
 
@@ -676,18 +716,24 @@ const uv = TSL.uv();
 			// uFlipMode: 0 = random atlas tile, 1 = flipbook over life, 2 = flipbook at fps.
 
 			const ti = floor( aExtra.z.mul( tiles ).mul( .9999 ) ).toVar();
+			const frame = ti.toVar();
 
-			If( uFlipMode.equal( 1 ), () => {
+			If( uFlipMode.greaterThan( 0 ), () => {
 
-				ti.assign( floor( clamp( u, 0., .9999 ).mul( tiles ) ) );
-
-			} ).ElseIf( uFlipMode.equal( 2 ), () => {
-
-				ti.assign( floor( mod( max( age, 0. ).mul( uFlipFps ), tiles ) ) );
+				frame.assign( flipFrame( u, age, tiles, uFlipMode, uFlipFps ) );
 
 			} );
 
-			vTile.assign( vec2( mod( ti, cols ).div( cols ), floor( ti.div( cols ) ).div( rows ) ) );
+			vTile.assign( tileOffset( frame, cols, rows ) );
+			vNextTile.assign( vTile );
+			vFrameMix.assign( 0. );
+
+			If( uFlipMode.greaterThan( 0 ), () => {
+
+				vNextTile.assign( tileOffset( nextFlipFrame( frame, tiles, uFlipMode ), cols, rows ) );
+				vFrameMix.assign( fract( frame ) );
+
+			} );
 
 		} );
 
@@ -697,7 +743,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const particleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"}};
+export const particleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vNextTile":{"type":"vec2","kind":"varying"},"vFrameMix":{"type":"float","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -728,6 +774,8 @@ const vAlpha = bindings.vAlpha;
 const vRot = bindings.vRot;
 const vSeed = bindings.vSeed;
 const vTile = bindings.vTile;
+const vNextTile = bindings.vNextTile;
+const vFrameMix = bindings.vFrameMix;
 const vWp = bindings.vWp;
 const uCurveA = bindings.uCurveA;
 const uCurveAN = bindings.uCurveAN;
@@ -822,7 +870,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep, mod } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, mod, instance, fract, sqrt, cos, sin, tan, exp, add, mat2, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -1035,6 +1083,44 @@ const uv = TSL.uv();
 		} );
 
 		return v;
+
+	} );
+
+	const flipFrame = /*@__PURE__*/ Fn( ( [ life, age, tiles, mode, fps ] ) => {
+
+		const frame = float( 0. ).toVar();
+
+		If( mode.equal( 1 ), () => {
+
+			frame.assign( clamp( life, 0., 1. ).mul( max( tiles.sub( 1. ), 0. ) ) );
+
+		} ).ElseIf( mode.equal( 2 ), () => {
+
+			frame.assign( mod( max( age, 0. ).mul( fps ), tiles ) );
+
+		} );
+
+		return frame;
+
+	} );
+
+	const nextFlipFrame = /*@__PURE__*/ Fn( ( [ frame, tiles, mode ] ) => {
+
+		const next = min( floor( frame ).add( 1. ), tiles.sub( 1. ) ).toVar();
+
+		If( mode.equal( 2 ), () => {
+
+			next.assign( mod( floor( frame ).add( 1. ), tiles ) );
+
+		} );
+
+		return next;
+
+	} );
+
+	const tileOffset = /*@__PURE__*/ Fn( ( [ frame, cols, rows ] ) => {
+
+		return vec2( mod( floor( frame ), cols ).div( cols ), floor( floor( frame ).div( cols ) ).div( rows ) );
 
 	} );
 
@@ -1709,18 +1795,24 @@ const uv = TSL.uv();
 			// uFlipMode: 0 = random atlas tile, 1 = flipbook over life, 2 = flipbook at fps.
 
 			const ti = floor( aExtra.z.mul( tiles ).mul( .9999 ) ).toVar();
+			const frame = ti.toVar();
 
-			If( uFlipMode.equal( 1 ), () => {
+			If( uFlipMode.greaterThan( 0 ), () => {
 
-				ti.assign( floor( clamp( u, 0., .9999 ).mul( tiles ) ) );
-
-			} ).ElseIf( uFlipMode.equal( 2 ), () => {
-
-				ti.assign( floor( mod( max( age, 0. ).mul( uFlipFps ), tiles ) ) );
+				frame.assign( flipFrame( u, age, tiles, uFlipMode, uFlipFps ) );
 
 			} );
 
-			vTile.assign( vec2( mod( ti, cols ).div( cols ), floor( ti.div( cols ) ).div( rows ) ) );
+			vTile.assign( tileOffset( frame, cols, rows ) );
+			vNextTile.assign( vTile );
+			vFrameMix.assign( 0. );
+
+			If( uFlipMode.greaterThan( 0 ), () => {
+
+				vNextTile.assign( tileOffset( nextFlipFrame( frame, tiles, uFlipMode ), cols, rows ) );
+				vFrameMix.assign( fract( frame ) );
+
+			} );
 
 		} );
 
@@ -1730,7 +1822,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const subParticleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
+export const subParticleVertexBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"aSeed":{"type":"vec4","kind":"attribute"},"aExtra":{"type":"vec4","kind":"attribute"},"aExtra2":{"type":"vec4","kind":"attribute"},"aPSeed":{"type":"vec4","kind":"attribute"},"aPExtra":{"type":"vec4","kind":"attribute"},"aPExtra2":{"type":"vec4","kind":"attribute"},"uTime":{"type":"float","kind":"uniform"},"uStretch":{"type":"float","kind":"uniform"},"uAtlasTiles":{"type":"float","kind":"uniform"},"uMotionBlur":{"type":"float","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"uRenderMode":{"type":"int","kind":"uniform"},"uHasAlphaSpawn":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uSize":{"type":"vec2","kind":"uniform"},"uRot":{"type":"vec2","kind":"uniform"},"uRotInit":{"type":"vec2","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vNextTile":{"type":"vec2","kind":"varying"},"vFrameMix":{"type":"float","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uCurveA":{"type":"vec2","size":8,"kind":"uniform"},"uCurveAN":{"type":"int","kind":"uniform"},"uCurveAEase":{"type":"float","kind":"uniform"},"uCurveB":{"type":"vec2","size":8,"kind":"uniform"},"uCurveBN":{"type":"int","kind":"uniform"},"uCurveBEase":{"type":"float","kind":"uniform"},"uCurveD":{"type":"vec2","size":8,"kind":"uniform"},"uCurveDN":{"type":"int","kind":"uniform"},"uCurveDEase":{"type":"float","kind":"uniform"},"uCurveE":{"type":"vec2","size":8,"kind":"uniform"},"uCurveEN":{"type":"int","kind":"uniform"},"uCurveEEase":{"type":"float","kind":"uniform"},"uPeriod":{"type":"float","kind":"uniform"},"uSpawnWindow":{"type":"float","kind":"uniform"},"uSpawnDuration":{"type":"float","kind":"uniform"},"uShapeLength":{"type":"float","kind":"uniform"},"uShapeRadius":{"type":"float","kind":"uniform"},"uShapeInner":{"type":"float","kind":"uniform"},"uShapeAngle":{"type":"float","kind":"uniform"},"uDrag":{"type":"float","kind":"uniform"},"uCurl":{"type":"float","kind":"uniform"},"uCurlFreq":{"type":"float","kind":"uniform"},"uCurlSpeed":{"type":"float","kind":"uniform"},"uFloorY":{"type":"float","kind":"uniform"},"uFloorSoft":{"type":"float","kind":"uniform"},"uAngle":{"type":"float","kind":"uniform"},"uVortexW":{"type":"float","kind":"uniform"},"uVortexFalloff":{"type":"float","kind":"uniform"},"uSpawnMode":{"type":"int","kind":"uniform"},"uShapeType":{"type":"int","kind":"uniform"},"uVelMode":{"type":"int","kind":"uniform"},"uHasFloor":{"type":"int","kind":"uniform"},"uSurfaceOnly":{"type":"int","kind":"uniform"},"uSpeedN":{"type":"int","kind":"uniform"},"uBurstN":{"type":"int","kind":"uniform"},"uAxis":{"type":"vec3","kind":"uniform"},"uDir":{"type":"vec3","kind":"uniform"},"uGravity":{"type":"vec3","kind":"uniform"},"uWind":{"type":"vec3","kind":"uniform"},"uBias":{"type":"vec3","kind":"uniform"},"uShapeSize":{"type":"vec3","kind":"uniform"},"uVortexAxis":{"type":"vec3","kind":"uniform"},"uLife":{"type":"vec2","kind":"uniform"},"uSpeed":{"type":"vec2","kind":"uniform"},"uSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uBurstT":{"type":"float","size":8,"kind":"uniform"},"uBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentPeriod":{"type":"float","kind":"uniform"},"uParentSpawnWindow":{"type":"float","kind":"uniform"},"uParentSpawnDuration":{"type":"float","kind":"uniform"},"uParentShapeLength":{"type":"float","kind":"uniform"},"uParentShapeRadius":{"type":"float","kind":"uniform"},"uParentShapeInner":{"type":"float","kind":"uniform"},"uParentShapeAngle":{"type":"float","kind":"uniform"},"uParentDrag":{"type":"float","kind":"uniform"},"uParentCurl":{"type":"float","kind":"uniform"},"uParentCurlFreq":{"type":"float","kind":"uniform"},"uParentCurlSpeed":{"type":"float","kind":"uniform"},"uParentFloorY":{"type":"float","kind":"uniform"},"uParentFloorSoft":{"type":"float","kind":"uniform"},"uParentAngle":{"type":"float","kind":"uniform"},"uParentVortexW":{"type":"float","kind":"uniform"},"uParentVortexFalloff":{"type":"float","kind":"uniform"},"uParentSpawnMode":{"type":"int","kind":"uniform"},"uParentShapeType":{"type":"int","kind":"uniform"},"uParentVelMode":{"type":"int","kind":"uniform"},"uParentHasFloor":{"type":"int","kind":"uniform"},"uParentSurfaceOnly":{"type":"int","kind":"uniform"},"uParentSpeedN":{"type":"int","kind":"uniform"},"uParentBurstN":{"type":"int","kind":"uniform"},"uParentAxis":{"type":"vec3","kind":"uniform"},"uParentDir":{"type":"vec3","kind":"uniform"},"uParentGravity":{"type":"vec3","kind":"uniform"},"uParentWind":{"type":"vec3","kind":"uniform"},"uParentBias":{"type":"vec3","kind":"uniform"},"uParentShapeSize":{"type":"vec3","kind":"uniform"},"uParentVortexAxis":{"type":"vec3","kind":"uniform"},"uParentLife":{"type":"vec2","kind":"uniform"},"uParentSpeed":{"type":"vec2","kind":"uniform"},"uParentSpeedKey":{"type":"vec2","size":8,"kind":"uniform"},"uParentBurstT":{"type":"float","size":8,"kind":"uniform"},"uParentBurstC":{"type":"float","size":8,"kind":"uniform"},"uParentTimeShift":{"type":"float","kind":"uniform"},"uInherit":{"type":"float","kind":"uniform"},"uPathT0":{"type":"float","kind":"uniform"},"uPathDt":{"type":"float","kind":"uniform"},"uSubMode":{"type":"int","kind":"uniform"},"uSubOffset":{"type":"vec2","kind":"uniform"},"uParentPath":{"type":"vec3","size":8,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -1803,7 +1895,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, mod, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -2041,6 +2133,44 @@ const uv = TSL.uv();
 		} );
 
 		return v;
+
+	} );
+
+	const flipFrame = /*@__PURE__*/ Fn( ( [ life, age, tiles, mode, fps ] ) => {
+
+		const frame = float( 0. ).toVar();
+
+		If( mode.equal( 1 ), () => {
+
+			frame.assign( clamp( life, 0., 1. ).mul( max( tiles.sub( 1. ), 0. ) ) );
+
+		} ).ElseIf( mode.equal( 2 ), () => {
+
+			frame.assign( mod( max( age, 0. ).mul( fps ), tiles ) );
+
+		} );
+
+		return frame;
+
+	} );
+
+	const nextFlipFrame = /*@__PURE__*/ Fn( ( [ frame, tiles, mode ] ) => {
+
+		const next = min( floor( frame ).add( 1. ), tiles.sub( 1. ) ).toVar();
+
+		If( mode.equal( 2 ), () => {
+
+			next.assign( mod( floor( frame ).add( 1. ), tiles ) );
+
+		} );
+
+		return next;
+
+	} );
+
+	const tileOffset = /*@__PURE__*/ Fn( ( [ frame, cols, rows ] ) => {
+
+		return vec2( mod( floor( frame ), cols ).div( cols ), floor( floor( frame ).div( cols ) ).div( rows ) );
 
 	} );
 
@@ -2497,7 +2627,7 @@ const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMat
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, cross, clamp, Break, If, mix, Loop, mod, instance, fract, sqrt, cos, sin, tan, exp, add, smoothstep } = TSL;
 
 	const gl_Position = property( 'vec4' );
 
@@ -2735,6 +2865,44 @@ const uv = TSL.uv();
 		} );
 
 		return v;
+
+	} );
+
+	const flipFrame = /*@__PURE__*/ Fn( ( [ life, age, tiles, mode, fps ] ) => {
+
+		const frame = float( 0. ).toVar();
+
+		If( mode.equal( 1 ), () => {
+
+			frame.assign( clamp( life, 0., 1. ).mul( max( tiles.sub( 1. ), 0. ) ) );
+
+		} ).ElseIf( mode.equal( 2 ), () => {
+
+			frame.assign( mod( max( age, 0. ).mul( fps ), tiles ) );
+
+		} );
+
+		return frame;
+
+	} );
+
+	const nextFlipFrame = /*@__PURE__*/ Fn( ( [ frame, tiles, mode ] ) => {
+
+		const next = min( floor( frame ).add( 1. ), tiles.sub( 1. ) ).toVar();
+
+		If( mode.equal( 2 ), () => {
+
+			next.assign( mod( floor( frame ).add( 1. ), tiles ) );
+
+		} );
+
+		return next;
+
+	} );
+
+	const tileOffset = /*@__PURE__*/ Fn( ( [ frame, cols, rows ] ) => {
+
+		return vec2( mod( floor( frame ), cols ).div( cols ), floor( floor( frame ).div( cols ) ).div( rows ) );
 
 	} );
 
@@ -3397,6 +3565,8 @@ const vAlpha = bindings.vAlpha;
 const vRot = bindings.vRot;
 const vSeed = bindings.vSeed;
 const vTile = bindings.vTile;
+const vNextTile = bindings.vNextTile;
+const vFrameMix = bindings.vFrameMix;
 const vWp = bindings.vWp;
 const uRamp = bindings.uRamp;
 const uRampT = bindings.uRampT;
@@ -3409,11 +3579,19 @@ const uResolution = bindings.uResolution;
 const uNear = bindings.uNear;
 const uFar = bindings.uFar;
 const uSoft = bindings.uSoft;
+const uSmokeLit = bindings.uSmokeLit;
+const uSmokeCard = bindings.uSmokeCard;
+const uSmokeAmbient = bindings.uSmokeAmbient;
+const uSmokeRight = bindings.uSmokeRight;
+const uSmokeUp = bindings.uSmokeUp;
+const uSmokeForward = bindings.uSmokeForward;
+const uSmokeLightPosition = bindings.uSmokeLightPosition;
+const uSmokeLightColor = bindings.uSmokeLightColor;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate } = TSL;
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, add, Discard, mat2 } = TSL;
+	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, add, sqrt, normalize, Discard, mat2 } = TSL;
 
 	const gl_FragColor = property( 'vec4' );
 
@@ -3720,6 +3898,35 @@ const uv = TSL.uv();
 
 	}, { p: 'vec2', uv: 'vec2', n: 'float', t: 'float', fres: 'float', cell: 'vec2', dims: 'vec3', mode: 'int', return: 'float' } );
 
+	const smokeNormal = /*@__PURE__*/ Fn( ( [ uv ] ) => {
+
+		const xy = uv.mul( 2. ).sub( 1. ).toVar();
+		const z = sqrt( max( 0., sub( 1., dot( xy, xy ) ) ) ).toVar();
+
+		return normalize( uSmokeRight.mul( xy.x ).add( uSmokeUp.mul( xy.y ) ).add( uSmokeForward.mul( max( z, .01 ) ) ) );
+
+	} );
+
+	const smokeLighting = /*@__PURE__*/ Fn( ( [ normal, world ] ) => {
+
+		const light = vec3( uSmokeAmbient ).toVar();
+
+		Loop( 4, ( { i } ) => {
+
+			const delta = uSmokeLightPosition.element( i ).xyz.sub( world ).toVar();
+			const d = length( delta ).toVar();
+			const direction = delta.div( max( d, .001 ) ).toVar();
+			const wrap = clamp( dot( normal, direction ).add( .5 ).div( 1.5 ), 0., 1. ).toVar();
+			const rangeFade = sub( 1., smoothstep( uSmokeLightPosition.element( i ).w.mul( .75 ), uSmokeLightPosition.element( i ).w, d ) ).toVar();
+			const attenuation = rangeFade.div( max( pow( max( d, .25 ), uSmokeLightColor.element( i ).w ), 1. ) ).toVar();
+			light.addAssign( uSmokeLightColor.element( i ).rgb.mul( wrap ).mul( attenuation ) );
+
+		} );
+
+		return light;
+
+	} );
+
 	const main = /*@__PURE__*/ Fn( () => {
 
 		If( vAlpha.lessThanEqual( 0. ), () => {
@@ -3787,6 +3994,13 @@ const uv = TSL.uv();
 			const m = uMask.sample( auv ).toVar();
 			shape.assign( m.a.mul( max( m.r, max( m.g, m.b ) ) ) );
 
+			If( vFrameMix.greaterThan( 0. ), () => {
+
+				const next = uMask.sample( auv.sub( vTile ).add( vNextTile ) ).toVar();
+				shape.assign( mix( shape, next.a.mul( max( next.r, max( next.g, next.b ) ) ), vFrameMix ) );
+
+			} );
+
 		} ).Else( () => {
 
 			shape.assign( proceduralShape( p, uvp, n, uTime, 0., uMaskScale, vec3( 1., 1., .1 ), uProcedural ) );
@@ -3806,6 +4020,13 @@ const uv = TSL.uv();
 		} );
 
 		const col = rampColor( vU ).toVar();
+
+		If( uSmokeLit.equal( 1 ), () => {
+
+			col.mulAssign( smokeLighting( smokeNormal( vUv ), vWp ) );
+
+		} );
+
 		col.addAssign( uEdgeCol.mul( uEdgeI ).mul( edge ).mul( shape ) );
 		const a = er.mul( vAlpha ).mul( uOpacity ).mul( softDepth() ).toVar();
 
@@ -3833,7 +4054,7 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const particleFragmentBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uTime":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"tDepth":{"type":"sampler2D","kind":"uniform"},"uResolution":{"type":"vec2","kind":"uniform"},"uNear":{"type":"float","kind":"uniform"},"uFar":{"type":"float","kind":"uniform"},"uSoft":{"type":"float","kind":"uniform"}};
+export const particleFragmentBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uTime":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"vUv":{"type":"vec2","kind":"varying"},"vU":{"type":"float","kind":"varying"},"vAlpha":{"type":"float","kind":"varying"},"vRot":{"type":"float","kind":"varying"},"vSeed":{"type":"vec3","kind":"varying"},"vTile":{"type":"vec2","kind":"varying"},"vNextTile":{"type":"vec2","kind":"varying"},"vFrameMix":{"type":"float","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"tDepth":{"type":"sampler2D","kind":"uniform"},"uResolution":{"type":"vec2","kind":"uniform"},"uNear":{"type":"float","kind":"uniform"},"uFar":{"type":"float","kind":"uniform"},"uSoft":{"type":"float","kind":"uniform"},"uSmokeLit":{"type":"int","kind":"uniform"},"uSmokeCard":{"type":"int","kind":"uniform"},"uSmokeAmbient":{"type":"float","kind":"uniform"},"uSmokeRight":{"type":"vec3","kind":"uniform"},"uSmokeUp":{"type":"vec3","kind":"uniform"},"uSmokeForward":{"type":"vec3","kind":"uniform"},"uSmokeLightPosition":{"type":"vec4","size":4,"kind":"uniform"},"uSmokeLightColor":{"type":"vec4","size":4,"kind":"uniform"}};
 
 // Three.js Transpiler r186
 
@@ -4247,6 +4468,7 @@ export const surfaceVertexBindings = {"vClipPosition":{"type":"vec4","kind":"var
 // Three.js Transpiler r186
 
 export function surfaceFragment( bindings ) {
+const vClipPosition = bindings.vClipPosition;
 const uTime = bindings.uTime;
 const uOpacity = bindings.uOpacity;
 const uErodeSoft = bindings.uErodeSoft;
@@ -4281,6 +4503,10 @@ const uEdgeCol = bindings.uEdgeCol;
 const uCam = bindings.uCam;
 const uMask = bindings.uMask;
 const uNoise = bindings.uNoise;
+const uFlipMode = bindings.uFlipMode;
+const uAtlasCols = bindings.uAtlasCols;
+const uAtlasRows = bindings.uAtlasRows;
+const uFlipFps = bindings.uFlipFps;
 const vN = bindings.vN;
 const vWp = bindings.vWp;
 const vAlong = bindings.vAlong;
@@ -4293,13 +4519,64 @@ const uRampN = bindings.uRampN;
 const uCurveC = bindings.uCurveC;
 const uCurveCN = bindings.uCurveCN;
 const uCurveCEase = bindings.uCurveCEase;
+const uSmokeLit = bindings.uSmokeLit;
+const uSmokeCard = bindings.uSmokeCard;
+const uSmokeAmbient = bindings.uSmokeAmbient;
+const uSmokeRight = bindings.uSmokeRight;
+const uSmokeUp = bindings.uSmokeUp;
+const uSmokeForward = bindings.uSmokeForward;
+const uSmokeLightPosition = bindings.uSmokeLightPosition;
+const uSmokeLightColor = bindings.uSmokeLightColor;
+const tDepth = bindings.tDepth;
+const uResolution = bindings.uResolution;
+const uNear = bindings.uNear;
+const uFar = bindings.uFar;
+const uSoft = bindings.uSoft;
 const { cameraProjectionMatrix: projectionMatrix, modelViewMatrix, modelWorldMatrix: modelMatrix, cameraViewMatrix: viewMatrix, normalLocal: normal, positionLocal: position, screenCoordinate } = TSL;
 const uv = TSL.uv();
 
 
-	const { property, floor, Fn, mul, sub, vec2, vec4, dot, step, min, max, float, abs, vec3, length, select, pow, clamp, Break, If, smoothstep, mix, Loop, atan, div, mod, cos, sin, add, mat2, Discard } = TSL;
+	const { property, float, clamp, max, mod, If, Fn, floor, min, vec2, mul, sub, vec4, dot, step, abs, vec3, length, select, pow, Break, smoothstep, mix, Loop, atan, div, cos, sin, add, sqrt, normalize, mat2, fract, Discard } = TSL;
 
 	const gl_FragColor = property( 'vec4' );
+
+	const flipFrame = /*@__PURE__*/ Fn( ( [ life, age, tiles, mode, fps ] ) => {
+
+		const frame = float( 0. ).toVar();
+
+		If( mode.equal( 1 ), () => {
+
+			frame.assign( clamp( life, 0., 1. ).mul( max( tiles.sub( 1. ), 0. ) ) );
+
+		} ).ElseIf( mode.equal( 2 ), () => {
+
+			frame.assign( mod( max( age, 0. ).mul( fps ), tiles ) );
+
+		} );
+
+		return frame;
+
+	} );
+
+	const nextFlipFrame = /*@__PURE__*/ Fn( ( [ frame, tiles, mode ] ) => {
+
+		const next = min( floor( frame ).add( 1. ), tiles.sub( 1. ) ).toVar();
+
+		If( mode.equal( 2 ), () => {
+
+			next.assign( mod( floor( frame ).add( 1. ), tiles ) );
+
+		} );
+
+		return next;
+
+	} );
+
+	const tileOffset = /*@__PURE__*/ Fn( ( [ frame, cols, rows ] ) => {
+
+		return vec2( mod( floor( frame ), cols ).div( cols ), floor( floor( frame ).div( cols ) ).div( rows ) );
+
+	} );
 
 	const mod289v3 = /*@__PURE__*/ Fn( ( [ x ] ) => {
 
@@ -4580,6 +4857,59 @@ const uv = TSL.uv();
 
 	}, { p: 'vec2', uv: 'vec2', n: 'float', t: 'float', fres: 'float', cell: 'vec2', dims: 'vec3', mode: 'int', return: 'float' } );
 
+	const smokeNormal = /*@__PURE__*/ Fn( ( [ uv ] ) => {
+
+		const xy = uv.mul( 2. ).sub( 1. ).toVar();
+		const z = sqrt( max( 0., sub( 1., dot( xy, xy ) ) ) ).toVar();
+
+		return normalize( uSmokeRight.mul( xy.x ).add( uSmokeUp.mul( xy.y ) ).add( uSmokeForward.mul( max( z, .01 ) ) ) );
+
+	} );
+
+	const smokeLighting = /*@__PURE__*/ Fn( ( [ normal, world ] ) => {
+
+		const light = vec3( uSmokeAmbient ).toVar();
+
+		Loop( 4, ( { i } ) => {
+
+			const delta = uSmokeLightPosition.element( i ).xyz.sub( world ).toVar();
+			const d = length( delta ).toVar();
+			const direction = delta.div( max( d, .001 ) ).toVar();
+			const wrap = clamp( dot( normal, direction ).add( .5 ).div( 1.5 ), 0., 1. ).toVar();
+			const rangeFade = sub( 1., smoothstep( uSmokeLightPosition.element( i ).w.mul( .75 ), uSmokeLightPosition.element( i ).w, d ) ).toVar();
+			const attenuation = rangeFade.div( max( pow( max( d, .25 ), uSmokeLightColor.element( i ).w ), 1. ) ).toVar();
+			light.addAssign( uSmokeLightColor.element( i ).rgb.mul( wrap ).mul( attenuation ) );
+
+		} );
+
+		return light;
+
+	} );
+
+	const linDepth = /*@__PURE__*/ Fn( ( [ z ] ) => {
+
+		const zn = z.mul( 2. ).sub( 1. ).toVar();
+
+		return mul( 2., uNear ).mul( uFar ).div( max( uFar.add( uNear ).sub( zn.mul( uFar.sub( uNear ) ) ), 1e-5 ) );
+
+	} );
+
+	const softDepth = /*@__PURE__*/ Fn( () => {
+
+		const result = float( 1. ).toVar();
+
+		If( uSoft.greaterThan( 0. ), () => {
+
+			const sc = screenCoordinate.xy.div( max( uResolution, vec2( 1. ) ) ).toVar();
+			const sd = linDepth( tDepth.sample( sc ).x ).toVar(), fd = linDepth( vClipPosition.z.div( vClipPosition.w ) ).toVar();
+			result.assign( clamp( sd.sub( fd ).div( uSoft ), 0., 1. ) );
+
+		} );
+
+		return result;
+
+	} );
+
 	const main = /*@__PURE__*/ Fn( () => {
 
 		const V = safeDir( uCam.sub( vWp ), vec3( 0., 0., 1. ) ).toVar();
@@ -4620,7 +4950,7 @@ const uv = TSL.uv();
 
 		} ).ElseIf( uShell.equal( 1 ), () => {
 
-			// The analytic body has no mask, but a procedural *pattern* still applies:
+			// The analytic body supplies its silhouette; a procedural pattern applies:
 			// its surface coordinate is (angle around the tube, distance along it).
 			// Modes below 4 are billboard silhouettes (a soft disc, a flame, a puff)
 			// and describe a sprite's outline, which a closed body already has.
@@ -4631,7 +4961,13 @@ const uv = TSL.uv();
 
 			} );
 
-		} ).Else( () => {
+		} ).ElseIf( uHasMask.equal( 0 ), () => {
+
+			shape.assign( proceduralShape( vUv.sub( .5 ), vUv, n, uTime, fres, uMaskScale, dims, uProcedural ) );
+
+		} );
+
+		If( uHasMask.equal( 1 ), () => {
 
 			// noise.distortionPan scrolls the field that drives the distortion.
 
@@ -4647,17 +4983,30 @@ const uv = TSL.uv();
 			const duv = vUv.add( nd.sub( .5 ).mul( uDistort ) ).toVar();
 			const mc = cos( uMaskRot ).toVar(), ms = sin( uMaskRot ).toVar();
 			const muv = mat2( mc, ms.negate(), ms, mc ).mul( duv.sub( .5 ) ).add( .5 ).mul( uMaskScale ).add( uMaskPan ).toVar();
+			const sampleUv = muv.toVar();
+			const frame = float( 0. ).toVar();
+			const cols = float( max( uAtlasCols, 1 ) ).toVar(), rows = float( max( uAtlasRows, 1 ) ).toVar();
+			const tiles = cols.mul( rows ).toVar();
 
-			If( uHasMask.equal( 1 ), () => {
+			If( uFlipMode.greaterThan( 0 ), () => {
 
-				const m = uMask.sample( muv ).toVar();
-				shape.assign( m.a.mul( max( m.r, max( m.g, m.b ) ) ) );
-
-			} ).Else( () => {
-
-				shape.assign( proceduralShape( vUv.sub( .5 ), vUv, n, uTime, fres, uMaskScale, dims, uProcedural ) );
+				frame.assign( flipFrame( uLayerU, uTime, tiles, uFlipMode, uFlipFps ) );
+				sampleUv.assign( muv.div( vec2( cols, rows ) ).add( tileOffset( frame, cols, rows ) ) );
 
 			} );
+
+			const m = uMask.sample( sampleUv ).toVar();
+			const maskShape = m.a.mul( max( m.r, max( m.g, m.b ) ) ).toVar();
+
+			If( uFlipMode.greaterThan( 0 ).and( fract( frame ).greaterThan( 0. ) ), () => {
+
+				const nextUv = muv.div( vec2( cols, rows ) ).add( tileOffset( nextFlipFrame( frame, tiles, uFlipMode ), cols, rows ) ).toVar();
+				const next = uMask.sample( nextUv ).toVar();
+				maskShape.assign( mix( maskShape, next.a.mul( max( next.r, max( next.g, next.b ) ) ), fract( frame ) ) );
+
+			} );
+
+			shape.mulAssign( maskShape );
 
 		} );
 
@@ -4712,8 +5061,14 @@ const uv = TSL.uv();
 		// shape is 1 on an analytic shell with procedural "none", so this is a no-op
 		// there and the procedural pattern applies everywhere else.
 
-		alpha.mulAssign( shape );
+		alpha.mulAssign( shape.mul( softDepth() ) );
 		const col = rampColor( key ).toVar();
+
+		If( uSmokeLit.equal( 1 ), () => {
+
+			col.mulAssign( smokeLighting( select( uSmokeCard.equal( 1 ), smokeNormal( vUv ), normalize( vN ) ), vWp ) );
+
+		} );
 
 		If( uShell.equal( 1 ), () => {
 
@@ -4746,4 +5101,4 @@ const uv = TSL.uv();
 	return main();
 
 }
-export const surfaceFragmentBindings = {"uTime":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uProtect":{"type":"float","kind":"uniform"},"uRimBias":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uFresnelPower":{"type":"float","kind":"uniform"},"uFresnelStrength":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uHasFresnel":{"type":"int","kind":"uniform"},"uBolt":{"type":"int","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"uCam":{"type":"vec3","kind":"uniform"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"}};
+export const surfaceFragmentBindings = {"vClipPosition":{"type":"vec4","kind":"varying"},"uTime":{"type":"float","kind":"uniform"},"uOpacity":{"type":"float","kind":"uniform"},"uErodeSoft":{"type":"float","kind":"uniform"},"uEdgeW":{"type":"float","kind":"uniform"},"uEdgeI":{"type":"float","kind":"uniform"},"uProtect":{"type":"float","kind":"uniform"},"uRimBias":{"type":"float","kind":"uniform"},"uDisplaceShift":{"type":"float","kind":"uniform"},"uFresnelPower":{"type":"float","kind":"uniform"},"uFresnelStrength":{"type":"float","kind":"uniform"},"uDistort":{"type":"float","kind":"uniform"},"uRampKeyMode":{"type":"float","kind":"uniform"},"uLayerU":{"type":"float","kind":"uniform"},"uMaskRot":{"type":"float","kind":"uniform"},"uRadius":{"type":"float","kind":"uniform"},"uLength":{"type":"float","kind":"uniform"},"uThickness":{"type":"float","kind":"uniform"},"uShell":{"type":"int","kind":"uniform"},"uHasMask":{"type":"int","kind":"uniform"},"uHasNoise":{"type":"int","kind":"uniform"},"uUseErosion":{"type":"int","kind":"uniform"},"uBlendMode":{"type":"int","kind":"uniform"},"uProcedural":{"type":"int","kind":"uniform"},"uHasFresnel":{"type":"int","kind":"uniform"},"uBolt":{"type":"int","kind":"uniform"},"uNoiseScale":{"type":"vec2","kind":"uniform"},"uNoisePan":{"type":"vec2","kind":"uniform"},"uMaskScale":{"type":"vec2","kind":"uniform"},"uMaskPan":{"type":"vec2","kind":"uniform"},"uDistortPan":{"type":"vec2","kind":"uniform"},"uEdgeCol":{"type":"vec3","kind":"uniform"},"uCam":{"type":"vec3","kind":"uniform"},"uMask":{"type":"sampler2D","kind":"uniform"},"uNoise":{"type":"sampler2D","kind":"uniform"},"uFlipMode":{"type":"int","kind":"uniform"},"uAtlasCols":{"type":"int","kind":"uniform"},"uAtlasRows":{"type":"int","kind":"uniform"},"uFlipFps":{"type":"float","kind":"uniform"},"vN":{"type":"vec3","kind":"varying"},"vWp":{"type":"vec3","kind":"varying"},"vAlong":{"type":"float","kind":"varying"},"vLobe":{"type":"float","kind":"varying"},"vRing":{"type":"float","kind":"varying"},"vUv":{"type":"vec2","kind":"varying"},"uRamp":{"type":"vec4","size":6,"kind":"uniform"},"uRampT":{"type":"float","size":6,"kind":"uniform"},"uRampN":{"type":"int","kind":"uniform"},"uCurveC":{"type":"vec2","size":8,"kind":"uniform"},"uCurveCN":{"type":"int","kind":"uniform"},"uCurveCEase":{"type":"float","kind":"uniform"},"uSmokeLit":{"type":"int","kind":"uniform"},"uSmokeCard":{"type":"int","kind":"uniform"},"uSmokeAmbient":{"type":"float","kind":"uniform"},"uSmokeRight":{"type":"vec3","kind":"uniform"},"uSmokeUp":{"type":"vec3","kind":"uniform"},"uSmokeForward":{"type":"vec3","kind":"uniform"},"uSmokeLightPosition":{"type":"vec4","size":4,"kind":"uniform"},"uSmokeLightColor":{"type":"vec4","size":4,"kind":"uniform"},"tDepth":{"type":"sampler2D","kind":"uniform"},"uResolution":{"type":"vec2","kind":"uniform"},"uNear":{"type":"float","kind":"uniform"},"uFar":{"type":"float","kind":"uniform"},"uSoft":{"type":"float","kind":"uniform"}};

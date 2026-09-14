@@ -1,3 +1,4 @@
+import { smokeLightingUniforms, updateSmokeLighting } from "./smoke-lighting-v2";
 import { layerBuildKey } from "./layer-build-key";
 import type { IUniform } from "three";
 import * as THREE from "three/webgpu";
@@ -824,6 +825,7 @@ function createParticleLayer(
       value: new THREE.Color(material.erosion?.edgeColor ?? "#ffffff"),
     },
     uEdgeI: { value: material.erosion?.edgeIntensity ?? 0 },
+    ...smokeLightingUniforms(material.shading === "litSmoke"),
     uOpacity: { value: material.opacity },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
     uProcedural: { value: proceduralIndex(material) },
@@ -914,7 +916,9 @@ function createParticleLayer(
     id: layer.id,
     source: layer,
     object: group,
-    soft: material.softParticle > 0,
+    soft: material.softParticle > 0 ||
+      layer.tracks.some(track => track.target === "material.softParticle") ||
+      layer.overrides.some(override => override.target === "material.softParticle"),
     trim: true,
     update(time, flags, camera) {
       const { layer: live, visible, age } = evaluateLayerV2(layer, time);
@@ -1323,6 +1327,7 @@ function createMeshLayer(
   layer: LayerV2,
   index: number,
   textures: TextureCacheV2,
+  depth: THREE.DepthTexture,
 ): LayerObject {
   const material = layer.material!;
   const geometry = layer.geometry!;
@@ -1340,6 +1345,12 @@ function createMeshLayer(
   const uniforms: Record<string, IUniform> = {
     uTime: { value: 0 },
     uLayerU: { value: 0 },
+    uFlipMode: {
+      value: material.mask.flipbook ? (material.mask.flipbook.mode === "life" ? 1 : 2) : 0,
+    },
+    uFlipFps: { value: material.mask.flipbook?.fps ?? 12 },
+    uAtlasCols: { value: material.mask.flipbook?.cols ?? 1 },
+    uAtlasRows: { value: material.mask.flipbook?.rows ?? 1 },
     uRampKeyMode: { value: rampSpace },
     uShell: { value: shell ? 1 : 0 },
     uBolt: {
@@ -1393,10 +1404,16 @@ function createMeshLayer(
     uHasFresnel: { value: material.fresnel ? 1 : 0 },
     uFresnelPower: { value: material.fresnel?.power ?? 2 },
     uFresnelStrength: { value: material.fresnel?.strength ?? 0 },
+    ...smokeLightingUniforms(material.shading === "litSmoke", layer.kind === "sprite"),
     uOpacity: { value: material.opacity },
     uBlendMode: { value: BLEND_INDEX[material.blend] ?? 0 },
     uProcedural: { value: proceduralIndex(material) },
     uCam: { value: new THREE.Vector3() },
+    tDepth: { value: depth },
+    uResolution: { value: new THREE.Vector2(1, 1) },
+    uNear: { value: CAMERA_NEAR },
+    uFar: { value: CAMERA_FAR },
+    uSoft: { value: material.softParticle },
     ...rampUniforms(material.ramp),
     ...curveUniforms("C", material.erosion?.curve ?? null),
     ...curveUniforms("F", vertexNoise?.alongCurve ?? null),
@@ -1461,7 +1478,9 @@ function createMeshLayer(
     id: layer.id,
     source: layer,
     object: mesh,
-    soft: false,
+    soft: material.softParticle > 0 ||
+      layer.tracks.some(track => track.target === "material.softParticle") ||
+      layer.overrides.some(override => override.target === "material.softParticle"),
     trim: false,
     update(time, flags, camera) {
       const { layer: live, visible, age, u } = evaluateLayerV2(layer, time);
@@ -1509,6 +1528,7 @@ function createMeshLayer(
       uniforms.uVertexSpeed.value = g.vertexNoise?.speed ?? 0;
       uniforms.uHasVertexNoise.value = g.vertexNoise ? 1 : 0;
       uniforms.uOpacity.value = m.opacity;
+      uniforms.uSoft.value = flags.softParticles ? m.softParticle : 0;
       uniforms.uDisplaceShift.value = m.ramp.displacementShift;
       uniforms.uHasMask.value = flags.textures && mask ? 1 : 0;
       uniforms.uHasNoise.value = flags.textures && noise ? 1 : 0;
@@ -1829,6 +1849,7 @@ export class VfxRuntimeV2 {
   private disposed = false;
   private initialized = false;
   private initialization: Promise<void>;
+  private disposal?: Promise<void>;
   private preparedPreviewDocument?: VfxDocumentV2;
   private lastPreviewRequest = { time: 0, solo: undefined as string | undefined };
   private deviceError: Error | null = null;
@@ -1862,7 +1883,7 @@ export class VfxRuntimeV2 {
         );
       }
       if (this.disposed) {
-        this.renderer.dispose();
+        await this.renderer.dispose();
         return;
       }
       // WebGPU validation errors are asynchronous and do not throw from render().
@@ -1959,7 +1980,7 @@ export class VfxRuntimeV2 {
         const object = layer.kind === "light" ? createLightLayer(layer)
           : layer.kind === "particles"
             ? createParticleLayer(nextDoc, layer, index, this.textures, this.depthTarget.depthTexture!)
-            : createMeshLayer(nextDoc, layer, index, this.textures);
+            : createMeshLayer(nextDoc, layer, index, this.textures, this.depthTarget.depthTexture!);
         created.push(object);
         return object;
       });
@@ -2397,6 +2418,7 @@ export class VfxRuntimeV2 {
       object.update(time, this.flags, this.camera);
     }
     this.environment.apply(doc, this.scene, this.flags.ground);
+    updateSmokeLighting(this.scene, this.camera, doc.environment.ambient);
     this.renderer.toneMappingExposure = doc.post.exposure;
     this.post.apply(doc, {
       post: this.flags.post && !diagnostic,
@@ -2439,7 +2461,7 @@ export class VfxRuntimeV2 {
   }
 
   dispose() {
-    if (this.disposed) return;
+    if (this.disposed) return this.disposal;
     this.disposed = true;
     this.removeDeviceErrorListener?.();
     this.controls.dispose();
@@ -2449,8 +2471,11 @@ export class VfxRuntimeV2 {
     this.textures.dispose();
     this.depthTarget.depthTexture?.dispose();
     this.depthTarget.dispose();
-    if (this.initialized) this.renderer.dispose();
+    this.disposal = this.initialized
+      ? Promise.resolve(this.renderer.dispose())
+      : this.initialization.catch(() => {});
     this.renderer.domElement.remove();
+    return this.disposal;
   }
 }
 

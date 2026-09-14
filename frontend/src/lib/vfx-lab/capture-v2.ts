@@ -125,7 +125,7 @@ function rendererDescription(renderer: THREE.WebGPURenderer) {
  */
 export async function captureV2(
   input: VfxDocumentV2,
-  options: { solo?: string; diagnostic?: boolean; times?: number[] } = {},
+  options: { solo?: string; diagnostic?: boolean; times?: number[]; motionEvidence?: boolean } = {},
 ): Promise<Evidence> {
   const doc = validateDocumentV2(input);
   const host = document.createElement("div");
@@ -134,6 +134,13 @@ export async function captureV2(
     "position:fixed;left:-10000px;top:0;width:320px;height:180px;pointer-events:none";
   document.body.appendChild(host);
   const runtime = new VfxRuntimeV2(host);
+  // Capture dimensions are output pixels, independent of the display's DPR.
+  runtime.renderer.setPixelRatio(1);
+  const canvases: HTMLCanvasElement[] = [];
+  const drain = async () => {
+    const backend = runtime.renderer.backend as unknown as { device?: GPUDevice };
+    await backend.device?.queue.onSubmittedWorkDone();
+  };
   // Deterministic capture: never let orbit/pan/zoom controls perturb the
   // camera between frames.
   runtime.setInteractive(false);
@@ -143,10 +150,11 @@ export async function captureV2(
     await runtime.whenReady();
     // One warm-up frame so every shader is compiled before the first tile.
     runtime.render(0, options.solo, options.diagnostic);
+    await drain();
 
     // One grid draws both images: the only differences are the tile size, the
     // column count and the label font.
-    const compose = (
+    const compose = async (
       moments: number[],
       columns: number,
       tileWidth: number,
@@ -157,14 +165,17 @@ export async function captureV2(
       runtime.resize(tileWidth, tileHeight);
       const rowHeight = tileHeight + LABEL_HEIGHT;
       const canvas = document.createElement("canvas");
+      canvases.push(canvas);
       canvas.width = columns * tileWidth;
       canvas.height = Math.ceil(moments.length / columns) * rowHeight;
       const context = canvas.getContext("2d", { willReadFrequently: true });
       if (!context) throw new Error("Capture unavailable.");
       context.fillStyle = "#101112";
       context.fillRect(0, 0, canvas.width, canvas.height);
-      moments.forEach((time, index) => {
+      for (const [index, time] of moments.entries()) {
         runtime.render(time, options.solo, options.diagnostic);
+        // Keep only one capture frame in flight, including in diagnostic runs.
+        await drain();
         const x = (index % columns) * tileWidth;
         const y = Math.floor(index / columns) * rowHeight;
         context.drawImage(
@@ -182,14 +193,14 @@ export async function captureV2(
           x + 12,
           y + tileHeight + LABEL_HEIGHT - 7,
         );
-      });
+      }
       return canvas;
     };
 
     if (options.times && (!options.times.length || options.times.length > 8 || options.times.some(time => !Number.isFinite(time) || time < 0 || time > doc.duration))) throw new Error("Capture times must be within the effect duration.");
     const times = options.times ?? captureTimesV2(doc);
     let renderedPixels = 0;
-    const sheet = compose(
+    const sheet = await compose(
       times,
       SHEET_COLUMNS,
       TILE_WIDTH,
@@ -200,7 +211,7 @@ export async function captureV2(
         const background = [pixels[0], pixels[1], pixels[2]];
         for (let p = 0; p < pixels.length; p += 4)
           if (
-            Math.max(...background.map((v, c) => Math.abs(pixels[p + c] - v))) >
+            Math.max(Math.abs(pixels[p] - background[0]), Math.abs(pixels[p + 1] - background[1]), Math.abs(pixels[p + 2] - background[2])) >
             12
           )
             renderedPixels++;
@@ -208,33 +219,37 @@ export async function captureV2(
     );
     // The strip is motion evidence, not a second look at the effect: a solo
     // diagnostic render has nothing continuous to show.
-    const stripTimes = options.diagnostic ? [] : stripTimesV2(doc);
-    const strip = options.diagnostic
+    const motionEvidence = !options.diagnostic && options.motionEvidence !== false;
+    const stripTimes = motionEvidence ? stripTimesV2(doc) : [];
+    const strip = !motionEvidence
       ? undefined
-      : compose(
+      : (await compose(
           stripTimes,
           STRIP_COLUMNS,
           STRIP_TILE_WIDTH,
           STRIP_TILE_HEIGHT,
           11,
-        ).toDataURL("image/jpeg", 0.88);
+        )).toDataURL("image/jpeg", 0.88);
 
     let temporal: TemporalDiagnostics | undefined;
     let jitter: number | undefined;
-    if (!options.diagnostic) {
+    if (motionEvidence) {
       runtime.resize(STRIP_TILE_WIDTH, STRIP_TILE_HEIGHT);
       const activity = document.createElement("canvas");
+      canvases.push(activity);
       activity.width = 160;
       activity.height = 90;
       const context = activity.getContext("2d", { willReadFrequently: true });
       if (!context) throw new Error("Activity capture unavailable.");
       runtime.render(doc.duration, options.solo);
+      await drain();
       context.drawImage(runtime.renderer.domElement, 0, 0, 160, 90);
       const baseline = context.getImageData(0, 0, 160, 90).data;
       const energies: number[] = [];
       const steps = Math.ceil(doc.duration * 30);
       for (let i = 0; i <= steps; i++) {
         runtime.render(Math.min(doc.duration, i / 30), options.solo);
+        await drain();
         context.drawImage(runtime.renderer.domElement, 0, 0, 160, 90);
         energies.push(
           measureFrameActivity(
@@ -278,8 +293,11 @@ export async function captureV2(
       })),
     };
   } finally {
-    runtime.dispose();
-    host.remove();
+    try { await runtime.dispose(); }
+    finally {
+      for (const canvas of canvases) { canvas.width = 0; canvas.height = 0; }
+      host.remove();
+    }
   }
 }
 

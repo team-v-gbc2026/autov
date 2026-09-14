@@ -3,7 +3,8 @@
 Eve can inspect, edit, generate, preview and undo v2 effects in authenticated project
 chats. References and emitters use clickable `@[name](reference:uuid)` and
 `#[name](emitter:encoded-id)` tags. References focus the board; emitters select and
-open their editor. Generation creates one candidate from existing texture assets.
+open their editor. Generation can reuse library assets or create effect masks,
+save them to the reference board, and inspect them before building a candidate.
 Reference image generation/editing is available through `generate_reference_image`.
 Automatic image cleanup and custom parameter metadata are not included.
 
@@ -41,6 +42,32 @@ shared renderer guide. `edit_vfx` accepts an atomic operations array; nested obj
 merge and arrays replace. Invalid values/unknown fields fail before any write.
 `generate_vfx` accepts `replace` or `add`; additive generation keeps globals and
 existing layers, renames colliding IDs and scales layer timing to the duration.
+Generation accepts a self-contained `prompt`, up to five `requirements`, eight
+`avoid` items, four library `textureIds`, and the existing board `referenceIds`.
+Legacy inputs default the new lists to empty. A durable context step resolves
+reference pixels, selected library pixels, and the exact revision's host settings.
+Art direction, texture refinement, planning and candidate calls receive this context. Replace mode
+preserves the existing environment; add mode preserves all globals and old layers.
+
+The studio workflow validates the first candidate with a contact sheet and immediately
+commits it to the scene, with quality `unreviewed`. It does not review or repair
+automatically. Chat displays “Continue iterating on this effect?” and a **Continue**
+chip for the current generation revision.
+
+Clicking Continue sends an explicit iteration approval with the source operation
+ID. `refine_vfx` verifies the authenticated project, conversation and unchanged
+revision, restores the original brief/art direction and existing textures, then
+reviews the current effect and runs up to two repairs. The first pass stays visible
+until the best reviewed candidate is committed. Unrelated edits invalidate the chip.
+The offer is recovered from persisted operations after reload; no browser-only
+approval state is needed. Review scoring uses the existing no-regression policy.
+
+Stages `art-direction`, `effect-texture-0..1`, `texture-direction`, `plan`,
+`candidate`, `review-0..2`, and `repair-1..2` use the existing
+per-project provider reservation/settlement guard. Captures have distinct operation
+IDs. Provider, capture, cancellation, or revision errors preserve the prior effect;
+no ambiguous paid call is automatically retried. The lab runner retains its
+specialized measurement pipeline; review scoring/selection policy is shared.
 `preview_vfx` accepts up to eight requested times and an optional solo layer.
 `set_vfx_view`, `set_reference_view` acknowledge browser actions. `undo_vfx_edit`
 requires the exact revision produced by the selected agent edit. Reference listing
