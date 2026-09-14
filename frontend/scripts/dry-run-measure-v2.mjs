@@ -33,7 +33,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const FALLBACK_MODULES =
-  process.env.AUTOV_VERIFY_MODULES || "/home/claude/spike/node_modules";
+  process.env.AUTOV_VERIFY_MODULES || "/home/codex/spike/node_modules";
 function load(name, preferFallback = false) {
   const candidates = preferFallback
     ? [path.join(FALLBACK_MODULES, name), path.join(root, "node_modules", name)]
