@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GPU_BUDGET_V2, gpuCostV2 } from "./gpu-budget-v2";
 import { DocumentV2WireSchema, type VfxDocumentV2 } from "./schema-v2";
 import { TEXTURE_MANIFEST_V2 } from "./texture-manifest-v2";
 import { FEATURE_NAMES } from "./features-v2";
@@ -466,6 +467,19 @@ export const MAX_ADDED_LAYERS_V2 = 2;
 export const MAX_ADDED_LIGHTS_V2 = 1;
 
 /** A compact description of a v2 layer for the visual reviewer. */
+/** What the document costs the GPU, for the model's own budget. */
+export function describeGpuCostV2(doc: VfxDocumentV2) {
+  const cost = gpuCostV2(doc);
+  return {
+    ...cost,
+    budget: GPU_BUDGET_V2,
+    withinBudget:
+      cost.draws <= GPU_BUDGET_V2.draws &&
+      cost.pipelines <= GPU_BUDGET_V2.pipelines &&
+      cost.instances <= GPU_BUDGET_V2.instances,
+  };
+}
+
 export function describeLayersV2(doc: VfxDocumentV2) {
   return doc.layers.map((layer) => {
     const material = layer.material;

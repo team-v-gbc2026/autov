@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GPU_BUDGET_V2, gpuCostV2 } from "./gpu-budget-v2";
 import {
   MotionSchema,
   TextureAssetSchema,
@@ -3490,6 +3491,16 @@ export function lintDocumentV2(doc: VfxDocumentV2): string[] {
     warnings.push(
       `Largest primary mesh spans about ${hero.toFixed(2)} units inside a ${staticExtent.toFixed(2)}-unit shot; the camera will frame mostly empty space.`,
     );
+  // What the document costs the GPU. A generated document combines kinds in
+  // ways no exemplar does, and the renderer's cost is draw calls, distinct
+  // programs and instances rather than layer count.
+  const cost = gpuCostV2(doc);
+  for (const [key, ceiling] of Object.entries(GPU_BUDGET_V2))
+    if (cost[key as keyof typeof cost] > ceiling)
+      warnings.push(
+        `document: ${cost[key as keyof typeof cost]} ${key} exceeds the GPU budget of ${ceiling}.`,
+      );
+
   return warnings;
 }
 

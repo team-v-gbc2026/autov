@@ -53,6 +53,7 @@ import {
   type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
 import {
+  describeGpuCostV2,
   describeLayersV2,
   REVIEW_V2_DEFECTS,
   REVIEW_V2_SYSTEM,
@@ -704,6 +705,9 @@ export async function POST(request: Request) {
             renderedActivity: body.temporal,
             jitterScore: body.jitter,
             layers,
+            // What the document costs the GPU, so a review can see a candidate
+            // that is expensive rather than only one that looks wrong.
+            gpu: describeGpuCostV2(doc),
           }),
           [...run.references, body.sheet, ...(body.strip ? [body.strip] : [])],
           request.signal,

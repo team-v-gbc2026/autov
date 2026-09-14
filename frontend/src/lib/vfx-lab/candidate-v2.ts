@@ -1,4 +1,9 @@
 import { applyExemplarCameraV2 } from "./refine";
+import {
+  GPU_BUDGET_V2,
+  gpuCostV2,
+  instanceCountOf,
+} from "./gpu-budget-v2";
 import { TECHNICAL_GUIDE_V2 } from "./protocol-v2";
 import {
   createPresetV2,
@@ -52,10 +57,50 @@ export function candidatePayloadV2(input: {
  * particle band: it is a two-number correction against a measured reference,
  * so it is applied here rather than paid for a second time.
  */
+/**
+ * Bring a candidate under the GPU budget without changing what it is.
+ *
+ * Counts come down; layers do not. A burst with half the debris is still the
+ * same burst, where a burst missing its debris layer is a different effect —
+ * and the budget is generous enough that no exemplar is ever touched. Programs
+ * are not repaired: the only way to use fewer is to make layers share a palette
+ * or a procedural, which changes the look, so that one is reported instead.
+ */
+function fitGpuBudget(doc: VfxDocumentV2): string[] {
+  const changes: string[] = [];
+  const scaleCounts = (factor: number, reason: string) => {
+    for (const layer of doc.layers) {
+      const count = instanceCountOf(layer);
+      if (!count) continue;
+      const next = Math.max(1, Math.floor(count.get * factor));
+      if (next === count.get) continue;
+      count.set(next);
+      changes.push(`${layer.id}: ${count.get} -> ${next} (${reason})`);
+    }
+  };
+  let cost = gpuCostV2(doc);
+  if (cost.instances > GPU_BUDGET_V2.instances) {
+    scaleCounts(GPU_BUDGET_V2.instances / cost.instances, "instance budget");
+    cost = gpuCostV2(doc);
+  }
+  if (cost.draws > GPU_BUDGET_V2.draws) {
+    scaleCounts(GPU_BUDGET_V2.draws / cost.draws, "draw budget");
+    cost = gpuCostV2(doc);
+  }
+  return changes;
+}
+
 export function repairCandidateV2(
   doc: VfxDocumentV2,
   family: RecipeV2Id,
 ): { document: VfxDocumentV2; warnings: string[] } {
   const document = applyExemplarCameraV2(doc, createPresetV2(family));
-  return { document, warnings: lintDocumentV2(document) };
+  const trimmed = fitGpuBudget(document);
+  return {
+    document,
+    warnings: [
+      ...trimmed.map((change) => `GPU budget: ${change}`),
+      ...lintDocumentV2(document),
+    ],
+  };
 }
