@@ -4,7 +4,7 @@ import { refineCandidate, candidateReceipt } from "../lib/candidates";
 import { waitBrowser } from "../lib/browser";
 export default defineWorkflowTool({
   description:
-    "After the user chooses Continue, author one revised candidate using Eve's visual findings and the original direction. Does not commit or run hidden review loops. Inspect and select the result explicitly.",
+    "Author one revised candidate for the current committed generation using the user's requested corrections and Eve's visual findings. Does not commit or run hidden review loops. Inspect and select the result explicitly.",
   inputSchema: z
     .object({
       expectedRevision: z.number().int().nonnegative(),

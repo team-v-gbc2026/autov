@@ -21,6 +21,7 @@ import type {
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
 import EmitterControls from "./vfx-studio/emitter-controls";
+import AuthoringPanel from "./vfx-studio/authoring-panel";
 import WorkspaceScene from "./studio/workspace-scene";
 import {
   createEmitter,
@@ -216,7 +217,21 @@ export default function Studio({
     }
     setDoc(current => applyEnvironment(current, patch));
   };
-  const effectControls = selectedLayer ? <EmitterControls layer={selectedLayer} onChange={patch => patchLayer(selectedLayer.id, patch)} /> : null;
+  const selectedRuntimeLayer = uiImport
+    ? undefined
+    : doc.layers.find(layer => layer.id === selectedLayerId) ?? doc.layers[0];
+  const effectControls = selectedLayer
+    ? uiImport || !selectedRuntimeLayer
+      ? <EmitterControls layer={selectedLayer} onChange={patch => patchLayer(selectedLayer.id, patch)} />
+      : <AuthoringPanel
+          document={doc}
+          layer={selectedRuntimeLayer}
+          onChange={next => setDoc(current => ({
+            ...current,
+            layers: current.layers.map(layer => layer.id === next.id ? next : layer),
+          }))}
+        />
+    : null;
   const environmentControls = (
     <section ref={environmentPanel} className="glass lab-environment-strip" aria-label="Scene controls"
       onBlur={event => {

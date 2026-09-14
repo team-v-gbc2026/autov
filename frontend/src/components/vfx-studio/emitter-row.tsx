@@ -68,7 +68,7 @@ export default function EmitterRow({ name, selected, editing, onEdit, onClose, o
     </div>
     {open && <FloatingPortal>
       <FloatingFocusManager context={context} modal={false} disabled={!editing} initialFocus={0} returnFocus={editing}>
-        <div ref={node => refs.setFloating(node)} style={editing && position ? { position: "fixed", left: `clamp(12px, ${position.x}px, calc(100vw - min(320px, 100vw - 24px) - 12px))`, top: `clamp(12px, ${position.y}px, calc(100dvh - min(260px, 100dvh - 24px) - 12px))` } : floatingStyles} className={`${styles.panel} ${editing ? styles.editor : ""}`} {...getFloatingProps({ "aria-label": editing ? `Edit ${name}` : `${name} actions` })}>
+        <div ref={node => refs.setFloating(node)} style={editing && position ? { position: "fixed", left: position.x, top: position.y } : floatingStyles} className={`${styles.panel} ${editing ? styles.editor : ""}`} {...getFloatingProps({ "aria-label": editing ? `Edit ${name}` : `${name} actions` })}>
           {editing ? <>
             <div className={styles.heading}>
               <button type="button" className={styles.dragHandle} aria-label={`Move ${name} settings`} title="Drag to move · Arrow keys to reposition"

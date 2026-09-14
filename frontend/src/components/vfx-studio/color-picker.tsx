@@ -7,7 +7,7 @@ export default function ColorPicker({ label, value, onChange, onBack }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const channels = [1, 3, 5].map(start => parseInt(value.slice(start, start + 2), 16));
@@ -20,7 +20,9 @@ export default function ColorPicker({ label, value, onChange, onBack }: {
   };
   return <section className={styles.picker} aria-label={`${label} color picker`}>
     <div className={styles.pickerHeading}>
-      <button type="button" onClick={onBack} aria-label="Back to appearance">← {label}</button>
+      {onBack
+        ? <button type="button" onClick={onBack} aria-label="Back to appearance">← {label}</button>
+        : <span>{label}</span>}
       <span className={styles.pickerPreview} style={{ background: value }} aria-hidden="true" />
       <input className={styles.hex} aria-label={`${label} hex color`} value={draft ?? value.toUpperCase()} spellCheck={false} maxLength={7}
         onChange={event => setDraft(event.target.value)} onBlur={commit}

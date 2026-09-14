@@ -365,12 +365,29 @@ export async function refineCandidate(
     .string()
     .uuid()
     .safeParse(ctx.session.auth.current?.attributes?.refineOperationId);
-  if (!consent.success)
-    throw new OperationError(
-      "INVALID_INPUT",
-      "Choose Continue in chat to approve paid refinement.",
-    );
-  const source = await ownedOperation(identity, ctx.session.id, consent.data);
+  let source: Operation;
+  if (consent.success) {
+    source = await ownedOperation(identity, ctx.session.id, consent.data);
+  } else {
+    const client = await verifyIdentity(identity);
+    const { data, error } = await client
+      .from("studio_operations")
+      .select("*")
+      .eq("project_id", identity.projectId)
+      .eq("session_id", ctx.session.id)
+      .eq("kind", "generate")
+      .eq("status", "completed")
+      .eq("after_revision", expectedRevision)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data)
+      throw new OperationError(
+        "NOT_FOUND",
+        "No committed generation is available to refine at this revision.",
+      );
+    source = data as Operation;
+  }
   const state = await readState(identity);
   if (
     source.kind !== "generate" ||

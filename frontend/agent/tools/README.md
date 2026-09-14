@@ -15,6 +15,6 @@ validation commands, cancellation/replay behavior, and extension boundaries.
 enabling shell/filesystem tools. `generate_vfx` authors one uncommitted candidate;
 `edit_vfx_candidate` captures targeted alternatives. Eve inspects the selected
 capture with `inspect_references` before `commit_vfx_candidate` applies it.
-`refine_vfx` requires explicit Continue approval from the authenticated user turn
-and checks the original operation and current revision before another paid draft.
+`refine_vfx` resolves the current committed generation in the authenticated
+conversation and checks its revision before creating another draft.
 See `docs/vfx-lab/EVE_INTEGRATION.md` for the current pipeline and release checks.
