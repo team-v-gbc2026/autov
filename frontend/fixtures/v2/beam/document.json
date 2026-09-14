@@ -1,6 +1,18 @@
 {
   "schemaVersion": "autov.lab/2",
   "name": "Sustained beam",
+  "authoringFrame": {
+    "position": [
+      3,
+      1.15,
+      0
+    ],
+    "rotation": [
+      0,
+      -1.570796,
+      0
+    ]
+  },
   "description": "A horizontal energy beam fired leftward from a small floating emitter on the right: a compact purple charge gathers as motes converge for one second, the beam extends to full length in 0.2 s, then holds for 2.3 s as a bright white core inside a magenta sheath whose edges flicker under UV-panned streak noise, flanked by two sharp magenta ribbons with a narrow vertical flare at the emitter. The core shuts off over 0.25 s and releases a fading yellow-green particle trail along the beam line, lit from a magenta pool under the emitter and a second light along the beam over a minimal grid.",
   "seed": 55210,
   "duration": 5.0,

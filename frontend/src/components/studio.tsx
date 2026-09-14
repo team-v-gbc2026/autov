@@ -102,6 +102,7 @@ export default function Studio({
     visible: false,
     dragging: false,
     canUndo: false,
+    editingOrigin: false,
   });
   const workspaceStorageKey = `autov.workspace.${encodeURIComponent(userId)}.${encodeURIComponent(project.id)}`;
   const [environmentOpen, setEnvironmentOpen] = useState(false);
@@ -194,6 +195,7 @@ export default function Studio({
   };
   /** A generated or imported v2 document becomes the new source of truth. */
   const openDocument = (next: VfxDocumentV2) => {
+    placementController?.cancelOriginEdit();
     setUiImport(null);
     setDoc(validateWorkspaceDocumentV2(next));
     setSelectedLayerId(next.layers[0]?.id ?? "");
@@ -268,11 +270,26 @@ export default function Studio({
       {/* Placement moves the whole effect in the workspace. It is viewer state:
           dragging never edits or regenerates the effect document. */}
       <div className="lab-placement-controls" role="group" aria-label="Effect placement">
+        <button type="button" className="icon-button"
+          disabled={!placementController || placementSnapshot.dragging}
+          aria-pressed={placementSnapshot.editingOrigin}
+          onClick={() => placementSnapshot.editingOrigin ? placementController?.cancelOriginEdit() : placementController?.beginOriginEdit()}>
+          {placementSnapshot.editingOrigin ? "Cancel origin edit" : "Set effect origin"}
+        </button>
+        {placementSnapshot.editingOrigin && <>
+          <span className="lab-origin-hint" role="status">Move the marker to the source; point its arrow forward. Apply aligns it to placement.</span>
+          <button type="button" className="icon-button" disabled={placementSnapshot.dragging}
+            onClick={() => {
+              const authoringFrame = placementController?.finishOriginEdit();
+              if (authoringFrame) setDoc(current => validateWorkspaceDocumentV2({ ...current, authoringFrame }));
+            }}>Apply origin</button>
+        </>}
+
         <button
           type="button"
           className="icon-button"
           aria-pressed={placementSnapshot.visible}
-          disabled={!placementController}
+          disabled={!placementController || placementSnapshot.editingOrigin}
           onClick={() => placementController?.setVisible(!placementSnapshot.visible)}
         >
           Place

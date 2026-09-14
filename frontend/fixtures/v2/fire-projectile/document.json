@@ -1,7 +1,19 @@
 {
   "schemaVersion": "autov.lab/2",
   "name": "Fire projectile",
-  "description": "Stylized fire projectile: an eroded teardrop shell with lifting tongues, a volume of small and large flame pieces streaming back along the tail, embers, velocity-stretched sparks and a purple-grey smoke plume over a lit grid ground. Ported from the hand-built v2 spike (round 4).",
+  "description": "Origin-aligned copy of the stylized fire projectile. Its semantic origin is the flame shell's launch point, with the projectile facing local +Z and +Y as up. The eroded teardrop shell, flame pieces, embers, sparks, smoke plume and lit grid ground retain their original relative placement. Ported from the hand-built v2 spike (round 4).",
+  "authoringFrame": {
+    "position": [
+      -0.6,
+      0.55,
+      0.2
+    ],
+    "rotation": [
+      0.100097,
+      2.156013,
+      0
+    ]
+  },
   "seed": 11,
   "duration": 3.5,
   "impact": 0.4,

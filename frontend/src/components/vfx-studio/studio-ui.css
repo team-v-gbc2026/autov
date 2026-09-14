@@ -97,3 +97,6 @@
 @media (max-height: 700px) {
   .lab .lab-timeline-scroll { max-height: 119px; }
 }
+
+/* Origin instructions float below the toolbar instead of widening it. */
+.lab .lab-origin-hint { position: absolute; top: calc(100% + 8px); left: 0; max-width: min(380px, 100%); padding: 10px 12px; border: 1px solid #ffffff25; border-radius: 6px; background: var(--panel); color: #d4e4e8; font-size: 12px; line-height: 1.5; }

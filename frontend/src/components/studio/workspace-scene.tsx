@@ -43,6 +43,7 @@ export default function WorkspaceScene({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const runtime = useRef<VfxRuntimeV2 | null>(null);
+  const placementRef = useRef<PlacementController | null>(null);
   // The rAF loop and the async mount read the latest props through refs, so a
   // new clock, solo or document never tears the renderer down.
   const latest = useRef({ clock, solo, onBackdropReady, onBackdropChange, onPlacementReady, onPlacementChange });
@@ -62,6 +63,7 @@ export default function WorkspaceScene({
     if (!element) return;
     let cancelled = false;
     let frame = 0;
+    let redraw = false;
     let observer: ResizeObserver | undefined;
     let instance: VfxRuntimeV2 | undefined;
     let backdrop: BackdropController | undefined;
@@ -119,13 +121,7 @@ export default function WorkspaceScene({
           effectRoot: instance.effectRoot,
           applyPlacement: next => instance?.setPlacement(next),
           requestRender: () => {
-            if (cancelled || !instance) return;
-            try {
-              // Paused playback still has to show the drag.
-              instance.render(latest.current.clock.getSnapshot().time, latest.current.solo);
-            } catch (problem) {
-              fail(problem instanceof Error ? problem.message : "Could not render the placement.");
-            }
+            redraw = true;
           },
           onChange: snapshot => {
             if (cancelled) return;
@@ -133,6 +129,7 @@ export default function WorkspaceScene({
             if (!restoringPlacement) savePlacement(snapshot.placement, placementStorageKey);
           },
         });
+        placementRef.current = placement;
         // Restore without an undo entry: reopening a workspace is not an edit.
         placement.setPlacement(loadPlacement(placementStorageKey), { history: false });
         restoringPlacement = false;
@@ -147,7 +144,10 @@ export default function WorkspaceScene({
         const draw = () => {
           if (cancelled) return;
           try {
-            instance!.renderPreview(latest.current.clock.getSnapshot().time, latest.current.solo);
+            if (redraw) {
+              redraw = false;
+              instance!.render(latest.current.clock.getSnapshot().time, latest.current.solo);
+            } else instance!.renderPreview(latest.current.clock.getSnapshot().time, latest.current.solo);
           } catch (problem) {
             fail(
               problem instanceof Error ? problem.message : "Preview failed.",
@@ -172,6 +172,7 @@ export default function WorkspaceScene({
       latest.current.onBackdropReady?.(null);
       latest.current.onPlacementReady?.(null);
       placement?.dispose();
+      placementRef.current = null;
       backdrop?.dispose();
       instance?.dispose();
       runtime.current = null;
@@ -185,6 +186,8 @@ export default function WorkspaceScene({
       // The mount installs whatever is pending; only later changes come here.
       if (!instance || installed.current === doc) return;
       try {
+        // A new document invalidates any anchor draft against the previous pose.
+        placementRef.current?.cancelOriginEdit();
         instance.setDocument(doc, { preserveCamera: true });
         installed.current = doc;
         void instance.whenReady().catch(problem => {

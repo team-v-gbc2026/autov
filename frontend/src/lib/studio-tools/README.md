@@ -6,6 +6,17 @@ Keep studio operations here, independent of Eve and React. `types.ts` provides
 an adapter context, a typed result, and a runtime input parser contract. These
 types do not implement authorization, persistence, or browser transport.
 
+## Authoring anchor
+
+`authoringFrame` is the semantic emission origin and XYZ rotation in authored
+coordinates. Missing means identity. New effects explicitly use
+`{"position":[0,0,0],"rotation":[0,0,0]}`: a fountain nozzle, explosion center,
+or projectile launch point is at zero, with forward +Z and up +Y.
+Layer offsets remain relative to that source. Existing offset effects can be
+aligned with Set effect origin; rendering uses placement × inverse(authoringFrame).
+Edits preserve this anchor unless explicitly asked to change it. Never use the
+visual bounding-box center as the emission origin or include viewer placement.
+
 ## Coordinate frame
 
 Every operation that reads or writes effect geometry works in the effect's own

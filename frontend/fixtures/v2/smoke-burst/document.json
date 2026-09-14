@@ -2,6 +2,18 @@
   "schemaVersion": "autov.lab/2",
   "name": "Smoke burst",
   "description": "Stylized purple smoke burst: a yellow glint anticipates the pop, a pink billow spreads at the base behind a thin white accent ring, and a plume of rounded lobes shaded in three broad tones (light violet caps, mid purple body, dark plum cores) rises with drag and curl before tearing into curled wisps and fading. Violet key light and a pink base fill pick up the grid ground.",
+  "authoringFrame": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ]
+  },
   "seed": 20731,
   "duration": 3.0,
   "impact": 0.3,

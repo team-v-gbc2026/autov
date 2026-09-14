@@ -1,6 +1,18 @@
 {
   "schemaVersion": "autov.lab/2",
   "name": "Hex shield",
+  "authoringFrame": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ]
+  },
   "description": "A hexagonal energy shield cast around a point: a ground sigil fades in and turns while motes converge on it, the dome snaps up with a scale overshoot, a base shockwave and an ignition spark ring, holds while its cells pulse and two hits ripple up the shell, then erodes away from the apex down as the motes scatter and the sigil fades. Hand-tuned hero exemplar for the shield family.",
   "seed": 8812,
   "duration": 3,

@@ -2,6 +2,18 @@
   "schemaVersion": "autov.lab/2",
   "name": "Ice blast",
   "description": "A ground freeze: a cold blue glint and a frost decal creep in over the first quarter second, then a hard crystal cluster erupts with an overshoot and a white fresnel rim, a cyan shockwave ring runs outward, a frost mist bursts from the base, ice shards and glitter fly on gravity, a cold blue-white light rakes the ground, and the crystals hold until they shatter and fade at 2.2 s over a frost decal that lingers to the end.",
+  "authoringFrame": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0
+    ]
+  },
   "seed": 47301,
   "duration": 2.4,
   "impact": 0.25,

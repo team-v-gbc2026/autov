@@ -14,6 +14,11 @@
  * what makes a document portable: the same JSON produces the same effect in the
  * studio, in a capture harness and in an exported runtime.
  *
+ * Imported documents may carry an authoringFrame that identifies their semantic
+ * source and orientation. Rendering first removes that frame, then applies
+ * placement: world = placement * inverse(authoringFrame) * authored coordinates.
+ * New documents use an identity authoringFrame.
+ *
  * Placement is the single transform from that local frame into the workspace.
  * It is deliberately NOT part of the effect document — the same reasoning as
  * the backdrop (see backdrop-settings.ts). A document stays comparable and

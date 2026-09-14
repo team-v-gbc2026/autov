@@ -1,5 +1,6 @@
 import type { IUniform } from "three";
 import * as THREE from "three/webgpu";
+import { releaseWebGPURenderer } from "./release-webgpu-renderer";
 import { createV2NodeMaterial, type V2NodeMaterial } from "./node-material-v2";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildGeometry } from "./geometry";
@@ -1835,6 +1836,7 @@ export class VfxRuntimeV2 {
   /** Seeds the camera-shake noise; set from the document. */
   private shakeSeed = 1;
   private disposed = false;
+  private rendererRelease?: Promise<void>;
   private initialized = false;
   private initialization: Promise<void>;
   private preparedPreviewDocument?: VfxDocumentV2;
@@ -1858,6 +1860,7 @@ export class VfxRuntimeV2 {
     });
     // No silent WebGL fallback: evaluation must use the same WebGPU backend.
     this.initialization = Promise.resolve().then(async () => {
+      if (this.disposed) return;
       if (!globalThis.navigator?.gpu)
         throw new Error(
           "WebGPU is unavailable. Use a supported browser in a secure context.",
@@ -1868,14 +1871,14 @@ export class VfxRuntimeV2 {
         !(this.renderer.backend as unknown as { isWebGPUBackend?: boolean })
           .isWebGPUBackend
       ) {
-        this.renderer.dispose();
+        this.releaseRenderer();
         this.initialized = false;
         throw new Error(
           "WebGPU is unavailable. Use a WebGPU-capable browser with hardware acceleration.",
         );
       }
       if (this.disposed) {
-        this.renderer.dispose();
+        this.releaseRenderer();
         return;
       }
       // WebGPU validation errors are asynchronous and do not throw from render().
@@ -1999,6 +2002,7 @@ export class VfxRuntimeV2 {
     this.objects = nextObjects;
     this.objectKeys = keys;
     this.doc = nextDoc;
+    this.updateEffectFrame();
     const lights = this.objects
       .filter((o) => o.source.kind === "light")
       .sort(
@@ -2114,18 +2118,22 @@ export class VfxRuntimeV2 {
     if (this.disposed) return;
     if (placementsEqual(placement, this.placement)) return;
     this.placement = clonePlacement(placement);
-    this.group.position.fromArray(this.placement.position);
-    this.group.rotation.fromArray(this.placement.rotation);
-    this.group.updateMatrixWorld(true);
-    this.placementMatrix.compose(
-      this.group.position,
-      this.group.quaternion,
-      this.group.scale,
+    this.updateEffectFrame();
+  }
+
+  /** One authored-to-world mapping for rendering, bounds and focus. */
+  private updateEffectFrame() {
+    const pose = (frame: EffectPlacement) => new THREE.Matrix4().compose(
+      new THREE.Vector3().fromArray(frame.position),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(...frame.rotation)),
+      new THREE.Vector3(1, 1, 1),
     );
-    // Keep auto-framing pointed at the effect's new home, without moving the
-    // camera: resetCamera()/focus() consume this on their next call.
-    this.computeFraming();
-    // A paused preview skips unchanged samples; a drag must still redraw.
+    this.placementMatrix.copy(pose(this.placement)).multiply(
+      pose(this.doc?.authoringFrame ?? IDENTITY_PLACEMENT).invert(),
+    );
+    this.placementMatrix.decompose(this.group.position, this.group.quaternion, this.group.scale);
+    this.group.updateMatrixWorld(true);
+    // Bounds are sampled on focus/reset, never on every pointer movement.
     this.previewSample = null;
   }
 
@@ -2277,7 +2285,10 @@ export class VfxRuntimeV2 {
           ),
         );
     }
-    if (box.isEmpty()) box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
+    if (box.isEmpty()) {
+      this.computeFraming();
+      box.setFromCenterAndSize(this.frame.center, new THREE.Vector3(1, 1, 1));
+    }
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const vertical = THREE.MathUtils.degToRad(this.doc.camera.fov) / 2;
     const horizontal = Math.atan(Math.tan(vertical) * area.width / area.height);
@@ -2300,6 +2311,7 @@ export class VfxRuntimeV2 {
   }
 
   resetCamera() {
+    this.computeFraming();
     this.camera.clearViewOffset();
     this.camera.aspect = this.width / this.height;
     this.previewSample = null;
@@ -2340,7 +2352,6 @@ export class VfxRuntimeV2 {
     this.updateResolutionUniforms();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.computeFraming();
     this.resetCamera();
   }
 
@@ -2511,6 +2522,12 @@ export class VfxRuntimeV2 {
     this.objectKeys.clear();
   }
 
+  private releaseRenderer() {
+    this.rendererRelease ??= releaseWebGPURenderer(this.renderer).catch(error => {
+      console.error("[VFX] Renderer cleanup failed", error);
+    });
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -2522,7 +2539,7 @@ export class VfxRuntimeV2 {
     this.textures.dispose();
     this.depthTarget.depthTexture?.dispose();
     this.depthTarget.dispose();
-    if (this.initialized) this.renderer.dispose();
+    if (this.initialized) this.releaseRenderer();
     this.renderer.domElement.remove();
   }
 }

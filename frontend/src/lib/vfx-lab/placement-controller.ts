@@ -29,6 +29,7 @@ export type PlacementSnapshot = {
   visible: boolean;
   dragging: boolean;
   canUndo: boolean;
+  editingOrigin: boolean;
 };
 
 /** Deep enough to walk back a fumbled drag, shallow enough to stay bounded. */
@@ -64,6 +65,8 @@ export class PlacementController {
   private visible = false;
   private dragging = false;
   private disposed = false;
+  private editingOrigin = false;
+  private readonly authoringToWorld = new THREE.Matrix4();
 
   constructor(options: {
     scene: THREE.Scene;
@@ -114,7 +117,7 @@ export class PlacementController {
     const down = this.pointerDownAt;
     this.pointerDownAt = null;
     // The gizmo owns the pointer during its own drags.
-    if (!down || this.dragging || this.gizmo.dragging) return;
+    if (!down || this.dragging || this.gizmo.dragging || this.editingOrigin) return;
     if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return;
 
     const rect = this.domElement.getBoundingClientRect();
@@ -188,11 +191,13 @@ export class PlacementController {
     this.dragging = dragging;
     // Orbit and gizmo both claim the pointer; the gizmo wins while dragging.
     this.orbit.enabled = !dragging;
-    if (dragging) this.pushHistory();
+    if (dragging && !this.editingOrigin) this.pushHistory();
     this.publish();
   };
 
   private onObjectChange = () => {
+    // Origin editing moves only the marker; the effect stays still until Apply.
+    if (this.editingOrigin) { this.requestRender(); return; }
     const next: EffectPlacement = {
       position: this.handle.position.toArray() as [number, number, number],
       rotation: [
@@ -231,7 +236,8 @@ export class PlacementController {
       space: this.space,
       visible: this.visible,
       dragging: this.dragging,
-      canUndo: this.history.length > 0,
+      canUndo: !this.editingOrigin && this.history.length > 0,
+      editingOrigin: this.editingOrigin,
     };
   }
 
@@ -240,6 +246,7 @@ export class PlacementController {
    * edit. `history: false` is for restoration, which must not become an undo step.
    */
   setPlacement(placement: EffectPlacement, options: { history?: boolean } = {}) {
+    if (this.editingOrigin) return;
     if (placementsEqual(placement, this.placement)) return;
     if (options.history !== false) this.pushHistory();
     this.placement = clonePlacement(placement);
@@ -280,12 +287,50 @@ export class PlacementController {
     this.requestRender();
   }
 
+  /** Freeze the effect and position the marker at its semantic emission point. */
+  beginOriginEdit() {
+    if (this.disposed || this.dragging || this.editingOrigin) return;
+    this.effectRoot.updateWorldMatrix(true, false);
+    this.authoringToWorld.copy(this.effectRoot.matrixWorld);
+    this.editingOrigin = true;
+    this.setVisible(true);
+    this.publish();
+    this.requestRender();
+  }
+
+  finishOriginEdit(): EffectPlacement | null {
+    if (!this.editingOrigin || this.dragging) return null;
+    this.handle.updateMatrixWorld(true);
+    const local = this.authoringToWorld.clone().invert().multiply(this.handle.matrixWorld);
+    const position = new THREE.Vector3(), orientation = new THREE.Quaternion(), scale = new THREE.Vector3();
+    local.decompose(position, orientation, scale);
+    const rotation = new THREE.Euler().setFromQuaternion(orientation, "XYZ");
+    const frame: EffectPlacement = {
+      position: position.toArray(), rotation: [rotation.x, rotation.y, rotation.z],
+    };
+    this.cancelOriginEdit();
+    return frame;
+  }
+
+  cancelOriginEdit() {
+    if (!this.editingOrigin) return;
+    // Document replacement can cancel a draft in the middle of a pointer drag.
+    // End that drag before returning the handle to placement ownership.
+    this.gizmo.dragging = false;
+    this.gizmo.axis = null;
+    this.editingOrigin = false;
+    this.syncHandle();
+    this.publish();
+    this.requestRender();
+  }
+
   /** Back to the authored frame: the effect renders exactly as generated. */
   reset() {
     this.setPlacement(IDENTITY_PLACEMENT);
   }
 
   undo() {
+    if (this.editingOrigin) return;
     const previous = this.history.pop();
     if (!previous) return;
     this.placement = previous;

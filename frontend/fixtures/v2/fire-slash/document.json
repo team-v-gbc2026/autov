@@ -1,6 +1,18 @@
 {
   "schemaVersion": "autov.lab/2",
   "name": "Fire slash",
+  "authoringFrame": {
+    "position": [
+      -1.155575,
+      1.115934,
+      -0.600071
+    ],
+    "rotation": [
+      0,
+      -0.36,
+      1.676991
+    ]
+  },
   "description": "A fast airborne fire slash: a wind-up glow, an ignition flash, then a hot eroded crescent ribbon with a white-yellow leading edge cooling to a deep red trailing edge that burns away under a UV-panned streak noise, a wider dim smoke-tinted ribbon behind it, stretched sparks and glints flung along the arc, drifting embers, a slow smoke wake, a short orange light and a ground glow under the sweep.",
   "seed": 4721,
   "duration": 1.4,

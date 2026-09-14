@@ -536,9 +536,16 @@ export const PostSchema = z
   })
   .strict();
 
+/** Authored emission anchor. Missing on legacy documents means identity. */
+export const AuthoringFrameSchema = z.object({
+  position: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
+  rotation: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
+}).strict();
+
 export const DocumentV2Schema = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION_V2),
+    authoringFrame: AuthoringFrameSchema.optional(),
     name: z.string().min(1).max(100),
     description: z.string().max(1500),
     seed: integer(0, 2147483647),
@@ -772,6 +779,7 @@ export function validateWorkspaceDocumentV2(input: unknown): VfxDocumentV2 {
 
 export function validateDocumentV2(input: unknown, options: { workspace?: boolean } = {}): VfxDocumentV2 {
   const doc = (options.workspace ? WorkspaceDocumentV2Schema : DocumentV2Schema).parse(input);
+  doc.authoringFrame ??= { position: [0, 0, 0], rotation: [0, 0, 0] };
   if (doc.impact >= doc.duration)
     throw new Error("Impact must be before the end.");
 
@@ -1178,6 +1186,7 @@ export function defaultDocumentShell(
 ): Omit<VfxDocumentV2, "layers"> {
   return {
     schemaVersion: SCHEMA_VERSION_V2,
+    authoringFrame: { position: [0, 0, 0], rotation: [0, 0, 0] },
     name,
     description: "",
     seed: 41721,
@@ -1322,6 +1331,7 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
 }).extend({
   // Structured Outputs needs every property required, so the wire copy drops
   // the default and asks the model for the value.
+  authoringFrame: z.object({ position: num3, rotation: num3 }).strict(),
   environment: EnvironmentSchema.extend({ ambient: scalar(0, 3) }),
   layers: z.array(LayerV2WireSchema).min(1).max(24),
 });

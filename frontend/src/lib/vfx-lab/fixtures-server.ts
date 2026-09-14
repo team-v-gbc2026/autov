@@ -71,5 +71,10 @@ async function fetchFixtureJson(id: string): Promise<unknown | null> {
  * otherwise. Returns null when neither exists.
  */
 export async function loadFixtureDocument(id: string): Promise<unknown | null> {
+  // Local editing must show the checked-in fixture, not an older bucket copy.
+  if (process.env.AUTOV_LOCAL_MODE === "1") {
+    const local = readLocalFixtureJson(id);
+    if (local !== null) return local;
+  }
   return (await fetchFixtureJson(id)) ?? readLocalFixtureJson(id);
 }
