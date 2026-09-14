@@ -194,3 +194,38 @@ Dropped: visual parameter "cards" (prior art: Design Galleries, 1997; weak novel
   strip programs ignore it: neither has a second key space worth mixing.
 - The mesh-hero framing lint (`MESH_HERO_FRAMING_LINT`) warns below 0.80 rather than the authored
   0.85–1.0 band, because the portal exemplar frames its doorway at 0.80.
+
+## 2026-09-14 — technique cards, spikes, generalised vocabulary, first live runs
+
+Branch `feature/vfx-technique-cards` (from `feature/vfx-toolbox-v2`, which is already merged into
+`main` via PR #28). Method that worked: published artist breakdowns → 24 technique cards fed to the
+candidate prompt → one hand-built single-HTML spike per family (`/dev/vfx-v2/spike-*`, 13 of them)
+judged against same-phase reference frames → each spike generalised into schema v2 vocabulary
+(`TOOLBOX_V2_MAPPING.md` §4–§17) → a hand-tuned exemplar per family (15 fixtures, all uploaded to the
+`vfx-fixtures` bucket). `/dev/vfx-review` plays every exemplar and every generated run beside the
+benchmark reference clip with an A/B toggle at the same time.
+
+Live runs (gpt-6-astra, fast mode, `--no-video`): `v2-techniques-3/4` (fx12, quality) and
+`v2-fast-dev` (nine dev cases). Findings:
+
+- The model now uses the new kinds unprompted and correctly: blob + toon + outline + splash for smoke,
+  shell + sheets for water, crescent + licks for the slash, ring + reflection for the portal,
+  `toon.colorSource:"ramp"` with a height ramp once it existed. Vocabulary is no longer the limit.
+- The remaining gap is magnitude and time: framing at the particle band (fixed by the mesh-hero
+  framing rule + exemplar-camera repair), columns that die before the prompt's peak (rule added: copy
+  the exemplar's timing windows), and a beam whose body sits above 1.0 linear and washes the frame.
+- refine and restructure were rejected as "no clear improvement" in both quality runs, so fast mode
+  (plan → candidate → review, ≈ $2.3 per case at ~38k input tokens) buys the same quality for a third
+  of the cost until the improvement loop can act on `smallInFrame` and timing.
+- Two silent renderer faults surfaced only through live runs: the splash fragment shader referenced an
+  undeclared uniform (every splash layer had been skipped), and `pathAnchored` fell through to burst on
+  the GPU. `npm run verify:shaders` now renders every exemplar and fails on any shader error.
+
+Budget: the OpenAI project cap is $80 (raised 2026-09-14). The local ledger (`budget.ts`) caps at $60
+by code and stood at $56.7 after `v2-fast-dev`; the validation cases (fx06, fx08, fx15) and the holdout
+five were not run. To run more, archive `.autov-local/budget.json` and start a fresh ledger; holdout
+additionally needs `--final-evaluation`.
+
+Next: PR `feature/vfx-technique-cards` → `main` after merging `main` in; then make the improvement loop
+act on framing/timing/luminance (exemplar camera + timing copy on `smallInFrame`, a luminance cap
+repair for washout), and re-run the three validation cases.
