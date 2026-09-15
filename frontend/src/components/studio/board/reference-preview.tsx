@@ -24,6 +24,21 @@ export default function ReferencePreview({ reference, onClose, onRename, onMenti
   const [promptOpen, setPromptOpen] = useState(!reference || promptInitiallyOpen);
   const [editPrompt, setEditPrompt] = useState("");
   useEffect(() => { const el = dialog.current; el?.showModal(); return () => el?.close(); }, []);
+  const handleDownload = async () => {
+    if (!reference) return;
+    try {
+      const response = await fetch(reference.url);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `${reference.name || "image"}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch { /* ignore */ }
+  };
   const saveName = () => {
     if (!reference) return;
     const next = name.trim();
@@ -54,6 +69,7 @@ export default function ReferencePreview({ reference, onClose, onRename, onMenti
       </form> : <button type="button" className={styles.generateButton} aria-expanded={false} onClick={() => setPromptOpen(true)} disabled={disabled || editing}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z" /></svg>Generate</button>}
 
       {reference && <div className={styles.previewActions}>
+        <PreviewAction label="Download image" onClick={handleDownload} disabled={disabled || editing}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></svg></PreviewAction>
         <PreviewAction label="Mention in chat" onClick={onMention} disabled={disabled || editing}><span aria-hidden="true">@</span></PreviewAction>
         <span className={styles.previewDivider} />
         <PreviewAction label="Remove reference" onClick={() => setConfirm(true)} disabled={disabled || editing} destructive><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg></PreviewAction>

@@ -188,7 +188,7 @@ export default function ReferenceComposer({ ref, references, emitters = [], busy
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !event.defaultPrevented && !pickerRef.current && !emitterPickerRef.current) {
           event.preventDefault();
           event.stopPropagation();
-          if (!saving && !responding) void send();
+          if (!saving) void send();
         }
       }}><EditorContent editor={editor} className={styles.editor} /></div>
       <div className="composer-toolbar"><div className={styles.tools}>
