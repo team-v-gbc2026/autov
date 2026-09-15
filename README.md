@@ -28,8 +28,8 @@ https://github.com/user-attachments/assets/REPLACE_WITH_UPLOADED_VIDEO
 
 <br/>
 
-<a href="docs/screenshots/vfx-studio-ui-chat-edit.jpg"><img src="docs/screenshots/vfx-studio-ui-chat-edit.jpg" width="49%" alt="autoV studio — chat-driven scoped edits" /></a>
-<a href="docs/screenshots/vfx-studio-ui-effect-controls.jpg"><img src="docs/screenshots/vfx-studio-ui-effect-controls.jpg" width="49%" alt="autoV studio — layer and effect controls" /></a>
+<a href="docs/screenshots/render1.png"><img src="docs/screenshots/render1.png" width="49%" alt="autoV studio — chat-driven scoped edits" /></a>
+<a href="docs/screenshots/render2.png"><img src="docs/screenshots/render2.png" width="49%" alt="autoV studio — layer and effect controls" /></a>
 
 </div>
 
