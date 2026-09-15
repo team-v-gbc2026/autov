@@ -55,3 +55,31 @@ test("display updates are bounded while the canvas clock stays current", () => {
   for (let frame = 0; frame < 120; frame++) clock.tick(1 / 120);
   assert.equal(updates, pausedUpdates);
 });
+
+test("a held clock does not advance while the renderer prepares a document", () => {
+  const clock = createPlaybackClock(5);
+  clock.tick(0.5);
+  assert.equal(clock.getSnapshot().time, 0.5);
+  const release = clock.hold();
+  assert.equal(clock.held(), true);
+  // Preparing a document blocks the main thread; the frames that follow must
+  // not hand playback the whole stall at once.
+  for (let frame = 0; frame < 60; frame++) clock.tick(0.1);
+  assert.equal(clock.getSnapshot().time, 0.5);
+  assert.equal(clock.getSnapshot().playing, true);
+  // A second holder keeps the timeline suspended until both release it.
+  const second = clock.hold();
+  release();
+  release();
+  clock.tick(0.25);
+  assert.equal(clock.getSnapshot().time, 0.5);
+  second();
+  assert.equal(clock.held(), false);
+  clock.tick(0.25);
+  assert.equal(clock.getSnapshot().time, 0.75);
+  // Seeking and pausing still work while held.
+  const hold = clock.hold();
+  clock.getSnapshot().setTime(2);
+  assert.equal(clock.getSnapshot().time, 2);
+  hold();
+});

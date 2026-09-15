@@ -18,11 +18,18 @@ export default function WorkspaceScene({
   clock,
   solo,
   focusRequest = 0,
+  loaded = true,
 }: {
   doc: VfxDocumentV2;
   clock: PlaybackClock;
   solo?: string;
   focusRequest?: number;
+  /**
+   * Whether `doc` is the project's own document rather than the empty
+   * placeholder the studio renders until the server answers. The first loaded
+   * document is framed; everything after it keeps the camera the user set.
+   */
+  loaded?: boolean;
 }) {
   // The studio stage stays visible even when an effect authors a black backdrop.
   const doc = useMemo(() => ({ ...effect, environment: createWorkspaceDocument().environment }), [effect]);
@@ -30,15 +37,23 @@ export default function WorkspaceScene({
   const runtime = useRef<VfxRuntimeV2 | null>(null);
   // The rAF loop and the async mount read the latest props through refs, so a
   // new clock, solo or document never tears the renderer down.
-  const latest = useRef({ clock, solo });
+  const latest = useRef({ clock, solo, loaded });
   const pending = useRef(doc);
   const installed = useRef<VfxDocumentV2 | null>(null);
+  // The camera is framed once, for the first document that is actually the
+  // project's. Without this a project opened from a preset keeps the pose that
+  // framed the empty placeholder, which sits inside the effect.
+  const framed = useRef(false);
+  // Between setDocument and whenReady the device builds this document's
+  // pipelines. Drawing the new scene at full size during that only adds to the
+  // stall, so the last prepared frame stays on screen instead.
+  const preparing = useRef(false);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    latest.current = { clock, solo };
+    latest.current = { clock, solo, loaded };
     pending.current = doc;
   });
 
@@ -59,9 +74,17 @@ export default function WorkspaceScene({
         if (cancelled) return;
         instance = new VfxRuntimeV2(element, { preview: true });
         runtime.current = instance;
-        instance.setDocument(pending.current);
-        installed.current = pending.current;
-        await instance.whenReady();
+        // The timeline waits for the device: a held clock keeps playback at the
+        // frame the preparation started on instead of stalling mid-play.
+        const release = latest.current.clock.hold();
+        try {
+          instance.setDocument(pending.current);
+          installed.current = pending.current;
+          if (latest.current.loaded) framed.current = true;
+          await instance.whenReady();
+        } finally {
+          release();
+        }
         if (cancelled) return;
         instance.resize();
         observer = new ResizeObserver(() => {
@@ -72,7 +95,8 @@ export default function WorkspaceScene({
         const draw = () => {
           if (cancelled) return;
           try {
-            instance!.renderPreview(latest.current.clock.getSnapshot().time, latest.current.solo);
+            if (!preparing.current)
+              instance!.renderPreview(latest.current.clock.getSnapshot().time, latest.current.solo);
           } catch (problem) {
             fail(
               problem instanceof Error ? problem.message : "Preview failed.",
@@ -105,21 +129,40 @@ export default function WorkspaceScene({
       const instance = runtime.current;
       // The mount installs whatever is pending; only later changes come here.
       if (!instance || installed.current === doc) return;
+      // The project's first real document is framed the way the exemplars and
+      // the Focus button frame it; user edits keep the camera where it is.
+      const first = !framed.current;
+      const release = clock.hold();
+      preparing.current = true;
+      const settle = () => {
+        preparing.current = false;
+        release();
+      };
       try {
-        instance.setDocument(doc, { preserveCamera: true });
+        instance.setDocument(doc, { preserveCamera: !first });
         installed.current = doc;
-        void instance.whenReady().catch(problem => {
-          if (runtime.current !== instance || installed.current !== doc) return;
-          setError(problem instanceof Error ? problem.message : "Could not prepare the scene.");
-          setStatus("error");
-        });
+        if (loaded) framed.current = true;
+        if (first) setStatus("loading");
+        void instance.whenReady().then(
+          () => {
+            settle();
+            if (runtime.current === instance && first) setStatus("ready");
+          },
+          problem => {
+            settle();
+            if (runtime.current !== instance || installed.current !== doc) return;
+            setError(problem instanceof Error ? problem.message : "Could not prepare the scene.");
+            setStatus("error");
+          },
+        );
       } catch (problem) {
+        settle();
         setError(problem instanceof Error ? problem.message : "Invalid effect.");
         setStatus("error");
       }
     }, INSTALL_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [doc]);
+  }, [doc, clock, loaded]);
 
   useEffect(() => {
     if (!focusRequest || !runtime.current || !host.current) return;

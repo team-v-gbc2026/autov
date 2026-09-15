@@ -50,6 +50,11 @@ export function createPlaybackClock(initialDuration: number) {
   let duration = initialDuration;
   let state = { playing: true, time: 0, loop: true };
   const listeners = new Set<() => void>();
+  // Preparing a document blocks the main thread while the device builds its
+  // pipelines. Ticking through that stall would hand playback a frozen picture
+  // that jumps forward the moment the scene is ready, so the scene holds the
+  // timeline instead and releases it once the renderer can draw.
+  let holds = 0;
   const displayListeners = new Set<() => void>();
   let displaySnapshot: Playback;
   let displayElapsed = 0;
@@ -94,7 +99,21 @@ export function createPlaybackClock(initialDuration: number) {
       state = { ...state, time: Math.min(state.time, duration) };
       publish();
     },
-    tick(delta: number) { dispatch({ type: "tick", delta, duration }); },
+    tick(delta: number) {
+      if (holds > 0) return;
+      dispatch({ type: "tick", delta, duration });
+    },
+    /** Suspends the timeline until every holder releases it. */
+    hold() {
+      holds++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        holds = Math.max(0, holds - 1);
+      };
+    },
+    held: () => holds > 0,
   };
 }
 
