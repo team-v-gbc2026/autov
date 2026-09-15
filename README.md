@@ -19,7 +19,7 @@
      and paste the resulting https://github.com/user-attachments/... URL here.
      For a YouTube demo, use the thumbnail-link form instead (commented out under this). -->
 
-https://github.com/user-attachments/assets/REPLACE_WITH_UPLOADED_VIDEO
+https://github.com/user-attachments/assets/a8640ab5-a82f-42cb-ba82-29c4bb9d1e16
 
 <!-- YouTube alternative:
 <a href="https://youtu.be/VIDEO_ID"><img src="https://img.youtube.com/vi/VIDEO_ID/maxresdefault.jpg" width="80%" alt="Watch the autoV demo" /></a>
