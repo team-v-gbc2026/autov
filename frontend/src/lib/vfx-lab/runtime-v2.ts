@@ -5608,6 +5608,7 @@ export class VfxRuntimeV2 {
   focus(
     area: { left: number; top: number; width: number; height: number },
     solo?: string,
+    framing = 1,
   ) {
     if (!this.doc) return;
     const box = new THREE.Box3();
@@ -5634,7 +5635,7 @@ export class VfxRuntimeV2 {
     );
     const distance = Math.max(
       1,
-      (sphere.radius * 1.12) / Math.sin(Math.min(vertical, horizontal)),
+      (sphere.radius * 1.12) / (Math.sin(Math.min(vertical, horizontal)) * Math.max(0.1, framing)),
     );
     const direction = this.camera.position
       .clone()

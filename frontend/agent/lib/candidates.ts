@@ -46,12 +46,23 @@ async function ownedOperation(
     .eq("project_id", identity.projectId)
     .eq("session_id", sessionId)
     .eq("id", id)
-    .single();
-  if (error || !data)
-    throw new OperationError(
-      "NOT_FOUND",
-      "Candidate unavailable in this conversation.",
-    );
+    .maybeSingle();
+  if (error) {
+    console.warn("studio_candidate_lookup_failed", { operationId: id, projectId: identity.projectId, sessionId, code: error.code });
+    throw new OperationError("UNAVAILABLE", "Candidate storage could not be read. Retry the same candidate handle; do not regenerate.");
+  }
+  if (!data) {
+    // Only inspect metadata inside the already-authorized project. Never relax
+    // session ownership to make an old or invented candidate handle commit.
+    const { data: other, error: lookupError } = await client.from("studio_operations")
+      .select("session_id").eq("project_id", identity.projectId).eq("id", id).maybeSingle();
+    if (lookupError) throw new OperationError("UNAVAILABLE", "Candidate storage could not be read. Retry the same candidate handle; do not regenerate.");
+    const reason = other ? "conversation_mismatch" : "candidate_not_found";
+    console.warn("studio_candidate_unavailable", { operationId: id, projectId: identity.projectId, sessionId, reason });
+    throw Object.assign(new OperationError("NOT_FOUND", other
+      ? "This candidate belongs to another conversation. Return to its original conversation; the current scene is unchanged."
+      : "Candidate ID not found in this project. Copy the exact operationId and captureId from the latest candidate receipt; do not regenerate."), { fatal: true });
+  }
   return data as Operation;
 }
 
@@ -189,7 +200,7 @@ export async function candidateReceipt(
       document,
       document.layers.map((layer) => layer.id),
     ),
-    next: "Inspect reference pixels, then edit_vfx_candidate or commit_vfx_candidate.",
+    next: "Inspect reference pixels, then pass this receipt's exact operationId and captureId unchanged to edit_vfx_candidate or commit_vfx_candidate. A referenceId is not a candidate ID.",
   };
 }
 

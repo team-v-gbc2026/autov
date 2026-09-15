@@ -524,7 +524,7 @@ export default function Studio({
             document: vfxDocument,
             selectedEmitterId: selectedLayerId,
             onDocument: (generated) =>
-              openDocument({ ...generated, environment: doc.environment }),
+              openDocument(generated),
             standalone,
             beforeSend: async () => {
               if (uiImport)

@@ -4,7 +4,7 @@ import { parseMentions } from "@/lib/studio-tools/mentions";
 import Tooltip from "@/components/ui/tooltip";
 import styles from "./chat.module.css";
 
-export const ChatTargets = createContext<{ references: { id: string; name: string }[]; emitters: { id: string; name: string }[]; onReference?: (id: string) => void; onEmitter?: (id: string) => void }>({ references: [], emitters: [] });
+export const ChatTargets = createContext<{ references: { id: string; name: string }[]; emitters: { id: string; name: string }[]; onReference?: (id: string) => void; onPreview?: (id: string) => void; onEmitter?: (id: string) => void }>({ references: [], emitters: [] });
 function Inline({ text }: { text: string }) {
   const targets = useContext(ChatTargets);
   return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, group) => {
@@ -13,8 +13,9 @@ function Inline({ text }: { text: string }) {
     return <span key={group}>{parseMentions(part, true).map((token, index) => {
       if (token.type === "text") return token.text;
       const item = (token.type === "reference" ? targets.references : targets.emitters).find(item => item.id === token.id);
-      const click = token.type === "reference" ? targets.onReference : targets.onEmitter;
-      return <button key={index} type="button" className={styles.mentionChip} disabled={!item || !click} title={item ? `Focus ${item.name}` : "This item is no longer available"} onClick={() => click?.(token.id)}>{token.type === "reference" ? "@" : "#"}{item?.name || token.label}{!item && " (unavailable)"}</button>;
+      const capture = token.type === "reference" && !item && targets.onPreview;
+      const click = token.type === "reference" ? (item ? targets.onReference : targets.onPreview) : targets.onEmitter;
+      return <button key={index} type="button" className={styles.mentionChip} disabled={(!item && !capture) || !click} title={item ? `Focus ${item.name}` : capture ? "Open saved preview" : "This item is no longer available"} onClick={() => click?.(token.id)}>{token.type === "reference" ? "@" : "#"}{item?.name || token.label}{!item && !capture && " (unavailable)"}</button>;
     })}</span>;
   });
 }

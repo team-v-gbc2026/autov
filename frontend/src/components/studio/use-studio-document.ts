@@ -7,6 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 import { agentHeaders } from "@/lib/agent/client";
+import { ownsBrowserLease } from "@/lib/studio-tools/browser-operation";
 import { startHeartbeat } from "@/lib/studio-tools/heartbeat";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -179,7 +180,7 @@ export function useStudioDocument(
             id: operation.id,
             leaseId,
           });
-          if (!claimed || claimed.status !== "running") continue;
+          if (!ownsBrowserLease(claimed, leaseId)) continue;
           handled.add(operation.id);
           const stopHeartbeat = ["preview", "capture_candidate"].includes(operation.kind)
             ? startHeartbeat(async () => {
