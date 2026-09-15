@@ -40,6 +40,10 @@ import {
 import { score, type Plan } from "@/lib/vfx-lab/protocol";
 import { scoreV2 } from "@/lib/vfx-lab/protocol-v2";
 import type { VfxRuntime } from "@/lib/vfx-lab/runtime";
+import {
+  presetDocumentUrl,
+  presetManifestUrl,
+} from "@/lib/vfx-lab/asset-urls";
 import "./studio.css";
 import "../vfx-studio/studio-ui.css";
 
@@ -169,7 +173,7 @@ export default function VfxStudio() {
     } catch {
       /* History is optional. */
     }
-    void fetch("/trial-presets/manifest.json")
+    void fetch(presetManifestUrl())
       .then(async (r) => {
         if (!r.ok) return;
         const data = await r.json();
@@ -194,7 +198,7 @@ export default function VfxStudio() {
     if (trialId || (sharedTrial && /^[-a-zA-Z0-9]{1,100}$/.test(sharedTrial)))
       void fetch(
         sharedTrial && /^[-a-zA-Z0-9]{1,100}$/.test(sharedTrial)
-          ? `/trial-presets/effects/${encodeURIComponent(sharedTrial)}/document.json`
+          ? presetDocumentUrl(sharedTrial)
           : `/dev/vfx-lab/trials/data?id=${encodeURIComponent(trialId!)}&file=document`,
       )
         .then(async (r) => {
@@ -473,9 +477,6 @@ export default function VfxStudio() {
           <span className="lab-badge">LOCAL · SAVED ON THIS DEVICE</span>
         </div>
         <div className="header-actions">
-          <a className="lab-action" href="/trial-presets/index.html">
-            Shared trials ↗
-          </a>
           <Link className="lab-action" href="/dev/vfx-lab/trials">
             Trials ↗
           </Link>
@@ -501,7 +502,7 @@ export default function VfxStudio() {
               try {
                 const response = await fetch(
                   sharedId
-                    ? `/trial-presets/effects/${encodeURIComponent(sharedId)}/document.json`
+                    ? presetDocumentUrl(sharedId)
                     : `/examples/${example}`,
                 );
                 if (!response.ok) throw new Error("Example unavailable.");

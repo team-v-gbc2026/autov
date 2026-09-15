@@ -1,0 +1,582 @@
+// autoV toolbox v2 — S3 spike: hex energy shield (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 5.0;
+const R = 1.2; // shield radius
+const CY = 1.25; // centre height: the sphere floats, its bottom just off the floor
+const T_HOLD = 1.0;
+const T_FADE = 3.5;
+const NPTS = 377; // hex cells over the sphere (Fibonacci count, then relaxed)
+const TEX = 512; // lattice texture width
+const BAND_W = 0.28; // ribbon width in world units
+const TILT = (30 * Math.PI) / 180;
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.26,
+  threshold: 1.05,
+  exposure: 1.0,
+  layers: {
+    dome: true,
+    hex: true,
+    rim: true,
+    band: true,
+    ripples: true,
+    marker: true,
+    post: true,
+  },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+// piecewise-linear envelope over [t,v] pairs
+const env = (t, pts) => {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i][0]) {
+      const [t0, v0] = pts[i - 1];
+      const [t1, v1] = pts[i];
+      return v0 + (v1 - v0) * ss(0, 1, (t - t0) / (t1 - t0));
+    }
+  }
+  return pts[pts.length - 1][1];
+};
+// deterministic hash: the only source of per-instance variation
+const h11 = (n) => {
+  let p = (n * 0.1031) % 1;
+  p *= p + 33.33;
+  p *= p + p;
+  return p - Math.floor(p);
+};
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: "high-performance",
+});
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x05070a, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x05070a, 12, 34);
+
+// fixed elevated oblique camera, ≈26° down
+const camera = new THREE.PerspectiveCamera(30, 1280 / 720, 0.1, 100);
+camera.position.set(0.0, 4.55, 7.0);
+camera.lookAt(0, 1.16, 0);
+
+const GLSL = `
+float h11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+`;
+
+// ---------------------------------------------------------------- hex lattice
+// The cells are the Voronoi regions of a relaxed point set on the sphere:
+// uniform, pole-free, seam-free — a Goldberg sphere without any authored mesh.
+// A raw Fibonacci set tiles into rhombi, so Lloyd relaxation (a centroidal
+// Voronoi tessellation) pulls it into near-regular hexagons.
+const fib = (i, n) => {
+  const y = 1 - (2 * i + 1) / n;
+  const rr = Math.sqrt(Math.max(0, 1 - y * y));
+  const ph = 2 * Math.PI * (i * 0.61803398875);
+  return [Math.cos(ph) * rr, y, Math.sin(ph) * rr];
+};
+const site = [];
+for (let i = 0; i < NPTS; i++) site.push(fib(i, NPTS));
+const M = 4200;
+for (let it = 0; it < 14; it++) {
+  const acc = new Float64Array(NPTS * 3);
+  for (let k = 0; k < M; k++) {
+    const q = fib(k, M);
+    let bi = 0,
+      bd = 9;
+    for (let i = 0; i < NPTS; i++) {
+      const s2 = site[i];
+      const dx = s2[0] - q[0],
+        dy = s2[1] - q[1],
+        dz = s2[2] - q[2];
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d < bd) {
+        bd = d;
+        bi = i;
+      }
+    }
+    acc[bi * 3] += q[0];
+    acc[bi * 3 + 1] += q[1];
+    acc[bi * 3 + 2] += q[2];
+  }
+  for (let i = 0; i < NPTS; i++) {
+    const L = Math.hypot(acc[i * 3], acc[i * 3 + 1], acc[i * 3 + 2]);
+    if (L > 1e-6) site[i] = [acc[i * 3] / L, acc[i * 3 + 1] / L, acc[i * 3 + 2] / L];
+  }
+}
+site.sort((a, b) => b[1] - a[1]); // the shader looks sites up by a band around y
+const pts = new Float32Array(TEX * 4);
+for (let i = 0; i < NPTS; i++) {
+  pts[i * 4] = site[i][0];
+  pts[i * 4 + 1] = site[i][1];
+  pts[i * 4 + 2] = site[i][2];
+  pts[i * 4 + 3] = 1;
+}
+const ptsTex = new THREE.DataTexture(pts, TEX, 1, THREE.RGBAFormat, THREE.FloatType);
+ptsTex.minFilter = ptsTex.magFilter = THREE.NearestFilter;
+ptsTex.needsUpdate = true;
+// hexagon circumradius on the unit sphere for N sites (area 4π/N ≈ 2.598 a²)
+const CELL_A = Math.sqrt(4.836 / NPTS);
+
+const CELL = `
+  uniform sampler2D uPts; uniform float uN, uA;
+  // nearest + second-nearest site around N (sites are sorted by y, so only a
+  // band of indices can be close)
+  void cellLookup(vec3 nrm, out vec3 c1, out float ji, out float edge){
+    int ic = int(floor((1.0 - nrm.y) * uN * 0.5));
+    float d1 = 9.0, d2 = 9.0; ji = 0.0; c1 = vec3(0.0,1.0,0.0);
+    for (int k = -52; k <= 52; k++){
+      int idx = ic + k;
+      if (idx < 0 || idx >= int(uN)) continue;
+      vec3 q = texture2D(uPts, vec2((float(idx)+0.5)/${TEX}.0, 0.5)).xyz;
+      float d = distance(q, nrm);
+      if (d < d1){ d2 = d1; d1 = d; ji = float(idx); c1 = q; }
+      else if (d < d2) d2 = d;
+    }
+    edge = (d2 - d1) / uA; // 0 on a cell boundary, ≈1 at the centre
+  }
+`;
+
+// ---------------------------------------------------------------- ground
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(80, 80),
+  new THREE.ShaderMaterial({
+    uniforms: {
+      uPool: { value: 0 },
+      uGold: { value: 0 },
+      uCy: { value: new THREE.Color("#39e3d6") },
+      uGo: { value: new THREE.Color("#ffc85a") },
+    },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vP; uniform float uPool, uGold; uniform vec3 uCy, uGo;
+      void main(){
+        vec2 w = vec2(vP.x, -vP.y);
+        float d = length(w);
+        vec3 base = mix(vec3(0.0135,0.0150,0.0165), vec3(0.0045,0.0050,0.0058), smoothstep(1.5,11.0,d));
+        base = mix(base, vec3(0.0012,0.0013,0.0016), smoothstep(14.0,26.0,d));
+        // minimal grid: pale tile seams every 2.4 units, two gold service lines
+        vec2 gv = (abs(fract(w/2.4 - 0.5) - 0.5)) * 2.4;
+        float line = smoothstep(0.032, 0.012, min(gv.x, gv.y));
+        base += vec3(0.032,0.037,0.043) * line * (1.0 - smoothstep(6.0,20.0,d));
+        float gl1 = smoothstep(0.055,0.0,abs(abs(w.x)-3.62));
+        float gl2 = smoothstep(0.055,0.0,abs(w.y+4.85));
+        base += vec3(0.115,0.082,0.020) * max(gl1,gl2) * (1.0 - smoothstep(8.0,20.0,d));
+        // cyan pool under the sphere, gold ring around the base
+        base += uCy * uPool * exp(-d*d*0.55) * 0.055;
+        float ring = exp(-pow((d - 1.40)/0.50, 2.0));
+        base += uGo * uGold * ring * 0.050;
+        gl_FragColor = vec4(base, 1.0);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// gold glow ring on the floor under the shield + cyan pool inside it
+const ringMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 } },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vP; uniform float uI;
+    void main(){
+      float d = length(vP);
+      float ring = exp(-pow((d - 1.40)/0.50, 2.0));
+      float core = exp(-pow((d - 1.40)/0.16, 2.0));
+      vec3 col = vec3(1.00, 0.70, 0.20)*ring*0.20 + vec3(1.00, 0.84, 0.42)*core*0.09;
+      gl_FragColor = vec4(col * uI, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const ring = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), ringMat);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.012;
+ring.renderOrder = -2;
+scene.add(ring);
+
+const poolMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uR: { value: 1.3 } },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vP; uniform float uI, uR;
+    void main(){ float d = length(vP)/uR;
+      float a = pow(max(0.0,1.0-d), 2.4)*uI;
+      gl_FragColor = vec4(vec3(0.22,0.92,0.88)*a*0.11, 1.0); }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const pool = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), poolMat);
+pool.rotation.x = -Math.PI / 2;
+pool.position.y = 0.009;
+pool.renderOrder = -2;
+scene.add(pool);
+
+// ---------------------------------------------------------------- dome
+const domeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uPts: { value: ptsTex },
+    uN: { value: NPTS },
+    uA: { value: CELL_A },
+    uI: { value: 0 }, // global intensity
+    uHex: { value: 1 },
+    uRim: { value: 1 },
+    uReveal: { value: 1.2 }, // scan front in object y, +1.25 → -1.25
+    uDis: { value: 0 }, // dissolve clock (seconds past T_FADE)
+    uAxis: { value: new THREE.Vector3(0, 1, 0) },
+    uHalf: { value: BAND_W / (2 * R) },
+    uBandI: { value: 0 },
+    uFloor: { value: CY - R }, // world y of the sphere's lowest point
+    uRip: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+  },
+  vertexShader: `varying vec3 vN; varying vec3 vW;
+    void main(){
+      vN = normalize(position);
+      vec4 wp = modelMatrix * vec4(position,1.0);
+      vW = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader: `${GLSL}${CELL}
+    varying vec3 vN; varying vec3 vW;
+    uniform float uTime, uI, uHex, uRim, uReveal, uDis, uHalf, uBandI, uFloor;
+    uniform vec3 uAxis; uniform vec4 uRip[2];
+    void main(){
+      vec3 N = normalize(vN);
+      vec3 V = normalize(cameraPosition - vW);
+      float ndv = abs(dot(N, V));
+      float fres = pow(1.0 - ndv, 9.0) * 1.45;  // thin silhouette rim
+      float fsoft = pow(1.0 - ndv, 2.2);
+      // analytic distance to the ground plane: a soft ring of light where the
+      // sphere comes closest to the floor (no depth texture needed)
+      float ig = smoothstep(0.42, 0.0, vW.y - uFloor);
+      float bp = smoothstep(uHalf*2.4, uHalf*0.9, abs(dot(N, uAxis))) * uBandI;
+
+      vec3 c1; float ji, e;
+      cellLookup(N, c1, ji, e);
+      float hc = h11(ji*1.7 + 0.31);
+
+      // scan reveal from the top, hashed dissolve on the way out
+      float on = smoothstep(uReveal - 0.03, uReveal + 0.05, c1.y);
+      float front = smoothstep(0.13, 0.0, abs(c1.y - uReveal)) * step(uReveal, 1.15) * step(-1.15, uReveal);
+      float off = 1.0 - smoothstep(hc*0.95, hc*0.95 + 0.22, uDis);
+      float cellOn = on * off;
+
+      // Overwatch-style pulse: outward from the top, random phase per cell
+      float pulse = 0.5 + 0.5*sin(uTime*2.1 - (1.0 - c1.y)*2.6 + hc*6.2831);
+
+      // hit ripples: expanding great-circle rings that brighten what they cross
+      float rip = 0.0;
+      for (int i=0;i<2;i++){
+        float gc = acos(clamp(dot(N, uRip[i].xyz), -1.0, 1.0));
+        float amp = smoothstep(2.4, 0.25, uRip[i].w) * step(0.001, uRip[i].w);
+        rip += smoothstep(0.17, 0.0, abs(gc - uRip[i].w)) * amp * 1.5;
+      }
+
+      float gap  = smoothstep(0.08, 0.20, e);
+      float line = smoothstep(0.34, 0.20, e) * gap;
+      float fill = smoothstep(0.22, 0.40, e);
+
+      // energy diamonds running along the cell edges toward the corners
+      vec3 T = normalize(cross(c1, vec3(0.0,1.0,0.0) + vec3(0.001,0.0,0.002)));
+      vec3 B = cross(c1, T);
+      vec3 dl = N - c1;
+      float ang = atan(dot(dl,B), dot(dl,T));
+      float diam = line * pow(0.5 + 0.5*sin(ang*6.0 - uTime*4.2 + hc*6.2831), 3.0);
+
+      // the lattice reads strongest at the silhouette, the floor and the band;
+      // at grazing angles the cells compress below a pixel, so fade them out
+      // and let the thin rim carry the edge
+      float graze = smoothstep(0.03, 0.30, ndv);
+      float vis = (0.26 + 0.74*max(max(fsoft*graze, ig), bp)) * graze;
+      float cb = (0.70 + 0.55*pulse + rip*0.9) * cellOn * uHex;
+
+      vec3 tileC = vec3(0.155, 0.680, 0.480);   // mint #6fd9b8
+      vec3 edgeC = vec3(1.000, 0.800, 0.500);   // pale gold / cream
+      vec3 rimC  = vec3(1.000, 0.900, 0.720);
+
+      vec3 col = tileC * fill * cb * vis * 0.62;
+      col += edgeC * line * cb * vis * 0.46;
+      col += edgeC * diam * cb * vis * 0.24;
+      col += vec3(0.90,1.00,0.98) * front * (fill*0.35 + line*0.8) * 0.55 * uHex * graze;
+      col = mix(col, col*vec3(1.35,1.02,0.46), clamp(bp,0.0,1.0)*0.65);
+
+      // translucent body + rim + floor proximity glow
+      float body = (0.30 + 0.70*fsoft*graze) * mix(0.20, 1.0, cellOn);
+      col += vec3(0.014, 0.060, 0.052) * body * (off*0.6 + 0.4*cellOn);
+      col += rimC * fres * uRim * 0.60 * (0.35 + 0.65*off);
+      col += vec3(0.34, 0.95, 0.86) * ig * 0.10 * (0.35 + 0.65*off);
+
+      float face = gl_FrontFacing ? 1.0 : 0.34;
+      gl_FragColor = vec4(col * face * uI, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const dome = new THREE.Mesh(new THREE.IcosahedronGeometry(R, 6), domeMat);
+dome.position.y = CY;
+dome.renderOrder = 1; // after the band, so the band's depth occludes the far side
+scene.add(dome);
+
+// ---------------------------------------------------------------- gold band
+// Real geometry, not a mask: a strip of the sphere at r = 1.22, alpha-blended
+// with depth write so it sorts against the shield instead of glowing through.
+const bandPivot = new THREE.Group(); // spin about Y
+bandPivot.position.y = CY;
+scene.add(bandPivot);
+const bandMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uSweep: { value: 1 } },
+  vertexShader: `varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+    void main(){
+      vUv = uv;
+      vN = normalize(normalMatrix * normal);
+      vec4 wp = modelMatrix * vec4(position,1.0);
+      vW = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader: `varying vec2 vUv; varying vec3 vW; varying vec3 vN;
+    uniform float uTime, uI, uSweep;
+    void main(){
+      float u = vUv.y*2.0 - 1.0;      // across the ribbon
+      float au = abs(u);
+      float s = vUv.x;                // along the ribbon
+      // three stripes: saturated gold body, pale-gold outer rims, inner highlight
+      vec3 deep = vec3(0.40, 0.22, 0.025);
+      vec3 gold = vec3(1.05, 0.58, 0.07);
+      vec3 pale = vec3(1.25, 0.92, 0.38);
+      vec3 col = mix(deep, gold, smoothstep(0.98, 0.35, au));
+      col = mix(col, pale, smoothstep(0.74, 0.90, au) * (1.0 - smoothstep(0.94, 1.0, au)));
+      col = mix(col, vec3(1.18, 0.88, 0.36), smoothstep(0.10, 0.0, au)*0.8);
+      col *= 0.90 + 0.10*sin(s*46.0 - uTime*2.0);
+      float wipe = smoothstep(uSweep, uSweep - 0.25, s) + step(1.0, uSweep);
+      float face = gl_FrontFacing ? 1.0 : 0.42;   // the far arc sits behind the shield
+      float a = smoothstep(1.0, 0.93, au) * uI * clamp(wipe, 0.0, 1.0) * (gl_FrontFacing ? 1.0 : 0.85);
+      gl_FragColor = vec4(col * face, a);
+    }`,
+  transparent: true,
+  depthWrite: true,
+  side: THREE.DoubleSide,
+});
+const dTheta = BAND_W / (R * 1.017);
+const band = new THREE.Mesh(
+  new THREE.SphereGeometry(R * 1.017, 160, 6, 0, Math.PI * 2, Math.PI / 2 - dTheta / 2, dTheta),
+  bandMat
+);
+band.rotation.z = TILT;
+band.renderOrder = 0;
+bandPivot.add(band);
+
+// a wider, softer gold halo shell just outside the ribbon — the bloom source
+const haloMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vUv; uniform float uI;
+    void main(){
+      float u = vUv.y*2.0 - 1.0;
+      float a = exp(-u*u*3.2) * uI;
+      gl_FragColor = vec4(vec3(1.00, 0.66, 0.18) * a * 0.32, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const halo = new THREE.Mesh(
+  new THREE.SphereGeometry(R * 1.03, 120, 6, 0, Math.PI * 2, Math.PI / 2 - dTheta * 1.6, dTheta * 3.2),
+  haloMat
+);
+halo.rotation.z = TILT;
+halo.renderOrder = 2;
+bandPivot.add(halo);
+
+// ---------------------------------------------------------------- marker
+const marker = new THREE.Group();
+const mkMat = new THREE.MeshStandardMaterial({ color: 0xb9c1c8, roughness: 0.62, metalness: 0.1, emissive: 0x141b1f });
+const padMat = new THREE.MeshStandardMaterial({ color: 0x5e666c, roughness: 0.8, metalness: 0.05 });
+const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.07, 24), padMat);
+pad.position.y = 0.035;
+marker.add(pad);
+const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.30, 6, 16), mkMat);
+torso.position.y = 0.36;
+marker.add(torso);
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.105, 20, 14), mkMat);
+head.position.y = 0.66;
+marker.add(head);
+marker.scale.setScalar(1.3);
+scene.add(marker);
+
+const amb = new THREE.AmbientLight(0x44525c, 1.05);
+scene.add(amb);
+const key = new THREE.DirectionalLight(0xbfd4dd, 0.5);
+key.position.set(2.2, 3.4, 2.6);
+scene.add(key);
+const shieldLight = new THREE.PointLight(0x4ff0dc, 0, 7, 1.4);
+shieldLight.position.set(0, 1.1, 0);
+scene.add(shieldLight);
+
+// ---------------------------------------------------------------- sparks
+// Ignition: sparks fall in from outside and converge onto the shield's underside.
+const SPARKS = 110;
+const spPos = new Float32Array(SPARKS * 3);
+const spSeed = new Float32Array(SPARKS);
+for (let i = 0; i < SPARKS; i++) spSeed[i] = i;
+const spGeo = new THREE.BufferGeometry();
+spGeo.setAttribute("position", new THREE.BufferAttribute(spPos, 3));
+spGeo.setAttribute("aSeed", new THREE.BufferAttribute(spSeed, 1));
+const sparkMat = new THREE.ShaderMaterial({
+  uniforms: { uT: { value: 0 }, uI: { value: 0 }, uCy: { value: CY }, uR: { value: R } },
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT, uI, uCy, uR; varying float vA;
+    void main(){
+      float h1 = h11(aSeed*1.37+0.11), h2 = h11(aSeed*2.71+5.3), h3 = h11(aSeed*4.19+9.7);
+      float t0 = h1*0.34;
+      float a = clamp((uT - t0)/(0.52 + h2*0.30), 0.0, 1.0);
+      float e = a*a;                       // accelerate into the shell
+      float th = h2*6.2831 + a*0.9;
+      float la = -0.35 - 0.45*h1;          // land on the lower half
+      float rr = sqrt(max(0.0, 1.0 - la*la));
+      vec3 dst = vec3(cos(th)*rr, uCy/uR + la, sin(th)*rr) * uR;
+      vec3 src = dst + vec3(cos(th), 0.35, sin(th))*(1.6 + h3*1.6) + vec3(0.0, 1.2 + h3*1.6, 0.0);
+      vec3 p = mix(src, dst, e);
+      vA = (1.0 - a) * step(0.0, uT - t0) * uI * 0.40;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      gl_PointSize = min(9.0, (0.7 + 1.3*h3) * (150.0 / -mv.z)) * (0.35 + 0.65*a);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `varying float vA;
+    void main(){
+      vec2 d = gl_PointCoord - 0.5;
+      float a = smoothstep(0.5, 0.0, length(d)) * vA;
+      gl_FragColor = vec4(mix(vec3(0.45,1.0,0.95), vec3(1.0,0.86,0.45), 0.35) * a, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const sparks = new THREE.Points(spGeo, sparkMat);
+sparks.renderOrder = 3;
+scene.add(sparks);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 0.5, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- clock
+const axis = new THREE.Vector3();
+const RIP_T = [1.8, 2.7];
+const ripV = [new THREE.Vector4(), new THREE.Vector4()];
+
+function apply(t) {
+  const L = P.layers;
+
+  // appear: easeOutBack scale, then a steady hold, then the fade-out
+  const a = clamp01(t / 0.55);
+  const s = 1 + 2.4 * Math.pow(a - 1, 3) + 1.4 * Math.pow(a - 1, 2); // overshoot ≈1.06
+  const scale = 0.22 + 0.78 * clamp01(s);
+  dome.scale.setScalar(scale);
+  bandPivot.scale.setScalar(scale);
+
+  const domeI = env(t, [[0, 0], [0.22, 0.9], [0.7, 1.0], [T_FADE, 1.0], [4.35, 0.55], [4.9, 0]]) * (L.dome ? 1 : 0);
+  const reveal = env(t, [[0.08, 1.25], [0.92, -1.25]]);
+  const dis = Math.max(0, t - T_FADE);
+
+  // band: tilted ≈30°, ≈0.12 rev/s about Y while the shield holds
+  const phi = 2.15 + 2 * Math.PI * 0.12 * (Math.min(Math.max(t, T_HOLD), T_FADE) - T_HOLD);
+  bandPivot.rotation.y = phi;
+  axis.set(Math.sin(TILT) * Math.cos(phi), Math.cos(TILT), -Math.sin(TILT) * Math.sin(phi));
+  const bandI = env(t, [[0.5, 0], [0.95, 1.0], [T_FADE, 1.0], [4.3, 0.45], [4.8, 0]]) * (L.band ? 1 : 0);
+
+  for (let i = 0; i < 2; i++) {
+    const dt = t - RIP_T[i];
+    const k = dt >= 0 && dt < 0.62 ? dt / 0.62 : -1;
+    if (k < 0 || !L.ripples) ripV[i].set(0, 1, 0, 0);
+    else {
+      const hh = h11(i * 3.7 + 1.3);
+      const hy = 0.15 + 0.7 * h11(i * 9.1 + 4.4);
+      const rr = Math.sqrt(Math.max(0, 1 - hy * hy));
+      const th = hh * Math.PI * 2;
+      ripV[i].set(Math.cos(th) * rr, hy, Math.sin(th) * rr, k * 2.3 * (1 - 0.35 * k));
+    }
+  }
+
+  const D = domeMat.uniforms;
+  D.uTime.value = t;
+  D.uI.value = domeI;
+  D.uHex.value = L.hex ? 1 : 0;
+  D.uRim.value = L.rim ? 1 : 0;
+  D.uReveal.value = reveal;
+  D.uDis.value = dis;
+  D.uAxis.value.copy(axis);
+  D.uBandI.value = bandI;
+  D.uFloor.value = CY - R * scale;
+  D.uRip.value = ripV;
+  dome.visible = domeI > 1e-3;
+
+  bandMat.uniforms.uTime.value = t;
+  bandMat.uniforms.uI.value = bandI;
+  bandMat.uniforms.uSweep.value = env(t, [[0.55, 0], [1.05, 1.2]]);
+  haloMat.uniforms.uI.value = bandI * env(t, [[0.55, 0], [1.05, 1]]);
+  bandPivot.visible = bandI > 1e-3;
+
+  ringMat.uniforms.uI.value = bandI * 0.85;
+  ring.visible = bandI > 1e-3;
+  poolMat.uniforms.uI.value = domeI * 0.9;
+  pool.visible = domeI > 1e-3;
+
+  ground.material.uniforms.uPool.value = domeI * 0.9;
+  ground.material.uniforms.uGold.value = bandI * 0.9;
+
+  shieldLight.intensity = domeI * 2.6;
+  marker.visible = !!L.marker;
+
+  sparkMat.uniforms.uT.value = t;
+  sparkMat.uniforms.uI.value = (L.dome ? 1 : 0) * env(t, [[0, 1], [0.85, 1], [1.05, 0]]);
+  sparks.visible = t < 1.05 && !!L.dome;
+
+  bloom.enabled = L.post;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => {
+  P.play = false;
+  P.time = t;
+  apply(t);
+};
+window.__spikeReady = true;

@@ -1,0 +1,731 @@
+// autoV toolbox v2 — S10 spike: golden energy-overload column (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 5.0;
+const CYL_R = 0.35, CYL_H = 1.2;   // the plain dark machine cylinder
+const COL_H = 4.5;                 // column height at the hold
+const COL_Y = 0.30;                // column base, just inside the cylinder rim
+const FLARE_Y = 3.0;               // eruption centre
+const N_ARC = 18;
+const N_STREAK = 56;
+const N_SPARK = 200;   // one instanced draw; twinkle is hashed per index
+const N_DEBRIS = 44;   // dark chips, the only non-additive layer in the effect
+const T_ERUPT0 = 1.50, T_ERUPT1 = 2.30;
+const T_OUT0 = 3.50, T_OUT1 = 5.00;
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.40,
+  threshold: 1.0,
+  exposure: 1.0,
+  layers: { column: true, arcs: true, flare: true, streaks: true, sparks: true, pool: true, post: true },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const h11 = (p) => { let x = Math.sin(p * 127.1) * 43758.5453; return x - Math.floor(x); };
+const easeOutExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -9 * x));
+const easeOutCubic = (x) => 1 - Math.pow(1 - clamp01(x), 3);
+
+// the four envelopes the whole shot hangs off. Everything else is a product of these.
+// build 0→1.5, hold, collapse 3.5→5.0 (height retracts from the top, width narrows)
+const colEnv = (t) => (0.20 + 0.80 * ss(0, 1.5, t)) * (1 - ss(3.85, 4.95, t));
+const colHeight = (t) => 1 - 0.97 * ss(3.60, T_OUT1, t);
+const colWidth = (t) => 1 - 0.72 * ss(T_OUT0, 4.90, t);
+// arcs: grow in, densest right before the eruption, thinned during the sustain, gone by 4.0
+const arcEnv = (t) => ss(0.05, 1.10, t) * (1 + 0.85 * ss(1.05, 1.48, t))
+  * (1 - 0.62 * ss(1.95, 2.60, t)) * (1 - ss(3.35, 4.00, t));
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x000000, 1);
+
+const scene = new THREE.Scene();
+
+// fixed elevated oblique camera: the column fills the frame vertically with headroom
+const camera = new THREE.PerspectiveCamera(36, 1280 / 720, 0.1, 200);
+camera.position.set(2.70, 3.00, 6.60);
+camera.lookAt(0, 2.30, 0);
+camera.updateMatrixWorld();
+
+const GLSL = `
+#define TAU 6.28318530718
+float h11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float h21(vec2 p){ vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*f*(f*(f*6.0-15.0)+10.0);
+  return mix(mix(h21(i), h21(i+vec2(1,0)), f.x), mix(h21(i+vec2(0,1)), h21(i+vec2(1,1)), f.x), f.y);
+}
+const mat2 M2 = mat2(0.80, 0.60, -0.60, 0.80);
+float fbm3(vec2 p){ float s = 0.0, a = 0.5;
+  for (int i = 0; i < 3; i++){ s += a*vnoise(p); p = M2*p*2.03 + vec2(11.3,7.1); a *= 0.5; }
+  return s/0.875; }
+// the palette, in linear light. Only the inner core and the flare pass 1.0.
+const vec3 C_CORE = vec3(1.000, 0.871, 0.445);  // #fff0b0 white-gold core
+const vec3 C_GOLD = vec3(1.000, 0.434, 0.014);  // #ffb020 body, low in the column
+const vec3 C_ORN  = vec3(1.000, 0.195, 0.005);  // #ff7a10 body, high in the column
+const vec3 C_ARC  = vec3(0.738, 0.905, 1.000);  // #dff4ff electrical core
+// the three streak hues. Hashed per streak, so the burst is a spread, not one colour.
+const vec3 C_ST_A = vec3(1.000, 0.254, 0.022);  // #ff8a2a saturated orange
+const vec3 C_ST_B = vec3(1.000, 0.069, 0.254);  // #ff4a8a hot pink
+const vec3 C_ST_C = vec3(1.000, 0.644, 0.195);  // #ffd27a pale gold
+`;
+
+// screen-aligned quad anchored at the object's own origin: every billboarded layer
+// offsets in VIEW space so nothing shears when the column tilts away from the camera
+function quadXY() {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, -0.5, 0.5, 0, 0.5, 0.5, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+  g.setIndex([0, 1, 2, 1, 3, 2]);
+  return g;
+}
+function billboard(frag, uniforms, order, blend, extraVs = "") {
+  const m = new THREE.Mesh(quadXY(), new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `${GLSL}
+      uniform float uW, uH; varying vec2 vUv; ${extraVs}
+      void main(){
+        vUv = uv;
+        vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        mv.xy += vec2(position.x*uW, position.y*uH);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: frag,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: blend,
+  }));
+  m.renderOrder = order;
+  m.frustumCulled = false;
+  return m;
+}
+
+// ---------------------------------------------------------------- backdrop
+// plain dark stage: a violet-black gradient and a minimal ground. No set, no machinery.
+const sky = billboard(`${GLSL}
+  varying vec2 vUv;
+  void main(){
+    vec2 q = (vUv-0.5)*2.0;
+    float v = ssm(-1.0, 0.9, q.y);
+    // #3a1420 near the ground darkening to #1a0a12 overhead — dark enough that the
+    // column, not the backdrop, carries the frame's brightness
+    vec3 col = mix(vec3(0.0423,0.0070,0.0144), vec3(0.0103,0.0030,0.0061), v);
+    // the warm patch is a narrow vertical smear behind the column only
+    col += vec3(0.090,0.026,0.026) * exp(-pow(length(q*vec2(3.4,0.62))/0.50, 2.0));
+    col *= 1.0 - 0.22*vnoise(q*4.1);
+    gl_FragColor = vec4(col, 1.0);
+  }`, { uW: { value: 90 }, uH: { value: 52 } }, -30, THREE.NormalBlending);
+sky.position.set(0, 2.0, -26);
+scene.add(sky);
+
+const groundMat = new THREE.ShaderMaterial({
+  uniforms: { uT: { value: 0 }, uI: { value: 0 }, uPool: { value: 1 } },
+  vertexShader: `varying vec2 vP;
+    void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vP; uniform float uT, uI, uPool;
+    void main(){
+      float r = length(vP);
+      vec3 col = vec3(0.0075,0.0032,0.0068) * (1.0 - ssm(1.2, 7.5, r));
+      // the warm analytic pool: two gaussians, pulsing on the column's own beat
+      float pulse = 0.86 + 0.14*sin(uT*8.3) + 0.07*vnoise(vec2(r*2.1, uT*1.7));
+      float pool = exp(-pow(r/1.05,2.0))*0.85 + exp(-pow(r/2.50,2.0))*0.22;
+      col += mix(C_ORN, C_GOLD, exp(-pow(r/0.85,2.0))) * pool * uI * pulse * uPool;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+  transparent: false,
+});
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24, 1, 1), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.renderOrder = -20;
+scene.add(ground);
+
+// the plain dark cylinder the column rises out of — no detailing, it is a stand-in
+const cylMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 } },
+  vertexShader: `varying vec3 vN; varying float vY;
+    void main(){ vN = normalize(normalMatrix*normal); vY = position.y;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec3 vN; varying float vY; uniform float uI;
+    void main(){
+      float up = clamp(vN.y*0.5+0.5, 0.0, 1.0);
+      vec3 col = mix(vec3(0.0100,0.0070,0.0130), vec3(0.0290,0.0210,0.0330), up);
+      // the column lights its own housing from the inside of the rim
+      float rim = pow(clamp(1.0 - abs(dot(vN, vec3(0.0,1.0,0.0))), 0.0, 1.0), 1.5);
+      col += C_ORN * rim * ssm(-0.6, 0.62, vY) * 0.55 * uI;
+      col += C_GOLD * ssm(0.30, 0.60, vY) * 0.35 * uI;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+const cyl = new THREE.Mesh(new THREE.CylinderGeometry(CYL_R, CYL_R * 1.06, CYL_H, 40, 1, false), cylMat);
+cyl.position.y = CYL_H * 0.5;
+scene.add(cyl);
+
+// ---------------------------------------------------------------- column body
+// a screen-aligned slab BEHIND the tapered shell. The shell alone reads as a tube;
+// the slab is what gives the column its readable body width from any angle.
+const slabU = { uW: { value: 1 }, uH: { value: 1 }, uI: { value: 0 }, uT: { value: 0 }, uHt: { value: 1 } };
+const slab = billboard(`${GLSL}
+  varying vec2 vUv; uniform float uI, uT, uHt;
+  void main(){
+    float x = (vUv.x-0.5)*2.0;
+    float h = vUv.y;
+    float w = mix(1.00, 0.74, h);                    // narrows with height, like the shell
+    float q = abs(x)/w;
+    // hard tiers, not a gaussian: a soft-edged slab reads as fog, a tiered one as a bar
+    float inner = 1.0 - ssm(0.20, 0.30, q);
+    float body  = 1.0 - ssm(0.44, 0.56, q);
+    float outer = 1.0 - ssm(0.70, 0.94, q);
+    float halo  = exp(-q*q*0.75)*0.16;
+    float streak = 0.62 + 0.85*pow(vnoise(vec2(x*4.5, h*7.0 - uT*0.85)), 1.3);
+    // the slab carries the same segment ladder, so the banding reads across the body
+    float seg = (h - uT*0.055)*7.0;
+    float ring = 1.0 - ssm(0.10, 0.22, abs(fract(seg) - 0.10));
+    streak *= (0.80 + 0.62*ring) * (0.80 + 0.40*h11(floor(seg)*3.17 + 1.7));
+    float top = 1.0 - ssm(0.86, 1.02, h);            // soft top, never a flat cap
+    float base = ssm(0.0, 0.07, h);
+    vec3 c = mix(C_GOLD, C_ORN, ssm(0.05, 0.95, h));
+    c = mix(C_ORN, c, body*0.85 + 0.15);             // the outer tier stays orange
+    c = mix(c, mix(C_GOLD, C_CORE, 0.40), inner*0.45);
+    float a = (outer*0.22 + body*0.34 + inner*0.26 + halo) * streak * top * base;
+    gl_FragColor = vec4(min(c*a*uI*0.52, vec3(0.90)), 1.0);
+  }`, slabU, 2, THREE.AdditiveBlending);
+slab.position.y = COL_Y;
+scene.add(slab);
+
+// the tapered shell: r 0.32 at the base → 0.22 at the top, gold → orange by HEIGHT,
+// with two panning streak frequencies, a fresnel rim and a soft top.
+const shellGeo = new THREE.CylinderGeometry(0.24, 0.34, COL_H, 48, 1, true);
+shellGeo.translate(0, COL_H * 0.5, 0);
+const shellU = { uT: { value: 0 }, uI: { value: 0 }, uHt: { value: 1 }, uWd: { value: 1 } };
+const shellVS = `${GLSL}
+  uniform float uHt, uWd; varying vec2 vUv; varying float vH; varying vec3 vN, vV;
+  void main(){
+    vUv = uv; vH = position.y/${COL_H.toFixed(2)};
+    vec3 p = vec3(position.x*uWd, position.y*uHt, position.z*uWd);
+    vN = normalize(normalMatrix*vec3(normal.x, 0.0, normal.z));
+    vec4 mv = modelViewMatrix*vec4(p,1.0);
+    vV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix*mv;
+  }`;
+const shellMat = new THREE.ShaderMaterial({
+  uniforms: shellU,
+  vertexShader: shellVS,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vH; varying vec3 vN, vV; uniform float uT, uI, uHt;
+    void main(){
+      float h = vH;
+      // two frequencies panning UP: the slow one is the band, the fast one the filament
+      float n1 = vnoise(vec2(vUv.x*8.0, h*4.5 - uT*0.85));
+      float n2 = vnoise(vec2(vUv.x*19.0+3.1, h*12.0 - uT*1.75));
+      float streak = 0.30 + 1.05*pow(n1*0.62 + n2*0.38, 1.5);   // contrast: filaments, not fog
+      // 7 machine-like segments: a 0.05-tall bright ring, a darker gap behind it,
+      // and a stepped brightness hashed per segment. floor(seg) makes it discrete.
+      float seg = (h - uT*0.055)*7.0;
+      float f = fract(seg);
+      float ring = 1.0 - ssm(0.10, 0.22, abs(f - 0.10));
+      float gap  = ssm(0.26, 0.44, f) * (1.0 - ssm(0.78, 0.94, f));
+      float sstep = 0.78 + 0.42*h11(floor(seg)*3.17 + 1.7);
+      streak *= (0.70 + 1.05*ring - 0.30*gap) * sstep;
+      float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.6);
+      float top  = 1.0 - ssm(0.84, 1.03, h/max(uHt,0.001));  // retracts from the top
+      float base = ssm(0.0, 0.09, h);
+      vec3 c = mix(C_GOLD, C_ORN, ssm(0.08, 0.92, h));
+      c = mix(c, C_CORE, fres*fres*0.16*streak);
+      float a = (0.72 + 0.48*fres) * streak * top * base;
+      gl_FragColor = vec4(min(c*a*uI*0.46, vec3(0.90)), 1.0);
+    }`,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  side: THREE.DoubleSide,
+});
+const shell = new THREE.Mesh(shellGeo, shellMat);
+shell.position.y = COL_Y;
+shell.renderOrder = 3;
+scene.add(shell);
+
+// the inner core: r 0.12, white-gold, the only part of the body allowed past 1.0.
+// Drawn AFTER the flare so the vertical core stays readable through the eruption.
+const coreGeo = new THREE.CylinderGeometry(0.072, 0.098, COL_H * 0.97, 32, 1, true);
+coreGeo.translate(0, COL_H * 0.485, 0);
+const coreU = { uT: { value: 0 }, uI: { value: 0 }, uHt: { value: 1 }, uWd: { value: 1 } };
+const core = new THREE.Mesh(coreGeo, new THREE.ShaderMaterial({
+  uniforms: coreU,
+  vertexShader: shellVS.replace(COL_H.toFixed(2), (COL_H * 0.97).toFixed(3)),
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vH; varying vec3 vN, vV; uniform float uT, uI, uHt;
+    void main(){
+      float h = vH;
+      float n = vnoise(vec2(vUv.x*11.0, h*7.0 - uT*2.1));
+      float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.9);
+      float top  = 1.0 - ssm(0.80, 1.02, h/max(uHt,0.001));
+      float base = ssm(0.0, 0.05, h);
+      vec3 c = mix(C_CORE, vec3(1.0,0.96,0.86), 0.35 + 0.45*n);
+      float a = (0.45 + 0.55*fres) * (0.72 + 0.42*n) * top * base;
+      gl_FragColor = vec4(min(c*a*uI, vec3(1.0)), 1.0);
+    }`,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  side: THREE.DoubleSide,
+}));
+core.position.y = COL_Y;
+core.renderOrder = 12;   // after the flare
+scene.add(core);
+
+// a soft warm field behind the column: the reference frame is never black around it
+const hazeU = { uW: { value: 9 }, uH: { value: 9 }, uI: { value: 0 }, uT: { value: 0 } };
+const haze = billboard(`${GLSL}
+  varying vec2 vUv; uniform float uI, uT;
+  void main(){
+    vec2 q = (vUv-0.5)*2.0;
+    float r = length(q*vec2(1.0, 0.80));
+    float a = exp(-r*r*3.0)*0.55 + exp(-r*r*0.9)*0.22;
+    a *= 0.85 + 0.25*vnoise(q*2.2 + vec2(0.0, -uT*0.35));
+    a *= 1.0 - ssm(0.70, 1.0, length(q));
+    gl_FragColor = vec4(mix(C_ORN, C_GOLD, exp(-r*r*4.0))*a*uI, 1.0);
+  }`, hazeU, 1, THREE.AdditiveBlending);
+haze.position.y = 2.05;
+scene.add(haze);
+
+// ---------------------------------------------------------------- arcs
+// helical polylines wrapping the column, drawn as CAMERA-FACING ribbons: the strip
+// carries only (u, side) and the world path is swept in the vertex shader, so the
+// ribbon always presents its width to the camera however the arc twists.
+const ARC_SEG = 26;
+const arcGeo = (() => {
+  const pos = [], idx = [];
+  for (let i = 0; i <= ARC_SEG; i++) { const u = i / ARC_SEG; pos.push(u, -1, 0, u, 1, 0); }
+  for (let i = 0; i < ARC_SEG; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  const seed = new Float32Array(N_ARC);
+  for (let i = 0; i < N_ARC; i++) seed[i] = i * 3.77 + 0.91;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_ARC;
+  return g;
+})();
+const arcU = { uT: { value: 0 }, uI: { value: 0 }, uHt: { value: 1 }, uWd: { value: 1 } };
+const arcs = new THREE.Mesh(arcGeo, new THREE.ShaderMaterial({
+  uniforms: arcU,
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT, uI, uHt, uWd;
+    varying vec2 vUv; varying float vA;
+    // one blink's worth of helix: radius, pitch, span and phase are re-hashed on
+    // every blink (k), so no two flashes trace the same wire
+    vec3 pt(float u, float s, float k){
+      float r  = (0.26 + 0.26*h11(s*3.11 + k*1.7)) * uWd;
+      float pv = 0.40 + 1.40*h11(s*7.73 + k*2.3);
+      float y0 = 0.10 + 2.30*h11(s*5.31 + k*3.1);
+      float ln = 0.55 + 1.70*h11(s*11.1 + k*0.7);
+      float ph = h11(s*13.7 + k*4.9)*TAU;
+      float y  = (y0 + u*ln) * uHt;
+      float a  = ph + u*pv*TAU;
+      // fbm jitter along the path: the wire wanders instead of lying on the cylinder
+      // folded noise: |n-0.5| has corners, so the wire kinks instead of curling
+      float j1 = abs(fbm3(vec2(u*9.0, s*3.1 + k*0.31)) - 0.5)*2.0 - 0.5;
+      float j2 = abs(fbm3(vec2(u*22.0+7.0, s*5.7 + k*0.73)) - 0.5)*2.0 - 0.5;
+      float j3 = fbm3(vec2(u*38.0+3.0, s*7.9 + k*1.13)) - 0.5;
+      r *= 1.0 + 0.70*j1 + 0.22*j3;
+      a += 1.45*j2 + 0.40*j3;
+      return vec3(cos(a)*r, y, sin(a)*r);
+    }
+    void main(){
+      float s = aSeed, u = position.x, side = position.y;
+      // per-arc stepped window: on 60–140 ms out of a 200–500 ms period, and some
+      // periods are skipped outright, so the set never settles into a rhythm
+      float per = 0.18 + 0.20*h11(s*1.71);
+      float onT = 0.07 + 0.08*h11(s*2.93);
+      float off = h11(s*4.37)*per;
+      float k   = floor((uT - off)/per);
+      float loc = (uT - off) - k*per;
+      float live = step(loc, onT) * step(0.26, h11(k*1.373 + s*9.11));
+      float w = sin(3.14159265*clamp(loc/max(onT,1e-4), 0.0, 1.0));
+      vA = live * w * (0.55 + 0.45*h11(k*2.11 + s*5.5));
+      vUv = vec2(u, side*0.5+0.5);
+      vec3 a3 = pt(u, s, k);
+      vec3 b3 = pt(min(u+0.035,1.0) + (u>0.965 ? -0.070 : 0.0), s, k);
+      vec4 mv = modelViewMatrix*vec4(a3,1.0);
+      vec4 mb = modelViewMatrix*vec4(b3,1.0);
+      vec2 d = mb.xy - mv.xy;
+      vec2 pp = length(d) > 1e-5 ? normalize(vec2(-d.y, d.x)) : vec2(1.0,0.0);
+      float wid = (0.020 + 0.016*h11(s*17.3)) * (0.55 + 0.45*sin(3.14159*u));
+      mv.xy += pp*side*wid;
+      gl_Position = projectionMatrix*mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vA; uniform float uI;
+    void main(){
+      float y = abs(vUv.y-0.5)*2.0;
+      float core = 1.0 - ssm(0.10, 0.55, y);   // white-blue filament
+      float halo = 1.0 - ssm(0.30, 1.00, y);   // thin gold sheath around it
+      float ends = ssm(0.0,0.06,vUv.x)*(1.0-ssm(0.94,1.0,vUv.x));
+      vec3 c = C_ARC*core*1.85 + C_GOLD*halo*0.75;
+      gl_FragColor = vec4(c*vA*ends*uI, 1.0);
+    }`,
+  transparent: true,
+  depthWrite: false,
+  depthTest: false,
+  blending: THREE.AdditiveBlending,
+  side: THREE.DoubleSide,
+}));
+arcs.frustumCulled = false;
+arcs.position.y = COL_Y;
+arcs.renderOrder = 5;
+scene.add(arcs);
+
+// ---------------------------------------------------------------- eruption
+// the flare sprite: one card, several gaussians. A core, two ghosts, a horizontal
+// and a vertical lens streak, and four soft spikes — a lens flare, not a blob.
+const flareU = { uW: { value: 1 }, uH: { value: 1 }, uI: { value: 0 }, uT: { value: 0 } };
+const flare = billboard(`${GLSL}
+  varying vec2 vUv; uniform float uI, uT;
+  void main(){
+    vec2 q = (vUv-0.5)*2.0;
+    float r = length(q);
+    float core = exp(-r*r*60.0);
+    float mid  = exp(-r*r*10.0)*0.44;
+    float wide = exp(-r*r*3.6)*0.12;
+    float hstr = exp(-q.y*q.y*230.0)*exp(-abs(q.x)*2.4)*0.44;
+    float vstr = exp(-q.x*q.x*330.0)*exp(-abs(q.y)*1.7)*0.38;
+    float ang = atan(q.y, q.x);
+    float spk = pow(max(0.0, cos(ang*4.0 + 0.4)), 16.0)*exp(-r*3.8)*0.16;
+    float flick = 0.90 + 0.14*vnoise(vec2(ang*2.3, uT*3.1));
+    float a = (core*1.35 + mid + wide + hstr + vstr + spk)*flick;
+    a *= 1.0 - ssm(0.62, 1.00, r);            // the card's own edge must never show
+    vec3 c = mix(C_ORN, C_GOLD, ssm(0.48, 0.04, r));
+    c = mix(c, C_CORE, clamp(core*2.2 + (hstr+vstr)*1.1, 0.0, 1.0));
+    c = mix(c, vec3(1.0,0.98,0.94), core*core*0.9);
+    gl_FragColor = vec4(c*a*uI, 1.0);
+  }`, flareU, 10, THREE.AdditiveBlending);
+flare.position.y = FLARE_Y;
+scene.add(flare);
+
+// the near white-out: a full-screen additive quad, 1.8–2.0 s only
+const flashU = { uW: { value: 2 }, uH: { value: 2 }, uA: { value: 0 } };
+const flash = new THREE.Mesh(quadXY(), new THREE.ShaderMaterial({
+  uniforms: flashU,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy*2.0, 0.0, 1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; uniform float uA;
+    void main(){
+      vec2 q = (vUv-0.5)*2.0;
+      float v = 1.0 - 0.68*ssm(0.10, 1.10, length(q*vec2(1.0,0.62)));
+      gl_FragColor = vec4(mix(C_CORE, vec3(1.0), 0.30)*uA*v, 1.0);
+    }`,
+  transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+}));
+flash.renderOrder = 30;
+flash.frustumCulled = false;
+scene.add(flash);
+
+// radial streaks: long thin additive quads leaving the flare centre in SCREEN space,
+// hashed length 1.5–4.0 and width 0.03–0.08, biased upward, a few slightly curved.
+const streakGeo = (() => {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([0, -1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0, 1, 1], 2));
+  g.setIndex([0, 2, 1, 1, 2, 3]);
+  const seed = new Float32Array(N_STREAK);
+  for (let i = 0; i < N_STREAK; i++) seed[i] = i * 2.313 + 0.37;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_STREAK;
+  return g;
+})();
+const streakU = { uT: { value: 0 }, uI: { value: 0 }, uG: { value: 0 } };
+const streaks = new THREE.Mesh(streakGeo, new THREE.ShaderMaterial({
+  uniforms: streakU,
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT, uG;
+    varying vec2 vUv; varying float vK; varying vec3 vC;
+    void main(){
+      float s = aSeed;
+      vUv = vec2(position.x, position.y*0.5+0.5);
+      // 6 bundles, each with its own heading and hashed spread: a real burst clumps,
+      // an even fan reads as a lens star
+      float bi = floor(h11(s*0.771)*7.0);
+      float bth = (bi + 0.65*h11(bi*4.73 + 0.9))/7.0*TAU;
+      float bsp = 0.22 + 0.52*h11(bi*9.11 + 2.3);
+      float th = bth + (h11(s*1.13)-0.5)*bsp;
+      vec2 d = vec2(cos(th), sin(th));
+      d.y = d.y*0.78 + 0.42;                        // upward bias: the burst leans up
+      d = normalize(d);
+      vec2 pp = vec2(-d.y, d.x);
+      float hue = h11(s*17.1);
+      float L = (1.5 + 4.2*pow(h11(s*3.31), 1.5))*(0.70 + 0.60*h11(s*31.7));
+      float W = (0.03 + 0.05*h11(s*5.17))*1.15;     // 0.03 .. 0.08 core, plus a thin falloff skirt
+      if (hue > 0.84) { L *= 1.75; W *= 0.52; }     // the long thin pink ones run to the frame edge
+      float cv = sign(h11(s*7.91)-0.5) * (0.05 + 0.15*h11(s*37.3));
+      float stag = h11(s*11.3)*0.22;                // not every streak leaves at once
+      float g = clamp((uG - stag)/max(1.0-stag,1e-3), 0.0, 1.0);
+      g = 1.0 - pow(1.0-g, 3.0);                    // easeOut spread
+      float x = position.x*L*g;
+      vec2 root = vec2((h11(s*23.1)-0.5)*0.16, (h11(s*29.7)-0.5)*0.55);
+      vec2 off = root + d*x + pp*(cv*x*x*0.42) + pp*position.y*W;
+      vec4 mv = modelViewMatrix*vec4(0.0,0.0,0.0,1.0);
+      mv.xy += off;
+      vK = 0.55 + 0.45*h11(s*13.7);
+      vC = hue > 0.84 ? C_ST_B : (hue > 0.58 ? C_ST_C : C_ST_A);
+      gl_Position = projectionMatrix*mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vK; varying vec3 vC; uniform float uI;
+    void main(){
+      float x = vUv.x;
+      float wid = (1.0-ssm(0.10,1.0,x)) + 0.12;                 // a needle, not a wedge
+      float y = abs(vUv.y-0.5)*2.0 / max(wid, 1e-3);
+      float a = exp(-y*y*3.2);
+      a *= ssm(0.0,0.012,x)*(1.0-ssm(0.22,1.0,x));              // hard at the root, soft only at the far end
+      gl_FragColor = vec4(vC*a*vK*uI*2.0, 1.0);
+    }`,
+  transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+}));
+streaks.frustumCulled = false;
+streaks.position.y = FLARE_Y;
+streaks.renderOrder = 11;
+scene.add(streaks);
+
+// sparks: instanced dots thrown ballistically out of the flare, twinkling, lives 0.8–1.6
+const sparkGeo = (() => {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+  g.setIndex([0, 1, 2, 1, 3, 2]);
+  const seed = new Float32Array(N_SPARK);
+  for (let i = 0; i < N_SPARK; i++) seed[i] = i * 1.617 + 0.53;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_SPARK;
+  return g;
+})();
+const sparkU = { uT: { value: 0 }, uI: { value: 0 } };
+const sparks = new THREE.Mesh(sparkGeo, new THREE.ShaderMaterial({
+  uniforms: sparkU,
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT;
+    varying vec2 vUv; varying float vA; varying vec3 vC;
+    void main(){
+      float s = aSeed;
+      vUv = uv;
+      float birth = ${T_ERUPT0.toFixed(2)} + 0.06 + h11(s*1.91)*0.30;
+      float life  = 0.8 + 0.8*h11(s*3.13);
+      float age   = uT - birth;
+      float a01   = clamp(age/life, 0.0, 1.0);
+      float th = h11(s*5.37)*TAU;
+      float el = (h11(s*7.19)*2.0-1.0);
+      float sp = 1.7 + 4.0*pow(h11(s*9.41), 1.3);
+      vec3 dir = normalize(vec3(cos(th)*sqrt(1.0-el*el*0.55), el*0.85 + 0.30, sin(th)*sqrt(1.0-el*el*0.55)));
+      vec3 p = dir*sp*age - vec3(0.0, 2.6*age*age*0.5, 0.0);
+      float tw = 0.40 + 0.60*pow(abs(sin(uT*13.0 + s*7.3)), 1.6);
+      vA = step(0.0, age)*(1.0-a01)*(1.0-a01)*tw*step(a01, 0.999);
+      vC = h11(s*11.7) > 0.55 ? C_CORE : C_GOLD;
+      float sz = (0.022 + 0.038*h11(s*13.9))*(1.0 - 0.4*a01);
+      vec4 mv = modelViewMatrix*vec4(p,1.0);
+      mv.xy += position.xy*sz;
+      gl_Position = projectionMatrix*mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vA; varying vec3 vC; uniform float uI;
+    void main(){
+      float r = length((vUv-0.5)*2.0);
+      float a = exp(-r*r*5.0)*(1.0-ssm(0.75,1.0,r));
+      gl_FragColor = vec4(vC*a*vA*uI*7.0, 1.0);
+    }`,
+  transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+}));
+sparks.frustumCulled = false;
+sparks.position.y = FLARE_Y;
+sparks.renderOrder = 13;
+scene.add(sparks);
+
+// the eruption shockwave: one thin additive ring, 0.5 → 3.0 over 0.4 s, lying flat
+// at the flare height. It is a torus, not a card, so the oblique camera sees it as
+// an ellipse that opens out of the column rather than a decal pasted on the frame.
+const ringU = { uA: { value: 0 }, uK: { value: 0 } };
+const shockRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1.0, 0.026, 6, 128),
+  new THREE.ShaderMaterial({
+    uniforms: ringU,
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `${GLSL}
+      varying vec2 vUv; uniform float uA, uK;
+      void main(){
+        float y = abs(vUv.y-0.5)*2.0;
+        float a = 1.0 - ssm(0.15, 1.0, y);
+        vec3 c = mix(C_ST_C, C_ST_B, uK);      // gold at the snap, pink as it opens
+        gl_FragColor = vec4(c*a*uA, 1.0);
+      }`,
+    transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  })
+);
+shockRing.rotation.set(-Math.PI / 2 + 0.46, 0, 0.10);
+shockRing.position.y = FLARE_Y;
+shockRing.renderOrder = 11.5;
+shockRing.frustumCulled = false;
+scene.add(shockRing);
+
+// dark debris chips riding out with the sparks. Alpha-blended, not additive — they
+// only exist as silhouettes against the flare, which is exactly where the reference
+// puts them.
+const debrisGeo = (() => {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+  g.setIndex([0, 1, 2, 1, 3, 2]);
+  const seed = new Float32Array(N_DEBRIS);
+  for (let i = 0; i < N_DEBRIS; i++) seed[i] = i * 2.917 + 1.13;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_DEBRIS;
+  return g;
+})();
+const debrisU = { uT: { value: 0 }, uI: { value: 0 } };
+const debris = new THREE.Mesh(debrisGeo, new THREE.ShaderMaterial({
+  uniforms: debrisU,
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uT;
+    varying vec2 vUv; varying float vA;
+    void main(){
+      float s = aSeed;
+      vUv = uv;
+      float birth = ${T_ERUPT0.toFixed(2)} + 0.04 + h11(s*1.77)*0.26;
+      float life  = 1.1 + 1.0*h11(s*3.51);
+      float age   = uT - birth;
+      float a01   = clamp(age/life, 0.0, 1.0);
+      float th = h11(s*5.93)*TAU;
+      float el = (h11(s*7.31)*2.0-1.0);
+      float sp = 1.1 + 2.6*pow(h11(s*9.17), 1.5);
+      vec3 dir = normalize(vec3(cos(th)*sqrt(1.0-el*el*0.6), el*0.70 + 0.42, sin(th)*sqrt(1.0-el*el*0.6)));
+      vec3 p = dir*sp*age - vec3(0.0, 3.4*age*age*0.5, 0.0);
+      vA = step(0.0, age)*(1.0 - ssm(0.72, 1.0, a01))*step(a01, 0.999);
+      // chips tumble: a per-instance spin on the screen-facing card
+      float rot = h11(s*11.3)*TAU + uT*(2.0 + 6.0*h11(s*13.1))*sign(h11(s*15.7)-0.5);
+      float cw = 0.026 + 0.042*h11(s*17.9), ch = cw*(0.30 + 0.52*h11(s*19.1));
+      vec2 q = vec2(position.x*cw, position.y*ch);
+      q = vec2(q.x*cos(rot) - q.y*sin(rot), q.x*sin(rot) + q.y*cos(rot));
+      vec4 mv = modelViewMatrix*vec4(p,1.0);
+      mv.xy += q;
+      gl_Position = projectionMatrix*mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying float vA; uniform float uI;
+    void main(){
+      vec2 q = (vUv-0.5)*2.0;
+      float a = 1.0 - ssm(0.72, 1.0, max(abs(q.x), abs(q.y)));
+      gl_FragColor = vec4(vec3(0.018, 0.007, 0.014), a*vA*uI*0.96);
+    }`,
+  transparent: true, depthWrite: false, depthTest: false, blending: THREE.NormalBlending,
+}));
+debris.frustumCulled = false;
+debris.position.y = FLARE_Y;
+debris.renderOrder = 14;
+scene.add(debris);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 1.0, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- per-frame state
+function apply(t) {
+  const L = P.layers;
+  const env = colEnv(t);
+  const ht = colHeight(t);
+  const wd = colWidth(t);
+  // the eruption briefly overdrives the body, then the sustain holds it just above
+  // the pre-flare level so the core stays readable through the flare
+  const kick = 1 + 0.55 * ss(T_ERUPT0, 1.85, t) * (1 - ss(2.05, 2.75, t));
+  const sustain = 1 + 0.28 * ss(2.15, 2.50, t) * (1 - ss(3.30, 4.10, t));
+
+  shellU.uT.value = t; shellU.uI.value = env * kick; shellU.uHt.value = ht; shellU.uWd.value = wd;
+  slabU.uT.value = t; slabU.uI.value = env * kick; slabU.uHt.value = COL_H * ht; slabU.uW.value = 1.45 * wd;
+  slabU.uH.value = COL_H * ht;
+  slab.position.y = COL_Y + 0.5 * COL_H * ht;
+  coreU.uT.value = t; coreU.uI.value = env * kick * sustain * 0.78; coreU.uHt.value = ht; coreU.uWd.value = wd;
+  shell.visible = slab.visible = core.visible = L.column && env > 1e-3;
+  cylMat.uniforms.uI.value = env;
+
+  const ai = arcEnv(t);
+  arcU.uT.value = t; arcU.uI.value = ai; arcU.uHt.value = ht; arcU.uWd.value = wd;
+  arcGeo.instanceCount = Math.max(0, Math.round(12 + 6 * ss(0.3, 1.45, t) - 6 * ss(2.0, 2.7, t)));
+  arcs.visible = L.arcs && ai > 1e-3;
+
+  // easeOutExpo scale-up over the eruption window, then a slow dim
+  const fg = easeOutExpo(clamp01((t - T_ERUPT0) / 0.80));
+  const fi = ss(T_ERUPT0, 1.66, t) * (1 - 0.80 * ss(2.55, 4.30, t)) * (1 - ss(4.30, 4.95, t));
+  flareU.uT.value = t; flareU.uI.value = fi * 0.56;
+  flareU.uW.value = flareU.uH.value = (0.5 + 3.4 * fg) * (1 - 0.45 * ss(3.6, 4.9, t));
+  flare.visible = L.flare && fi > 1e-3;
+
+  flashU.uA.value = 0.45 * ss(1.80, 1.90, t) * (1 - ss(1.93, 2.05, t));
+  flash.visible = L.flare && flashU.uA.value > 1e-3;
+
+  streakU.uT.value = t;
+  streakU.uG.value = easeOutCubic(clamp01((t - 1.52) / 1.70));
+  streakU.uI.value = ss(T_ERUPT0, 1.64, t) * (1 - ss(T_ERUPT1, T_OUT0, t) * 0.88) * (1 - ss(3.45, 4.20, t));
+  streaks.visible = L.streaks && streakU.uI.value > 1e-3;
+
+  // the ring snaps out over 0.4 s and is gone; nothing about it accumulates
+  const rk = clamp01((t - 1.72) / 0.40);
+  ringU.uK.value = rk;
+  ringU.uA.value = 0.95 * ss(1.72, 1.76, t) * Math.pow(1 - rk, 1.8);
+  const rr = 0.5 + 1.7 * (1 - Math.pow(1 - rk, 2.6));
+  shockRing.scale.set(rr, rr, 1);
+  shockRing.visible = L.flare && ringU.uA.value > 1e-3;
+
+  debrisU.uT.value = t;
+  debrisU.uI.value = 1 - ss(3.30, 4.10, t);
+  debris.visible = L.sparks && t > T_ERUPT0 && debrisU.uI.value > 1e-3;
+
+  sparkU.uT.value = t;
+  sparkU.uI.value = (1 - ss(3.20, 4.00, t));
+  sparks.visible = L.sparks && t > T_ERUPT0 && sparkU.uI.value > 1e-3;
+
+  hazeU.uT.value = t;
+  hazeU.uI.value = (env * 0.24 + 0.26 * ss(T_ERUPT0, 1.95, t) * (1 - ss(2.3, 4.4, t))) * 0.28;
+  haze.visible = L.column && hazeU.uI.value > 1e-3;
+
+  groundMat.uniforms.uT.value = t;
+  groundMat.uniforms.uI.value = env * kick * 0.85 + 0.55 * ss(T_ERUPT0, 1.9, t) * (1 - ss(2.1, 3.2, t));
+  groundMat.uniforms.uPool.value = L.pool ? 1 : 0;
+
+  bloom.enabled = L.post;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1e3);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => { P.play = false; P.time = t; apply(t); };
+window.__spikeReady = true;

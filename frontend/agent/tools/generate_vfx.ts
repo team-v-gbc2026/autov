@@ -1,24 +1,17 @@
 import { defineWorkflowTool } from "eve/tools";
-import { GenerationSchema } from "../../src/lib/studio-tools/operations";
-import {
-  prepareGeneration,
-  buildCandidate,
-  finishGeneration,
-} from "../lib/generation";
+import { AuthorCandidateSchema } from "../../src/lib/studio-tools/author-candidate";
+import { draftCandidate, candidateReceipt } from "../lib/candidates";
 import { waitBrowser } from "../lib/browser";
 export default defineWorkflowTool({
   description:
-    "Generate one v2 effect using existing texture assets and board reference IDs. replace replaces the whole effect; add preserves current layers/global settings and adds generated layers. Requires expectedRevision and an open studio to render before committing. No new images or custom textures are generated.",
-  inputSchema: GenerationSchema,
+    "Author and capture an uncommitted VFX candidate using Eve's explicit direction, inspected texture bindings and technique IDs. One bounded document-authoring call. Inspect the returned reference, edit if needed, then commit_vfx_candidate.",
+  inputSchema: AuthorCandidateSchema,
   async execute(input, ctx) {
     "use workflow";
-    const { identity, operation } = await prepareGeneration(ctx, input);
-    if (operation.status === "completed") return operation.result;
-    const capture = await buildCandidate(ctx, identity, operation, input);
-    return finishGeneration(
-      identity,
-      operation,
-      await waitBrowser(identity, capture.id),
+    const draft = await draftCandidate(ctx, input);
+    return candidateReceipt(
+      draft.operation.id,
+      await waitBrowser(draft.identity, draft.capture.id),
     );
   },
 });

@@ -113,11 +113,14 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
   ];
   const wantsErosion = p.erosion > 0 || animated.has("erosion");
   return {
+    shading: "unlit",
     blend: p.blend === "normal" ? "alpha" : "additive",
     ramp: {
       space: layer.kind === "particles" ? "life" : "layerTime",
       stops,
       displacementShift: 0,
+      heightSpan: 2,
+      blend: null,
     },
     opacity: p.opacity,
     mask: {
@@ -144,6 +147,27 @@ function buildMaterial(layer: Layer, animated: Set<NumericTarget>): Material {
     softParticle: 0,
     fresnel: null,
     procedural: SURFACE_MAP[layer.surface ?? "default"] ?? "none",
+    proceduralParams: [0, 0, 0, 0],
+    // v1 had no cel shading, no opaque phase and no channel split; an upgraded
+    // layer keeps the v2 defaults so it renders exactly as it did before.
+    toon: null,
+    outline: null,
+    opaqueUntil: null,
+    rgbSplit: null,
+    reveal: null,
+    lattice: null,
+    planeGlow: null,
+    ripples: null,
+    stripes: null,
+    flicker: null,
+    sdfLine: null,
+    beads: null,
+    flow: null,
+    swirl: null,
+    streaks: null,
+    creases: null,
+    screentone: null,
+    symbol: null,
   };
 }
 
@@ -158,6 +182,7 @@ function buildGeometry(layer: Layer, animated: Set<NumericTarget>): GeometryV2 {
     radius: clamp(p.radius, 0.01, 8),
     length: clamp(p.length, 0.01, 12),
     thickness: clamp(p.width, 0.001, 3),
+    taper: 1,
     vertexNoise: wantsNoise
       ? {
           amplitude: fit(p.turbulence * 0.25, 0, 0.5),
@@ -190,6 +215,9 @@ function buildGeometry(layer: Layer, animated: Set<NumericTarget>): GeometryV2 {
             seedOffset: 0,
           }
         : null,
+    band: null,
+    slab: null,
+    frame: null,
   };
 }
 
@@ -215,6 +243,11 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       size: [1, 1, 1],
       surfaceOnly: false,
       bias: [0, 0, 0],
+      pathId: null,
+      sourceLayerId: null,
+      interiorFraction: 0,
+      angleJitter: 0,
+      angleBias: 0,
     },
     spawn: {
       mode: "burst",
@@ -222,6 +255,9 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       rate: 0,
       duration: 0,
       bursts: [],
+      headCurve: null,
+      originsFromPath: false,
+      sourceLayerId: null,
     },
     velocity: {
       mode: "radial",
@@ -261,6 +297,7 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
       vortex: null,
       wind: [0, 0, 0],
       floor: null,
+      planarDrag: 0,
     },
     render: {
       mode: "billboard",
@@ -290,6 +327,12 @@ function buildEmitter(params: Params, animated: Set<NumericTarget>): Emitter {
         ],
       },
       sortMode: "byDistance",
+      twinkle: null,
+      strip: null,
+      anchor: "center",
+      sliver: null,
+      retract: null,
+      secondary: null,
     },
     trail: null,
     sub: null,
@@ -341,8 +384,13 @@ function upgradeLayer(layer: Layer): LayerV2 {
       position: [...layer.params.position],
       rotation: [...layer.params.rotation],
       scale: [1, 1, 1],
+      squash: null,
     },
     motion: layer.motion ?? null,
+    jitter: null,
+    frame: null,
+    collapse: null,
+    window: null,
     material: buildMaterial(layer, animated),
     tracks,
     overrides,

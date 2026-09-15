@@ -1,0 +1,1060 @@
+// autoV toolbox v2 — S2 spike: digital-glitch magic projectile (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 4.0;
+const T_LAUNCH = 0.5;
+const T_HIT = 1.8;
+const T_TRAVEL = T_HIT - T_LAUNCH;
+
+// launch (lower-left) -> target (upper-right), control point lifts the arc
+const A = new THREE.Vector3(-2.05, 0.85, 1.35);
+const B = new THREE.Vector3(2.25, 1.95, -1.55);
+const C = new THREE.Vector3(-0.05, 3.55, -0.10);
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.5,
+  threshold: 0.9,
+  exposure: 1.0,
+  layers: {
+    head: true,
+    trail: true,
+    charge: true,
+    impactLines: true,
+    shards: true,
+    screenGlitch: true,
+    smoke: true,
+  },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+// piecewise-linear envelope over [t,v] pairs
+const env = (t, pts) => {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i][0]) {
+      const [t0, v0] = pts[i - 1];
+      const [t1, v1] = pts[i];
+      return v0 + (v1 - v0) * ss(0, 1, (t - t0) / (t1 - t0));
+    }
+  }
+  return pts[pts.length - 1][1];
+};
+const hash11 = (p) => {
+  p = (p * 0.1031) % 1;
+  if (p < 0) p += 1;
+  p *= p + 33.33;
+  p *= p + p;
+  return p - Math.floor(p);
+};
+
+// head parameter: eased 0..1 across the travel window
+const headU = (t) => ss(0, 1, (t - T_LAUNCH) / T_TRAVEL);
+// inverse of the easing, so a trail instance knows exactly when the head passed it
+const invSS = (y) => 0.5 - Math.sin(Math.asin(1 - 2 * clamp01(y)) / 3);
+const bez = (u, out) => {
+  const m = 1 - u;
+  return out.set(
+    m * m * A.x + 2 * m * u * C.x + u * u * B.x,
+    m * m * A.y + 2 * m * u * C.y + u * u * B.y,
+    m * m * A.z + 2 * m * u * C.z + u * u * B.z
+  );
+};
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: "high-performance",
+});
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x08080a, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x060608, 11, 26);
+
+const camera = new THREE.PerspectiveCamera(34, 1280 / 720, 0.1, 120);
+camera.position.set(0.10, 3.85, 6.70);
+camera.lookAt(0.25, 0.80, -1.25);
+
+// ground: dark plate with a faint grid, falling off into the background
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(70, 70),
+  new THREE.ShaderMaterial({
+    uniforms: {
+      uTint: { value: new THREE.Color("#ff3fd0") },
+      uTintI: { value: 0 },
+      uTintP: { value: new THREE.Vector2(B.x, B.z) },
+    },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vP; uniform vec3 uTint; uniform float uTintI; uniform vec2 uTintP;
+      void main(){
+        float d = length(vP - vec2(0.0, 1.4));
+        vec3 base = mix(vec3(0.044,0.043,0.045), vec3(0.011,0.011,0.013), smoothstep(1.5,8.5,d));
+        base = mix(base, vec3(0.003,0.003,0.004), smoothstep(8.0,15.0,d));
+        // faint 1-unit grid, gone well before the frame edge
+        vec2 g = abs(fract(vP*1.0) - 0.5);
+        float line = 1.0 - smoothstep(0.0, 0.030, min(g.x, g.y));
+        base += vec3(0.008,0.008,0.011) * line * (1.0 - smoothstep(2.5, 10.0, d));
+        vec2 q = vP - vec2(uTintP.x, -uTintP.y);
+        base += uTint * uTintI * exp(-dot(q,q)*0.35);
+        gl_FragColor = vec4(base, 1.0);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// target marker
+const marker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.25, 28, 18),
+  new THREE.ShaderMaterial({
+    vertexShader: `varying vec3 vN; void main(){ vN = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec3 vN;
+      void main(){
+        float k = clamp(dot(normalize(vN), normalize(vec3(-0.25,0.85,0.45))), 0.0, 1.0);
+        vec3 c = mix(vec3(0.030,0.030,0.034), vec3(0.155,0.153,0.160), pow(k, 0.8));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  })
+);
+marker.position.copy(B);
+scene.add(marker);
+
+// ---------------------------------------------------------------- shared glsl
+const GLSL_HASH = `
+float hash11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float hash21(vec2 p){ vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q, q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash21(i), b = hash21(i+vec2(1.0,0.0));
+  float c = hash21(i+vec2(0.0,1.0)), d = hash21(i+vec2(1.0,1.0));
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}`;
+
+const GLSL_PATH = `
+const vec3 PA = vec3(${A.x}, ${A.y}, ${A.z});
+const vec3 PB = vec3(${B.x}, ${B.y}, ${B.z});
+const vec3 PC = vec3(${C.x}, ${C.y}, ${C.z});
+vec3 bez(float u){ float m = 1.0-u; return m*m*PA + 2.0*m*u*PC + u*u*PB; }
+vec3 bezT(float u){ return normalize(2.0*(1.0-u)*(PC-PA) + 2.0*u*(PB-PC)); }`;
+
+const billboard = `
+  vec3 bbRight = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+  vec3 bbUp    = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);`;
+
+function instQuads(n, seedFill) {
+  const base = new THREE.PlaneGeometry(1, 1);
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = base.index;
+  g.attributes.position = base.attributes.position;
+  g.attributes.uv = base.attributes.uv;
+  const seeds = new Float32Array(n);
+  for (let i = 0; i < n; i++) seeds[i] = seedFill ? seedFill(i) : i;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 1));
+  g.instanceCount = n;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.6, 0), 9);
+  return g;
+}
+
+// ---------------------------------------------------------------- charge (0 - 0.5)
+// Rectangles and sparks pulled into the launch point: p = c + dir*r0*(1-a)^2.
+const CHARGE = 78;
+const chargeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uCyan: { value: new THREE.Color("#3fe6ff") },
+    uViolet: { value: new THREE.Color("#9a5cff") },
+    uMagenta: { value: new THREE.Color("#ff46d2") },
+  },
+  vertexShader: `
+    attribute float aSeed;
+    uniform float uTime;
+    varying vec2 vQ; varying float vA; varying float vRect; varying vec3 vCol;
+    uniform vec3 uCyan, uViolet, uMagenta;
+    ${GLSL_HASH}
+    ${GLSL_PATH}
+    void main(){
+      float s = aSeed;
+      float h1 = hash11(s*1.37+0.11), h2 = hash11(s*2.71+5.3), h3 = hash11(s*3.93+11.7);
+      float h4 = hash11(s*5.11+23.9), h5 = hash11(s*7.13+41.3);
+      float birth = 0.02 + 0.30*h1;
+      float a = clamp((uTime - birth)/(${T_LAUNCH.toFixed(2)} - birth), 0.0, 1.0);
+      float th = h2*6.2831, ph = acos(1.0-2.0*h3);
+      vec3 dir = vec3(sin(ph)*cos(th), cos(ph)*0.65+0.25, sin(ph)*sin(th));
+      float r0 = 0.55 + 0.95*h4;
+      vec3 c = PA + dir*r0*(1.0-a)*(1.0-a);
+      // stepped jitter on the way in
+      float st = floor(uTime*14.0);
+      c += dir.zxy * (hash11(st*3.1 + s*7.7) - 0.5) * 0.10 * step(0.72, hash11(st*1.9 + s*2.3));
+      vRect = step(0.55, h5);
+      float grow = 0.35 + 0.85*a;
+      vA = step(birth, uTime) * (0.25 + 0.75*a) * (0.55 + 0.45*sin(uTime*30.0 + s*9.0));
+      vCol = mix(mix(uCyan, uViolet, h2), uMagenta, h4*h4*0.8);
+      ${billboard}
+      float rot = h3*3.1416;
+      vec2 q = position.xy*2.0;
+      vec2 sc = mix(vec2(1.0,1.0), vec2(1.9,0.45), vRect);
+      vec2 qs = q*sc;
+      vec2 qr = vec2(qs.x*cos(rot)-qs.y*sin(rot), qs.x*sin(rot)+qs.y*cos(rot));
+      vQ = q;
+      float size = (0.045 + 0.060*h5) * grow;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(c + (bbRight*qr.x + bbUp*qr.y)*size, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vQ; varying float vA; varying float vRect; varying vec3 vCol;
+    uniform float uI;
+    void main(){
+      float m;
+      if (vRect > 0.5) m = step(max(abs(vQ.x), abs(vQ.y)), 0.92);
+      else m = pow(max(0.0, 1.0 - length(vQ)*1.0), 2.4);
+      float al = clamp(m, 0.0, 1.0) * vA * uI;
+      gl_FragColor = vec4(vCol*al*2.4, al);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const charge = new THREE.Mesh(instQuads(CHARGE), chargeMat);
+scene.add(charge);
+
+// ---------------------------------------------------------------- trail
+// Path-anchored instances: each quad owns a fixed u_i and the exact time the
+// head passed it. It holds that world position, flickers, then fades out.
+const TRAIL = 156;
+function buildTrail() {
+  const g = instQuads(TRAIL);
+  const us = new Float32Array(TRAIL);
+  const births = new Float32Array(TRAIL);
+  for (let i = 0; i < TRAIL; i++) {
+    const u = (i + 0.5) / TRAIL;
+    us[i] = u;
+    births[i] = T_LAUNCH + T_TRAVEL * invSS(u);
+  }
+  g.setAttribute("aU", new THREE.InstancedBufferAttribute(us, 1));
+  g.setAttribute("aBirth", new THREE.InstancedBufferAttribute(births, 1));
+  return g;
+}
+const trailMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 1 },
+    uCyan: { value: new THREE.Color("#3fe6ff") },
+    uViolet: { value: new THREE.Color("#8f5cff") },
+    uMagenta: { value: new THREE.Color("#ff46d2") },
+  },
+  vertexShader: `
+    attribute float aSeed; attribute float aU; attribute float aBirth;
+    uniform float uTime;
+    uniform vec3 uCyan, uViolet, uMagenta;
+    varying vec2 vQ; varying float vA; varying float vRect; varying vec3 vCol;
+    ${GLSL_HASH}
+    ${GLSL_PATH}
+    void main(){
+      float s = aSeed;
+      float h1 = hash11(s*1.37+0.11), h2 = hash11(s*2.71+5.3), h3 = hash11(s*3.93+11.7);
+      float h4 = hash11(s*5.11+23.9), h5 = hash11(s*7.13+41.3);
+      float age = uTime - aBirth;
+      float life = 1.00 + 0.55*h2;
+      float u = age/life;
+      float alive = step(0.0, age) * step(u, 1.0);
+
+      vec3 p = bez(aU);
+      vec3 tg = bezT(aU);
+      vec3 side = normalize(cross(tg, vec3(0.0,1.0,0.0)));
+      vec3 upn = normalize(cross(side, tg));
+      // scatter off the centre line so the trail reads as a dotted band
+      p += side*(h3-0.5)*0.22 + upn*(h4-0.5)*0.17;
+      // ~15% are broken fragments that jump sideways in stepped windows
+      float brk = step(0.85, h5);
+      float st = floor(uTime*9.0);
+      p += side * brk * (hash11(st*5.7 + s*3.3) - 0.5) * 0.34 * step(0.35, hash11(st*2.1 + s*9.1));
+
+      // hold bright, then flicker out
+      float fade = 1.0 - smoothstep(0.62, 1.0, u);
+      float fl = step(0.30, hash11(floor(uTime*12.0)*2.7 + s*13.1));
+      fl = mix(1.0, fl, smoothstep(0.45, 0.85, u));
+      vA = alive * fade * fl * (0.75 + 0.25*sin(uTime*24.0 + s*7.0));
+      vRect = step(0.35, h1);
+      vCol = mix(mix(uCyan, uViolet, step(0.28, h2)), uMagenta, step(0.86, h2));
+
+      ${billboard}
+      // rectangles lie along the tangent; project it to screen to pick the angle
+      vec3 tv = normalize((modelViewMatrix * vec4(tg, 0.0)).xyz);
+      float rot = atan(tv.y, tv.x) + (h4-0.5)*0.5;
+      vec2 q = position.xy*2.0;
+      vec2 sc = mix(vec2(1.0,1.0), vec2(2.3,0.42), vRect);
+      vec2 qs = q*sc;
+      vec2 qr = vec2(qs.x*cos(rot)-qs.y*sin(rot), qs.x*sin(rot)+qs.y*cos(rot));
+      vQ = q;
+      float size = (0.013 + 0.030*h3) * mix(1.1, 0.65, u);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p + (bbRight*qr.x + bbUp*qr.y)*size*alive, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vQ; varying float vA; varying float vRect; varying vec3 vCol;
+    uniform float uI;
+    void main(){
+      float m;
+      if (vRect > 0.5) m = step(max(abs(vQ.x), abs(vQ.y)), 0.9);
+      else m = pow(max(0.0, 1.0 - length(vQ)*1.05), 2.2);
+      float al = clamp(m, 0.0, 1.0) * vA * uI;
+      gl_FragColor = vec4(vCol*al*1.25, al);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const trail = new THREE.Mesh(buildTrail(), trailMat);
+scene.add(trail);
+
+// ---------------------------------------------------------------- hairlines
+// Thin additive strips filling the window just behind the head.
+const HAIR = 3;
+const HSEG = 96;
+function buildHair() {
+  const g = new THREE.BufferGeometry();
+  const vtx = HAIR * (HSEG + 1) * 2;
+  const pos = new Float32Array(vtx * 3);
+  const aW = new Float32Array(vtx);
+  const aSide = new Float32Array(vtx);
+  const aStrand = new Float32Array(vtx);
+  const idx = [];
+  let v = 0;
+  for (let s = 0; s < HAIR; s++) {
+    const base = v;
+    for (let i = 0; i <= HSEG; i++) {
+      for (let k = 0; k < 2; k++) {
+        aW[v] = i / HSEG;
+        aSide[v] = k === 0 ? -1 : 1;
+        aStrand[v] = s;
+        v++;
+      }
+    }
+    for (let i = 0; i < HSEG; i++) {
+      const a = base + i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aW", new THREE.BufferAttribute(aW, 1));
+  g.setAttribute("aSide", new THREE.BufferAttribute(aSide, 1));
+  g.setAttribute("aStrand", new THREE.BufferAttribute(aStrand, 1));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.8, 0), 9);
+  return g;
+}
+const hairMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uHead: { value: 0 },
+    uTail: { value: 0.42 },
+    uAlpha: { value: 0 },
+    uCore: { value: new THREE.Color("#cfe8ff") },
+    uEdge: { value: new THREE.Color("#8f5cff") },
+  },
+  vertexShader: `
+    attribute float aW; attribute float aSide; attribute float aStrand;
+    uniform float uTime, uHead, uTail;
+    varying float vSide; varying float vW; varying float vFade; varying float vS;
+    ${GLSL_HASH}
+    ${GLSL_PATH}
+    void main(){
+      float hs = hash11(aStrand*11.7+3.1);
+      float u = clamp(uHead - (1.0 - aW)*uTail, 0.0, 1.0);
+      vec3 p = bez(u);
+      vec3 tg = bezT(u);
+      vec3 side = normalize(cross(tg, vec3(0.0,1.0,0.0)));
+      vec3 upn = normalize(cross(side, tg));
+      float ph = uTime*3.0 + hs*6.28 + u*22.0;
+      p += side*sin(ph)*0.045*(hs+0.4) + upn*cos(ph*0.8)*0.035*(hs+0.4);
+      vec3 view = normalize(cameraPosition - p);
+      vec3 across = normalize(cross(tg, view));
+      float tp = smoothstep(0.0, 0.22, aW) * smoothstep(1.0, 0.92, aW);
+      float w = (0.0025 + 0.003*hs) * tp;
+      vFade = tp; vSide = aSide; vW = aW; vS = hs;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p + across*aSide*w, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 uCore, uEdge; uniform float uAlpha, uTime;
+    varying float vSide; varying float vW; varying float vFade; varying float vS;
+    void main(){
+      float q = abs(vSide);
+      float core = exp(-q*q*10.0);
+      float halo = exp(-q*q*2.0);
+      float flick = 0.7 + 0.3*sin(vW*60.0 + uTime*22.0 + vS*9.0);
+      vec3 col = mix(uEdge, uCore, core) * (core*1.4 + halo*0.28) * flick;
+      float a = vFade * uAlpha * (core*0.85 + halo*0.25);
+      gl_FragColor = vec4(col*a, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const hair = new THREE.Mesh(buildHair(), hairMat);
+scene.add(hair);
+
+// ---------------------------------------------------------------- head
+// Dart mesh + additive core billboard + a ring of tail sparkles.
+const dartMat = new THREE.MeshBasicMaterial({
+  color: new THREE.Color("#ff4ad4"),
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const dartGeo = new THREE.ConeGeometry(0.075, 0.5, 5, 1, true);
+dartGeo.rotateX(Math.PI / 2); // point down -z, we orient with lookAt
+const dart = new THREE.Mesh(dartGeo, dartMat);
+scene.add(dart);
+
+const coreMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uCol: { value: new THREE.Color("#bff3ff") } },
+  // view-space billboard around the mesh origin
+  vertexShader: `varying vec2 vQ;
+    void main(){ vQ = position.xy*2.0;
+      gl_Position = projectionMatrix * (modelViewMatrix * vec4(0.0,0.0,0.0,1.0) + vec4(position.xy*2.0*0.042, 0.0, 0.0));
+    }`,
+  fragmentShader: `varying vec2 vQ; uniform float uI; uniform vec3 uCol;
+    void main(){
+      float d = length(vQ);
+      float core = pow(max(0.0, 1.0-d*1.6), 3.0);
+      float halo = pow(max(0.0, 1.0-d*0.62), 2.4)*0.30;
+      float a = clamp(core+halo, 0.0, 1.0)*uI;
+      vec3 col = mix(uCol, vec3(1.0), clamp(core*1.1,0.0,1.0))*(1.0+core*1.5);
+      gl_FragColor = vec4(col*a, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const core = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), coreMat);
+core.frustumCulled = false;
+scene.add(core);
+
+const TAILS = 8;
+const tailMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uPos: { value: new THREE.Vector3() },
+    uTan: { value: new THREE.Vector3(0, 0, 1) },
+    uCol: { value: new THREE.Color("#7fe8ff") },
+  },
+  vertexShader: `
+    attribute float aSeed;
+    uniform float uTime; uniform vec3 uPos, uTan;
+    varying vec2 vQ; varying float vA;
+    ${GLSL_HASH}
+    void main(){
+      float s = aSeed;
+      float h1 = hash11(s*1.7+2.3), h2 = hash11(s*3.1+7.7);
+      vec3 side = normalize(cross(uTan, vec3(0.0,1.0,0.0)));
+      vec3 upn = normalize(cross(side, uTan));
+      float ang = s/${TAILS}.0*6.2831 + uTime*4.0;
+      float r = 0.085 + 0.035*sin(uTime*9.0 + s*2.1);
+      vec3 c = uPos - uTan*(0.22 + 0.10*h1) + (side*cos(ang) + upn*sin(ang))*r;
+      vA = 0.45 + 0.55*pow(abs(sin(uTime*13.0 + s*3.7)), 1.4);
+      ${billboard}
+      vec2 q = position.xy*2.0;
+      vQ = q;
+      float size = 0.030 + 0.030*h2;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(c + (bbRight*q.x + bbUp*q.y)*size, 1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; varying float vA; uniform float uI; uniform vec3 uCol;
+    void main(){
+      float d = length(vQ);
+      float sx = pow(max(0.0,1.0-abs(vQ.x)*0.6),3.0)*pow(max(0.0,1.0-abs(vQ.y)*4.5),2.0);
+      float sy = pow(max(0.0,1.0-abs(vQ.y)*0.6),3.0)*pow(max(0.0,1.0-abs(vQ.x)*4.5),2.0);
+      float cc = pow(max(0.0,1.0-d*2.6),2.0);
+      float a = clamp(sx+sy+cc*1.4, 0.0, 1.0)*vA*uI;
+      gl_FragColor = vec4(mix(uCol, vec3(1.0), clamp(cc*1.5,0.0,1.0))*a*1.5, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const tails = new THREE.Mesh(instQuads(TAILS), tailMat);
+tails.frustumCulled = false;
+scene.add(tails);
+
+// ---------------------------------------------------------------- impact flash
+const flashMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uGrid: { value: 0 },
+    uScale: { value: 1 },
+    uCol: { value: new THREE.Color("#ff3fd0") },
+  },
+  vertexShader: `varying vec2 vQ; uniform float uScale; void main(){ vQ = position.xy*2.0;
+    gl_Position = projectionMatrix * (modelViewMatrix * vec4(0.0,0.0,0.0,1.0) + vec4(position.xy*2.0*1.55*uScale, 0.0, 0.0)); }`,
+  fragmentShader: `varying vec2 vQ; uniform float uI, uTime, uGrid; uniform vec3 uCol;
+    ${GLSL_HASH}
+    void main(){
+      float d = length(vQ);
+      float core = pow(max(0.0, 1.0-d*3.2), 2.0);
+      float glow = pow(max(0.0, 1.0-d*0.55), 1.8);
+      // radial spokes + a fine lattice, the "digital" tell in the reference
+      float ang = atan(vQ.y, vQ.x);
+      float spokes = pow(abs(sin(ang*14.0)), 8.0) * pow(max(0.0,1.0-d*1.0), 2.0);
+      vec2 g = abs(fract(vQ*3.2 + 0.5) - 0.5);
+      float lat = (1.0 - smoothstep(0.0, 0.06, min(g.x,g.y))) * pow(max(0.0,1.0-d*1.15), 1.6) * uGrid;
+      float m = core*0.25 + glow*1.55 + spokes*0.35 + lat*0.65;
+      float a = clamp(m, 0.0, 1.0)*uI;
+      vec3 col = mix(uCol, vec3(1.0), clamp(core*0.28 + lat*0.22, 0.0, 1.0))*(1.0+core*0.5);
+      gl_FragColor = vec4(col*a*0.85, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const flash = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), flashMat);
+flash.position.copy(B);
+flash.frustumCulled = false;
+scene.add(flash);
+
+// ---------------------------------------------------------------- impact wireframes
+// Angular polygon outlines + long straight spokes, scaled outward with easeOut.
+function buildWire() {
+  const pos = [];
+  const dir = [];
+  const seed = [];
+  const kind = [];
+  const push = (a, b, d, s, k) => {
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    dir.push(d.x, d.y, d.z, d.x, d.y, d.z);
+    seed.push(s, s);
+    kind.push(k, k);
+  };
+  const v = new THREE.Vector3();
+  // 14 polygon outlines (triangles / quads) on random planes
+  for (let k = 0; k < 20; k++) {
+    const n = 3 + (hash11(k * 3.7 + 1.1) > 0.5 ? 1 : 0);
+    const th = hash11(k * 1.31 + 0.7) * Math.PI * 2;
+    const ph = Math.acos(1 - 2 * hash11(k * 2.17 + 5.5));
+    const d = new THREE.Vector3(
+      Math.sin(ph) * Math.cos(th),
+      Math.cos(ph) * 0.7 + 0.28,
+      Math.sin(ph) * Math.sin(th)
+    ).normalize();
+    const e1 = new THREE.Vector3()
+      .crossVectors(d, new THREE.Vector3(0, 1, 0.001))
+      .normalize();
+    const e2 = new THREE.Vector3().crossVectors(d, e1).normalize();
+    const r = 0.30 + 0.42 * hash11(k * 5.9 + 2.2);
+    const rot = hash11(k * 7.3 + 9.1) * Math.PI * 2;
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = rot + (i / n) * Math.PI * 2;
+      const rr = r * (0.72 + 0.55 * hash11(k * 11.3 + i * 2.7));
+      pts.push(
+        new THREE.Vector3()
+          .addScaledVector(e1, Math.cos(a) * rr)
+          .addScaledVector(e2, Math.sin(a) * rr)
+      );
+    }
+    for (let i = 0; i < n; i++)
+      push(pts[i], pts[(i + 1) % n], d, k + 0.5, 0);
+  }
+  // 18 long straight spokes radiating from the hit
+  for (let k = 0; k < 14; k++) {
+    const th = hash11(k * 4.13 + 17.3) * Math.PI * 2;
+    const ph = Math.acos(1 - 2 * hash11(k * 6.71 + 3.9));
+    const d = new THREE.Vector3(
+      Math.sin(ph) * Math.cos(th),
+      Math.cos(ph) * 0.85 + 0.12,
+      Math.sin(ph) * Math.sin(th)
+    ).normalize();
+    const l0 = 0.25 + 0.5 * hash11(k * 2.9 + 8.1);
+    const l1 = l0 + 0.8 + 1.4 * hash11(k * 9.7 + 4.4);
+    push(v.copy(d).multiplyScalar(l0), d.clone().multiplyScalar(l1), d, k + 30.5, 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("aDir", new THREE.Float32BufferAttribute(dir, 3));
+  g.setAttribute("aSeed", new THREE.Float32BufferAttribute(seed, 1));
+  g.setAttribute("aKind", new THREE.Float32BufferAttribute(kind, 1));
+  g.boundingSphere = new THREE.Sphere(B.clone(), 12);
+  return g;
+}
+const wireMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uE: { value: 0 },
+    uI: { value: 0 },
+    uOrigin: { value: B.clone() },
+    uCol: { value: new THREE.Color("#ffd8f4") },
+    uCol2: { value: new THREE.Color("#ff5ad8") },
+  },
+  vertexShader: `
+    attribute vec3 aDir; attribute float aSeed; attribute float aKind;
+    uniform float uTime, uE; uniform vec3 uOrigin;
+    varying float vA; varying float vK;
+    ${GLSL_HASH}
+    void main(){
+      float h = hash11(aSeed*1.7+0.3);
+      float e = clamp(uE, 0.0, 1.0);
+      float out1 = 1.0 - pow(1.0-e, 2.6);           // easeOut travel
+      float travel = mix(0.40, 1.45, h) * out1;
+      float scale = mix(0.65, 1.75, h) * (0.35 + 1.0*out1);
+      vec3 p = uOrigin + aDir*travel*mix(1.0, 1.5, aKind) + position*scale;
+      // stepped positional jitter while the burst is hot
+      float st = floor(uTime*20.0);
+      p += aDir.zxy*(hash11(st*3.3 + aSeed*5.1)-0.5)*0.14*step(0.55, hash11(st*1.7+aSeed));
+      vA = (1.0 - smoothstep(0.25, 1.0, e));
+      vK = aKind;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`,
+  fragmentShader: `
+    varying float vA; varying float vK; uniform float uI; uniform vec3 uCol, uCol2;
+    void main(){
+      float a = vA*uI*mix(0.95, 0.75, vK);
+      vec3 col = mix(uCol, uCol2, vK*0.6);
+      gl_FragColor = vec4(col*a*1.45, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const wire = new THREE.LineSegments(buildWire(), wireMat);
+scene.add(wire);
+
+// dome shell: the translucent hemisphere the reference shows over the hit
+const domeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uI: { value: 0 },
+    uTime: { value: 0 },
+    uCol: { value: new THREE.Color("#c8a8ff") },
+  },
+  vertexShader: `varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+    void main(){ vUv = uv; vN = normalize(normalMatrix*normal);
+      vec4 mv = modelViewMatrix*vec4(position,1.0); vV = normalize(-mv.xyz);
+      gl_Position = projectionMatrix*mv; }`,
+  fragmentShader: `varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+    uniform float uI, uTime; uniform vec3 uCol;
+    void main(){
+      float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 3.0);
+      float a = rim*0.75*uI;
+      gl_FragColor = vec4(uCol*a*1.2, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const dome = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.55),
+  domeMat
+);
+dome.position.copy(B);
+scene.add(dome);
+
+// ---------------------------------------------------------------- shards
+// Rectangular fragments on closed-form ballistic paths, drawn three times with
+// small R/G/B offsets for an RGB-split look.
+const SHARDS = 44;
+const shardMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uE: { value: 0 }, uI: { value: 0 }, uOrigin: { value: B.clone() } },
+  vertexShader: `
+    attribute float aSeed;
+    uniform float uTime, uE; uniform vec3 uOrigin;
+    varying vec2 vQ; varying float vA; varying vec3 vCol;
+    ${GLSL_HASH}
+    void main(){
+      float n = mod(aSeed, ${SHARDS}.0);
+      float ch = floor(aSeed / ${SHARDS}.0);
+      float h1 = hash11(n*1.37+0.11), h2 = hash11(n*2.71+5.3), h3 = hash11(n*3.93+11.7);
+      float h4 = hash11(n*5.11+23.9), h5 = hash11(n*7.13+41.3);
+      float age = max(0.0, uE);
+      float th = h1*6.2831, ph = acos(1.0-2.0*h2);
+      vec3 dir = vec3(sin(ph)*cos(th), abs(cos(ph))*0.9+0.12, sin(ph)*sin(th));
+      float sp = 2.2 + 4.4*h3;
+      vec3 p = uOrigin + dir*sp*age - vec3(0.0, 3.4, 0.0)*age*age;
+      float life = 0.55 + 0.55*h4;
+      float u = age/life;
+      float alive = step(u, 1.0);
+      vA = alive*(1.0 - smoothstep(0.3, 1.0, u));
+      vCol = ch < 0.5 ? vec3(1.0,0.16,0.55) : (ch < 1.5 ? vec3(0.35,1.0,0.85) : vec3(0.55,0.42,1.0));
+      ${billboard}
+      float off = (ch-1.0)*0.035*(0.5+u);
+      float rot = h5*6.2831 + age*(h3-0.5)*10.0;
+      vec2 q = position.xy*2.0;
+      vec2 qs = q*vec2(1.0+1.4*h4, 0.35+0.4*h5);
+      vec2 qr = vec2(qs.x*cos(rot)-qs.y*sin(rot), qs.x*sin(rot)+qs.y*cos(rot));
+      vQ = q;
+      float size = (0.024 + 0.036*h5)*mix(1.0, 0.6, u);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p + bbRight*(qr.x*size+off) + bbUp*qr.y*size, 1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; varying float vA; varying vec3 vCol; uniform float uI;
+    void main(){
+      float m = step(max(abs(vQ.x), abs(vQ.y)), 0.92);
+      float a = m*vA*uI*0.85;
+      gl_FragColor = vec4(vCol*a*0.62, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const shards = new THREE.Mesh(instQuads(SHARDS * 3), shardMat);
+scene.add(shards);
+
+// ---------------------------------------------------------------- aftermath
+// Wide, low, dark magenta smoke disc with panning noise + rising cyan sparks.
+const smokeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uR: { value: 1 },
+    uAsp: { value: 1 },
+    uCol: { value: new THREE.Color("#3d3640") },
+    uCol2: { value: new THREE.Color("#141318") },
+  },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vP; uniform float uTime, uI, uR; uniform vec3 uCol, uCol2;
+    ${GLSL_HASH}
+    void main(){
+      float d = length(vP)/uR;
+      float n = vnoise(vP*1.5 + vec2(uTime*0.22, -uTime*0.15));
+      n = n*0.6 + 0.4*vnoise(vP*3.4 - vec2(uTime*0.35, uTime*0.2));
+      float body = smoothstep(1.05, 0.25, d + (n-0.5)*0.55);
+      float rim = smoothstep(1.0, 0.72, d) * (1.0 - smoothstep(0.72, 0.2, d));
+      float a = clamp(body*1.0 + rim*0.3, 0.0, 1.0)*uI*(0.45+0.55*n)*0.92;
+      vec3 col = mix(uCol2, uCol, n);
+      gl_FragColor = vec4(col, a);
+    }`,
+  transparent: true,
+  blending: THREE.NormalBlending,
+  depthWrite: false,
+});
+const smoke = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), smokeMat);
+smoke.rotation.x = -Math.PI / 2;
+smoke.position.set(B.x, 0.16, B.z);
+scene.add(smoke);
+
+const SPARKS = 34;
+const sparkMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uOrigin: { value: B.clone() },
+    uCol: { value: new THREE.Color("#8ff0ff") },
+  },
+  vertexShader: `
+    attribute float aSeed;
+    uniform float uTime; uniform vec3 uOrigin;
+    varying vec2 vQ; varying float vA;
+    ${GLSL_HASH}
+    void main(){
+      float s = aSeed;
+      float h1 = hash11(s*1.37+0.11), h2 = hash11(s*2.71+5.3), h3 = hash11(s*3.93+11.7), h4 = hash11(s*5.11+23.9);
+      float birth = ${(T_HIT + 0.25).toFixed(2)} + 0.9*h1;
+      float life = 0.8 + 0.9*h2;
+      float age = uTime - birth;
+      float u = age/life;
+      float alive = step(0.0, age)*step(u, 1.0);
+      float ang = h3*6.2831;
+      float rad = (0.4 + 2.2*sqrt(h4))*(0.5+0.7*u);
+      vec3 c = uOrigin + vec3(cos(ang)*rad, -1.05 + (0.2 + 1.1*h2)*u, sin(ang)*rad);
+      c.x += 0.12*sin(u*5.0 + s); c.z += 0.12*cos(u*4.0 + s*1.7);
+      vA = alive*pow(sin(3.14159*clamp(u,0.0,1.0)), 0.7)*(0.45+0.55*pow(abs(sin(uTime*11.0+s*3.1)),1.5));
+      ${billboard}
+      vec2 q = position.xy*2.0; vQ = q;
+      float size = 0.028 + 0.030*h2;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(c + (bbRight*q.x + bbUp*q.y)*size*alive, 1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; varying float vA; uniform float uI; uniform vec3 uCol;
+    void main(){
+      float d = length(vQ);
+      float cc = pow(max(0.0, 1.0-d*1.7), 2.4);
+      float a = clamp(cc, 0.0, 1.0)*vA*uI;
+      gl_FragColor = vec4(mix(uCol, vec3(1.0), clamp(cc*1.4,0.0,1.0))*a*1.8, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const sparks = new THREE.Mesh(instQuads(SPARKS), sparkMat);
+sparks.frustumCulled = false;
+scene.add(sparks);
+
+
+// raised smoke puffs: billboards with panning noise, so the aftermath has body
+// instead of reading as a stain on the floor
+const PUFFS = 22;
+const puffMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uE: { value: 0 },
+    uOrigin: { value: B.clone() },
+    uCol: { value: new THREE.Color("#5c5566") },
+    uCol2: { value: new THREE.Color("#201d26") },
+  },
+  vertexShader: `
+    attribute float aSeed;
+    uniform float uTime, uE; uniform vec3 uOrigin;
+    varying vec2 vQ; varying float vA; varying float vS;
+    ${GLSL_HASH}
+    void main(){
+      float s = aSeed;
+      float h1 = hash11(s*1.37+0.11), h2 = hash11(s*2.71+5.3), h3 = hash11(s*3.93+11.7);
+      float h4 = hash11(s*5.11+23.9), h5 = hash11(s*7.13+41.3);
+      float e = clamp(uE, 0.0, 1.0);
+      float spread = 1.0 - pow(1.0-e, 2.2);
+      float ang = h1*6.2831;
+      float rad = (0.20 + 1.65*h2)*spread;
+      vec3 c = uOrigin + vec3(cos(ang)*rad, -1.58 + 0.50*h3 + 0.30*spread*h4, sin(ang)*rad*0.85);
+      vA = (0.35 + 0.65*h5);
+      vS = s;
+      ${billboard}
+      vec2 q = position.xy*2.0; vQ = q;
+      float size = (0.85 + 1.35*h4) * (0.55 + 0.70*spread);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(c + (bbRight*q.x + bbUp*q.y)*size, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vQ; varying float vA; varying float vS;
+    uniform float uTime, uI; uniform vec3 uCol, uCol2;
+    ${GLSL_HASH}
+    void main(){
+      float d = length(vQ);
+      float n = vnoise(vQ*1.9 + vec2(vS*3.1, vS*1.7) + vec2(uTime*0.18, -uTime*0.13));
+      n = n*0.65 + 0.35*vnoise(vQ*4.2 - vec2(uTime*0.3, uTime*0.22) + vS);
+      float body = pow(max(0.0, 1.0 - d*0.95), 1.9) * (0.35 + 0.9*n);
+      float a = clamp(body, 0.0, 1.0)*vA*uI;
+      gl_FragColor = vec4(mix(uCol2, uCol, n), a);
+    }`,
+  transparent: true,
+  blending: THREE.NormalBlending,
+  depthWrite: false,
+});
+const puffs = new THREE.Mesh(instQuads(PUFFS), puffMat);
+puffs.frustumCulled = false;
+scene.add(puffs);
+
+// the glitch box the reference leaves hanging over the hit: a wire cage that
+// jumps in stepped windows and fades out with the smoke
+const gboxMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uOrigin: { value: B.clone() },
+    uCol: { value: new THREE.Color("#ff5ad8") },
+  },
+  vertexShader: `
+    uniform float uTime; uniform vec3 uOrigin;
+    ${GLSL_HASH}
+    void main(){
+      vec3 p = uOrigin + position;
+      float st = floor(uTime*11.0);
+      p += vec3(hash11(st*3.1)-0.5, hash11(st*5.7)-0.5, hash11(st*7.3)-0.5)*0.10*step(0.5, hash11(st*1.3));
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`,
+  fragmentShader: `uniform float uI; uniform vec3 uCol;
+    void main(){ gl_FragColor = vec4(uCol*uI*3.2, uI); }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const gbox = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.15, 0.72, 1.15, 4, 2, 4)),
+  gboxMat
+);
+gbox.frustumCulled = false;
+scene.add(gbox);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 0.5, P.threshold);
+composer.addPass(bloom);
+
+// screen glitch: band displacement + RGB split + block dropout, all keyed off
+// hash(floor(t*20)) so a seek lands on exactly the same frame as playback.
+const glitchPass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uI: { value: 0 },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime, uI;
+    ${GLSL_HASH}
+    void main(){
+      vec2 uv = vUv;
+      float blk = floor(uTime*20.0);
+      // edges glitch harder than the centre
+      float edge = 0.12 + 1.15*smoothstep(0.30, 0.5, abs(uv.x-0.5)) + 0.75*smoothstep(0.36, 0.5, abs(uv.y-0.5));
+      float k = uI*clamp(edge, 0.0, 1.4);
+      float band = floor(uv.y*15.0);
+      float hb = hash11(band*7.3 + blk*13.7);
+      float shift = step(0.58, hb) * (hash11(band*3.1 + blk*5.9)-0.5) * 0.14 * k;
+      vec2 uv2 = vec2(fract(uv.x + shift), uv.y);
+      float d = 0.008*k;
+      float r = texture2D(tDiffuse, uv2 + vec2(d, 0.0)).r;
+      vec4 g = texture2D(tDiffuse, uv2);
+      float b = texture2D(tDiffuse, uv2 - vec2(d, 0.0)).b;
+      vec3 col = vec3(r, g.g, b);
+      vec2 bc = floor(uv*vec2(54.0, 34.0));
+      float h2 = hash11(bc.x*1.7 + bc.y*31.3 + blk*77.1);
+      if (h2 > 1.0 - 0.085*k) col = col.bgr*1.1 + vec3(0.07, 0.0, 0.16)*k;
+      if (h2 < 0.05*k) col = mix(col*0.35, vec3(0.05,0.02,0.16), 0.7);
+      gl_FragColor = vec4(col, g.a);
+    }`,
+});
+composer.addPass(glitchPass);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- timeline
+const _p = new THREE.Vector3();
+const _p2 = new THREE.Vector3();
+const _tan = new THREE.Vector3();
+const _look = new THREE.Vector3();
+
+function apply(t) {
+  const L = P.layers;
+
+  // ---- charge 0 - 0.5
+  const chI = env(t, [[0, 0], [0.08, 1], [0.42, 1], [0.52, 0]]) * (L.charge ? 1 : 0);
+  chargeMat.uniforms.uTime.value = t;
+  chargeMat.uniforms.uI.value = chI;
+  charge.visible = chI > 0.001;
+
+  // ---- head 0.5 - 1.8
+  const u = headU(t);
+  const flying = t >= T_LAUNCH - 0.02 && t <= T_HIT + 0.01;
+  bez(u, _p);
+  bez(Math.min(1, u + 0.004), _p2);
+  _tan.subVectors(_p2, _p).normalize();
+  // stepped-hash jitter: fires only in discrete windows, and only while flying
+  const stw = Math.floor(t * 10);
+  if (flying && hash11(stw * 1.7 + 0.3) > 0.85) {
+    const j = 0.09;
+    _p.x += (hash11(stw * 3.1) - 0.5) * j;
+    _p.y += (hash11(stw * 5.3) - 0.5) * j;
+    _p.z += (hash11(stw * 7.9) - 0.5) * j;
+  }
+  const headI = env(t, [[0.42, 0], [0.52, 1], [1.72, 1], [1.8, 0]]) * (L.head ? 1 : 0);
+  dart.position.copy(_p);
+  dart.lookAt(_look.copy(_p).add(_tan));
+  dart.scale.set(1, 1, 1 + 0.5 * Math.sin(t * 30) * 0.1);
+  dart.visible = headI > 0.01;
+  dartMat.opacity = headI;
+  core.position.copy(_p);
+  coreMat.uniforms.uI.value = headI * 0.30;
+  core.visible = headI > 0.01;
+  tailMat.uniforms.uTime.value = t;
+  tailMat.uniforms.uI.value = headI;
+  tailMat.uniforms.uPos.value.copy(_p);
+  tailMat.uniforms.uTan.value.copy(_tan);
+  tails.visible = headI > 0.01 && L.head;
+
+  // ---- trail (path-anchored, holds in space, then flickers out)
+  trailMat.uniforms.uTime.value = t;
+  trailMat.uniforms.uI.value = L.trail ? 1 : 0;
+  trail.visible = L.trail && t > T_LAUNCH && t < 2.9;
+  hairMat.uniforms.uTime.value = t;
+  hairMat.uniforms.uHead.value = u;
+  hairMat.uniforms.uTail.value = 0.30 + 0.16 * ss(0.5, 1.4, t);
+  const hairA = env(t, [[0.48, 0], [0.6, 0.32], [1.7, 0.32], [1.85, 0]]) * (L.trail ? 1 : 0);
+  hairMat.uniforms.uAlpha.value = hairA;
+  hair.visible = hairA > 0.001;
+
+  // ---- impact 1.8 - 2.1
+  const e = (t - T_HIT) / 0.85; // wireframe life runs a little past the flash
+  const flashI = env(t, [[1.78, 0], [1.82, 0.55], [1.9, 0.38], [2.02, 0.18], [2.3, 0]]);
+  flashMat.uniforms.uTime.value = t;
+  flashMat.uniforms.uI.value = flashI;
+  flashMat.uniforms.uGrid.value = env(t, [[1.82, 0], [1.92, 1], [2.3, 1], [2.7, 0]]);
+  flash.visible = flashI > 0.001;
+  flashMat.uniforms.uScale.value = env(t, [[1.78, 0.7], [1.95, 1.5], [2.4, 1.95]]);
+
+  const wireI = env(t, [[1.79, 0], [1.83, 1], [2.5, 0.55], [3.5, 0.12], [3.9, 0]]) * (L.impactLines ? 1 : 0);
+  wireMat.uniforms.uTime.value = t;
+  wireMat.uniforms.uE.value = clamp01(e);
+  wireMat.uniforms.uI.value = wireI;
+  wire.visible = wireI > 0.001;
+  const domeI = env(t, [[1.8, 0], [1.88, 0.5], [2.2, 0.24], [2.7, 0]]) * (L.impactLines ? 1 : 0);
+  domeMat.uniforms.uI.value = domeI;
+  domeMat.uniforms.uTime.value = t;
+  dome.visible = domeI > 0.001;
+  dome.scale.setScalar(0.7 + 1.55 * (1 - Math.pow(1 - clamp01((t - 1.8) / 0.7), 2.4)));
+
+  const shardI = (L.shards ? 1 : 0) * env(t, [[1.79, 0], [1.82, 1], [2.6, 1], [3.0, 0]]);
+  shardMat.uniforms.uTime.value = t;
+  shardMat.uniforms.uE.value = Math.max(0, t - T_HIT);
+  shardMat.uniforms.uI.value = shardI;
+  shards.visible = shardI > 0.001 && t > T_HIT;
+
+  // ---- screen glitch: two hot frames at the hit, then a short tail
+  const gI = env(t, [[1.79, 0], [1.81, 1], [1.9, 0.9], [1.95, 0.35], [2.0, 0]]) * (L.screenGlitch ? 1 : 0);
+  glitchPass.uniforms.uTime.value = t;
+  glitchPass.uniforms.uI.value = gI;
+  glitchPass.enabled = gI > 0.002;
+
+  // ---- aftermath 2.1 - 4.0
+  const smokeI = env(t, [[1.92, 0], [2.25, 0.7], [2.9, 0.62], [3.55, 0.25], [3.95, 0]]) * (L.smoke ? 1 : 0);
+  const sr = env(t, [[1.9, 0.34], [2.5, 0.80], [3.9, 1.05]]);
+  smokeMat.uniforms.uTime.value = t;
+  smokeMat.uniforms.uI.value = smokeI;
+  smokeMat.uniforms.uR.value = sr * 4.5;
+  smokeMat.uniforms.uAsp.value = 1.0;
+  smoke.visible = smokeI > 0.001;
+  puffMat.uniforms.uTime.value = t;
+  puffMat.uniforms.uE.value = clamp01((t - 1.9) / 1.5);
+  puffMat.uniforms.uI.value = env(t, [[1.9, 0], [2.2, 0.60], [3.0, 0.40], [3.6, 0.14], [3.95, 0]]) * (L.smoke ? 1 : 0);
+  puffs.visible = puffMat.uniforms.uI.value > 0.001;
+
+  const gboxI = env(t, [[1.86, 0], [1.95, 0.9], [2.9, 0.7], [3.7, 0.2], [3.95, 0]]) * (L.impactLines ? 1 : 0);
+  gboxMat.uniforms.uTime.value = t;
+  gboxMat.uniforms.uI.value = gboxI;
+  gbox.visible = gboxI > 0.001;
+
+  const sparkI = env(t, [[2.0, 0], [2.3, 1], [3.4, 0.8], [3.9, 0]]) * (L.smoke ? 1 : 0);
+  sparkMat.uniforms.uTime.value = t;
+  sparkMat.uniforms.uI.value = sparkI;
+  sparks.visible = sparkI > 0.001;
+
+  // ground bounce from the hit
+  ground.material.uniforms.uTintI.value = flashI * 0.55 + smokeI * 0.05;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => {
+  P.play = false;
+  P.time = t;
+  apply(t);
+};
+window.__spikeReady = true;

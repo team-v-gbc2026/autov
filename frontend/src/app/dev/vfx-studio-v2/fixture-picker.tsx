@@ -2,10 +2,10 @@
 
 export default function FixturePicker({
   selectedId,
-  fixtureIds,
+  presets,
 }: {
   selectedId: string;
-  fixtureIds: string[];
+  presets: { id: string; label: string }[];
 }) {
   return (
     <select
@@ -30,8 +30,8 @@ export default function FixturePicker({
       }}
     >
       <optgroup label="Fixtures">
-        {fixtureIds.map((id) => (
-          <option key={id} value={id}>{id}</option>
+        {presets.map(({ id, label }) => (
+          <option key={id} value={id}>{label}</option>
         ))}
       </optgroup>
       <optgroup label="Workspace states">

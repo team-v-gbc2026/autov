@@ -1,0 +1,783 @@
+// autoV toolbox v2 — S7 spike: sustained energy beam (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 5.0;
+const EX = 3.0; // emitter x (right), beam fires toward -x
+const EY = 1.2; // emitter height above the ground
+const BEAM_L = 6.0; // full beam length: both ends stay in frame
+const T_EXT0 = 1.0, T_EXT1 = 1.2; // extend
+const T_OFF0 = 3.5, T_OFF1 = 3.78; // core retract
+const T_RES0 = 3.6, T_RES1 = 5.0; // residual trail
+const CORE_R = 0.05;      // white core ≈ 0.10 tall
+const SHEATH_R = 0.13;    // magenta liner hugging the core
+const BODY_H = 0.275;     // magenta body ≈ 0.55 tall — 5.5x the core
+const INNER_H = 0.125;    // brighter pink inner band ≈ 0.25 tall
+const EDGE = 0.022;       // hard edge: 8% of the body height
+const OUTER_H = 0.62;     // deep violet outer tier, also hard-edged
+const BAND_QH = 0.80;     // slab half-height (leaves room for the outer tier)
+const N_RIB = 10;          // hard parallelogram streak slabs
+const TONGUE_Y = 0.42; // licks ride just outside the glow, not inside it
+const N_TONGUE_D = 9; // dark violet licks, behind the body
+const N_TONGUE_L = 9; // light lilac licks, in front
+const N_SPARK = 40;
+const N_RUN = 30;
+const N_RES = 320;
+const N_CHG = 26;
+const N_RAY = 13;
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.16,
+  threshold: 1.60,
+  exposure: 1.0,
+  layers: {
+    core: true,
+    sheath: true,
+    tongues: true,
+    flare: true,
+    charge: true,
+    sparks: true,
+    residual: true,
+    post: true,
+  },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+// piecewise-linear envelope over [t,v] pairs
+const env = (t, pts) => {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i][0]) {
+      const [t0, v0] = pts[i - 1];
+      const [t1, v1] = pts[i];
+      return v0 + (v1 - v0) * ss(0, 1, (t - t0) / (t1 - t0));
+    }
+  }
+  return pts[pts.length - 1][1];
+};
+// deterministic hash: the only source of per-instance variation
+const h11 = (n) => {
+  let p = (n * 0.1031) % 1;
+  p *= p + 33.33;
+  p *= p + p;
+  return p - Math.floor(p);
+};
+
+// beam length is the one piece of shared state every layer keys off
+function beamLen(t) {
+  if (t < T_EXT0) return 0;
+  if (t < T_EXT1) {
+    const a = (t - T_EXT0) / (T_EXT1 - T_EXT0);
+    return BEAM_L * (1 - Math.pow(2, -10 * a)); // easeOutExpo: snaps out in ~2 frames
+  }
+  if (t < T_OFF0) return BEAM_L;
+  if (t < T_OFF1) return BEAM_L * (1 - ss(T_OFF0, T_OFF1, t)); // retracts from the far end
+  return 0;
+}
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x05060a, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x05060a, 16, 46);
+
+// fixed elevated oblique camera; no roll and no x offset, so world +X is exactly
+// the camera right vector — every billboarded layer can offset in view space and
+// still read as "along the beam".
+const camera = new THREE.PerspectiveCamera(30, 1280 / 720, 0.1, 120);
+camera.position.set(0, 2.54, 7.25); // ≈12° elevation, like the reference
+camera.lookAt(0, 1.0, 0);
+
+const GLSL = `
+float h11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float ssm(float a, float b, float x){ float t = clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
+`;
+
+const MAGENTA = new THREE.Color("#ff2ee0");
+const LILAC = new THREE.Color("#b8a8c8");
+
+// ---------------------------------------------------------------- ground
+// faint checker floor; the magenta pool under the beam is analytic (no real light)
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.ShaderMaterial({
+    uniforms: {
+      uPool: { value: 0 },
+      uLen: { value: 0 },
+      uRes: { value: 0 },
+      uEmit: { value: 0 },
+    },
+    vertexShader: `varying vec3 vP; void main(){ vP=(modelMatrix*vec4(position,1.0)).xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
+    fragmentShader: `${GLSL}
+      varying vec3 vP; uniform float uPool, uLen, uRes, uEmit;
+      void main(){
+        float c = mod(floor(vP.x*0.75)+floor(vP.z*0.75), 2.0);
+        vec3 col = mix(vec3(0.042,0.052,0.066), vec3(0.058,0.070,0.086), c);
+        float g = min(abs(fract(vP.x*0.75)-0.5), abs(fract(vP.z*0.75)-0.5));
+        col += vec3(0.006,0.008,0.010) * (1.0-ssm(0.0,0.012,g));
+        // pool: a capsule around the beam segment, brightest under the emitter
+        float x0 = ${EX.toFixed(3)} - uLen;
+        float ax = clamp(vP.x, x0, ${EX.toFixed(3)});
+        float d = length(vec2(vP.x-ax, vP.z));
+        float pool = exp(-d*d*1.7) * uPool * 0.55;
+        float ed = length(vec2(vP.x-${EX.toFixed(3)}, vP.z));
+        pool += exp(-ed*ed*0.55) * uEmit;   // soft patch right under the emitter
+        pool *= 0.55 + 0.45*ssm(x0-1.0, ${EX.toFixed(3)}, vP.x);
+        col += vec3(0.85,0.16,0.80)*pool*0.75;
+        float res = exp(-d*d*2.2) * uRes;
+        col += vec3(0.45,0.72,0.20)*res*0.05;
+        float dcam = length(vP - cameraPosition);
+        col = mix(col, vec3(0.0015,0.0018,0.0030), ssm(26.0, 105.0, dcam));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+    fog: true,
+  })
+);
+ground.material.fog = false;
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+const quad = new THREE.PlaneGeometry(1, 1);
+const quadXY = () => quad;
+
+// ---------------------------------------------------------------- beam cylinders
+// unit cylinder along +X, centred; uv.y = 1 at the emitter end
+function beamGeo(seg) {
+  const g = new THREE.CylinderGeometry(1, 1, 1, seg, 1, true);
+  g.rotateZ(-Math.PI / 2);
+  return g;
+}
+const BEAM_VS = `
+  varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+  void main(){
+    vUv = uv;
+    vN = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position,1.0);
+    vV = -mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }`;
+
+// core: hard white centre, magenta silhouette by fresnel, low-contrast fast stripe
+const coreMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uLen: { value: 0 }, uThin: { value: 0 } },
+  vertexShader: BEAM_VS,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+    uniform float uTime, uI, uLen, uThin;
+    void main(){
+      float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+      float edge = pow(clamp(f,0.0,1.0), 1.5);
+      float d = (1.0 - vUv.y) * uLen;                 // world distance from the emitter
+      float stripe = fract(d*14.0 - uTime*6.0);
+      float sm = 0.88 + 0.22*ssm(0.35,0.55,stripe);   // low contrast: the core stays solid
+      vec3 col = mix(vec3(1.62,1.54,1.68), vec3(1.55,0.05,1.05), pow(edge,0.5));
+      float tip = ssm(0.0, 0.22, uLen - d);           // soften only the leading tip
+      float root = 0.75 + 0.25*ssm(0.0,0.5,d);
+      float thin = mix(1.0, 1.0-edge*0.85, uThin);    // shut-off: collapses to a hairline
+      gl_FragColor = vec4(col * sm * tip * root * thin * uI, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.FrontSide,
+});
+const core = new THREE.Mesh(beamGeo(24), coreMat);
+scene.add(core);
+
+// sheath: magenta body with two panning stripe frequencies at a phase offset,
+// a fresnel rim, and a hashed per-step edge flicker
+function sheathMat(cfg) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uI: { value: 0 },
+      uLen: { value: 0 },
+      uFlick: { value: 0 },
+      uStreak: { value: cfg.streak },
+      uRim: { value: cfg.rim },
+      uSoft: { value: cfg.soft },
+      uCol: { value: new THREE.Color(cfg.col) },
+    },
+    vertexShader: BEAM_VS,
+    fragmentShader: `${GLSL}
+      varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      uniform float uTime, uI, uLen, uFlick, uStreak, uRim, uSoft;
+      uniform vec3 uCol;
+      void main(){
+        float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+        float d = (1.0 - vUv.y) * uLen;
+        // streak lines are per-ring: each circumferential band gets its own phase
+        float ring = floor(vUv.x*15.0);
+        float o = h11(ring*3.17+1.7);
+        float s1 = fract(d*2.6 - uTime*3.4 + o);
+        float s2 = fract(d*6.1 - uTime*6.6 + o*2.3 + 0.37);
+        float streak = ssm(0.70,0.745,s1)*1.35 + ssm(0.855,0.885,s2)*0.95;
+        float body = mix(1.0, 0.08 + streak*0.9, uStreak);
+        float rim = pow(clamp(f,0.0,1.0), 3.0) * uRim;
+        float soft = mix(1.0, 1.0 - pow(clamp(f,0.0,1.0),1.4), 0.0) ;
+        float tip = ssm(0.0, 0.7, uLen - d);
+        // edge flicker holds for 1/10 s at a time
+        float fl = 0.82 + 0.34*h11(uFlick + ring*0.91);
+        float a = (body*fl + rim) * tip * uI * uSoft;
+        gl_FragColor = vec4(uCol * a, 1.0);
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.FrontSide,
+  });
+}
+const shMat = sheathMat({ col: 0xff0ad0, streak: 1.0, rim: 2.2, soft: 0.22 });
+const sheath = new THREE.Mesh(beamGeo(30), shMat);
+scene.add(sheath);
+
+// body: a screen-aligned slab along the beam, built as HARD-EDGED tiers rather
+// than a gaussian. A soft-edged wide slab reads as fog; a hard one reads as a bar.
+const bandMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uLen: { value: 0 }, uH: { value: BAND_QH }, uCx: { value: 0 } },
+  vertexShader: `
+    uniform float uLen, uH, uCx; varying vec2 vUv;
+    void main(){
+      vUv = uv;
+      vec4 mv = modelViewMatrix * vec4(uCx, ${EY.toFixed(3)}, 0.0, 1.0);
+      mv.xy += vec2(position.x*uLen, position.y*uH*2.0);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; uniform float uI, uH;
+    void main(){
+      float y = abs(vUv.y-0.5)*2.0*uH;                 // world units from the axis
+      float e = ${EDGE.toFixed(4)};                    // 8% of the band height
+      float body  = 1.0 - ssm(${BODY_H.toFixed(3)}-e, ${BODY_H.toFixed(3)}+e, y);
+      float inner = 1.0 - ssm(${INNER_H.toFixed(3)}-e, ${INNER_H.toFixed(3)}+e, y);
+      float outer = 1.0 - ssm(${OUTER_H.toFixed(3)}-e*1.6, ${OUTER_H.toFixed(3)}+e*1.6, y);
+      float halo  = exp(-y*y*1.6) * 0.10;              // faint seat, so it is not pasted on
+      vec3 c = mix(vec3(0.34,0.010,0.72), vec3(0.78,0.015,0.90), body);
+      c = mix(c, vec3(1.25,0.134,1.09), inner);
+      float a = outer*0.34 + body*0.56 + halo;
+      a *= ssm(0.0, 0.16, vUv.x) * (0.72 + 0.28*vUv.x);  // thins toward the far tip
+      gl_FragColor = vec4(c*a*uI, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const band = new THREE.Mesh(quadXY(), bandMat);
+band.frustumCulled = false;
+band.renderOrder = 1;
+scene.add(band);
+
+// streak slabs: a few hard-edged parallelograms, brighter than the body, panning
+// toward -x and re-hashed on floor(t*6) so the set jumps rather than sliding.
+const ribGeo = (() => {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([0, -0.5, 0, 0, 0.5, 0, 1, -0.5, 0, 1, 0.5, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0, 1, 1], 2));
+  g.setIndex([0, 2, 1, 1, 2, 3]);
+  const seed = new Float32Array(N_RIB);
+  for (let i = 0; i < N_RIB; i++) seed[i] = i * 4.7 + 1.3;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_RIB;
+  return g;
+})();
+const ribMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uLen: { value: 0 } },
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uTime, uI, uLen;
+    varying vec2 vUv; varying vec3 vC; varying float vK;
+    void main(){
+      vUv = uv;
+      float k  = floor(uTime*6.0) + aSeed;
+      float L  = 0.8 + 1.4*h11(k*1.31);                 // 0.8 .. 2.2 world units
+      float th = 0.04 + 0.04*h11(k*3.11+1.0);           // 0.04 .. 0.08 tall
+      float sp = 6.0 + 4.0*h11(k*5.33+2.0);             // 6 .. 10 units/s toward -x
+      float hy = (h11(k*7.91+3.0)*2.0-1.0);
+      hy = sign(hy) * (0.05 + 0.36*pow(abs(hy),0.8));    // a few clear the body edge
+      float skew = (h11(k*19.3+6.0)*2.0-1.0) * 0.35;
+      float x0 = ${EX.toFixed(3)} - fract(h11(k*11.3+4.0) + uTime*sp/${BEAM_L.toFixed(2)})*(uLen+L) + L;
+      float ox = (x0 - position.x*L) - ${EX.toFixed(3)} + position.y*skew;
+      vec4 mv = modelViewMatrix * vec4(${EX.toFixed(3)}, ${EY.toFixed(3)}, 0.0, 1.0);
+      mv.xy += vec2(ox, hy + position.y*th*2.0);
+      vK = 0.65 + 0.35*h11(k*23.7+8.0);
+      vC = h11(k*13.7+5.0) > 0.50 ? vec3(2.55,1.15,2.35) : vec3(2.05,0.38,1.85);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vUv; varying vec3 vC; varying float vK; uniform float uI;
+    void main(){
+      float y = abs(vUv.y-0.5)*2.0;
+      float a = 1.0 - ssm(0.80, 1.0, y);                 // hard slab edge
+      a *= ssm(0.0,0.07,vUv.x) * (1.0-ssm(0.88,1.0,vUv.x));
+      gl_FragColor = vec4(vC*a*vK*uI, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const ribbons = new THREE.Mesh(ribGeo, ribMat);
+ribbons.frustumCulled = false;
+ribbons.renderOrder = 3;
+scene.add(ribbons);
+// ---------------------------------------------------------------- flame tongues
+// flat cel-style licks in two palettes: dark violet behind the body, light lilac
+// in front. Screen-aligned, and the whole set swaps on a 10 Hz flipbook step.
+function tongueGeo(n, salt) {
+  const NS = 16;
+  const pos = [];
+  const idx = [];
+  for (let i = 0; i <= NS; i++) {
+    const s = i / NS;
+    pos.push(s, -1, 0, s, 1, 0);
+  }
+  for (let i = 0; i < NS; i++) {
+    const a = i * 2;
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  const seed = new Float32Array(n);
+  const side = new Float32Array(n);
+  const u0 = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    seed[i] = i * 7.13 + salt;
+    side[i] = i % 2 === 0 ? 1 : -1;
+    // the last two of each set are short licks pinned at the far end
+    u0[i] = i >= n - 2 ? 0.86 + 0.11 * h11(i * 3.3 + salt) : 0.04 + 0.74 * h11(i * 2.7 + salt);
+  }
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.setAttribute("aSide", new THREE.InstancedBufferAttribute(side, 1));
+  g.setAttribute("aU0", new THREE.InstancedBufferAttribute(u0, 1));
+  g.instanceCount = n;
+  return g;
+}
+const TONGUE_VS = `${GLSL}
+  attribute float aSeed, aSide, aU0;
+  uniform float uTime, uLen, uSalt;
+  varying float vS; varying float vFade;
+  void main(){
+    float s = position.x, v = position.y;
+    float k = floor(uTime*10.0) + aSeed + uSalt;   // flipbook step: shape holds 1/10 s
+    float L = 0.8 + 1.6*h11(k*1.31);               // 0.8 .. 2.4 long
+    float W = 0.15 + 0.30*h11(k*3.77+2.1);         // 0.15 .. 0.45 thick
+    float wob = h11(k*5.51+7.7);
+    // some licks ride over the body itself, not only outside it
+    float yc = 0.02 + 0.62*h11(k*9.13+3.3);
+    float bx = ${EX.toFixed(3)} - aU0*uLen;
+    float ox = -s*L;                                // tips trail forward (-x)
+    float w = W*0.5 * pow(s+0.05, 0.30) * pow(max(1.0-s,0.0), 0.85);
+    float cy = 0.16*sin(s*3.1 + wob*6.2831)*s;
+    float oy = aSide*(yc + cy) + v*w;
+    vec4 mv = modelViewMatrix * vec4(bx, ${EY.toFixed(3)}, 0.0, 1.0);
+    mv.xy += vec2(ox, oy);
+    vS = s;
+    vFade = ssm(${(EX - BEAM_L).toFixed(3)} - 0.75, ${(EX - BEAM_L).toFixed(3)} - 0.05, bx + ox);
+    gl_Position = projectionMatrix * mv;
+  }`;
+function tongueMat(col, alpha, salt) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uLen: { value: 0 },
+      uI: { value: 0 },
+      uSalt: { value: salt },
+      uCol: { value: new THREE.Color(col) },
+      uA: { value: alpha },
+    },
+    vertexShader: TONGUE_VS,
+    fragmentShader: `
+      varying float vS; varying float vFade;
+      uniform vec3 uCol; uniform float uI, uA;
+      void main(){
+        float a = uI * uA * vFade;
+        if (a <= 0.001) discard;
+        gl_FragColor = vec4(uCol, a);     // flat fill: no gradient, cel style
+      }`,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+const tongueDark = new THREE.Mesh(tongueGeo(N_TONGUE_D, 1.9), tongueMat(0x5a1c8a, 0.48, 0));
+const tongueLight = new THREE.Mesh(tongueGeo(N_TONGUE_L, 5.3), tongueMat(0xbfaad6, 0.50, 37));
+tongueDark.frustumCulled = tongueLight.frustumCulled = false;
+tongueDark.renderOrder = 0;   // behind the additive body
+tongueLight.renderOrder = 6;  // in front of it
+scene.add(tongueDark, tongueLight);
+
+// ---------------------------------------------------------------- emitter flare
+// screen-aligned quads at the emitter: a tall lens streak, a radial muzzle burst
+// and a hot core sprite.
+function billboard(fs, uniforms, extraVs = "") {
+  return new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uTime: { value: 0 }, uI: { value: 0 } }, uniforms),
+    vertexShader: `${GLSL}
+      uniform float uTime, uI; uniform vec2 uSize; ${extraVs}
+      varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        vec4 mv = modelViewMatrix * vec4(0.0,0.0,0.0,1.0);
+        mv.xy += position.xy * uSize;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: fs,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+}
+const flareMat = billboard(
+  `${GLSL}
+   varying vec2 vUv; uniform float uTime, uI;
+   void main(){
+     vec2 p = vUv - 0.5;
+     float x = abs(p.x)*2.0, y = abs(p.y)*2.0;
+     float core = exp(-x*x*64.0)*2.0;    // white blade ≈ 0.10 wide
+     float wide = exp(-x*x*6.4)*0.85;    // magenta body ≈ 0.32 wide
+     float halo = exp(-x*x*1.6)*0.40;    // saturated magenta halo
+     float v = pow(max(0.0, 1.0-y), 1.2) * (0.18 + 0.82*exp(-y*y*3.0));
+     float a = (core + wide + halo*exp(-y*y*7.0)) * v;
+     vec3 col = mix(vec3(1.9,0.06,1.7), vec3(3.0,2.7,3.0), clamp(core,0.0,1.0)*(1.0-y*0.5));
+     gl_FragColor = vec4(col*a*uI, 1.0);
+   }`,
+  { uSize: { value: new THREE.Vector2(0.82, 3.2) } }
+);
+const flare = new THREE.Mesh(quad, flareMat);
+flare.position.set(EX, EY, 0);
+flare.frustumCulled = false;
+flare.renderOrder = 8;
+scene.add(flare);
+
+// muzzle burst: thin additive rays, hashed lengths, slow rotation
+const rayGeo = (() => {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute([0, -1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0], 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 0, 1, 1], 2));
+  g.setIndex([0, 2, 1, 1, 2, 3]);
+  const seed = new Float32Array(N_RAY);
+  for (let i = 0; i < N_RAY; i++) seed[i] = i;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_RAY;
+  return g;
+})();
+const rayMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 } },
+  vertexShader: `${GLSL}
+    attribute float aSeed; uniform float uTime, uI;
+    varying vec2 vUv;
+    void main(){
+      vUv = uv;
+      float a = aSeed/${N_RAY}.0*6.2831 + uTime*0.35 + h11(aSeed*1.7)*0.6;
+      float L = 0.6 + 1.0*h11(aSeed*3.3+1.1);
+      float w = 0.012 + 0.016*h11(aSeed*5.9+2.2);
+      vec2 dir = vec2(cos(a), sin(a));
+      vec2 nrm = vec2(-dir.y, dir.x);
+      vec2 o = dir*(0.10 + position.x*L) + nrm*position.y*w;
+      vec4 mv = modelViewMatrix * vec4(0.0,0.0,0.0,1.0);
+      mv.xy += o;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying vec2 vUv; uniform float uI;
+    void main(){
+      float a = (1.0-vUv.x)*(1.0-abs(vUv.y*2.0-1.0));
+      gl_FragColor = vec4(vec3(2.6,0.8,2.2)*a*a*uI, 1.0);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const rays = new THREE.Mesh(rayGeo, rayMat);
+rays.position.set(EX, EY, 0);
+rays.frustumCulled = false;
+rays.renderOrder = 8;
+scene.add(rays);
+
+const hotMat = billboard(
+  `varying vec2 vUv; uniform float uI;
+   void main(){
+     float r = length(vUv-0.5)*2.0;
+     float a = exp(-r*r*5.0)*0.55 + exp(-r*r*40.0)*0.85;
+     gl_FragColor = vec4(mix(vec3(1.5,0.06,1.3), vec3(2.2,1.9,2.3), exp(-r*r*110.0))*a*uI, 1.0);
+   }`,
+  { uSize: { value: new THREE.Vector2(2.6, 2.6) } }
+);
+const ballMat = billboard(
+  `varying vec2 vUv; uniform float uI;
+   void main(){
+     float r = length(vUv-0.5)*2.0;
+     float a = exp(-r*r*3.0)*0.35 + exp(-r*r*22.0)*1.1;
+     gl_FragColor = vec4(mix(vec3(1.5,0.10,2.2), vec3(3.0,2.0,3.0), exp(-r*r*46.0))*a*uI, 1.0);
+   }`,
+  { uSize: { value: new THREE.Vector2(1, 1) } }
+);
+const ball = new THREE.Mesh(quad, ballMat);
+ball.position.set(EX, EY, 0);
+ball.frustumCulled = false;
+ball.renderOrder = 9;
+scene.add(ball);
+
+const hot = new THREE.Mesh(quad, hotMat);
+hot.position.set(EX, EY, 0);
+hot.frustumCulled = false;
+hot.renderOrder = 9;
+scene.add(hot);
+
+// ---------------------------------------------------------------- point layers
+// every dot layer is a THREE.Points whose vertex shader is closed-form in t
+function points(n, vs, fs, uniforms) {
+  const g = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3);
+  const seed = new Float32Array(n);
+  for (let i = 0; i < n; i++) seed[i] = i;
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, EY, 0), 40);
+  const m = new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uTime: { value: 0 }, uI: { value: 0 }, uLen: { value: 0 } }, uniforms),
+    vertexShader: `${GLSL}
+      attribute float aSeed; uniform float uTime, uI, uLen;
+      varying float vA; varying vec3 vC;
+      ${vs}`,
+    fragmentShader: `
+      varying float vA; varying vec3 vC;
+      void main(){
+        float r = length(gl_PointCoord-0.5)*2.0;
+        float a = exp(-r*r*5.0);
+        if (vA <= 0.001) discard;
+        gl_FragColor = vec4(vC*a*vA, 1.0);
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const p = new THREE.Points(g, m);
+  p.frustumCulled = false;
+  scene.add(p);
+  return p;
+}
+
+// charge: sparks converge on the emitter, p = c + dir*r0*(1-a)^2
+const chg = points(
+  N_CHG,
+  `void main(){
+     float a = clamp(uTime/${T_EXT0.toFixed(2)}, 0.0, 1.0);
+     float ph = h11(aSeed*1.7)*6.2831, el = h11(aSeed*3.1+2.0)*2.0-1.0;
+     float rr = sqrt(max(0.0,1.0-el*el));
+     vec3 dir = vec3(cos(ph)*rr, el, sin(ph)*rr);
+     float r0 = 0.9 + 1.3*h11(aSeed*5.3+4.4);
+     float f = (1.0-a); f = f*f;
+     vec3 p = vec3(${EX.toFixed(3)}, ${EY.toFixed(3)}, 0.0) + dir*r0*f;
+     vec4 mv = modelViewMatrix * vec4(p,1.0);
+     gl_PointSize = (10.0 + 16.0*(1.0-f)) / -mv.z * 4.0;
+     vA = uI * (0.25+0.75*a) * (1.0 - ssm(0.92,1.0,a));
+     vC = mix(vec3(1.4,0.25,2.2), vec3(2.4,1.4,2.6), a);
+     gl_Position = projectionMatrix * mv;
+   }`,
+  ``,
+  {}
+);
+
+// edge sparks: leave the sheath sideways during the hold, short looping lives
+const spk = points(
+  N_SPARK,
+  `void main(){
+     float per = 0.32 + 0.3*h11(aSeed*1.13);
+     float birth = h11(aSeed*2.7+1.1)*per;
+     float age = mod(uTime - birth, per);
+     float u = h11(aSeed*4.1+0.3 + floor((uTime-birth)/per)*0.017);
+     float ph = h11(aSeed*7.7+3.3 + floor((uTime-birth)/per)*0.031)*6.2831;
+     vec3 n = vec3(0.0, sin(ph), cos(ph));
+     vec3 p = vec3(${EX.toFixed(3)} - u*uLen, ${EY.toFixed(3)}, 0.0)
+            + n*(${SHEATH_R.toFixed(3)} + age*(1.6+2.0*h11(aSeed*9.1)))
+            + vec3(-age*1.2, -age*age*1.4, 0.0);
+     vec4 mv = modelViewMatrix * vec4(p,1.0);
+     gl_PointSize = (5.0 + 5.0*h11(aSeed*11.3)) / -mv.z * 4.0;
+     vA = uI * (1.0 - age/per);
+     vC = vec3(2.4, 1.1, 2.2);
+     gl_Position = projectionMatrix * mv;
+   }`,
+  ``,
+  {}
+);
+
+// shut-off sparkle run: dots race outward along the former beam line
+const run = points(
+  N_RUN,
+  `void main(){
+     float a = clamp((uTime-${T_OFF0.toFixed(2)})/0.5, 0.0, 1.0);
+     float off = h11(aSeed*1.9)*0.55;
+     float u = clamp(a*1.5 - off, 0.0, 1.0);
+     float jy = (h11(aSeed*3.7+1.0)-0.5)*0.10;
+     float jz = (h11(aSeed*5.1+2.0)-0.5)*0.10;
+     vec3 p = vec3(${EX.toFixed(3)} - u*${BEAM_L.toFixed(2)}, ${EY.toFixed(3)}+jy, jz);
+     vec4 mv = modelViewMatrix * vec4(p,1.0);
+     gl_PointSize = (10.0+10.0*h11(aSeed*7.3)) / -mv.z * 4.0;
+     float tw = 0.55+0.45*sin(uTime*34.0 + aSeed*2.1);
+     vA = uI * tw * 1.5 * ssm(0.0,0.04,u) * (1.0 - ssm(0.90,1.0,u));
+     vC = vec3(2.6,2.4,2.6);
+     gl_Position = projectionMatrix * mv;
+   }`,
+  ``,
+  {}
+);
+
+// residual: yellow-green dots scattered along the former beam line, drifting
+const res = points(
+  N_RES,
+  `void main(){
+     float u = h11(aSeed*1.37);
+     float a = clamp((uTime-${T_RES0.toFixed(2)})/(${T_RES1.toFixed(2)}-${T_RES0.toFixed(2)}), 0.0, 1.0);
+     float age = max(0.0, uTime-${T_RES0.toFixed(2)} - h11(aSeed*2.9)*0.35);
+     float jy = (h11(aSeed*3.3+1.0)-0.5)*0.20;
+     float jz = (h11(aSeed*5.7+2.0)-0.5)*0.26;
+     vec3 drift = vec3((h11(aSeed*7.1)-0.5)*0.30, 0.12-age*0.16, (h11(aSeed*9.7)-0.5)*0.22);
+     vec3 p = vec3(${EX.toFixed(3)} - u*${BEAM_L.toFixed(2)}, ${EY.toFixed(3)}+jy, jz) + drift*age;
+     vec4 mv = modelViewMatrix * vec4(p,1.0);
+     gl_PointSize = (7.0+11.0*h11(aSeed*11.9)) / -mv.z * 4.0;
+     float bell = ssm(0.0,0.07,a) * (1.0 - ssm(0.45,1.0,a));
+     float tw = 0.30+0.70*abs(sin(uTime*15.0 + aSeed*1.7));
+     vA = uI * bell * tw * 2.1;
+     vC = mix(vec3(2.1,2.8,0.50), vec3(0.70,2.3,0.85), h11(aSeed*13.1));
+     gl_Position = projectionMatrix * mv;
+   }`,
+  ``,
+  {}
+);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 0.10, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- per-frame state
+function apply(t) {
+  const L = P.layers;
+  const len = beamLen(t);
+  const on = len > 1e-3;
+
+  // beam meshes: scaled unit cylinders, right end pinned at the emitter
+  for (const [m, r] of [[core, CORE_R], [sheath, SHEATH_R]]) {
+    m.scale.set(Math.max(len, 1e-4), r, r);
+    m.position.set(EX - len * 0.5, EY, 0);
+  }
+
+  const beamI = env(t, [[T_EXT0, 0], [T_EXT1, 1], [T_OFF0, 1], [T_OFF0 + 0.10, 0.28], [T_OFF1, 0]]);
+  const pulse = 0.92 + 0.08 * Math.sin(t * 17.0) + 0.06 * h11(Math.floor(t * 13));
+  const thin = ss(T_OFF0, T_OFF0 + 0.12, t);
+
+  coreMat.uniforms.uTime.value = t;
+  coreMat.uniforms.uLen.value = len;
+  coreMat.uniforms.uThin.value = thin;
+  coreMat.uniforms.uI.value = beamI * pulse * 1.15 * (L.core ? 1 : 0);
+  core.visible = on && L.core;
+
+  const shI = beamI * (0.9 + 0.2 * h11(Math.floor(t * 10) + 5)) * (L.sheath ? 1 : 0);
+  shMat.uniforms.uTime.value = t;
+  shMat.uniforms.uLen.value = len;
+  shMat.uniforms.uFlick.value = Math.floor(t * 10);
+  shMat.uniforms.uI.value = shI * 0.55;
+  bandMat.uniforms.uLen.value = len;
+  bandMat.uniforms.uCx.value = EX - len * 0.5;
+  bandMat.uniforms.uI.value = shI * 1.0;
+  ribMat.uniforms.uTime.value = t;
+  ribMat.uniforms.uLen.value = len;
+  ribMat.uniforms.uI.value = shI * 1.15;
+  sheath.visible = band.visible = ribbons.visible = on && L.sheath;
+
+  const tongueI = env(t, [[T_EXT1 - 0.05, 0], [T_EXT1 + 0.15, 1], [T_OFF0 - 0.05, 1], [T_OFF0 + 0.08, 0]]);
+  for (const m of [tongueDark.material, tongueLight.material]) {
+    m.uniforms.uTime.value = t;
+    m.uniforms.uLen.value = len;
+    m.uniforms.uI.value = tongueI * (L.tongues ? 1 : 0);
+  }
+  tongueDark.visible = tongueLight.visible = tongueI > 1e-3 && L.tongues;
+
+  // flare pulses through the hold; a white flash punches at ignition
+  const flash = env(t, [[T_EXT0 - 0.06, 0], [T_EXT0 + 0.02, 1], [T_EXT0 + 0.28, 0]]);
+  const flareI =
+    (env(t, [[T_EXT0, 0], [T_EXT1, 1.0], [T_OFF0, 1.0], [T_OFF1 + 0.1, 0]]) *
+      (0.82 + 0.18 * Math.sin(t * 9.3) + 0.1 * h11(Math.floor(t * 12) + 3)) +
+      flash * 1.4) *
+    (L.flare ? 1 : 0);
+  flareMat.uniforms.uI.value = flareI;
+  flareMat.uniforms.uTime.value = t;
+  rayMat.uniforms.uI.value = flareI * 1.6;
+  rayMat.uniforms.uTime.value = t;
+  hotMat.uniforms.uI.value = flareI * 0.95;
+  // charge ball: 0.05 -> 0.25 radius over the gather, then a white punch at 1.0
+  const chgA = clamp01(t / T_EXT0);
+  const ballR = 0.06 + 0.22 * Math.pow(chgA, 1.5);
+  ballMat.uniforms.uSize.value.set(ballR * 7.0, ballR * 7.0);
+  ballMat.uniforms.uI.value =
+    (L.charge ? 1 : 0) * (env(t, [[0.02, 0], [0.22, 0.75], [T_EXT0, 1.25], [T_EXT0 + 0.18, 0]]) + flash * 0.8);
+  ball.visible = ballMat.uniforms.uI.value > 1e-3;
+  flare.visible = rays.visible = flareI > 1e-3;
+  hot.visible = hotMat.uniforms.uI.value > 1e-3;
+
+  chg.material.uniforms.uTime.value = t;
+  chg.material.uniforms.uI.value = (L.charge ? 1 : 0) * (t < T_EXT0 + 0.06 ? 1 : 0);
+  chg.visible = chg.material.uniforms.uI.value > 1e-3;
+
+  spk.material.uniforms.uTime.value = t;
+  spk.material.uniforms.uLen.value = len;
+  spk.material.uniforms.uI.value = (L.sparks ? 1 : 0) * env(t, [[T_EXT1, 0], [T_EXT1 + 0.1, 1], [T_OFF0, 1], [T_OFF0 + 0.06, 0]]);
+  spk.visible = spk.material.uniforms.uI.value > 1e-3;
+
+  run.material.uniforms.uTime.value = t;
+  run.material.uniforms.uI.value = (L.sparks ? 1 : 0) * env(t, [[T_OFF0, 0], [T_OFF0 + 0.05, 1], [3.95, 1], [4.15, 0]]);
+  run.visible = run.material.uniforms.uI.value > 1e-3;
+
+  res.material.uniforms.uTime.value = t;
+  res.material.uniforms.uI.value = L.residual ? 1 : 0;
+  res.visible = t >= T_RES0 && t <= T_RES1 + 0.1 && L.residual;
+
+  const gu = ground.material.uniforms;
+  gu.uLen.value = len;
+  gu.uPool.value = beamI * 0.55 + flash * 0.35;
+  gu.uEmit.value = flareI * 0.22 + env(t, [[0.3, 0], [T_EXT0, 0.10]]) * (L.charge ? 1 : 0);
+  gu.uRes.value = res.visible ? env(t, [[T_RES0, 0], [3.9, 1], [4.6, 0.5], [T_RES1, 0]]) : 0;
+
+  bloom.enabled = L.post;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => {
+  P.play = false;
+  P.time = t;
+  apply(t);
+};
+window.__spikeReady = true;

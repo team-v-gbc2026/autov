@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "dev:local": "AUTOV_LOCAL_MODE=1 next dev --hostname 127.0.0.1 --port 3000",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/agent/*.test.ts",
     "typecheck": "tsc --noEmit",
     "bundle:runtime": "node scripts/bundle-runtime.mjs",
     "predev:local": "npm run bundle:runtime",
@@ -19,6 +19,8 @@
     "upload:vfx-assets": "node scripts/upload-vfx-assets.mjs",
     "generate:v2-nodes": "node --import tsx scripts/webgpu/port-shaders.mts",
     "verify:webgpu": "node scripts/webgpu/verify-port.mjs",
+    "verify:studio": "node scripts/webgpu/verify-studio.mjs",
+    "verify:perf": "node scripts/webgpu/verify-perf.mjs",
     "build:agent": "eve build",
     "test:agent": "node --import tsx --test tests/agent/*.test.ts"
   },
@@ -31,6 +33,8 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "@tiptap/suggestion": "^3.31.3",
+    "ai": "7.0.99",
+    "eve": "0.54.3",
     "next": "16.3.5",
     "openai": "^7.15.0",
     "react": "19.2.8",
@@ -39,9 +43,7 @@
     "react-zoom-pan-pinch": "^4.2.0",
     "sharp": "0.35.4",
     "three": "0.186.0",
-    "zod": "^4.6.2",
-    "ai": "7.0.99",
-    "eve": "0.54.3"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -53,6 +55,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "microsandbox": "^0.5.10",
     "playwright": "^1.62.1",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",

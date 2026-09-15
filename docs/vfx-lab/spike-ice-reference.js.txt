@@ -1,0 +1,849 @@
+// autoV toolbox v2 — S2 spike: ice area attack (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 6.0;
+const SIGIL_R = 1.5; // diameter 3
+const T_FLASH = 1.2; // sigil done → eruption
+const T_SHATTER = 3.5;
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.5,
+  threshold: 0.85,
+  exposure: 1.0,
+  layers: {
+    sigil: true,
+    charge: true,
+    crystals: true,
+    outline: true,
+    frost: true,
+    shatter: true,
+    post: true,
+  },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+// piecewise-linear envelope over [t,v] pairs
+const env = (t, pts) => {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i][0]) {
+      const [t0, v0] = pts[i - 1];
+      const [t1, v1] = pts[i];
+      return v0 + (v1 - v0) * ss(0, 1, (t - t0) / (t1 - t0));
+    }
+  }
+  return pts[pts.length - 1][1];
+};
+// deterministic hash: the only source of per-instance variation
+const h11 = (n) => {
+  let p = (n * 0.1031) % 1;
+  p *= p + 33.33;
+  p *= p + p;
+  return p - Math.floor(p);
+};
+const hash = (i, k) => h11(i * 1.618 + k * 37.71 + 0.137);
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: "high-performance",
+});
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x020304, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x020304, 8, 26);
+
+// fixed elevated oblique camera, ≈35° down
+const camera = new THREE.PerspectiveCamera(32, 1280 / 720, 0.1, 100);
+camera.position.set(0, 2.66, 3.78);
+camera.lookAt(0, 0.40, 0);
+
+const GLSL = `
+float hash11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float hash21(vec2 p){ vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q, q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash21(i), b = hash21(i+vec2(1,0));
+  float c = hash21(i+vec2(0,1)), d = hash21(i+vec2(1,1));
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+float fbm(vec2 p){ return vnoise(p)*0.6 + vnoise(p*2.13+7.1)*0.3 + vnoise(p*4.7+3.3)*0.1; }
+`;
+
+// flat ground: near-black that falls off to the background
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(70, 70),
+  new THREE.ShaderMaterial({
+    uniforms: { uTint: { value: new THREE.Color(0x3a8fd0) }, uTintI: { value: 0 } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vP; uniform vec3 uTint; uniform float uTintI;
+      void main(){
+        float d = length(vP);
+        vec3 base = mix(vec3(0.0085,0.0097,0.0125), vec3(0.0035,0.0040,0.0052), smoothstep(1.0,9.0,d));
+        base = mix(base, vec3(0.0008,0.0009,0.0012), smoothstep(12.0,22.0,d));
+        base += uTint * uTintI * exp(-d*d*0.55);
+        gl_FragColor = vec4(base, 1.0);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// ---------------------------------------------------------------- sigil
+// Flat disc, everything procedural in polar: thin double ring, a rune band of
+// repeated glyphs from a stepped angular pattern, a faint gold outer rim, and a
+// two-layer noise mist inside. Reveal = outward radial smoothstep over 0–1.2 s.
+const sigilMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uRev: { value: 0 }, // reveal radius, 0..1.1
+    uI: { value: 0 },
+    uGold: { value: 0 },
+  },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `${GLSL}
+    varying vec2 vP; uniform float uTime, uRev, uI, uGold;
+    float band(float x, float c, float w){ return smoothstep(w, 0.0, abs(x-c)); }
+    void main(){
+      float r = length(vP);
+      float a = atan(vP.y, vP.x);
+      float ta = a/6.28318 + 0.5;
+
+      // two thin rings + a hairline inner ring
+      float rings = band(r, 0.985, 0.0075)*1.15 + band(r, 0.955, 0.0045)*0.55
+                  + band(r, 0.790, 0.0060)*0.95 + band(r, 0.760, 0.0035)*0.45
+                  + band(r, 0.470, 0.0035)*0.35;
+
+      // rune band: 54 cells, each cell draws 1–3 ticks at hashed radii/lengths
+      float cells = 64.0;
+      float ci = floor(ta*cells);
+      float cf = fract(ta*cells);
+      float glyph = 0.0;
+      for (int k=0;k<3;k++){
+        float hk = hash11(ci*3.7 + float(k)*11.3);
+        float on = step(0.30, hk);
+        float rr = 0.805 + 0.135*hash11(ci*5.1+float(k)*7.9);
+        float ln = 0.16 + 0.28*hash11(ci*2.3+float(k)*19.1);
+        float th = 0.0055 + 0.0055*hash11(ci*9.7+float(k)*3.1);
+        glyph += on * smoothstep(th, 0.0, abs(r-rr)) * smoothstep(ln, ln*0.55, abs(cf-0.5));
+      }
+      // long radial spokes every 6th cell
+      float spoke = step(0.5, 1.0-abs(fract(ta*16.0)-0.5)*9.0) * smoothstep(0.0,0.02,r-0.795) * smoothstep(0.955,0.94,r);
+      glyph += max(spoke, 0.0)*0.7;
+      // inner filigree: a second, finer tick band
+      float f2 = step(0.62, hash11(floor(ta*128.0)*1.9)) * smoothstep(0.0035,0.0,abs(r-0.475-0.02*hash11(floor(ta*128.0))));
+      glyph += f2*0.45;
+      // second, tighter tick row just inside the band
+      float ci2 = floor(ta*40.0), cf2 = fract(ta*40.0);
+      float r2 = 0.660 + 0.070*hash11(ci2*8.3);
+      glyph += step(0.42, hash11(ci2*2.7+5.5)) * smoothstep(0.006,0.0,abs(r-r2))
+             * smoothstep(0.30, 0.16, abs(cf2-0.5)) * 0.8;
+
+      // inner mist: two panning noise layers in polar space
+      float m1 = fbm(vec2(ta*7.0 + uTime*0.11, r*3.2 - uTime*0.18));
+      float m2 = fbm(vec2(ta*4.0 - uTime*0.07, r*5.4 + uTime*0.09));
+      float mist = pow(clamp(m1*0.72+m2*0.60-0.26, 0.0, 1.0), 1.5) * smoothstep(0.80, 0.10, r);
+      mist += 0.34 * smoothstep(0.84, 0.10, r);
+
+      // gold outer rim (only pops at the flash)
+      float gold = band(r, 1.030, 0.016);
+
+      float rev = smoothstep(0.0, 0.10, uRev - r);
+      float edge = smoothstep(0.06, 0.0, abs(uRev - r)) * step(uRev, 1.05);
+
+      vec3 pale = vec3(0.55, 0.86, 1.00);
+      vec3 col = pale * (rings*1.7 + glyph*1.45) + vec3(0.20,0.40,0.58)*mist*1.15;
+      col += vec3(0.95,0.78,0.36) * gold * (0.35 + uGold*2.2);
+      col += pale * edge * 1.4;
+
+      float al = clamp(rings*1.25 + glyph*1.0 + mist*0.72 + gold*(0.25+uGold) + edge*1.0, 0.0, 1.4);
+      al *= rev * uI;
+      gl_FragColor = vec4(col*al, al);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const sigil = new THREE.Mesh(new THREE.PlaneGeometry(SIGIL_R * 2.2, SIGIL_R * 2.2, 1, 1), sigilMat);
+sigil.rotation.x = -Math.PI / 2;
+sigil.position.y = 0.012;
+sigil.scale.setScalar(1 / 1.1); // plane spans ±1.1 in sigil units
+scene.add(sigil);
+
+// soft cyan ground-glow decal under everything
+const glowMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uR: { value: 1.0 }, uCol: { value: new THREE.Color("#5fc6ff") } },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vP; uniform float uI, uR; uniform vec3 uCol;
+    void main(){ float d = length(vP)/uR; float a = pow(max(0.0,1.0-d), 2.6)*uI;
+      gl_FragColor = vec4(uCol*a*0.85, a); }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const glow = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), glowMat);
+glow.rotation.x = -Math.PI / 2;
+glow.position.y = 0.008;
+glow.scale.setScalar(1 / 3);
+scene.add(glow);
+
+// ---------------------------------------------------------------- flash ring
+const flashMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uR: { value: 0.2 }, uW: { value: 0.2 } },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vP; uniform float uI, uR, uW;
+    void main(){ float d = length(vP);
+      float a = smoothstep(uW, 0.0, abs(d-uR)) * uI;
+      vec3 c = mix(vec3(0.60,0.88,1.0), vec3(1.0), 0.6);
+      gl_FragColor = vec4(c*a*2.0, a); }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const flash = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), flashMat);
+flash.rotation.x = -Math.PI / 2;
+flash.position.y = 0.03;
+flash.scale.setScalar(1 / 4);
+scene.add(flash);
+
+// ---------------------------------------------------------------- mist
+// Two ground-hugging noise discs at different pan speeds = "chillfog".
+function mistMaterial(seed, speed) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uR: { value: 1.0 }, uSeed: { value: seed } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `${GLSL}
+      varying vec2 vP; uniform float uTime, uI, uR, uSeed;
+      void main(){
+        vec2 p = vP/uR;
+        float d = length(p);
+        float a0 = atan(p.y,p.x);
+        // swirl: rotate the sample by radius so the fog reads as a slow vortex
+        float sw = ${speed.toFixed(3)} * uTime + uSeed;
+        float ca = cos(sw + d*1.4), sa = sin(sw + d*1.4);
+        vec2 q = vec2(p.x*ca - p.y*sa, p.x*sa + p.y*ca);
+        float n = fbm(q*2.3 + uSeed*3.1) * 0.65 + fbm(q*5.1 - uSeed*1.7 + uTime*0.08) * 0.45;
+        float m = pow(clamp(n-0.38, 0.0, 1.0), 1.8);
+        float fall = smoothstep(1.05, 0.25, d) * smoothstep(0.0, 0.30, d);
+        float a = m * fall * uI;
+        vec3 c = mix(vec3(0.26,0.44,0.62), vec3(0.70,0.86,1.0), m*1.1);
+        gl_FragColor = vec4(c*a, a);
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+}
+const mistA = mistMaterial(0.0, 0.18);
+const mistB = mistMaterial(2.7, -0.11);
+const mist1 = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), mistA);
+const mist2 = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), mistB);
+for (const m of [mist1, mist2]) {
+  m.rotation.x = -Math.PI / 2;
+  m.scale.setScalar(1 / 4);
+  scene.add(m);
+}
+mist1.position.y = 0.05;
+mist2.position.y = 0.13;
+
+// ---------------------------------------------------------------- crystal mesh
+// Low-poly elongated hex prism → pyramid, non-indexed so every face is flat.
+function crystalGeometry() {
+  const rings = [
+    { y: 0.0, r: 1.0 },
+    { y: 0.22, r: 0.92 },
+    { y: 0.62, r: 0.54 },
+    { y: 0.88, r: 0.20 },
+  ];
+  const N = 6;
+  const pt = (ri, i) => {
+    const a = (i / N) * Math.PI * 2;
+    const R = rings[ri].r;
+    // slight per-column radius jitter → facets are not perfectly regular
+    const j = 0.86 + 0.28 * h11(i * 4.3 + 1.7);
+    return [Math.cos(a) * R * j, rings[ri].y, Math.sin(a) * R * j];
+  };
+  const apex = [0, 1.0, 0];
+  const pos = [];
+  const alo = []; // 0..1 along the axis, for the glint band
+  const push = (v) => {
+    pos.push(v[0], v[1], v[2]);
+    alo.push(v[1]);
+  };
+  for (let ri = 0; ri < rings.length - 1; ri++) {
+    for (let i = 0; i < N; i++) {
+      const a = pt(ri, i), b = pt(ri, (i + 1) % N);
+      const c = pt(ri + 1, i), d = pt(ri + 1, (i + 1) % N);
+      push(a); push(b); push(d);
+      push(a); push(d); push(c);
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    const a = pt(rings.length - 1, i), b = pt(rings.length - 1, (i + 1) % N);
+    push(a); push(b); push(apex);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("aAlong", new THREE.Float32BufferAttribute(alo, 1));
+  g.computeVertexNormals(); // non-indexed ⇒ flat faces
+  return g;
+}
+
+const N_CRY = 320;
+const cryBase = crystalGeometry();
+
+// per-instance: direction on a mostly-upward hemisphere, hashed length group,
+// staggered start so the burst cascades instead of popping.
+const aDir = new Float32Array(N_CRY * 3);
+const aOrg = new Float32Array(N_CRY * 3);
+const aLen = new Float32Array(N_CRY);
+const aWid = new Float32Array(N_CRY);
+const aT0 = new Float32Array(N_CRY);
+const aSeed = new Float32Array(N_CRY);
+const cryDirs = [];
+for (let i = 0; i < N_CRY; i++) {
+  const g5 = i % 5; // 0-1 long, 2 mid, 3-4 short — each group starts later
+  const grp = g5 <= 0 ? 0 : g5 <= 2 ? 1 : 2;
+  const ha = hash(i, 1), hb = hash(i, 2), hc = hash(i, 3), hd = hash(i, 4);
+  // golden-angle azimuth keeps the burst even all the way round
+  const az = ha * Math.PI * 2.0 + grp * 0.41;
+  // uniform in sin(elevation) ⇒ an even urchin, then nudged upward.
+  // Long spikes stay above the horizon, short ones also stab downward.
+  const sMin = grp === 0 ? 0.02 : grp === 1 ? -0.22 : -0.52;
+  const sinEl = sMin + (0.99 - sMin) * Math.pow(hb, grp === 0 ? 0.72 : 1.0);
+  const dy = sinEl;
+  const ch = Math.sqrt(Math.max(0, 1 - dy * dy));
+  const dx = ch * Math.cos(az), dz = ch * Math.sin(az);
+  aDir[i * 3] = dx; aDir[i * 3 + 1] = dy; aDir[i * 3 + 2] = dz;
+  cryDirs.push([dx, dy, dz]);
+  const len = (grp === 0 ? 0.60 + 0.42 * Math.pow(hc, 0.6) : grp === 1 ? 0.30 + 0.32 * hc : 0.12 + 0.24 * hc * hc);
+  aLen[i] = len;
+  aWid[i] = (grp === 0 ? 0.044 : grp === 1 ? 0.052 : 0.062) * (0.68 + 0.64 * hd);
+  // base sits just off centre so the cluster has a core, not a single point
+  const br = (0.10 + 0.30 * hash(i, 5)) * (grp === 2 ? 1.45 : grp === 1 ? 1.1 : 0.8);
+  aOrg[i * 3] = dx * br;
+  aOrg[i * 3 + 1] = 0.22 + dy * br * 0.95 + 0.05 * hash(i, 6);
+  aOrg[i * 3 + 2] = dz * br;
+  aT0[i] = T_FLASH + grp * 0.13 + 0.17 * hash(i, 7);
+  aSeed[i] = hash(i, 8);
+}
+
+function instancedCrystal(geomSrc) {
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = geomSrc.index;
+  g.setAttribute("position", geomSrc.getAttribute("position"));
+  g.setAttribute("normal", geomSrc.getAttribute("normal"));
+  g.setAttribute("aAlong", geomSrc.getAttribute("aAlong"));
+  g.setAttribute("aDir", new THREE.InstancedBufferAttribute(aDir, 3));
+  g.setAttribute("aOrg", new THREE.InstancedBufferAttribute(aOrg, 3));
+  g.setAttribute("aLen", new THREE.InstancedBufferAttribute(aLen, 1));
+  g.setAttribute("aWid", new THREE.InstancedBufferAttribute(aWid, 1));
+  g.setAttribute("aT0", new THREE.InstancedBufferAttribute(aT0, 1));
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(aSeed, 1));
+  g.instanceCount = N_CRY;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.6, 0), 4);
+  return g;
+}
+
+// shared vertex stage: build the instance frame from aDir, scale along the axis
+// with easeOutBack, collapse to 0 at the shatter.
+const CRY_VERT = `
+  attribute vec3 aDir, aOrg; attribute float aLen, aWid, aT0, aSeed, aAlong;
+  uniform float uTime, uShatter, uGrow, uSwell;
+  varying vec3 vN, vW; varying float vAlong, vSeed;
+  void main(){
+    float age = uTime - aT0;
+    // easeOutBack: overshoot then settle
+    float u = clamp(age/0.30, 0.0, 1.0);
+    float k = 1.70158;
+    float s = u >= 1.0 ? 1.0 : (u*u*((k+1.0)*u - k) + 0.0);
+    s = max(s, 0.0);
+    s *= uGrow;
+    // collapse over 0.15 s from the (staggered) shatter time
+    float sh = uShatter + aSeed*0.18;
+    s *= 1.0 - smoothstep(sh, sh+0.16, uTime);
+    // slow breathing during the hold keeps the silhouette alive
+    s *= 1.0 + uSwell*0.035*sin(uTime*2.1 + aSeed*6.28);
+
+    vec3 up = normalize(aDir);
+    vec3 ref = abs(up.y) > 0.95 ? vec3(1.0,0.0,0.0) : vec3(0.0,1.0,0.0);
+    vec3 rt = normalize(cross(ref, up));
+    vec3 fw = cross(up, rt);
+    // per-instance twist so neighbouring spikes never share a facet layout
+    float tw = aSeed*6.28318;
+    vec2 pxz = vec2(position.x*cos(tw)-position.z*sin(tw), position.x*sin(tw)+position.z*cos(tw));
+    vec2 nxz = vec2(normal.x*cos(tw)-normal.z*sin(tw), normal.x*sin(tw)+normal.z*cos(tw));
+
+    float L = aLen*s, W = aWid*(0.35+0.65*s);
+    vec3 lp = vec3(pxz.x*W, position.y*L, pxz.y*W);
+    vec3 wp = aOrg + rt*lp.x + up*lp.y + fw*lp.z;
+    vec3 ln = normalize(vec3(nxz.x*L, normal.y*W, nxz.y*L));
+    vN = normalize(rt*ln.x + up*ln.y + fw*ln.z);
+    vW = wp;
+    vAlong = aAlong; vSeed = aSeed;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0);
+  }`;
+
+const cryMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uShatter: { value: T_SHATTER },
+    uGrow: { value: 1 },
+    uSwell: { value: 1 },
+    uI: { value: 1 },
+  },
+  vertexShader: CRY_VERT,
+  fragmentShader: `${GLSL}
+    varying vec3 vN, vW; varying float vAlong, vSeed;
+    uniform float uTime, uI;
+    void main(){
+      vec3 n = normalize(vN);
+      vec3 v = normalize(cameraPosition - vW);
+      float ndv = abs(dot(n, v));
+      float fres = pow(1.0 - ndv, 4.0);
+
+      vec3 pale = vec3(0.624, 0.847, 1.0);   // #9fd8ff
+      vec3 cyan = vec3(0.075, 0.735, 1.0);
+      // cool ambient: unlit faces still read pale blue, never black
+      float lam = 0.42 + 0.58*clamp(dot(n, normalize(vec3(0.25,0.9,0.4)))*0.5+0.5, 0.0, 1.0);
+      vec3 col = pale * (0.30 + 0.50*lam);
+      // tips run vivid cyan, mid-body stays pale, base stays white
+      float tip = smoothstep(0.18, 0.92, vAlong);
+      col = mix(col, cyan*1.30, tip*0.94);
+      col *= mix(1.0, 0.55, tip);          // keep the tips saturated under ACES
+      col = mix(col, vec3(0.95,0.99,1.0), fres*0.30*(1.0-tip*0.55));
+
+      // anisotropic-ish glint: a narrow band sliding along the axis
+      float gb = sin((vAlong*3.4 - uTime*1.15 + vSeed*6.28)*3.14159);
+      float glint = pow(max(gb, 0.0), 22.0) * (0.35 + 0.65*fres);
+      col += vec3(0.85,0.96,1.0) * glint * 0.9;
+
+      // subtle internal fracture noise
+      float ice = fbm(vec2(vAlong*9.0 + vSeed*17.0, vSeed*31.0 + vW.y*4.0));
+      col *= (0.88 + 0.26*ice) * (0.72 + 0.56*hash11(vSeed*13.7+2.1));
+      col += cyan * pow(1.0-ndv, 3.0) * 0.60;
+
+      float al = clamp(0.80 + fres*0.20, 0.0, 1.0) * uI;
+      gl_FragColor = vec4(col*al, al);
+    }`,
+  transparent: true,
+  depthWrite: true,
+  side: THREE.DoubleSide,
+});
+const crystals = new THREE.Mesh(instancedCrystal(cryBase), cryMat);
+crystals.frustumCulled = false;
+scene.add(crystals);
+
+// inverted-hull outline: thin light-cyan edge, drawn back-face first
+const outlineMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uShatter: { value: T_SHATTER },
+    uGrow: { value: 1 },
+    uSwell: { value: 1 },
+    uI: { value: 1 },
+  },
+  vertexShader: CRY_VERT.replace(
+    "vec3 wp = aOrg + rt*lp.x + up*lp.y + fw*lp.z;",
+    "lp += normalize(vec3(pxz.x, position.y*0.25, pxz.y) + 1e-5) * (0.007 + 0.005*s);\n    vec3 wp = aOrg + rt*lp.x + up*lp.y + fw*lp.z;"
+  ),
+  fragmentShader: `
+    varying vec3 vN, vW; varying float vAlong, vSeed; uniform float uI;
+    void main(){
+      vec3 c = mix(vec3(0.016,0.060,0.115), vec3(0.020,0.230,0.400), smoothstep(0.05,0.85,vAlong));
+      gl_FragColor = vec4(c*uI, uI);
+    }`,
+  transparent: true,
+  depthWrite: true,
+  side: THREE.BackSide,
+});
+const outline = new THREE.Mesh(instancedCrystal(cryBase), outlineMat);
+outline.frustumCulled = false;
+outline.renderOrder = -1;
+scene.add(outline);
+
+// hot core: a soft white heart inside the cluster, like the reference
+const coreMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uS: { value: 0.5 } },
+  vertexShader: `uniform float uS; varying vec2 vQ;
+    void main(){
+      vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+      vec3 up    = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+      vec3 c = vec3(0.0, 0.24, 0.0);
+      vQ = position.xy;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(c + (right*position.x+up*position.y)*uS, 1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; uniform float uI;
+    void main(){
+      float d = length(vQ)*2.0;
+      float a = (pow(max(0.0,1.0-d),3.0)*0.8 + pow(max(0.0,1.0-d*0.55),2.2)*0.22) * uI;
+      vec3 c = mix(vec3(0.72,0.90,1.0), vec3(1.0), pow(max(0.0,1.0-d),2.0));
+      gl_FragColor = vec4(c*a*1.4, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const core = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), coreMat);
+core.renderOrder = 2;
+core.frustumCulled = false;
+scene.add(core);
+
+// ---------------------------------------------------------------- frost ring
+// Small flat chips orbiting the perimeter + stretched streaks, all closed-form.
+const N_FROST = 120;
+function frostGeometry() {
+  const g = new THREE.InstancedBufferGeometry();
+  const quad = new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0]);
+  g.setAttribute("position", new THREE.Float32BufferAttribute(quad, 3));
+  const seed = new Float32Array(N_FROST);
+  for (let i = 0; i < N_FROST; i++) seed[i] = i;
+  g.setAttribute("aI", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = N_FROST;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.2, 0), 4);
+  return g;
+}
+const frostMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uR: { value: 1.35 } },
+  vertexShader: `${GLSL}
+    attribute float aI; uniform float uTime, uI, uR;
+    varying vec2 vQ; varying float vA, vS;
+    void main(){
+      float s = aI;
+      float h1 = hash11(s*1.7+0.3), h2 = hash11(s*3.1+1.9), h3 = hash11(s*5.3+4.4), h4 = hash11(s*7.7+2.2);
+      float rad = uR * (0.86 + 0.34*h1);
+      float spd = 0.42 + 0.55*h2;
+      float a = h3*6.28318 + uTime*spd*(h4>0.5?1.0:-1.0);
+      float y = 0.012 + 0.20*h4*h4;
+      vec3 c = vec3(cos(a)*rad, y + 0.03*sin(uTime*1.6+s), sin(a)*rad);
+      // stretch along the orbit tangent so half of them read as swirling streaks
+      vec3 tan = vec3(-sin(a), 0.0, cos(a));
+      float stretch = mix(1.0, 4.0, step(0.55, h2));
+      float sz = (0.018 + 0.034*h1) * (0.8+0.5*h3);
+      vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+      vec3 up    = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+      vec3 wp = c + (tan*position.x*sz*stretch) + (up*position.y*sz*0.8) + (right*position.x*sz*0.25);
+      vQ = position.xy; vS = s;
+      vA = uI * (0.30 + 0.52*h1);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0);
+    }`,
+  fragmentShader: `varying vec2 vQ; varying float vA, vS;
+    void main(){
+      float m = pow(max(0.0, 1.0 - length(vQ)), 1.6);
+      float a = m*vA;
+      vec3 c = mix(vec3(0.45,0.78,1.0), vec3(1.0), m*0.8);
+      gl_FragColor = vec4(c*a*0.9, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const frost = new THREE.Mesh(frostGeometry(), frostMat);
+frost.frustumCulled = false;
+scene.add(frost);
+
+// ---------------------------------------------------------------- charge
+// Sparkles converge on the centre: p = c + dir*r0*(1-a)^2, plus a growing
+// four-point star glint at the middle.
+const N_SPK = 48;
+function sparkGeometry(n) {
+  const g = new THREE.InstancedBufferGeometry();
+  const quad = new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0]);
+  g.setAttribute("position", new THREE.Float32BufferAttribute(quad, 3));
+  const seed = new Float32Array(n);
+  for (let i = 0; i < n; i++) seed[i] = i;
+  g.setAttribute("aI", new THREE.InstancedBufferAttribute(seed, 1));
+  g.instanceCount = n;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.4, 0), 5);
+  return g;
+}
+const STAR_FRAG = `
+  varying vec2 vQ; varying float vA;
+  uniform vec3 uCol;
+  void main(){
+    vec2 q = vQ*2.0;
+    float a = abs(q.x), b = abs(q.y);
+    float sx = pow(max(0.0,1.0-a*0.62),3.0)*pow(max(0.0,1.0-b*4.2),2.0);
+    float sy = pow(max(0.0,1.0-b*0.62),3.0)*pow(max(0.0,1.0-a*4.2),2.0);
+    float core = pow(max(0.0,1.0-length(q)*3.2),2.0);
+    float halo = pow(max(0.0,1.0-length(q)*0.95),2.6)*0.22;
+    float m = sx+sy+core*1.6+halo;
+    float al = clamp(m,0.0,1.0)*vA;
+    vec3 col = mix(uCol, vec3(1.0), clamp(core*1.4,0.0,1.0))*(1.0+core*1.6);
+    gl_FragColor = vec4(col*al, al);
+  }`;
+const chargeMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uI: { value: 0 }, uCol: { value: new THREE.Color("#8fd8ff") } },
+  vertexShader: `${GLSL}
+    attribute float aI; uniform float uTime, uI;
+    varying vec2 vQ; varying float vA;
+    void main(){
+      float s = aI;
+      float h1 = hash11(s*1.3+0.7), h2 = hash11(s*2.9+3.1), h3 = hash11(s*4.7+5.5), h4 = hash11(s*6.1+1.1);
+      float t0 = 0.35 + 0.55*h1;            // staggered births during the charge
+      float life = 0.55 + 0.35*h2;
+      float a = clamp((uTime - t0)/life, 0.0, 1.0);
+      float alive = step(t0, uTime) * step(uTime, t0+life+0.05);
+      float ang = h3*6.28318;
+      float r0 = 0.85 + 1.05*h4;
+      vec3 dir = vec3(cos(ang), 0.0, sin(ang));
+      vec3 c = dir * r0 * (1.0-a)*(1.0-a);
+      c.y = 0.04 + (0.30+0.45*h2) * (1.0-a)*(1.0-a) + 0.10*a;
+      float sz = (0.045 + 0.055*h1) * mix(0.6, 1.25, sin(3.14159*a));
+      vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+      vec3 up    = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+      vQ = position.xy;
+      vA = pow(sin(3.14159*a), 0.6) * alive * uI * (0.5+0.5*h3);
+      vec3 wp = c + (right*position.x + up*position.y)*sz*alive;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0);
+    }`,
+  fragmentShader: STAR_FRAG,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const charge = new THREE.Mesh(sparkGeometry(N_SPK), chargeMat);
+charge.frustumCulled = false;
+scene.add(charge);
+
+// central star glint (one big billboard four-point star)
+const starMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uS: { value: 0.3 }, uCol: { value: new THREE.Color("#bfeaff") } },
+  vertexShader: `uniform float uS; varying vec2 vQ; varying float vA;
+    void main(){
+      vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+      vec3 up    = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+      vec3 c = vec3(0.0, 0.16, 0.0);
+      vQ = position.xy; vA = 1.0;
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(c + (right*position.x+up*position.y)*uS, 1.0);
+    }`,
+  fragmentShader: `${STAR_FRAG.replace("float al = clamp(m,0.0,1.0)*vA;", "float al = clamp(m,0.0,1.0)*vA*uI;")}
+  `.replace("uniform vec3 uCol;", "uniform vec3 uCol; uniform float uI;"),
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const star = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), starMat);
+star.frustumCulled = false;
+scene.add(star);
+
+// ---------------------------------------------------------------- shatter
+// Flat triangular shards spawned along the crystal axes, outward+upward
+// ballistic paths, tumbling, floor-clamped, fading out by 6 s.
+const N_CHIP = 460;
+const N_CHUNK = 14;
+function chipGeometry(n, big) {
+  const g = new THREE.InstancedBufferGeometry();
+  const tri = new Float32Array([-1, -0.75, 0, 1, -0.6, 0, 0.1, 1.0, 0]);
+  g.setAttribute("position", new THREE.Float32BufferAttribute(tri, 3));
+  const org = new Float32Array(n * 3);
+  const vel = new Float32Array(n * 3);
+  const sd = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const j = i % N_CRY;
+    const u = 0.15 + 0.85 * hash(i, 11);
+    const d = cryDirs[j];
+    const ox = aOrg[j * 3] + d[0] * aLen[j] * u;
+    const oy = aOrg[j * 3 + 1] + d[1] * aLen[j] * u;
+    const oz = aOrg[j * 3 + 2] + d[2] * aLen[j] * u;
+    org[i * 3] = ox; org[i * 3 + 1] = Math.max(0.02, oy); org[i * 3 + 2] = oz;
+    const sp = big ? 0.50 + 0.5 * hash(i, 12) : 0.70 + 1.05 * hash(i, 12);
+    const rx = hash(i, 13) - 0.5, rz = hash(i, 14) - 0.5;
+    vel[i * 3] = (d[0] * 1.05 + rx * 0.8) * sp;
+    vel[i * 3 + 1] = (big ? 0.60 : 0.26) + Math.max(0, d[1]) * sp * 0.14 + hash(i, 15) * 0.22;
+    vel[i * 3 + 2] = (d[2] * 1.05 + rz * 0.8) * sp;
+    sd[i] = hash(i, 16);
+  }
+  g.setAttribute("aOrg", new THREE.InstancedBufferAttribute(org, 3));
+  g.setAttribute("aVel", new THREE.InstancedBufferAttribute(vel, 3));
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(sd, 1));
+  g.instanceCount = n;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.5, 0), 8);
+  return g;
+}
+function chipMaterial(big) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uShatter: { value: T_SHATTER },
+      uI: { value: 0 },
+      uSize: { value: big ? 0.080 : 0.034 },
+    },
+    vertexShader: `${GLSL}
+      attribute vec3 aOrg, aVel; attribute float aSeed;
+      uniform float uTime, uShatter, uSize, uI;
+      varying float vA, vS, vF;
+      void main(){
+        float t0 = uShatter + aSeed*0.18;
+        float age = uTime - t0;
+        float alive = step(0.0, age);
+        vec3 p = aOrg + aVel*age + vec3(0.0, -${big ? "4.2" : "3.1"}*age*age*0.5, 0.0);
+        // drag pulls the chips into a flat drifting disc
+        float dr = 1.0 - exp(-age*2.2);
+        p.xz = aOrg.xz + aVel.xz*dr/2.2;
+        float floorY = 0.015 + 0.02*aSeed;
+        p.y = max(p.y, floorY);
+        // tumbling: rot = w*age about a hashed axis
+        float w = (1.5 + 5.0*aSeed) * ${big ? "0.5" : "1.0"};
+        float rot = w*age;
+        vec3 ax = normalize(vec3(hash11(aSeed*7.1)-0.5, hash11(aSeed*3.3)-0.5, hash11(aSeed*9.7)-0.5)+vec3(0.01));
+        vec3 q = vec3(position.xy*uSize*(0.6+0.8*aSeed), 0.0);
+        float c = cos(rot), s = sin(rot);
+        q = q*c + cross(ax,q)*s + ax*dot(ax,q)*(1.0-c);
+        vec3 wp = p + q;
+        float fade = ${big
+          ? "1.0 - smoothstep(1.5, 2.45, age)"
+          : "(1.0 - smoothstep(0.70, 1.95, age)) * smoothstep(0.0, 0.05, age)"};
+        vA = alive*fade*uI;
+        vS = aSeed; vF = abs(c);
+        gl_Position = projectionMatrix*modelViewMatrix*vec4(wp, 1.0);
+      }`,
+    fragmentShader: `varying float vA, vS, vF;
+      void main(){
+        vec3 c = mix(vec3(0.42,0.68,0.95), vec3(0.94,0.98,1.0), vF*0.85);
+        float a = vA*(0.42+0.58*vF);
+        gl_FragColor = vec4(c*a*0.42, a);
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+const chipMat = chipMaterial(false);
+const chips = new THREE.Mesh(chipGeometry(N_CHIP, false), chipMat);
+chips.frustumCulled = false;
+scene.add(chips);
+const chunkMat = chipMaterial(true);
+const chunks = new THREE.Mesh(chipGeometry(N_CHUNK, true), chunkMat);
+chunks.frustumCulled = false;
+scene.add(chunks);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 0.6, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- timeline
+function apply(t) {
+  const L = P.layers;
+
+  // sigil: reveal 0–1.2, hold, fade out once the crystals own the frame
+  const sigI = env(t, [[0, 0], [0.14, 1.2], [1.35, 1.2], [1.75, 0.62], [2.3, 0]]) * (L.sigil ? 1 : 0);
+  sigilMat.uniforms.uTime.value = t;
+  sigilMat.uniforms.uRev.value = env(t, [[0, 0], [1.2, 1.06]]);
+  sigilMat.uniforms.uGold.value = env(t, [[0.9, 0], [1.2, 1], [1.6, 0.2], [2.1, 0]]);
+  sigilMat.uniforms.uI.value = sigI;
+  sigil.visible = sigI > 1e-3;
+
+  const glowI = env(t, [[0, 0], [0.8, 0.10], [1.2, 0.50], [1.5, 0.24], [3.4, 0.20], [4.4, 0.10], [5.8, 0]]);
+  glowMat.uniforms.uI.value = glowI;
+  glowMat.uniforms.uR.value = env(t, [[0, 0.6], [1.2, 0.85], [2.0, 1.05], [4.5, 1.25]]);
+
+  // charge: converging sparkles + the central star glint, then the flash ring
+  const chI = env(t, [[0.3, 0], [0.55, 1], [1.15, 1], [1.32, 0]]) * (L.charge ? 1 : 0);
+  chargeMat.uniforms.uTime.value = t;
+  chargeMat.uniforms.uI.value = chI;
+  charge.visible = chI > 1e-3;
+  const starI = env(t, [[0.7, 0], [1.05, 0.55], [1.2, 1.25], [1.36, 0.25], [1.5, 0]]) * (L.charge ? 1 : 0);
+  starMat.uniforms.uI.value = starI;
+  starMat.uniforms.uS.value = env(t, [[0.7, 0.16], [1.15, 0.46], [1.25, 0.92], [1.5, 0.38]]);
+  star.visible = starI > 1e-3;
+
+  const flI = env(t, [[T_FLASH - 0.02, 0], [T_FLASH + 0.03, 1.5], [T_FLASH + 0.16, 0]]) * (L.charge ? 1 : 0);
+  flashMat.uniforms.uI.value = flI * 0.6;
+  flashMat.uniforms.uR.value = env(t, [[T_FLASH, 0.12], [T_FLASH + 0.18, 1.6]]);
+  flashMat.uniforms.uW.value = env(t, [[T_FLASH, 0.10], [T_FLASH + 0.18, 0.32]]);
+  flash.visible = flI > 1e-3;
+
+  // crystals: grow 1.2–2.0 (staggered), hold, collapse at 3.5
+  const cryI = env(t, [[1.15, 0], [1.25, 1], [3.78, 1], [3.92, 0]]) * (L.crystals ? 1 : 0);
+  for (const m of [cryMat, outlineMat]) {
+    m.uniforms.uTime.value = t;
+    m.uniforms.uShatter.value = L.shatter ? T_SHATTER : 99;
+    m.uniforms.uSwell.value = 1;
+    m.uniforms.uGrow.value = 1;
+  }
+  cryMat.uniforms.uI.value = cryI;
+  outlineMat.uniforms.uI.value = cryI;
+  crystals.visible = cryI > 1e-3;
+  const coreI = env(t, [[1.2, 0], [1.45, 0.52], [2.2, 0.34], [3.45, 0.30], [3.58, 0.72], [3.85, 0]]) * (L.crystals ? 1 : 0);
+  coreMat.uniforms.uI.value = coreI;
+  coreMat.uniforms.uS.value = env(t, [[1.2, 0.20], [1.6, 0.80], [3.4, 0.74], [3.75, 1.5]]);
+  core.visible = coreI > 1e-3;
+  outline.visible = cryI > 1e-3 && L.outline;
+
+  // frost ring + chillfog: on from the eruption, thickening through the hold
+  const frI = env(t, [[1.15, 0], [1.5, 0.9], [3.4, 1.0], [4.6, 0.55], [5.9, 0]]) * (L.frost ? 1 : 0);
+  frostMat.uniforms.uTime.value = t;
+  frostMat.uniforms.uI.value = frI;
+  frostMat.uniforms.uR.value = env(t, [[1.2, 1.05], [2.2, 1.32], [4.5, 1.55]]);
+  frost.visible = frI > 1e-3;
+
+  const mI = env(t, [[1.1, 0], [1.7, 0.45], [3.4, 0.62], [3.8, 1.0], [4.8, 0.5], [6.0, 0]]) * (L.frost ? 1 : 0);
+  const mR = env(t, [[1.2, 1.0], [3.4, 1.35], [3.9, 1.85], [5.6, 2.25]]);
+  mistA.uniforms.uTime.value = t;
+  mistA.uniforms.uI.value = mI * 0.42;
+  mistA.uniforms.uR.value = mR;
+  mistB.uniforms.uTime.value = t;
+  mistB.uniforms.uI.value = mI * 0.26;
+  mistB.uniforms.uR.value = mR * 0.82;
+  mist1.visible = mist2.visible = mI > 1e-3;
+
+  // shatter burst
+  const shI = (L.shatter ? 1 : 0) * (t >= T_SHATTER ? 1 : 0);
+  chipMat.uniforms.uTime.value = t;
+  chipMat.uniforms.uShatter.value = T_SHATTER;
+  chipMat.uniforms.uI.value = shI;
+  chips.visible = shI > 1e-3;
+  chunkMat.uniforms.uTime.value = t;
+  chunkMat.uniforms.uShatter.value = T_SHATTER;
+  chunkMat.uniforms.uI.value = shI;
+  chunks.visible = shI > 1e-3;
+
+  ground.material.uniforms.uTintI.value = glowI * 0.14 + flI * 0.18;
+  bloom.enabled = L.post;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => {
+  P.play = false;
+  P.time = t;
+  apply(t);
+};
+window.__spikeReady = true;

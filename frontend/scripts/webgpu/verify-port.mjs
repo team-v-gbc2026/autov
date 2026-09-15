@@ -1,12 +1,15 @@
 import { webgpuBrowserOptions } from "../browser-options.mjs";
 /** WebGPU acceptance: real initialized backend, immediate canvas readback,
- * deterministic seek, all seven document fixtures, and optional WebGL comparison.
+ * deterministic seek, every exemplar under fixtures/v2 plus the workspace
+ * emitter and a synthetic sub-emitter case, and optional WebGL comparison.
+ * This is also the only shader-link check the renderer needs: a program that
+ * fails to build is a GPU error and a blank frame, and both fail the run.
  * Linux software rendering: run under xvfb-run with AUTOV_WEBGPU_SOFTWARE=1.
  */
 import { chromium } from "playwright";
 import { build } from "esbuild";
 import { createServer } from "node:http";
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import assert from "node:assert/strict";
 const output = path.resolve(
@@ -24,6 +27,9 @@ const bundle = await build({
   globalName: "Probe",
   write: false,
 });
+// The migration gate against a preserved WebGL bundle. Raise it only to collect
+// every comparison image in one run; the default is the acceptance value.
+const COMPARE_GATE = Number(process.env.AUTOV_COMPARE_GATE || 8);
 const baseline = process.env.AUTOV_WEBGL_BASELINE
   ? await readFile(process.env.AUTOV_WEBGL_BASELINE)
   : null;
@@ -71,15 +77,36 @@ try {
   await page.goto("http://127.0.0.1:" + server.address().port);
   await page.addScriptTag({ url: "/probe.js" });
   if (baseline) await page.addScriptTag({ url: "/baseline.js" });
+  // Authored active timestamps: a moment where the exemplar's own layers are
+  // all on screen, so a program that fails to build shows up as missing pixels.
+  const ACTIVE = {
+    workspace: 0.8,
+    subemitters: 0.8,
+    beam: 2,
+    "energy-column": 1.73,
+    "fire-projectile": 0.8,
+    "fire-slash": 0.4,
+    // main's pre-merge fire-slash lives only in 0.2-0.5 s of its 1.4 s document.
+    "fire-slash-classic": 0.3,
+    "glitch-projectile": 1.8,
+    "healing-aura": 1.2,
+    "ice-blast": 0.8,
+    "ice-blast-classic": 0.8,
+    "lightning-impact": 0.22,
+    "meteor-rain": 2.31,
+    "playful-impact": 0.3,
+    portal: 0.3,
+    shield: 1.4,
+    "sky-vortex": 0.57,
+    "smoke-burst": 0.8,
+    "water-projectile": 0.2,
+  };
+  // Every exemplar under fixtures/v2, plus the workspace's own Add emitter
+  // document and the synthetic sub-emitter case.
   const ids = process.env.AUTOV_FIXTURES?.split(",") || [
     "workspace",
-    "fire-projectile",
-    "beam",
-    "fire-slash",
-    "ice-blast",
-    "lightning-impact",
-    "shield",
-    "smoke-burst",
+    ...(await readdir("fixtures/v2")).sort(),
+    "subemitters",
   ];
   for (const id of ids) {
     console.log("Checking", id);
@@ -174,12 +201,25 @@ try {
           }
           const t = workspace ? 0.51 : sampleTime;
           read(runtime, 0);
+          // Three r186's SMAA pass settles a draw or two after arriving at a
+          // new time: its first output can differ along a single edge pixel.
+          // Draw until two consecutive samples agree, then measure. Every check
+          // below still compares exactly.
+          const settle = (time) => {
+            let previous = read(runtime, time);
+            for (let attempt = 0; attempt < 4; attempt++) {
+              const next = read(runtime, time);
+              if (previous.pixels.every((v, i) => v === next.pixels[i])) return next;
+              previous = next;
+            }
+            throw new Error(`Sampling ${time}s never settled`);
+          };
           console.log("CHECK first frame");
-          const first = read(runtime, t);
+          const first = settle(t);
           // Live previews render on separate animation frames, unlike captures.
           const live = await new Promise((resolve, reject) =>
             requestAnimationFrame(() => {
-              try { resolve(read(runtime, t)); } catch (error) { reject(error); }
+              try { resolve(settle(t)); } catch (error) { reject(error); }
             }),
           );
           if (!first.pixels.every((v, i) => v === live.pixels[i]))
@@ -188,7 +228,7 @@ try {
           const timeChanges = first.pixels.some(
             (v, i) => v !== later.pixels[i],
           );
-          const repeat = read(runtime, t);
+          const repeat = settle(t);
           const deterministic = first.pixels.every(
             (v, i) => v === repeat.pixels[i],
           );
@@ -322,7 +362,7 @@ try {
             comparison,
           };
         } finally {
-          runtime.dispose();
+          await runtime.dispose();
         }
       },
       {
@@ -331,17 +371,7 @@ try {
         checkAA: id === "fire-projectile",
         workspace: id === "workspace",
         checkCapture: id === "subemitters",
-        sampleTime: {
-          "fire-projectile": 0.8,
-          beam: 2,
-          "fire-slash": 0.4,
-          "ice-blast": 0.8,
-          "lightning-impact": 0.22,
-          shield: 1.4,
-          "smoke-burst": 0.8,
-          subemitters: 0.8,
-          workspace: 0.8,
-        }[id],
+        sampleTime: ACTIVE[id],
       },
     );
     const save = async (name, data) =>
@@ -376,8 +406,8 @@ try {
     console.log(JSON.stringify(results.at(-1)));
     if (result.comparison)
       assert.ok(
-        result.comparison.meanAbsoluteChannelError <= 8,
-        `${id}: WebGL/WebGPU mean channel difference exceeds the 8/255 migration gate`,
+        result.comparison.meanAbsoluteChannelError <= COMPARE_GATE,
+        `${id}: WebGL/WebGPU mean channel difference exceeds the ${COMPARE_GATE}/255 migration gate`,
       );
     if (result.editChanges !== undefined)
       assert.ok(
