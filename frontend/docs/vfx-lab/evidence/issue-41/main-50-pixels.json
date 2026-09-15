@@ -1,0 +1,74 @@
+[
+  {
+    "id": "ice-blast",
+    "frame": 0,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "ice-blast",
+    "frame": 1,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "ice-blast",
+    "frame": 2,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "smoke-burst",
+    "frame": 0,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "smoke-burst",
+    "frame": 1,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "smoke-burst",
+    "frame": 2,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "fire-projectile",
+    "frame": 0,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "fire-projectile",
+    "frame": 1,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  },
+  {
+    "id": "fire-projectile",
+    "frame": 2,
+    "equal": true,
+    "maximumDelta": 0,
+    "changedChannels": 0,
+    "consistent": true
+  }
+]

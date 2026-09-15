@@ -5137,7 +5137,13 @@ export class VfxRuntimeV2 {
   private initialized = false;
   private initialization: Promise<void>;
   private disposal?: Promise<void>;
-  private preparedPreviewDocument?: VfxDocumentV2;
+  private preparedDocument?: VfxDocumentV2;
+  private preparation?: Promise<void>;
+  private warming = false;
+  private preparationRevision = 0;
+  private warmedObjects = new WeakSet<LayerObject>();
+  private preparationStructure = "";
+  private graphPrepared = false;
   private lastPreviewRequest = {
     time: 0,
     solo: undefined as string | undefined,
@@ -5242,6 +5248,10 @@ export class VfxRuntimeV2 {
 
   setFeatureFlags(flags: Partial<FeatureFlagsV2>) {
     this.previewSample = null;
+    this.preparationRevision++;
+    this.preparedDocument = undefined;
+    this.warmedObjects = new WeakSet();
+    this.graphPrepared = false;
     const aa = this.flags.aa;
     this.flags = { ...this.flags, ...flags };
     if (this.doc)
@@ -5256,6 +5266,7 @@ export class VfxRuntimeV2 {
   ) {
     if (this.disposed) return;
     this.previewSample = null;
+    this.preparationRevision++;
     const doc = this.options.preview
       ? validateWorkspaceDocumentV2(input)
       : validateDocumentV2(input);
@@ -5295,8 +5306,7 @@ export class VfxRuntimeV2 {
         ]);
         keys.set(layer.id, key);
         const existing = previous.get(layer.id);
-        if (existing && this.objectKeys.get(layer.id) === key)
-          return existing;
+        if (existing && this.objectKeys.get(layer.id) === key) return existing;
         const object = buildLayerObject(
           nextDoc,
           layer,
@@ -5324,8 +5334,21 @@ export class VfxRuntimeV2 {
     this.objects = nextObjects;
     this.objectKeys = keys;
     this.doc = nextDoc;
-    if (preserveCamera && created.length === 0)
-      this.preparedPreviewDocument = nextDoc;
+    // Only reuse preparation after it actually completed. A new edit arriving
+    // between warm batches must not accidentally mark an unprepared scene ready.
+    const structure = JSON.stringify([
+      nextDoc.quality.aa,
+      Boolean(nextDoc.post.glitch),
+      nextDoc.environment,
+      nextDoc.layers.filter((layer) => layer.kind === "light"),
+      this.flags,
+    ]);
+    if (structure !== this.preparationStructure) {
+      this.warmedObjects = new WeakSet();
+      this.graphPrepared = false;
+      this.preparationStructure = structure;
+    }
+    this.preparedDocument = undefined;
     const lights = this.objects
       .filter((o) => o.source.enabled && o.source.kind === "light")
       .sort(
@@ -5355,91 +5378,149 @@ export class VfxRuntimeV2 {
     }
   }
 
-  /** Previews prepare delayed emitters before playback reaches their bars. */
-  async whenReady() {
-    await Promise.all([this.initialization, this.textures.whenReady()]);
-    if (this.disposed) return;
-    if (this.deviceError) throw this.deviceError;
-    if (
-      this.options.preview &&
-      this.doc &&
-      this.preparedPreviewDocument !== this.doc
-    ) {
-      // compileAsync is deliberately not used here. It builds in a top-level
-      // render context, and on this scene graph it left the nested scene pass's
-      // pipelines unbuilt: ice-blast dropped from 23 pipelines at load to 7 and
-      // then built 28 during playback, stalling for ten seconds. The warm pass
-      // below draws through the real graph instead.
-      this.warmPreview();
-      this.preparedPreviewDocument = this.doc;
-    }
-    this.previewSample = null;
+  /** Shared by studio, showcases, capture and exported players. Concurrent
+   * callers share one preparation job; edits supersede its next batch, never race it. */
+  whenReady(): Promise<void> {
+    this.preparation ??= this.prepareDocument().finally(() => {
+      this.preparation = undefined;
+    });
+    return this.preparation;
   }
 
-  private warmPreview() {
-    this.advanceFrame();
-    const size = this.renderer.getSize(new THREE.Vector2());
+  private async prepareDocument() {
+    await this.initialization;
+    while (!this.disposed) {
+      const revision = this.preparationRevision;
+      await this.textures.whenReady();
+      if (this.disposed) return;
+      if (this.deviceError) throw this.deviceError;
+      if (revision !== this.preparationRevision) continue;
+      const doc = this.doc;
+      if (!doc || this.preparedDocument === doc) return;
+      await this.warmDocument(revision);
+      if (this.disposed) return;
+      if (revision !== this.preparationRevision) continue;
+      if (this.deviceError) throw this.deviceError;
+      this.preparedDocument = doc;
+      this.previewSample = null;
+      return;
+    }
+  }
+
+  private async warmDocument(revision: number) {
+    // Draw through the real post/depth graph: top-level scene compilation uses
+    // a different render target and leaves playback variants unprepared.
+    const pending = this.objects.filter(
+      (object) => !this.warmedObjects.has(object),
+    );
+    if (!pending.length && this.graphPrepared) return;
+    const canvas = this.renderer.domElement;
+    // Preserve the last image while yielding: temporary warm frames must never
+    // become a visible flash. The copy lives only for the preparation lifetime.
+    const still = document.createElement("canvas");
+    still.width = canvas.width;
+    still.height = canvas.height;
+    still.className = canvas.className;
+    still.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;pointer-events:none";
+    still.setAttribute("aria-hidden", "true");
+    still.getContext("2d")?.drawImage(canvas, 0, 0);
+    const visibility = canvas.style.visibility;
+    canvas.style.visibility = "hidden";
+    this.host.appendChild(still);
+    this.warming = true;
     const target = this.renderer.getRenderTarget();
+    const current = () =>
+      !this.disposed && revision === this.preparationRevision;
+    // A task boundary (not Promise.resolve) lets input and painting run. No
+    // renderer operation is suspended across an await, so disposal/edit is safe.
+    const yieldTask = () =>
+      new Promise<void>((resolve) => setTimeout(resolve, 0));
     try {
-      // r186 compileAsync uses a top-level render context; the nested scene
-      // pass has a different cache key. Warm the actual graph at a small size
-      // so every delayed emitter is prepared in playback's render context.
-      //
-      // One sample at each layer's midpoint, not several across its life:
-      // sampling three points and forcing every child mesh visible measured
-      // worse on both counts, because it compiles pipelines for lobes that
-      // never draw. The cost here is dominated by the number of distinct
-      // materials, not by how many states each one is warmed in.
+      await yieldTask();
+      if (!current()) return;
       this.renderer.setSize(64, 64, false);
-      // Each layer at its own midpoint, then — only if some layer asked for it —
-      // once more at the second moment it named. One extra frame, not a sweep:
-      // warming every layer at several times measured worse, because it builds
-      // pipelines for draws that never happen.
-      const extra = this.objects.some((object) => object.warmAt !== undefined);
-      for (const pass of extra ? [false, true] : [false]) {
-        this.advanceFrame();
-        for (const object of this.objects) {
+      // Keep the complete light set in every batch: hiding lights would create
+      // a different shader variant than playback's scene.
+      const lights = this.objects.filter(
+        (object) => object.source.kind === "light",
+      );
+      const needsDepth =
+        this.flags.softParticles && this.objects.some((object) => object.soft);
+      for (const object of this.objects) {
+        const layer = object.source;
+        object.update(
+          layer.start + (layer.end - layer.start) * 0.5,
+          this.flags,
+          this.camera,
+        );
+        object.object.visible = layer.kind === "light";
+      }
+      // Prepare the environment/post graph even for an empty workspace. The
+      // real soft-particle prepass hides non-occluders, including point lights.
+      // Matching that set avoids a second ground shader on the first soft frame.
+      this.advanceFrame();
+      if (needsDepth) {
+        for (const light of lights) light.object.visible = false;
+        this.renderer.setRenderTarget(this.depthTarget);
+        this.renderer.clear();
+        this.renderer.render(this.scene, this.camera);
+        for (const light of lights) light.object.visible = true;
+      }
+      this.renderer.setRenderTarget(null);
+      if (this.flags.post) this.post.render();
+      else this.renderer.render(this.scene, this.camera);
+      await yieldTask();
+      for (const object of pending) {
+        for (const at of object.warmAt === undefined
+          ? [undefined]
+          : [undefined, object.warmAt]) {
+          if (!current()) return;
+          this.renderer.setSize(64, 64, false);
+          this.advanceFrame();
           const layer = object.source;
-          const middle = layer.start + (layer.end - layer.start) * 0.5;
           object.update(
-            pass ? (object.warmAt ?? middle) : middle,
+            at ?? layer.start + (layer.end - layer.start) * 0.5,
             this.flags,
             this.camera,
           );
-          // The depth pre-pass below draws the occluders and the lights, which
-          // is the set the real one draws: preparing it with only the lights
-          // visible left every occluder's depth pipeline to be built mid-play.
-          object.object.visible = layer.kind === "light" || !!object.occluder;
-        }
-        if (
-          this.flags.softParticles &&
-          this.objects.some((object) => object.soft)
-        ) {
-          this.renderer.setRenderTarget(this.depthTarget);
-          this.renderer.clear();
-          this.renderer.render(this.scene, this.camera);
-        }
-        this.renderer.setRenderTarget(null);
-        for (const object of this.objects) {
           object.object.visible = true;
           if (object.warmAll)
             object.object.traverse((node) => {
               node.visible = true;
             });
+          // Warm occluders in their actual depth target, with the same lights.
+          if (needsDepth && object.occluder) {
+            for (const light of lights) light.object.visible = false;
+            this.renderer.setRenderTarget(this.depthTarget);
+            this.renderer.clear();
+            this.renderer.render(this.scene, this.camera);
+            for (const light of lights) light.object.visible = true;
+          }
+          this.renderer.setRenderTarget(null);
+          if (this.flags.post) this.post.render();
+          else this.renderer.render(this.scene, this.camera);
+          object.object.visible = lights.includes(object);
+          await yieldTask();
         }
-        if (this.flags.post) this.post.render();
-        else this.renderer.render(this.scene, this.camera);
+        if (current()) this.warmedObjects.add(object);
       }
+      if (current()) this.graphPrepared = true;
     } finally {
-      this.renderer.setSize(size.x, size.y, false);
-      this.renderer.setRenderTarget(target);
-      this.previewSample = null;
-      // Restore the requested image in the same task, before the browser can
-      // present the temporary all-emitter frame. No timeline time is advanced.
-      this.renderPreview(
-        this.lastPreviewRequest.time,
-        this.lastPreviewRequest.solo,
-      );
+      still.remove();
+      canvas.style.visibility = visibility;
+      this.warming = false;
+      if (!this.disposed) {
+        this.renderer.setSize(this.width, this.height, false);
+        this.renderer.setRenderTarget(target);
+        this.previewSample = null;
+        // Superseded work must not synchronously draw the replacement document.
+        if (current())
+          this.renderPreview(
+            this.lastPreviewRequest.time,
+            this.lastPreviewRequest.solo,
+          );
+      }
     }
   }
 
@@ -5823,7 +5904,7 @@ export class VfxRuntimeV2 {
     diagnostic: boolean,
     skipUnchanged: boolean,
   ) {
-    if (this.disposed || !this.doc) return;
+    if (this.disposed || !this.doc || this.warming) return;
     if (this.deviceError) throw this.deviceError;
     if (!this.initialized)
       throw new Error("Await whenReady() before rendering a V2 document.");

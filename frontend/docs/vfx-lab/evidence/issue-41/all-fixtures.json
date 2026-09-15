@@ -1,0 +1,385 @@
+{
+  "browser": "151.0.7922.34",
+  "frameBudgetMs": 20,
+  "coldFrameBudgetMs": 100,
+  "results": [
+    {
+      "id": "beam",
+      "cost": {
+        "draws": 13,
+        "pipelines": 8,
+        "instances": 642
+      },
+      "built": 21,
+      "coldMaxMs": 23.9,
+      "coldFrames": [
+        4.4,
+        8.2,
+        23.9,
+        7.1,
+        6.8,
+        4.1
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.9
+    },
+    {
+      "id": "energy-column",
+      "cost": {
+        "draws": 12,
+        "pipelines": 10,
+        "instances": 244
+      },
+      "built": 21,
+      "coldMaxMs": 9.4,
+      "coldFrames": [
+        7.3,
+        7.4,
+        9.4,
+        8.9,
+        8.8,
+        7
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.2
+    },
+    {
+      "id": "fire-projectile",
+      "cost": {
+        "draws": 8,
+        "pipelines": 5,
+        "instances": 756
+      },
+      "built": 19,
+      "coldMaxMs": 10.6,
+      "coldFrames": [
+        5.9,
+        8.9,
+        8.1,
+        10.6,
+        8.1,
+        7.2
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 3.6
+    },
+    {
+      "id": "fire-slash",
+      "cost": {
+        "draws": 14,
+        "pipelines": 8,
+        "instances": 234
+      },
+      "built": 21,
+      "coldMaxMs": 5.8,
+      "coldFrames": [
+        4.7,
+        3.8,
+        5.8,
+        4.9,
+        3.5,
+        3.6
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.2
+    },
+    {
+      "id": "fire-slash-classic",
+      "cost": {
+        "draws": 9,
+        "pipelines": 7,
+        "instances": 870
+      },
+      "built": 21,
+      "coldMaxMs": 7.8,
+      "coldFrames": [
+        7.6,
+        7.8,
+        5.8,
+        4.2,
+        5,
+        3.3
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.9
+    },
+    {
+      "id": "glitch-projectile",
+      "cost": {
+        "draws": 15,
+        "pipelines": 9,
+        "instances": 298
+      },
+      "built": 25,
+      "coldMaxMs": 12.2,
+      "coldFrames": [
+        7.6,
+        12.2,
+        6.6,
+        7.1,
+        5.5,
+        2.5
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.5
+    },
+    {
+      "id": "healing-aura",
+      "cost": {
+        "draws": 7,
+        "pipelines": 7,
+        "instances": 96
+      },
+      "built": 18,
+      "coldMaxMs": 8.4,
+      "coldFrames": [
+        4.1,
+        8.2,
+        8.3,
+        8.4,
+        7.8,
+        7.2
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.8
+    },
+    {
+      "id": "ice-blast",
+      "cost": {
+        "draws": 13,
+        "pipelines": 11,
+        "instances": 1308
+      },
+      "built": 25,
+      "coldMaxMs": 8.7,
+      "coldFrames": [
+        3.5,
+        7.7,
+        7.4,
+        4.8,
+        8.7,
+        3.9
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.9
+    },
+    {
+      "id": "ice-blast-classic",
+      "cost": {
+        "draws": 10,
+        "pipelines": 4,
+        "instances": 630
+      },
+      "built": 19,
+      "coldMaxMs": 11.9,
+      "coldFrames": [
+        4.5,
+        11.9,
+        8.4,
+        7,
+        5.9,
+        3.6
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 3.2
+    },
+    {
+      "id": "lightning-impact",
+      "cost": {
+        "draws": 10,
+        "pipelines": 8,
+        "instances": 428
+      },
+      "built": 21,
+      "coldMaxMs": 11.3,
+      "coldFrames": [
+        4.8,
+        11.3,
+        6.5,
+        6.9,
+        4.9,
+        4.7
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2
+    },
+    {
+      "id": "meteor-rain",
+      "cost": {
+        "draws": 29,
+        "pipelines": 7,
+        "instances": 1140
+      },
+      "built": 21,
+      "coldMaxMs": 15.5,
+      "coldFrames": [
+        3.4,
+        3,
+        10,
+        5.9,
+        15.5,
+        5.2
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.7
+    },
+    {
+      "id": "playful-impact",
+      "cost": {
+        "draws": 13,
+        "pipelines": 9,
+        "instances": 98
+      },
+      "built": 21,
+      "coldMaxMs": 6.9,
+      "coldFrames": [
+        3,
+        6.9,
+        4.3,
+        4.5,
+        3.4,
+        4.6
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.4
+    },
+    {
+      "id": "portal",
+      "cost": {
+        "draws": 5,
+        "pipelines": 5,
+        "instances": 180
+      },
+      "built": 15,
+      "coldMaxMs": 12.1,
+      "coldFrames": [
+        6.2,
+        12.1,
+        7.3,
+        6,
+        7.5,
+        4.2
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.9
+    },
+    {
+      "id": "shield",
+      "cost": {
+        "draws": 7,
+        "pipelines": 6,
+        "instances": 110
+      },
+      "built": 17,
+      "coldMaxMs": 17.6,
+      "coldFrames": [
+        5,
+        17.6,
+        14,
+        10.7,
+        9,
+        7.6
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 3.6
+    },
+    {
+      "id": "sky-vortex",
+      "cost": {
+        "draws": 12,
+        "pipelines": 5,
+        "instances": 268
+      },
+      "built": 15,
+      "coldMaxMs": 9.2,
+      "coldFrames": [
+        7.6,
+        7.5,
+        9.2,
+        6.8,
+        8.3,
+        6.5
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.1
+    },
+    {
+      "id": "smoke-burst",
+      "cost": {
+        "draws": 34,
+        "pipelines": 8,
+        "instances": 260
+      },
+      "built": 30,
+      "coldMaxMs": 9.8,
+      "coldFrames": [
+        4.8,
+        7.5,
+        9.8,
+        7.3,
+        2.7,
+        5.7
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 1.8
+    },
+    {
+      "id": "water-projectile",
+      "cost": {
+        "draws": 52,
+        "pipelines": 3,
+        "instances": 0
+      },
+      "built": 13,
+      "coldMaxMs": 8.2,
+      "coldFrames": [
+        8.2,
+        6.8,
+        6.5,
+        6.4,
+        6.8,
+        4.7
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.2
+    },
+    {
+      "id": "worst-case",
+      "cost": {
+        "draws": 32,
+        "pipelines": 19,
+        "instances": 2997
+      },
+      "built": 32,
+      "coldMaxMs": 12.1,
+      "coldFrames": [
+        8,
+        12.1,
+        9.3,
+        7,
+        6.8,
+        4.4
+      ],
+      "duringPlayback": 0,
+      "late": [],
+      "warmMs": 2.4
+    }
+  ]
+}

@@ -43,6 +43,9 @@ export default function WorkspaceScene({
   // Empty scenes do not consume the first-effect framing. Explicit authored
   // camera changes reframe; ordinary parameter edits preserve the user's orbit.
   const framed = useRef(false);
+  // A live edit can supersede the document that requested a camera fit while
+  // its shaders are preparing. Carry that fit forward to the latest document.
+  const framingPending = useRef(false);
   // Between setDocument and whenReady the device builds this document's
   // pipelines. Drawing the new scene at full size during that only adds to the
   // stall, so the last prepared frame stays on screen instead.
@@ -124,6 +127,9 @@ export default function WorkspaceScene({
       instance?.dispose();
       runtime.current = null;
       installed.current = null;
+      preparing.current = false;
+      framed.current = false;
+      framingPending.current = false;
     };
   }, [attempt]);
 
@@ -134,26 +140,32 @@ export default function WorkspaceScene({
       if (!instance || installed.current === doc) return;
       // First effects and authored camera changes use the same safe area as
       // Focus; ordinary edits keep the camera where the user left it.
-      const first = needsWorkspaceFraming(installed.current, doc, framed.current);
+      const first = framingPending.current || needsWorkspaceFraming(installed.current, doc, framed.current);
       const release = clock.hold();
       preparing.current = true;
       const settle = () => {
-        preparing.current = false;
+        if (runtime.current === instance && installed.current === doc)
+          preparing.current = false;
         release();
       };
       try {
         instance.setDocument(doc, { preserveCamera: !first });
         installed.current = doc;
         if (loaded && doc.layers.some(layer => layer.enabled)) framed.current = true;
-        if (first) setStatus("loading");
+        if (first) {
+          framingPending.current = true;
+          setStatus("loading");
+        }
         void instance.whenReady().then(
           () => {
             settle();
-            if (runtime.current === instance && installed.current === doc && first) {
+            if (runtime.current !== instance || installed.current !== doc) return;
+            if (first) {
               const area = host.current && workspaceVisibleArea(host.current);
-              if (area) instance.focus(area, solo, doc.camera.framing);
-              setStatus("ready");
+              if (area) instance.focus(area, latest.current.solo, doc.camera.framing);
+              framingPending.current = false;
             }
+            setStatus("ready");
           },
           problem => {
             settle();
@@ -163,6 +175,7 @@ export default function WorkspaceScene({
           },
         );
       } catch (problem) {
+        if (runtime.current === instance) preparing.current = false;
         settle();
         setError(problem instanceof Error ? problem.message : "Invalid effect.");
         setStatus("error");
