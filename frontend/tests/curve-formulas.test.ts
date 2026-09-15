@@ -13,6 +13,8 @@ test("bounded formulas compile exact breakpoints", () => {
 test("formulas only require the fields their kind reads", () => {
   assert.equal(CurveFormulaSchema.safeParse({kind:"ramp",start:0,end:1}).success,true);
   assert.equal(CurveFormulaSchema.safeParse({kind:"constant",start:0.4}).success,true);
+  assert.equal(CurveFormulaSchema.safeParse({kind:"ramp",start:0,end:1,peak:null,attack:null,release:null}).success,true);
+  assert.equal(CurveFormulaSchema.safeParse({kind:"smooth",start:0,end:null}).success,false);
   assert.equal(CurveFormulaSchema.safeParse({kind:"smooth",start:0}).success,false);
   assert.equal(CurveFormulaSchema.safeParse({kind:"envelope",start:0,end:0,peak:1}).success,false);
   assert.deepEqual(compileCurveFormula({kind:"ramp",start:0,end:1}), {keys:[[0,0],[1,1]],ease:"linear"});
