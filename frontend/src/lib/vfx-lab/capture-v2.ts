@@ -110,14 +110,20 @@ function lastActiveTimeV2(doc: VfxDocumentV2) {
 }
 
 /**
- * Binary-subdivision coverage of the effect's actually active span (through
- * the last frame any layer is visible, not the nominal document duration)
- * plus three frames around the real impact, prioritized so any prefix of the
- * result still spans that whole active span.
+ * Coverage of the effect's actually active span (through the last frame any
+ * layer is visible, not the nominal document duration) plus three frames
+ * around the real impact.
+ *
+ * `limit` trims the set before it is sorted, so it drops the least
+ * informative times rather than the latest ones: the result still spans the
+ * whole active span. Callers that render a contact sheet want every time and
+ * should omit it; a caller with a small still budget passes its budget here
+ * instead of slicing the sorted result.
  */
-export function captureTimesV2(doc: VfxDocumentV2) {
+export function captureTimesV2(doc: VfxDocumentV2, limit = 24) {
   const impact = impactTimeV2(doc);
   const span = lastActiveTimeV2(doc);
+  const count = Math.max(1, Math.min(24, Math.floor(limit)));
   const normalize = (time: number) =>
     round3(clamp(time, 0, Math.max(0, doc.duration - 0.001)));
   const selected: number[] = [];
@@ -128,10 +134,13 @@ export function captureTimesV2(doc: VfxDocumentV2) {
     seen.add(value);
     selected.push(value);
   };
-  for (const time of [impact - 1 / 30, impact, impact + 0.05]) push(time);
-  for (const time of bisectionOrder(span, 24))
-    if (selected.length < 24) push(time);
-  return ascending(selected.slice(0, 24).sort((a, b) => a - b), doc.duration);
+  // Impact frames first, then broad coverage: both lists are in priority
+  // order, so truncating at `count` keeps the most informative times.
+  for (const time of [impact - 1 / 30, impact, impact + 0.05])
+    if (selected.length < count) push(time);
+  for (const time of bisectionOrder(span, count))
+    if (selected.length < count) push(time);
+  return ascending(selected.sort((a, b) => a - b), doc.duration);
 }
 
 function jpeg(canvas: HTMLCanvasElement, maxBytes = Infinity) {

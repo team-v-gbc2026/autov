@@ -180,7 +180,7 @@ export async function buildAgentHandoffBundle(
     }
 
     report("Capturing reference stills", 0.1);
-    const stillTimes = captureTimesV2(doc).slice(0, 6);
+    const stillTimes = captureTimesV2(doc, 6);
     for (const [i, time] of stillTimes.entries()) {
       runtime.render(time);
       const canvas = runtime.renderer.domElement;
