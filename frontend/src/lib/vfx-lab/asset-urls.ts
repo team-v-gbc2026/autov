@@ -77,17 +77,6 @@ export const VFX_ASSET_BASE = resolveTextureBase();
 
 /** Base URL (no trailing slash) for `vfx-fixtures/v2`. */
 export const VFX_FIXTURE_BASE = resolveFixtureBase();
-/** Shared, globally readable preset catalog and assets in vfx-fixtures/presets. */
-export const VFX_PRESET_BASE = `${publicObjectBase(envVar("NEXT_PUBLIC_SUPABASE_URL") ?? DEFAULT_SUPABASE_URL, VFX_FIXTURE_BUCKET)}/presets`;
-
-export function presetDocumentUrl(id: string): string {
-  return `${VFX_PRESET_BASE}/effects/${encodeURIComponent(id)}/document.json`;
-}
-
-export function presetThumbnailUrl(id: string): string {
-  return `${VFX_PRESET_BASE}/thumbnails/${encodeURIComponent(id)}.webp`;
-}
-
 /** Base URL for generated trial presets published to Supabase Storage. */
 export const VFX_PRESET_BASE = `${publicObjectBase(
   envVar("NEXT_PUBLIC_SUPABASE_URL") ?? DEFAULT_SUPABASE_URL,
@@ -124,4 +113,8 @@ export function presetManifestUrl(): string {
 
 export function presetDocumentUrl(id: string): string {
   return `${VFX_PRESET_BASE}/effects/${encodeURIComponent(id)}/document.json`;
+}
+
+export function presetThumbnailUrl(id: string): string {
+  return `${VFX_PRESET_BASE}/thumbnails/${encodeURIComponent(id)}.webp`;
 }
