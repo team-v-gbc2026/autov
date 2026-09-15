@@ -44,6 +44,7 @@ import {
   validateWorkspaceDocumentV2,
   type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
+import { saveProjectThumbnail } from "@/lib/project-thumbnail";
 import "./vfx-studio/studio-ui.css";
 
 type StudioProps = {
@@ -205,6 +206,10 @@ export default function Studio({
               : undefined,
           times: operation.input.times as number[] | undefined,
         });
+        if (operation.kind === "capture_candidate" && !standalone)
+          await saveProjectThumbnail(project.id, evidence.sheet).catch(
+            () => undefined,
+          );
         return {
           sheet: evidence.sheet,
           times: evidence.times,

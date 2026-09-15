@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "autov.shared-trials/1",
+  "created": "2026-09-14T16:02:27.982Z",
+  "draft": false,
+  "runtime": "autov.lab/2-three-r186",
+  "documentSchema": "autov.lab/2",
+  "cases": 9,
+  "trials": [
+    {
+      "id": "f5f601df-4093-4107-be59-25303500f636-0",
+      "caseId": "fx13-sustained-beam",
+      "name": "Sustained beam",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 5,
+      "layers": 15,
+      "documentSha256": "bea1fe8900aa6d57843205ea04c7a08dfc110577c13a0eea6dd5d9ac294af675",
+      "latest": true
+    },
+    {
+      "id": "9ba24011-3cc0-42bc-b9da-e3abd551b6a5-0",
+      "caseId": "fx16-energy-overload",
+      "name": "Energy overload column",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 5,
+      "layers": 14,
+      "documentSha256": "447d0bd684a3170429e0086d0c49e5f5ce8e4211ce3a348cff572dfa864de306",
+      "latest": true
+    },
+    {
+      "id": "aa138675-0e21-405b-b75f-71a1e0f7125b-0",
+      "caseId": "fx02-fire-projectile",
+      "name": "Fire projectile",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 3.5,
+      "layers": 9,
+      "documentSha256": "67487b121da41e387c4889e67f1ff3cb115a178a0c8dbfbd36ffab8126f83069",
+      "latest": true
+    },
+    {
+      "id": "4755600c-c137-470f-83dd-e9daa4916549-0",
+      "caseId": "fx04-glitch-magic",
+      "name": "Glitch projectile",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 4,
+      "layers": 14,
+      "documentSha256": "b32d898f1d4af13c2c81158cb6ef58eac573cb1f0e2224a87f1838088030438c",
+      "latest": true
+    },
+    {
+      "id": "10e7d65b-2655-4658-95ee-70e21860ace1-0",
+      "caseId": "fx15-healing-aura",
+      "name": "Healing aura",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 6,
+      "layers": 7,
+      "documentSha256": "6c03c422fa41fb0486ab504d46a9aa9e5e1c1f00cc6a6c1b43b3fd260f1679fb",
+      "latest": true
+    },
+    {
+      "id": "fdf218e5-877a-4002-8775-29bed42da90e-0",
+      "caseId": "fx14-rectangular-portal",
+      "name": "Amber portal",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 5,
+      "layers": 6,
+      "documentSha256": "3c504463d468272dc9b3c06800af94e45fc39e6b1f6d42d30b31cd88330bf7b7",
+      "latest": true
+    },
+    {
+      "id": "d5aedd50-2f3b-4ccd-92c4-5f786d00e525-0",
+      "caseId": "fx05-shield",
+      "name": "Hex shield",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 5,
+      "layers": 8,
+      "documentSha256": "595b771cfd66f8facf13fb8fa7655e0aee0f28e8e138107d998ed7187e573a86",
+      "latest": true
+    },
+    {
+      "id": "3aeac43b-9874-451e-bcec-a748b5382243-0",
+      "caseId": "fx07-fire-slash",
+      "name": "Fire slash",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 1.4,
+      "layers": 10,
+      "documentSha256": "ba075ce4dfcf7402bb5803533e367d6ae389b6739ee373d65ad81ec1e96958a4",
+      "latest": true
+    },
+    {
+      "id": "d7f3b971-6f4d-40b5-b6a3-2567b92bf58a-0",
+      "caseId": "fx08-ice-blast",
+      "name": "Ice blast",
+      "created": "2026-09-14T16:02:27.982Z",
+      "origin": "authored",
+      "selected": true,
+      "duration": 2.4,
+      "layers": 11,
+      "documentSha256": "fe1ec6b84a55335bf9f5209de27663a9ecc8f4a650679560ba7cca6543feebf3",
+      "latest": true
+    }
+  ]
+}
