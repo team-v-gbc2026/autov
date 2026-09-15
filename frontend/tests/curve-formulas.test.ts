@@ -34,7 +34,8 @@ test("UI patch preserves formulas across validation and JSON round trip", () => 
 });
 test("wire materials default shading like the document schema", async () => {
   const { MaterialWireSchema, MaterialSchema, defaultMaterial } = await import("../src/lib/vfx-lab/schema-v2");
-  const { shading: _omitted, ...material } = defaultMaterial();
+  const material: Record<string, unknown> = { ...defaultMaterial() };
+  delete material.shading;
   assert.equal(MaterialSchema.safeParse(material).success, true);
   const wire = MaterialWireSchema.safeParse(material);
   assert.equal(wire.success, true);
