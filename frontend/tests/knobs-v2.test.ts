@@ -234,7 +234,9 @@ test("camera, exposure, seed and layer identity are outside the knob space", () 
 });
 
 test("vertical stretch tilts particle motion and the mesh y axis without changing anything else", () => {
-  const doc = load("smoke-burst");
+  // A family that still carries both particle and mesh layers: smoke-burst is
+  // now built from blob layers, whose vertical shape is checked below instead.
+  const doc = load("fire-projectile");
   const stretched = applyKnobs(doc, knobsAt("verticalStretch", 2));
   let particles = 0;
   let meshes = 0;
@@ -270,6 +272,40 @@ test("vertical stretch tilts particle motion and the mesh y axis without changin
   });
   assert.ok(particles > 0 && meshes > 0);
   validateDocumentV2(stretched);
+});
+
+test("mesh scale and vertical stretch reach blob clusters and splash slivers", () => {
+  const doc = load("smoke-burst");
+  const blobs = doc.layers.filter((l) => l.blob);
+  const splashes = doc.layers.filter((l) => l.splash);
+  assert.ok(blobs.length > 0 && splashes.length > 0);
+
+  const bigger = applyKnobs(doc, knobsAt("meshScale", 1.5));
+  bigger.layers.forEach((layer, i) => {
+    const source = doc.layers[i];
+    if (layer.blob && source.blob) {
+      assert.ok(Math.abs(layer.blob.spread - source.blob.spread * 1.5) < 1e-9);
+      assert.ok(Math.abs(layer.blob.radius[1] - source.blob.radius[1] * 1.5) < 1e-9);
+      // Topology never moves with a scale knob.
+      assert.equal(layer.blob.count, source.blob.count);
+      assert.equal(layer.blob.arrangement, source.blob.arrangement);
+      assert.equal(layer.blob.seed, source.blob.seed);
+    }
+    if (layer.splash && source.splash)
+      assert.ok(Math.abs(layer.splash.width - source.splash.width * 1.5) < 1e-9);
+  });
+  validateDocumentV2(bigger);
+
+  const taller = applyKnobs(doc, knobsAt("verticalStretch", 1.4));
+  taller.layers.forEach((layer, i) => {
+    const source = doc.layers[i];
+    if (!layer.blob || !source.blob) return;
+    // Vertical only: the cluster's lateral spread is untouched.
+    assert.equal(layer.blob.spread, source.blob.spread);
+    assert.ok(layer.blob.height >= source.blob.height - 1e-9);
+    assert.ok(layer.blob.squash >= source.blob.squash - 1e-9);
+  });
+  validateDocumentV2(taller);
 });
 
 test("spread scale opens the emission cone and the spawn region, and stays inside the schema", () => {
@@ -374,4 +410,56 @@ test("the time knob is the only one that moves the document's own duration", () 
         name,
       );
   }
+});
+
+test("meshScale reaches the ribbon and wireBurst generators, topology excepted", () => {
+  const heal = load("healing-aura");
+  const glitch = load("glitch-projectile");
+  const bigHeal = applyKnobs(heal, knobsAt("meshScale", 2));
+  const bigGlitch = applyKnobs(glitch, knobsAt("meshScale", 2));
+
+  const ribbon = heal.layers.find((l) => l.ribbon)!;
+  const scaled = bigHeal.layers.find((l) => l.id === ribbon.id)!.ribbon!;
+  assert.ok(Math.abs(scaled.width - ribbon.ribbon!.width * 2) < 1e-6);
+  assert.ok(
+    Math.abs(scaled.strands.spread - ribbon.ribbon!.strands.spread * 2) < 1e-6,
+  );
+  // Topology, and the document's own path, are untouched.
+  assert.equal(scaled.strands.count, ribbon.ribbon!.strands.count);
+  assert.equal(scaled.pathId, ribbon.ribbon!.pathId);
+  assert.deepEqual(bigHeal.paths, heal.paths);
+
+  const burst = glitch.layers.find((l) => l.wireBurst)!;
+  const grown = bigGlitch.layers.find((l) => l.id === burst.id)!.wireBurst!;
+  assert.ok(Math.abs(grown.radius - burst.wireBurst!.radius * 2) < 1e-6);
+  assert.ok(Math.abs(grown.travel - burst.wireBurst!.travel * 2) < 1e-6);
+  assert.equal(grown.shapes, burst.wireBurst!.shapes);
+  assert.equal(grown.spokes, burst.wireBurst!.spokes);
+  assert.equal(grown.seed, burst.wireBurst!.seed);
+
+  // The identity vector is still a no-op on both new families.
+  assert.deepEqual(applyKnobs(heal, IDENTITY_KNOBS), heal);
+  assert.deepEqual(applyKnobs(glitch, IDENTITY_KNOBS), glitch);
+});
+
+test("rampIntensity moves a per-particle trail's own ramp with the sprite's", () => {
+  const doc = validateDocumentV2(
+    JSON.parse(readFileSync("fixtures/v2/meteor-rain/document.json", "utf8")),
+  );
+  const before = doc.layers.find((l) => l.id === "sparks")!;
+  const baseline = before.emitter!.trail!.ramp!.stops.map((s) => s.intensity);
+  const knobs = IDENTITY_KNOBS.map((v, i) =>
+    KNOB_NAMES[i] === "rampIntensity" ? 0.5 : v,
+  );
+  const next = applyKnobs(doc, knobs);
+  const after = next.layers.find((l) => l.id === "sparks")!;
+  assert.deepEqual(
+    after.emitter!.trail!.ramp!.stops.map((s) => s.intensity),
+    baseline.map((v) => v * 0.5),
+  );
+  // Leaving it out would brighten the spark and not the streamer behind it.
+  assert.deepEqual(
+    after.material!.ramp.stops.map((s) => s.intensity),
+    before.material!.ramp.stops.map((s) => s.intensity * 0.5),
+  );
 });

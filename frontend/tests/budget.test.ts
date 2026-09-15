@@ -61,7 +61,7 @@ test("$30 cumulative ledger survives processes and reserves before calls", async
   }
 });
 
-test("authorized $60 increase preserves previous usage and pending reservations", async () => {
+test("authorized $80 increase preserves previous usage and pending reservations", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "autov-budget-upgrade-"));
   const testModule = resolve("src/lib/vfx-lab/budget.ts"),
     tsx = resolve("node_modules/tsx/dist/cli.mjs");
@@ -86,25 +86,25 @@ test("authorized $60 increase preserves previous usage and pending reservations"
   try {
     assert.equal(execute("30", "await reserveUsd(29)").status, 0);
     const upgraded = execute(
-      "60",
-      "await reserveUsd(30);console.log(JSON.stringify(await budgetStatus()))",
+      "80",
+      "await reserveUsd(50);console.log(JSON.stringify(await budgetStatus()))",
     );
     assert.equal(upgraded.status, 0, upgraded.stderr);
     assert.deepEqual(JSON.parse(upgraded.stdout), {
-      limit: 60,
-      used: 59,
+      limit: 80,
+      used: 79,
       remaining: 1,
       halted: false,
       calls: 2,
       pending: 2,
     });
-    assert.equal(execute("60", "await reserveUsd(2)").status, 1);
+    assert.equal(execute("80", "await reserveUsd(2)").status, 1);
     const lowered = JSON.parse(
       execute("30", "console.log(JSON.stringify(await budgetStatus()))").stdout,
     );
-    assert.equal(lowered.used, 59);
+    assert.equal(lowered.used, 79);
     assert.equal(lowered.remaining, 0);
-    for (const invalid of ["61", "0", "NaN", "Infinity"])
+    for (const invalid of ["81", "0", "NaN", "Infinity"])
       assert.equal(execute(invalid, "await reserveUsd(1)").status, 1);
   } finally {
     await rm(cwd, { recursive: true, force: true });

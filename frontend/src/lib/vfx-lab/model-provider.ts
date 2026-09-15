@@ -15,8 +15,13 @@ export function structuredInput(schema: z.ZodType, system: string, text: string,
     Buffer.byteLength(system + text + JSON.stringify(format), "utf8") +
     4000 +
     images.length * 20000;
-  if (inputBound > 200000)
-    throw new Error("Input is too large for the generation budget guard.");
+  // The v2 vocabulary, the technique brief and a full exemplar document put a
+  // candidate request near 300 kB; the guard only has to stop a runaway input,
+  // the reservation still prices every byte.
+  if (inputBound > 480000)
+    throw new Error(
+      `Input is too large for the generation budget guard (${Math.round(inputBound / 1000)} kB).`,
+    );
   return { format, inputBound };
 }
 export async function callStructuredModel<T extends z.ZodType>(

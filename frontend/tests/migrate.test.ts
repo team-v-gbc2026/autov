@@ -158,3 +158,112 @@ test("a v1 particles layer maps spin and speed onto emitter paths", () => {
   const layer = upgradeDocument(v1).layers.find((l) => l.id === source.id)!;
   assert.equal(layer.tracks[0].target, "emitter.render.rotation.speed[1]");
 });
+
+test("an upgraded v1 document carries the neutral value of every later field", () => {
+  const v2 = upgradeDocument(createPreset("projectile"));
+  // v1 had no paths, no screen glitch, no jitter, no channel split, no
+  // procedural parameters, no cylinder taper, no path emitters, no twinkle, no
+  // crystal clusters, no hex lattice, no reveal front, no ground proximity
+  // glow, no ripples, no belt geometry, no borrowed spawn sites and no planar
+  // drag; an upgraded document must render exactly as it did before they
+  // existed.
+  assert.deepEqual(v2.paths, []);
+  assert.equal(v2.post.glitch, null);
+  for (const layer of v2.layers) {
+    assert.equal(layer.jitter, null);
+    assert.equal(layer.ribbon, undefined);
+    assert.equal(layer.wireBurst, undefined);
+    assert.deepEqual(layer.material!.proceduralParams, [0, 0, 0, 0]);
+    assert.equal(layer.material!.rgbSplit, null);
+    assert.equal(layer.crystals, undefined);
+    assert.equal(layer.material!.reveal, null);
+    assert.equal(layer.material!.lattice, null);
+    assert.equal(layer.material!.planeGlow, null);
+    assert.equal(layer.material!.ripples, null);
+    if (layer.geometry) {
+      assert.equal(layer.geometry.taper, 1);
+      assert.equal(layer.geometry.band, null);
+      assert.notEqual(layer.geometry.type, "band");
+    }
+    if (layer.emitter) {
+      assert.equal(layer.emitter.shape.pathId, null);
+      assert.equal(layer.emitter.shape.sourceLayerId, null);
+      assert.equal(layer.emitter.spawn.headCurve, null);
+      assert.equal(layer.emitter.render.twinkle, null);
+      assert.equal(layer.emitter.forces.planarDrag, 0);
+      assert.notEqual(layer.emitter.shape.type, "path");
+      assert.notEqual(layer.emitter.shape.type, "layerInstances");
+      assert.notEqual(layer.emitter.spawn.mode, "pathAnchored");
+    }
+  }
+});
+
+test("the beam/column vocabulary is absent from every upgraded v1 document", () => {
+  // A v1 document has no concept of a slab, a stripe set, a step flicker, a
+  // collapse or a flat cel lick, so the migrator must leave every one of them
+  // at its documented null — an upgraded v1 effect renders exactly as it did.
+  for (const file of FILES) {
+    const v2 = validateDocumentV2(upgradeDocument(loadV1(file)));
+    assert.equal(v2.post.flash, null, file);
+    for (const path of v2.paths) assert.notEqual(path.type, "line");
+    for (const layer of v2.layers) {
+      assert.equal(layer.collapse, null, `${file}/${layer.id}`);
+      assert.ok(layer.kind !== "arcs" && layer.kind !== "streakBurst");
+      if (layer.material) {
+        assert.equal(layer.material.stripes, null, `${file}/${layer.id}`);
+        assert.equal(layer.material.flicker, null, `${file}/${layer.id}`);
+      }
+      if (layer.geometry) {
+        assert.notEqual(layer.geometry.type, "slab");
+        assert.equal(layer.geometry.slab, null, `${file}/${layer.id}`);
+      }
+      if (layer.emitter) {
+        assert.equal(layer.emitter.render.strip, null, `${file}/${layer.id}`);
+        assert.notEqual(layer.emitter.render.mode, "flatStrip");
+        assert.notEqual(layer.emitter.velocity.mode, "alongPath");
+        assert.notEqual(layer.emitter.shape.type, "pathLine");
+      }
+    }
+  }
+});
+
+test("the port-F vocabulary is absent from every upgraded v1 document", () => {
+  // A v1 document has no concept of a sheet tail, an arc-window blade, a cel
+  // lick, a drawn symbol, a squash breath, a screen-plane frame, a radial fan,
+  // a sliver needle or a backdrop card, so the migrator must leave every one of
+  // them at its documented neutral value — an upgraded v1 effect renders
+  // exactly as it did before any of it existed.
+  for (const file of FILES) {
+    const v2 = validateDocumentV2(upgradeDocument(loadV1(file)));
+    assert.equal(v2.environment.backdrop, null, file);
+    for (const layer of v2.layers) {
+      const where = `${file}/${layer.id}`;
+      assert.equal(layer.frame, null, where);
+      assert.equal(layer.transform.squash, null, where);
+      assert.equal(layer.sheets, undefined, where);
+      assert.equal(layer.crescent, undefined, where);
+      assert.equal(layer.licks, undefined, where);
+      assert.ok(
+        layer.kind !== "sheets" && layer.kind !== "crescent" && layer.kind !== "licks",
+        where,
+      );
+      if (layer.material) {
+        assert.equal(layer.material.streaks, null, where);
+        assert.equal(layer.material.creases, null, where);
+        assert.equal(layer.material.screentone, null, where);
+        assert.equal(layer.material.symbol, null, where);
+      }
+      if (layer.emitter) {
+        assert.equal(layer.emitter.shape.angleJitter, 0, where);
+        assert.equal(layer.emitter.shape.angleBias, 0, where);
+        assert.equal(layer.emitter.spawn.sourceLayerId, null, where);
+        assert.equal(layer.emitter.render.sliver, null, where);
+        assert.equal(layer.emitter.render.retract, null, where);
+        assert.equal(layer.emitter.render.secondary, null, where);
+        assert.notEqual(layer.emitter.shape.type, "radialFan", where);
+        assert.notEqual(layer.emitter.spawn.mode, "frontAnchored", where);
+        assert.notEqual(layer.emitter.render.mode, "sliver", where);
+      }
+    }
+  }
+});

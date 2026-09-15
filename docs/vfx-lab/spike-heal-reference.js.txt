@@ -1,0 +1,511 @@
+// autoV toolbox v2 — S2 spike: healing aura (hand-built, no LLM).
+// state = f(t, seed): every layer reads the clock, nothing accumulates, seek == play.
+import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
+const DUR = 6.0;
+const RING_R = 0.78;
+const BODY_H = 1.8;
+
+const P = (window.spikeParams = {
+  play: true,
+  time: 0,
+  speed: 1,
+  bloom: 0.6,
+  threshold: 0.85,
+  exposure: 1.0,
+  layers: {
+    ribbon: true,
+    ring: true,
+    glow: true,
+    sparkles: true,
+    bounce: true,
+    capsule: false,
+  },
+});
+
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const ss = (a, b, x) => {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+// piecewise-linear envelope over [t,v] pairs
+const env = (t, pts) => {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i][0]) {
+      const [t0, v0] = pts[i - 1];
+      const [t1, v1] = pts[i];
+      return v0 + (v1 - v0) * ss(0, 1, (t - t0) / (t1 - t0));
+    }
+  }
+  return pts[pts.length - 1][1];
+};
+
+// ---------------------------------------------------------------- scene
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  powerPreference: "high-performance",
+});
+renderer.setPixelRatio(1);
+renderer.setSize(1280, 720, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = P.exposure;
+renderer.setClearColor(0x050506, 1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x050506, 9, 26);
+
+const camera = new THREE.PerspectiveCamera(32, 1280 / 720, 0.1, 100);
+camera.position.set(1.35, 1.60, 5.15);
+camera.lookAt(0, 1.02, 0);
+
+// flat ground: mid grey that falls off to the background so the horizon reads soft
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.ShaderMaterial({
+    uniforms: { uTint: { value: new THREE.Color(0x000000) }, uTintI: { value: 0 } },
+    vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vP; uniform vec3 uTint; uniform float uTintI;
+      void main(){
+        float d = length(vP);
+        vec3 base = mix(vec3(0.062,0.063,0.067), vec3(0.030,0.030,0.034), smoothstep(1.5,16.0,d));
+        base = mix(base, vec3(0.006,0.006,0.007), smoothstep(20.0,29.0,d));
+        base += uTint * uTintI * exp(-d*d*0.35);
+        gl_FragColor = vec4(base, 1.0);
+      }`,
+  })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+const capsule = new THREE.Mesh(
+  new THREE.CapsuleGeometry(0.3, BODY_H - 0.6, 6, 20),
+  new THREE.MeshBasicMaterial({ color: 0x4a4a50, wireframe: true, transparent: true, opacity: 0.35 })
+);
+capsule.position.y = BODY_H / 2;
+capsule.visible = false;
+scene.add(capsule);
+
+// ---------------------------------------------------------------- shared glsl
+const GLSL_HASH = `
+float hash11(float p){ p = fract(p*0.1031); p *= p+33.33; p *= p+p; return fract(p); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash11(i.x+i.y*57.0), b = hash11(i.x+1.0+i.y*57.0);
+  float c = hash11(i.x+(i.y+1.0)*57.0), d = hash11(i.x+1.0+(i.y+1.0)*57.0);
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}`;
+
+// ---------------------------------------------------------------- ribbon
+// Multi-strand orbit. One analytic path per strand; only the window
+// u in [head - tail, head] is drawn, tapered at both ends. uMix morphs the
+// airborne hip-height sweep into the ground ring, so the same layer plays
+// both "sweep" and "swirling ring" beats.
+const STRANDS = 5;
+const SEGS = 240;
+function buildRibbon() {
+  const g = new THREE.BufferGeometry();
+  const vtx = STRANDS * (SEGS + 1) * 2;
+  const pos = new Float32Array(vtx * 3);
+  const aW = new Float32Array(vtx);
+  const aSide = new Float32Array(vtx);
+  const aStrand = new Float32Array(vtx);
+  const idx = [];
+  let v = 0;
+  for (let s = 0; s < STRANDS; s++) {
+    const base = v;
+    for (let i = 0; i <= SEGS; i++) {
+      const w = i / SEGS;
+      for (let k = 0; k < 2; k++) {
+        aW[v] = w;
+        aSide[v] = k === 0 ? -1 : 1;
+        aStrand[v] = s;
+        v++;
+      }
+    }
+    for (let i = 0; i < SEGS; i++) {
+      const a = base + i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aW", new THREE.BufferAttribute(aW, 1));
+  g.setAttribute("aSide", new THREE.BufferAttribute(aSide, 1));
+  g.setAttribute("aStrand", new THREE.BufferAttribute(aStrand, 1));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 4);
+  return g;
+}
+
+const ribbonMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uHead: { value: 0 },
+    uTail: { value: 0.3 },
+    uMix: { value: 0 },
+    uWidth: { value: 1 },
+    uAlpha: { value: 1 },
+    uTime: { value: 0 },
+    uRingR: { value: RING_R },
+    uCore: { value: new THREE.Color("#e8ffb0") },
+    uEdge: { value: new THREE.Color("#7ee04a") },
+  },
+  vertexShader: `
+    attribute float aW; attribute float aSide; attribute float aStrand;
+    uniform float uHead, uTail, uMix, uWidth, uTime, uRingR;
+    varying float vSide; varying float vW; varying float vStrand; varying float vFade;
+    ${GLSL_HASH}
+    const float TAU = 6.28318530718;
+    vec3 path(float u, float s, float hs){
+      float th = TAU*u;
+      float k = 1.0 + hs*0.6;
+      // airborne sweep around the empty centre, at hip height
+      float rA = 0.82 + 0.075*sin(3.0*th + hs*6.0) + (hs-0.5)*0.09;
+      float yA = 0.94 + 0.17*sin(2.0*th + hs*5.0) + (hs-0.5)*0.26;
+      // settled ground ring
+      float rG = uRingR + 0.055*sin(4.0*th + hs*7.0) + (hs-0.5)*0.05;
+      float yG = 0.035 + 0.022*sin(5.0*th + hs*3.0) + hs*0.02;
+      float r = mix(rA, rG, uMix);
+      float y = mix(yA, yG, uMix);
+      float ph = (hs-0.5)*0.10;
+      return vec3(cos(th+ph)*r, y, sin(th+ph)*r);
+    }
+    void main(){
+      float hs = hash11(aStrand*11.7+3.1);
+      float u = uHead - (1.0 - aW)*uTail;
+      vec3 p = path(u, aStrand, hs);
+      vec3 p2 = path(u + 0.002, aStrand, hs);
+      vec3 tang = normalize(p2 - p);
+      vec3 view = normalize(cameraPosition - p);
+      vec3 across = normalize(cross(tang, view));
+      // taper: soft at the tail, sharp at the head
+      float tp = smoothstep(0.0, 0.30, aW) * smoothstep(1.0, 0.86, aW);
+      float strandW = mix(0.55, 1.0, hs);
+      float w = uWidth * strandW * (0.017 + 0.011*sin(aStrand*2.1)) * tp;
+      vFade = tp;
+      vSide = aSide; vW = aW; vStrand = hs;
+      vec3 wp = p + across * aSide * w;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 uCore, uEdge; uniform float uAlpha, uTime;
+    varying float vSide; varying float vW; varying float vStrand; varying float vFade;
+    void main(){
+      float q = abs(vSide);
+      float core = exp(-q*q*9.0);
+      float halo = exp(-q*q*1.6);
+      float flick = 0.85 + 0.15*sin(vW*40.0 + uTime*6.0 + vStrand*9.0);
+      vec3 col = mix(uEdge, uCore, core) * (core*1.5 + halo*0.30) * flick;
+      float a = vFade * uAlpha * (core*0.9 + halo*0.35);
+      gl_FragColor = vec4(col * a, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const ribbon = new THREE.Mesh(buildRibbon(), ribbonMat);
+scene.add(ribbon);
+
+// ---------------------------------------------------------------- ground ring
+// Thin rim + soft radial inner fill with a slow pulse, on a flat disc.
+const ringMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uR: { value: RING_R },
+    uRim: { value: 1 },
+    uFill: { value: 1 },
+    uCore: { value: new THREE.Color("#d8ffa8") },
+    uTint: { value: new THREE.Color("#6ed85a") },
+  },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    varying vec2 vP; uniform float uTime, uI, uR, uRim, uFill; uniform vec3 uCore, uTint;
+    ${GLSL_HASH}
+    void main(){
+      float d = length(vP);
+      float ang = atan(vP.y, vP.x);
+      float wob = 0.012*sin(ang*5.0 + uTime*1.4) + 0.008*sin(ang*9.0 - uTime*0.9);
+      float r = uR + wob;
+      float rim = exp(-pow((d-r)/0.030, 2.0));
+      float rimSoft = exp(-pow((d-r)/0.115, 2.0));
+      float pulse = 0.72 + 0.28*sin(uTime*2.3);
+      float fill = smoothstep(r+0.03, 0.0, d) * (0.20 + 0.14*pulse);
+      fill *= 0.55 + 0.45*vnoise(vec2(ang*2.4, d*5.0 - uTime*0.7));
+      vec3 col = uCore*(rim*1.5*uRim) + uTint*(rimSoft*0.32*uRim + fill*0.85*uFill);
+      float a = clamp(rim*uRim + rimSoft*0.30*uRim + fill*0.8*uFill, 0.0, 1.0) * uI;
+      gl_FragColor = vec4(col*a, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const ring = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), ringMat);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.012;
+scene.add(ring);
+
+// ---------------------------------------------------------------- ground bounce
+const bounceMat = new THREE.ShaderMaterial({
+  uniforms: { uI: { value: 0 }, uCol: { value: new THREE.Color("#7ee04a") } },
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `varying vec2 vP; uniform float uI; uniform vec3 uCol;
+    void main(){ float d = length(vP); float a = exp(-d*d*2.4)*uI*0.6; gl_FragColor = vec4(uCol*a, a); }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const bounce = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 4.6), bounceMat);
+bounce.rotation.x = -Math.PI / 2;
+bounce.position.y = 0.006;
+scene.add(bounce);
+
+// ---------------------------------------------------------------- upright glow
+// Open cylinder + a crossed inner billboard pair: vertical fade, fresnel-ish
+// rim, and rising noise streaks.
+const glowMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uTop: { value: new THREE.Color("#a8ff80") },
+    uBase: { value: new THREE.Color("#6ed85a") },
+    uRimK: { value: 1.0 },
+    uHFade: { value: 0.0 },
+  },
+  vertexShader: `
+    varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+    void main(){
+      vUv = uv; vN = normalize(normalMatrix * normal);
+      vec4 mv = modelViewMatrix * vec4(position,1.0);
+      vV = normalize(-mv.xyz);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+    uniform float uTime, uI, uRimK, uHFade; uniform vec3 uTop, uBase;
+    ${GLSL_HASH}
+    void main(){
+      float h = vUv.y;
+      float vert = pow(1.0 - h, 1.35) * smoothstep(0.0, 0.06, h);
+      float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
+      float streak = vnoise(vec2(vUv.x*16.0, h*4.0 - uTime*0.55));
+      streak = mix(0.65, 1.35, streak);
+      float hf = mix(1.0, pow(sin(3.14159*vUv.x), 1.1), uHFade);
+      float a = vert * (0.13 + 0.52*rim*uRimK) * streak * uI * hf;
+      vec3 col = mix(uTop, uBase, vert) * (0.75 + 0.85*rim*uRimK);
+      gl_FragColor = vec4(col*a, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const glow = new THREE.Group();
+const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.70, 0.78, 2.45, 48, 1, true), glowMat);
+glowMat.uniforms.uRimK.value = 0.55;
+cyl.position.y = 1.22;
+glow.add(cyl);
+const innerMat = glowMat.clone();
+innerMat.uniforms = THREE.UniformsUtils.clone(glowMat.uniforms);
+innerMat.uniforms.uRimK.value = 0.0;
+innerMat.uniforms.uHFade.value = 1.0;
+for (let i = 0; i < 2; i++) {
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(1.40, 2.45), innerMat);
+  q.position.y = 1.22;
+  q.rotation.y = (i * Math.PI) / 2;
+  glow.add(q);
+}
+const hazeMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 0 },
+    uTop: { value: new THREE.Color("#a8ff80") },
+    uBase: { value: new THREE.Color("#6ed85a") },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    varying vec2 vUv; uniform float uTime, uI; uniform vec3 uTop, uBase;
+    ${GLSL_HASH}
+    void main(){
+      float h = vUv.y;
+      float x = (vUv.x - 0.5)*2.0;
+      float vert = pow(1.0 - h, 1.25) * smoothstep(0.0, 0.04, h);
+      float horiz = exp(-x*x*1.8);
+      float streak = mix(0.6, 1.4, vnoise(vec2(vUv.x*9.0, h*3.2 - uTime*0.5)));
+      float a = vert * horiz * streak * 0.95 * uI;
+      vec3 col = mix(uTop, uBase, vert);
+      gl_FragColor = vec4(col*a, a);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const haze = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 3.0), hazeMat);
+haze.position.set(0, 1.5, 0);
+haze.rotation.y = Math.atan2(camera.position.x, camera.position.z);
+glow.add(haze);
+scene.add(glow);
+
+// ---------------------------------------------------------------- sparkles
+// Instanced quads, a 4-point star SDF in the fragment shader, per-instance
+// birth/seed hashed off the instance id. Nothing is stored between frames.
+const SPARKS = 44;
+function buildSparks() {
+  const base = new THREE.PlaneGeometry(1, 1);
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = base.index;
+  g.attributes.position = base.attributes.position;
+  g.attributes.uv = base.attributes.uv;
+  const seeds = new Float32Array(SPARKS);
+  for (let i = 0; i < SPARKS; i++) seeds[i] = i;
+  g.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 1));
+  g.instanceCount = SPARKS;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1, 0), 4);
+  return g;
+}
+const sparkMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uI: { value: 1 },
+    uRingR: { value: RING_R },
+    uCol: { value: new THREE.Color("#d6ff9c") },
+  },
+  vertexShader: `
+    attribute float aSeed;
+    uniform float uTime, uRingR;
+    varying vec2 vQ; varying float vA; varying float vSeed;
+    ${GLSL_HASH}
+    void main(){
+      float s = aSeed;
+      float h1 = hash11(s*1.37+0.11), h2 = hash11(s*2.71+5.3);
+      float h3 = hash11(s*3.93+11.7), h4 = hash11(s*5.11+23.9), h5 = hash11(s*7.13+41.3);
+      // births spread across the whole heal, denser in the middle
+      float birth = 1.05 + 3.05*pow(h1, 0.85);
+      float life = 1.25 + 1.15*h2;
+      float age = uTime - birth;
+      float u = age/life;
+      float rad = uRingR*(0.25 + 1.15*sqrt(h3));
+      float ang = h4*6.2831 + u*0.55 + sin(uTime*0.7+s)*0.05;
+      float y0 = 0.03 + 0.30*h5;
+      float rise = 0.40 + 0.70*h2;
+      vec3 c = vec3(cos(ang)*rad, y0 + rise*u, sin(ang)*rad);
+      c.x += 0.09*sin(u*4.1 + s*2.0);
+      c.z += 0.09*cos(u*3.3 + s*1.3);
+      float bell = pow(sin(3.14159*clamp(u,0.0,1.0)), 0.65);
+      float twk = 0.45 + 0.55*pow(abs(sin(uTime*4.5 + s*3.7)), 1.5);
+      float alive = step(0.0, age) * step(u, 1.0);
+      vA = bell * twk * alive;
+      float size = (0.095 + 0.110*h2) * mix(0.65, 1.15, bell);
+      vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+      vec3 up    = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+      float rot = h4*1.57;
+      vec2 q = position.xy*2.0;
+      vec2 qr = vec2(q.x*cos(rot)-q.y*sin(rot), q.x*sin(rot)+q.y*cos(rot));
+      vQ = q; vSeed = s;
+      vec3 wp = c + (right*qr.x + up*qr.y) * size * alive;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(wp, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vQ; varying float vA; varying float vSeed;
+    uniform vec3 uCol; uniform float uI;
+    void main(){
+      vec2 q = vQ;
+      float a = abs(q.x), b = abs(q.y);
+      float sx = pow(max(0.0, 1.0 - a*0.62), 3.0) * pow(max(0.0, 1.0 - b*4.2), 2.0);
+      float sy = pow(max(0.0, 1.0 - b*0.62), 3.0) * pow(max(0.0, 1.0 - a*4.2), 2.0);
+      float core = pow(max(0.0, 1.0 - length(q)*3.4), 2.0);
+      float halo = pow(max(0.0, 1.0 - length(q)*0.95), 2.6)*0.22;
+      float m = sx + sy + core*1.6 + halo;
+      float al = clamp(m, 0.0, 1.0) * vA * uI;
+      vec3 col = mix(uCol, vec3(1.0), clamp(core*1.4, 0.0, 1.0)) * (1.0 + core*1.8);
+      gl_FragColor = vec4(col*al, al);
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const sparks = new THREE.Mesh(buildSparks(), sparkMat);
+scene.add(sparks);
+
+// ---------------------------------------------------------------- post
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1280, 720), P.bloom, 0.5, P.threshold);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------------------------------------------------------- timeline
+function apply(t) {
+  // ribbon head: eased single wrap over 0..1.2, then a slow residual spin
+  const sweep = ss(0, 1, clamp01((t - 0.28) / 0.95));
+  const head = sweep * 1.0 + Math.max(0, t - 1.2) * 0.085;
+  const mix = ss(1.0, 1.75, t);
+  const tail = 0.42 + 0.56 * mix;
+  const ribbonA =
+    env(t, [[0, 0], [0.12, 1], [2.7, 1], [4.0, 0.55], [5.2, 0.18], [5.75, 0]]) *
+    (P.layers.ribbon ? 1 : 0);
+  ribbonMat.uniforms.uHead.value = head;
+  ribbonMat.uniforms.uTail.value = tail;
+  ribbonMat.uniforms.uMix.value = mix;
+  ribbonMat.uniforms.uWidth.value = env(t, [[0, 1.15], [1.4, 1.0], [3.2, 0.85], [5.5, 0.45]]);
+  ribbonMat.uniforms.uAlpha.value = ribbonA;
+  ribbonMat.uniforms.uTime.value = t;
+  ribbon.visible = ribbonA > 0.001;
+
+  const ringI = env(t, [[1.0, 0], [1.55, 1.05], [2.7, 1.0], [4.2, 0.5], [5.3, 0.18], [5.8, 0]]);
+  ringMat.uniforms.uI.value = ringI;
+  ringMat.uniforms.uTime.value = t;
+  ringMat.uniforms.uFill.value = env(t, [[1.2, 0], [1.8, 1], [2.9, 0.9], [4.4, 0.25], [5.4, 0]]);
+  ringMat.uniforms.uR.value = RING_R * env(t, [[1.1, 0.72], [1.5, 1.02], [1.9, 1.0]]);
+  ring.visible = P.layers.ring && ringI > 0.001;
+
+  const glowI = env(t, [[1.15, 0], [2.2, 1.0], [2.7, 1.0], [3.8, 0.45], [4.8, 0]]);
+  glowMat.uniforms.uI.value = glowI;
+  glowMat.uniforms.uTime.value = t;
+  innerMat.uniforms.uI.value = glowI * 0.8;
+  innerMat.uniforms.uTime.value = t;
+  hazeMat.uniforms.uI.value = glowI;
+  hazeMat.uniforms.uTime.value = t;
+  glow.visible = P.layers.glow && glowI > 0.001;
+
+  sparkMat.uniforms.uTime.value = t;
+  sparkMat.uniforms.uI.value = env(t, [[0, 1], [4.4, 1], [5.45, 0]]);
+  sparks.visible = P.layers.sparkles;
+
+  const bI = (ringI * 0.5 + glowI * 0.2) * 0.35;
+  bounceMat.uniforms.uI.value = bI;
+  bounce.visible = P.layers.bounce && bI > 0.001;
+  ground.material.uniforms.uTintI.value = bI * 0.9;
+  ground.material.uniforms.uTint.value.set("#3f8a2c");
+
+  capsule.visible = P.layers.capsule;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (P.play) P.time = (P.time + dt * P.speed) % DUR;
+  renderer.toneMappingExposure = P.exposure;
+  bloom.strength = P.bloom;
+  bloom.threshold = P.threshold;
+  apply(P.time);
+  composer.render();
+  window.__spikeFrame = (window.__spikeFrame || 0) + 1;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.spikeSetTime = (t) => {
+  P.play = false;
+  P.time = t;
+  apply(t);
+};
+window.__spikeReady = true;

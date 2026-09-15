@@ -1,6 +1,6 @@
 // Explicit opt-in: uses configured project ownership and its spending ledger.
 import { createOperation, readState } from "../src/lib/studio-tools/server";
-import { generateCandidate } from "../src/lib/studio-tools/generation";
+import { generateCandidate } from "../src/lib/studio-tools/legacy-generation";
 if (process.env.STUDIO_LIVE_SMOKE !== "1")
   throw new Error(
     "Set STUDIO_LIVE_SMOKE=1 to authorize a live, billable generation smoke test.",

@@ -2,8 +2,8 @@ import type { IUniform } from "three";
 import * as THREE from "three/webgpu";
 import {
   attribute,
-  reference,
   texture,
+  reference,
   uniformArray,
   varying,
   vec2,
@@ -15,7 +15,31 @@ import {
 import * as shaders from "./shaders-v2-nodes.js";
 
 type Binding = { type: string; kind: string; size?: number };
-type ShaderName = "particle" | "subParticle" | "trail" | "subTrail" | "surface";
+
+/** Every draw the V2 renderer makes, and the generated vertex/fragment pair it
+ * is built from. Adding a layer kind means adding its programs to
+ * scripts/webgpu/port-shaders.mts and one line here. */
+const PROGRAMS = {
+  particle: ["particleVertex", "particleFragment"],
+  subParticle: ["subParticleVertex", "particleFragment"],
+  trail: ["trailVertex", "trailFragment"],
+  subTrail: ["subTrailVertex", "trailFragment"],
+  strip: ["stripVertex", "stripFragment"],
+  sliver: ["sliverVertex", "sliverFragment"],
+  surface: ["surfaceVertex", "surfaceFragment"],
+  blob: ["blobVertex", "blobFragment"],
+  crystal: ["crystalVertex", "crystalFragment"],
+  splash: ["splashVertex", "splashFragment"],
+  ribbon: ["ribbonVertex", "ribbonFragment"],
+  wireBurst: ["wireBurstVertex", "wireBurstFragment"],
+  arc: ["arcVertex", "arcFragment"],
+  streak: ["streakVertex", "streakFragment"],
+  sheet: ["sheetVertex", "sheetFragment"],
+  crescent: ["crescentVertex", "crescentFragment"],
+  lick: ["lickVertex", "lickFragment"],
+} as const satisfies Record<string, readonly [string, string]>;
+
+export type ShaderName = keyof typeof PROGRAMS;
 export type V2NodeMaterial = THREE.NodeMaterial & {
   uniforms: Record<string, IUniform>;
 };
@@ -29,18 +53,28 @@ export function createV2NodeMaterial(
   uniforms: Record<string, IUniform>,
   parameters: THREE.MaterialParameters,
 ): V2NodeMaterial {
-  const vertexName = `${kind}Vertex` as const;
-  const fragmentName =
-    `${kind.includes("Trail") || kind === "trail" ? "trail" : kind.includes("Particle") || kind === "particle" ? "particle" : "surface"}Fragment` as const;
+  const [vertexName, fragmentName] = PROGRAMS[kind];
+  const graphs = shaders as unknown as Record<
+    string,
+    ((b: Record<string, THREE.Node>) => THREE.Node) & Record<string, Binding>
+  >;
+  const declarations = graphs as unknown as Record<string, Record<string, Binding>>;
   const definitions = {
-    ...shaders[`${vertexName}Bindings`],
-    ...shaders[`${fragmentName}Bindings`],
-  } as Record<string, Binding>;
+    ...declarations[`${vertexName}Bindings`],
+    ...declarations[`${fragmentName}Bindings`],
+  };
   const bindings: Record<string, THREE.Node> = {};
+  // Report the whole set at once: a program that gains a uniform block usually
+  // needs several, and one name per rebuild is a slow way to find that out.
+  const missing = Object.entries(definitions)
+    .filter(([name, binding]) => binding.kind === "uniform" && !uniforms[name])
+    .map(([name]) => name);
+  if (missing.length)
+    throw new Error(
+      `Missing V2 shader uniforms for ${kind}: ${missing.join(", ")}`,
+    );
   for (const [name, binding] of Object.entries(definitions)) {
     if (binding.kind === "uniform") {
-      if (!uniforms[name])
-        throw new Error(`Missing V2 shader uniform: ${name}`);
       if (binding.type === "sampler2D") {
         const node = texture(uniforms[name].value ?? undefined);
         const fallback = node.value;
@@ -50,13 +84,20 @@ export function createV2NodeMaterial(
           originalUpdate(frame);
         });
         bindings[name] = node;
-      } else if (/^u(?:Curve[A-Z]N|RampN|(?:Parent)?SpeedN|(?:Parent)?BurstN|Procedural|RenderMode)$/.test(name)) {
+      } else if (/^u(?:Curve[A-Z]N|RampN|(?:Parent)?SpeedN|(?:Parent)?BurstN|Procedural|RenderMode|SmokeLit|SmokeCard)$/.test(name)) {
         // These values are structural within an installed document. Baking them
         // lets the GPU unroll short curve/ramp loops and discard unused shapes.
         // Edits install new materials; animated keys preserve the same lengths.
         bindings[name] = int(uniforms[name].value);
-      } else if (binding.size)
-        bindings[name] = uniformArray(uniforms[name].value, binding.type);
+      } else if (binding.size) {
+        // Three names a uniform buffer's WGSL struct after the node's id unless
+        // the node carries a name. Naming it keeps the generated text identical
+        // between two materials of the same kind, which is what lets them share
+        // a compiled program.
+        const node = uniformArray(uniforms[name].value, binding.type);
+        node.setName(name);
+        bindings[name] = node;
+      }
       else
         bindings[name] = reference(
           "value",
@@ -79,12 +120,13 @@ export function createV2NodeMaterial(
   }
   const material = new THREE.NodeMaterial() as V2NodeMaterial;
   material.setValues(parameters);
-  // V2 effects author their own unlit shading; fog only affects scene dressing.
+  // V2 effects author their shading; litSmoke uses explicit light uniforms.
+  // Fog only affects scene dressing.
   material.fog = false;
   material.forceSinglePass = true;
   material.uniforms = uniforms;
 
-  material.vertexNode = shaders[vertexName](bindings);
-  material.fragmentNode = shaders[fragmentName](bindings);
+  material.vertexNode = graphs[vertexName](bindings);
+  material.fragmentNode = graphs[fragmentName](bindings);
   return material;
 }

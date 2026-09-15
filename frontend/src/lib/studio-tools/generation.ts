@@ -1,20 +1,14 @@
 import { z } from "zod";
-import { callStructuredModel, modelCost, structuredInput } from "../vfx-lab/model-provider";
-import { PlanSchema } from "../vfx-lab/protocol";
-import { TECHNICAL_GUIDE_V2 } from "../vfx-lab/protocol-v2";
-import { RECIPES_V2, createPresetV2, recipeV2For } from "../vfx-lab/recipes-v2";
 import {
-  DocumentV2WireSchema,
-  fromWireV2,
-  type VfxDocumentV2,
-} from "../vfx-lab/schema-v2";
-import {
-  GenerationSchema,
-  appendGenerated,
-  OperationError,
-} from "./operations";
+  callStructuredModel,
+  modelCost,
+  structuredInput,
+} from "../vfx-lab/model-provider";
+import { GenerationSchema, OperationError } from "./operations";
 import { transition, readState, type Identity, type Operation } from "./server";
 import { inspectReferences } from "./references";
+import { inspectLibraryTextures } from "../vfx-lab/inspect-library-textures";
+import { generationBrief, type GenerationContext } from "./generation-context";
 
 /** Stage result persistence is separate from the model transport and from rendering. */
 export async function modelStage<T extends z.ZodType>(
@@ -29,16 +23,43 @@ export async function modelStage<T extends z.ZodType>(
   maxOutput: number,
   provider: typeof callStructuredModel = callStructuredModel,
 ) {
+  // Same ceiling as vfx-lab/budget.ts MAX_SPEND_LIMIT_USD, read here rather
+  // than imported: a bad configuration must surface as an OperationError on
+  // the request, not as a module-load throw in the product path.
   const limit = Number(process.env.OPENAI_VFX_BUDGET_USD || 30);
-  if (!Number.isFinite(limit) || limit <= 0 || limit > 60)
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 80)
     throw new OperationError(
       "UNAVAILABLE",
-      "Configure a generation budget between $0 and $60.",
+      "Configure a generation budget between $0 and $80.",
     );
   signal.throwIfAborted();
-  if (!process.env.OPENAI_API_KEY) throw new OperationError("UNAVAILABLE", "Configure OPENAI_API_KEY on the server before generating.");
-  if (process.env.OPENAI_VFX_MODEL && process.env.OPENAI_VFX_MODEL !== "gpt-6-astra") throw new OperationError("UNAVAILABLE", "Generation model is incompatible with the configured spending guard.");
-  const { inputBound } = structuredInput(schema, system, text, images);
+  if (!process.env.OPENAI_API_KEY)
+    throw new OperationError(
+      "UNAVAILABLE",
+      "Configure OPENAI_API_KEY on the server before generating.",
+    );
+  if (
+    process.env.OPENAI_VFX_MODEL &&
+    process.env.OPENAI_VFX_MODEL !== "gpt-6-astra"
+  )
+    throw new OperationError(
+      "UNAVAILABLE",
+      "Generation model is incompatible with the configured spending guard.",
+    );
+  let inputBound: number;
+  try {
+    ({ inputBound } = structuredInput(schema, system, text, images));
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Input is too large for the generation budget guard."
+    )
+      throw new OperationError(
+        "INVALID_INPUT",
+        `${stage}: input exceeds the generation budget guard. Reduce reference images or effect complexity.`,
+      );
+    throw error;
+  }
   let usageCost: number | undefined;
   const reserved = await transition(identity, "reserve", {
     id: operation.id,
@@ -47,7 +68,11 @@ export async function modelStage<T extends z.ZodType>(
     limit,
   });
   if (!reserved?.call)
-    throw new OperationError("CANCELLED", "Generation stopped.");
+    throw new OperationError(
+      "UNAVAILABLE",
+      reserved?.result?.message ||
+        `Generation ${reserved?.status || "stopped"}.`,
+    );
   if (reserved.replayed) {
     if (!reserved.call.result)
       throw new OperationError(
@@ -94,12 +119,10 @@ export async function modelStage<T extends z.ZodType>(
     clearInterval(timer);
   }
 }
-export async function generateCandidate(
+export async function resolveGenerationContext(
   identity: Identity,
-  operation: Operation,
   input: z.infer<typeof GenerationSchema>,
-  signal: AbortSignal,
-): Promise<VfxDocumentV2> {
+): Promise<GenerationContext> {
   const state = await readState(identity);
   if (state.revision !== input.expectedRevision)
     throw new OperationError(
@@ -110,40 +133,21 @@ export async function generateCandidate(
   const images = parts.flatMap((part) =>
     part.type === "file" && typeof part.data === "string" ? [part.data] : [],
   );
-  const prompt =
-    input.mode === "add"
-      ? `${input.prompt}\nGenerate ONLY additional layers. Fit them within ${state.document.duration} seconds. Existing effect for context: ${JSON.stringify(state.document)}`
-      : input.prompt;
-  const plan = await modelStage(
-    identity,
-    operation,
-    "plan",
-    PlanSchema,
-    `${TECHNICAL_GUIDE_V2}\nPlan the composition and motion. Use only library textures; textures must be [].`,
-    prompt,
-    images,
-    signal,
-    12000,
-  );
-  const family = recipeV2For(plan.recipe);
-  const wire = await modelStage(
-    identity,
-    operation,
-    "candidate",
-    DocumentV2WireSchema,
-    `${TECHNICAL_GUIDE_V2}\nParameterize the plan into a complete v2 document. Use the example as the scale reference.`,
-    JSON.stringify({
-      prompt,
-      plan: { ...plan, textures: [] },
-      recipe: RECIPES_V2[family].knowledge,
-      example: createPresetV2(family),
-    }),
-    images,
-    signal,
-    32000,
-  );
-  const generated = fromWireV2(wire, []);
-  return input.mode === "add"
-    ? appendGenerated(state.document, generated)
-    : { ...generated, environment: structuredClone(state.document.environment) };
+  const textures = input.textureIds.length
+    ? await inspectLibraryTextures({ textureIds: input.textureIds })
+    : [];
+  const brief = generationBrief(input, state.document);
+  return {
+    input,
+    base: state.document,
+    brief: `${brief}\nImage order: first ${images.length} images are board references in referenceIds order; remaining images are library atlases in textureIds order. Library metadata: ${JSON.stringify(textures.map((t) => t.texture))}`,
+    images: [
+      ...images,
+      ...textures.map((t) => `data:image/png;base64,${t.image}`),
+    ],
+    criteria: [
+      "Matches the requested effect, timing and explicit exclusions.",
+      ...input.requirements,
+    ],
+  };
 }

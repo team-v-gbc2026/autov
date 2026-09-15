@@ -32,7 +32,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_SUPABASE_URL = "https://tkjstnitmfwgmedipcvs.supabase.co";
 const TEXTURE_BUCKET = "vfx-textures";
 const FIXTURE_BUCKET = "vfx-fixtures";
+// Textures are content-addressed and immutable; documents (exemplars, presets,
+// manifests) are re-uploaded in place, so browsers must re-check them soon.
 const CACHE_CONTROL = "31536000";
+const DOCUMENT_CACHE_CONTROL = "300";
+const cacheControlFor = (localPath) =>
+  /\.json$/i.test(localPath) ? DOCUMENT_CACHE_CONTROL : CACHE_CONTROL;
 
 const CONTENT_TYPES = new Map([
   [".png", "image/png"],
@@ -199,9 +204,12 @@ async function upload(entry) {
     {
       method: "POST",
       headers: {
+        // Storage requires both: apikey identifies the project, the bearer
+        // carries the secret (sb_secret_… or a service-role JWT).
+        authorization: `Bearer ${serviceKey}`,
         apikey: serviceKey,
         "content-type": contentType(entry.localPath),
-        "cache-control": `max-age=${CACHE_CONTROL}`,
+        "cache-control": `max-age=${cacheControlFor(entry.localPath)}`,
         "x-upsert": "true",
       },
       body,

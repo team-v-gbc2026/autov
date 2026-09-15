@@ -19,15 +19,25 @@ export const DEFAULT_SUPABASE_URL = "https://tkjstnitmfwgmedipcvs.supabase.co";
 export const VFX_TEXTURE_BUCKET = "vfx-textures";
 export const VFX_FIXTURE_BUCKET = "vfx-fixtures";
 
-/** The seven hand-authored exemplars in fixtures/v2 / the vfx-fixtures bucket. */
+/** The hand-authored exemplars in fixtures/v2 / the vfx-fixtures bucket. */
 export const FIXTURE_IDS = [
   "beam",
+  "energy-column",
   "fire-projectile",
   "fire-slash",
+  "fire-slash-classic",
+  "glitch-projectile",
+  "healing-aura",
   "ice-blast",
+  "ice-blast-classic",
   "lightning-impact",
+  "meteor-rain",
+  "playful-impact",
+  "portal",
   "shield",
+  "sky-vortex",
   "smoke-burst",
+  "water-projectile",
 ] as const;
 
 export type FixtureId = (typeof FIXTURE_IDS)[number];
@@ -78,6 +88,12 @@ export function presetThumbnailUrl(id: string): string {
   return `${VFX_PRESET_BASE}/thumbnails/${encodeURIComponent(id)}.webp`;
 }
 
+/** Base URL for generated trial presets published to Supabase Storage. */
+export const VFX_PRESET_BASE = `${publicObjectBase(
+  envVar("NEXT_PUBLIC_SUPABASE_URL") ?? DEFAULT_SUPABASE_URL,
+  VFX_FIXTURE_BUCKET,
+)}/presets`;
+
 function runtimeOverride(): string | undefined {
   const value = (globalThis as { __VFX_ASSET_BASE?: unknown }).__VFX_ASSET_BASE;
   return typeof value === "string" && value.trim()
@@ -100,4 +116,12 @@ export function textureUrl(name: string): string {
 /** URL for one fixture document in the vfx-fixtures bucket. */
 export function fixtureUrl(id: string): string {
   return `${VFX_FIXTURE_BASE}/${id}/document.json`;
+}
+
+export function presetManifestUrl(): string {
+  return `${VFX_PRESET_BASE}/manifest.json`;
+}
+
+export function presetDocumentUrl(id: string): string {
+  return `${VFX_PRESET_BASE}/effects/${encodeURIComponent(id)}/document.json`;
 }

@@ -81,6 +81,15 @@ function sampleKeys(
   return keys[0][1];
 }
 
+/** The renderer's own hash, so a CPU jitter matches the GLSL one bit for bit. */
+function hash11(p: number) {
+  let x = (p * 0.1031) % 1;
+  if (x < 0) x += 1;
+  x *= x + 33.33;
+  x *= x + x;
+  return x - Math.floor(x);
+}
+
 function mixColor(a: string, b: string, w: number) {
   const channels = [1, 3, 5].map((i) =>
     Math.round(
@@ -112,15 +121,33 @@ export function evaluateLayerV2(layer: LayerV2, time: number): EvaluatedLayerV2 
 /** Runtime-only view: unchanged branches share the installed document. Callers
  * must treat the result as read-only. Clone just the branches animation writes.
  */
-export function evaluateLayerV2Readonly(layer: LayerV2, time: number): EvaluatedLayerV2 {
-  if (!layer.tracks.length && !layer.motion && !layer.overrides.length)
-    return evaluateResolvedLayer(layer, time, layer);
-  const next = { ...layer };
+/** Every branch `evaluateResolvedLayer` may write for this layer at this time.
+ * Anything not listed here is shared with the document, so a stage that wrote
+ * to it would corrupt the source — layer.collapse multiplies its geometry down
+ * on every frame, and a shared geometry reaches the 0.01 floor within a second.
+ */
+function writtenBranches(layer: LayerV2, time: number): Set<string> {
   const branches = new Set<string>();
-  for (const track of layer.tracks) branches.add(String(parseTargetPath(track.target)[0]));
+  for (const track of layer.tracks)
+    branches.add(String(parseTargetPath(track.target)[0]));
   for (const override of layer.overrides)
-    if (windowWeight(override, time) !== 0) branches.add(String(parseTargetPath(override.target)[0]));
+    if (windowWeight(override, time) !== 0)
+      branches.add(String(parseTargetPath(override.target)[0]));
   if (layer.motion) branches.add("transform");
+  if (layer.jitter && layer.jitter.amplitude > 0) branches.add("transform");
+  if (layer.transform.squash) branches.add("transform");
+  if (layer.collapse) {
+    branches.add("transform");
+    branches.add("geometry");
+    branches.add("arcs");
+  }
+  return branches;
+}
+
+export function evaluateLayerV2Readonly(layer: LayerV2, time: number): EvaluatedLayerV2 {
+  const branches = writtenBranches(layer, time);
+  if (!branches.size) return evaluateResolvedLayer(layer, time, layer);
+  const next = { ...layer };
   const source = layer as unknown as Record<string, unknown>;
   const target = next as unknown as Record<string, unknown>;
   for (const branch of branches)
@@ -156,6 +183,74 @@ function evaluateResolvedLayer(layer: LayerV2, time: number, next: LayerV2): Eva
         }
     next.transform.position = next.transform.position.map(
       (v, i) => v + offset[i],
+    ) as [number, number, number];
+  }
+
+  // layer.jitter: a stepped-hash offset on the transform, applied after motion
+  // so it perturbs wherever the layer already is. floor(age * frequency) is the
+  // only state, so a seek lands inside exactly the window playback was in.
+  if (next.jitter && next.jitter.amplitude > 0 && age >= 0) {
+    const { frequency, amplitude, gate, axis } = next.jitter;
+    const step = Math.floor(age * frequency);
+    if (hash11(step * 1.7 + 0.3) >= gate) {
+      const offset = axis
+        ? axis.map((v) => v * (hash11(step * 3.1) - 0.5) * 2 * amplitude)
+        : [3.1, 5.3, 7.9].map((k) => (hash11(step * k) - 0.5) * 2 * amplitude);
+      next.transform.position = next.transform.position.map(
+        (v, i) => v + offset[i],
+      ) as [number, number, number];
+    }
+  }
+
+  // layer.collapse: ONE retraction applied uniformly, so every part of a
+  // composite body shrinks in step instead of each carrying its own tracks and
+  // drifting apart. It runs after tracks and motion and before the overrides,
+  // which stay the last word on any value. anchor "base" keeps the transform
+  // where it is, so a body authored with its base at the layer origin retracts
+  // from the top.
+  if (next.collapse && age >= next.collapse.start) {
+    const { start, duration, heightCurve, widthCurve } = next.collapse;
+    const p = clamp((age - start) / Math.max(duration, 1e-4));
+    const h = sampleKeys(heightCurve.keys as [number, number][], p, heightCurve.ease);
+    const w = sampleKeys(widthCurve.keys as [number, number][], p, widthCurve.ease);
+    if (next.geometry) {
+      // Along the layer's own +Z axis; across it is radius/thickness.
+      next.geometry.length = Math.max(0.01, next.geometry.length * h);
+      next.geometry.radius = Math.max(0.01, next.geometry.radius * w);
+      next.geometry.thickness = Math.max(0.001, next.geometry.thickness * w);
+    } else if (next.arcs) {
+      next.arcs.span = Math.max(0.05, next.arcs.span * h);
+      next.arcs.radius = [
+        Math.max(0.02, next.arcs.radius[0] * w),
+        Math.max(0.02, next.arcs.radius[1] * w),
+      ];
+    } else {
+      next.transform.scale = [
+        next.transform.scale[0] * w,
+        next.transform.scale[1] * h,
+        next.transform.scale[2] * w,
+      ];
+    }
+  }
+
+  // transform.squash: a volume-conserving breath on the layer's own scale. The
+  // named axis takes 1 + amplitude*sin(2*PI*frequency*age) and the two cross
+  // axes the inverse square root of it, so the body keeps its volume instead of
+  // pumping — and because it multiplies transform.scale it reaches every kind
+  // with no per-kind branch anywhere. It runs after collapse and before the
+  // overrides, which stay the last word on any value.
+  if (next.transform.squash && age >= 0) {
+    const { axis, amplitude, frequency } = next.transform.squash;
+    const k = 1 + amplitude * Math.sin(age * 2 * Math.PI * frequency);
+    const cross = 1 / Math.sqrt(Math.max(k, 1e-4));
+    const factor: [number, number, number] =
+      axis === "x"
+        ? [k, cross, cross]
+        : axis === "y"
+          ? [cross, k, cross]
+          : [cross, cross, k];
+    next.transform.scale = next.transform.scale.map(
+      (v, i) => v * factor[i],
     ) as [number, number, number];
   }
 

@@ -12,6 +12,8 @@ test("live appearance and speed changes reuse GPU structure, structural edits do
   edited.emitter!.velocity.speed = [1, 2];
   edited.emitter!.render.size = [0.2, 0.4];
   assert.equal(layerBuildKey(layer), layerBuildKey(edited));
+  edited.enabled = !layer.enabled;
+  assert.equal(layerBuildKey(layer), layerBuildKey(edited));
   edited.material!.blend = layer.material!.blend === "alpha" ? "additive" : "alpha";
   assert.notEqual(layerBuildKey(layer), layerBuildKey(edited));
 });

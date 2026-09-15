@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Studio from "@/components/studio";
 import FixturePicker from "./fixture-picker";
+import { STUDIO_PRESETS } from "./studio-presets";
 import { createDocument } from "@/lib/vfx-lab/ui-bridge";
 import {
   knownFixtureIds,
@@ -49,7 +50,7 @@ export default async function VfxStudioV2Page({
   return (
     <Studio
       key={id}
-      headerActions={<FixturePicker selectedId={id} fixtureIds={ids} />}
+      headerActions={<FixturePicker selectedId={id} presets={STUDIO_PRESETS} />}
       project={{
         id: "00000000-0000-0000-0000-000000000000",
         name: document?.name ?? "Empty workspace",

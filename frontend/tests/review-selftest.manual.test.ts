@@ -108,7 +108,7 @@ test(
     mkdirSync(OUT_DIR, { recursive: true });
     const reviews = new Map<string, ReviewV2>();
     for (const [index, { id, evidence }] of results.entries()) {
-      assert.equal(evidence.times.length, 8, `${id}: sheet tile count`);
+      assert.equal(evidence.times.length, 24, `${id}: sheet tile count`);
       assert.equal(evidence.stripTimes?.length, 12, `${id}: strip frame count`);
       assert.ok(evidence.renderedPixels! > 20, `${id}: nothing rendered`);
       await writeDataUrlAsPng(

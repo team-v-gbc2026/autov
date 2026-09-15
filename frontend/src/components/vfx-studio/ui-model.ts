@@ -1,3 +1,4 @@
+import type { Curve } from "@/lib/vfx-lab/schema-v2";
 import rawSampleEffect from "./sample-effect.json";
 
 export const PARAMETER_NAMES = [
@@ -28,6 +29,20 @@ export type VfxLayer = {
   blend: "additive" | "normal";
   enabled: boolean;
   parameters: Record<ParameterName, number>;
+  curves?: { path: string; label: string; domain: string; value: Curve }[];
+  keyframes?: {
+    target: string;
+    label?: string;
+    domain?: string;
+    timeScale?: "seconds" | "normalized";
+    ease: string;
+    keys: [number, number][];
+  }[];
+  sourceTransform?: {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  };
   edits: ScopedEdit[];
 };
 

@@ -67,19 +67,37 @@ export async function begin(
 }
 export function frame(time: number) {
   if (!active) throw Error("Video capture has not started");
-  active.render(time);
-  if (active.errors.length) throw Error(active.errors.join("; "));
-  // Read the completed framebuffer directly so the capture path can report GL errors.
   if (active.webgpu) {
+    active.render(time);
+    if (active.errors.length) throw Error(active.errors.join("; "));
+    // Read the presented canvas immediately, in this same task: the WebGPU
+    // presentation texture is not a persistent screenshot buffer.
     const source = active.renderer.domElement;
-    const canvas = document.createElement("canvas");
-    canvas.width = source.width;
-    canvas.height = source.height;
-    canvas.getContext("2d")!.drawImage(source, 0, 0);
-    return canvas.toDataURL("image/png");
+    const target = document.createElement("canvas");
+    target.width = source.width;
+    target.height = source.height;
+    target.getContext("2d")!.drawImage(source, 0, 0);
+    return target.toDataURL("image/png");
   }
   const gl = active.renderer.getContext() as WebGLRenderingContext;
+  // WebGL error state is a queue that outlives the call that filled it: a
+  // shader/program failure during a *previous* frame's render can otherwise
+  // surface here and get misreported as a framebuffer read failure. Drain
+  // anything already queued so the checks below only see errors this frame
+  // is actually responsible for.
+  while (gl.getError() !== gl.NO_ERROR) {
+    /* discard stale errors */
+  }
+  active.render(time);
+  if (active.errors.length) throw Error(active.errors.join("; "));
   if (gl.isContextLost()) throw Error("Video capture graphics context lost");
+  // Check for errors raised by the render itself (e.g. an invalid shader
+  // program) before reading pixels, so a render-time failure isn't
+  // attributed to the unrelated readPixels call below.
+  const renderError = gl.getError();
+  if (renderError !== gl.NO_ERROR)
+    throw Error(`Video frame render failed: GL error ${renderError}`);
+  // Read the completed framebuffer directly so the capture path can report GL errors.
   gl.finish();
   const width = gl.drawingBufferWidth,
     height = gl.drawingBufferHeight;

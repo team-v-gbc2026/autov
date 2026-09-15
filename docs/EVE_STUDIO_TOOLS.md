@@ -1,9 +1,16 @@
 # Eve studio tools
 
+The current generation flow is documented in
+[EVE_INTEGRATION.md](vfx-lab/EVE_INTEGRATION.md). Eve loads authoring, technique,
+and review skills; `generate_vfx` creates an uncommitted capture, and
+`commit_vfx_candidate` applies it after pixel inspection. Older first-pass and
+internal review-loop descriptions below document the compatibility harness.
+
 Eve can inspect, edit, generate, preview and undo v2 effects in authenticated project
 chats. References and emitters use clickable `@[name](reference:uuid)` and
 `#[name](emitter:encoded-id)` tags. References focus the board; emitters select and
-open their editor. Generation creates one candidate from existing texture assets.
+open their editor. Generation can reuse library assets or create effect masks,
+save them to the reference board, and inspect them before building a candidate.
 Reference image generation/editing is available through `generate_reference_image`.
 Automatic image cleanup and custom parameter metadata are not included.
 
@@ -17,7 +24,7 @@ Automatic image cleanup and custom parameter metadata are not included.
 3. Studio tools are always enabled and require the storage configuration and migration above.
 4. Keep `OPENAI_VFX_MODEL=gpt-6-astra`; the inherited conservative cost formula is
    tied to that model. `OPENAI_VFX_BUDGET_USD` defaults to 30, accepts positive values
-   up to 60, and applies cumulatively per project to generation provider calls.
+   up to 80, and applies cumulatively per project to generation provider calls.
 5. Build Eve (`npm run build:agent`) and the app. Keep a WebGPU-capable studio tab
    open for previews and generation validation. Server credentials never go to it.
 
@@ -41,6 +48,32 @@ shared renderer guide. `edit_vfx` accepts an atomic operations array; nested obj
 merge and arrays replace. Invalid values/unknown fields fail before any write.
 `generate_vfx` accepts `replace` or `add`; additive generation keeps globals and
 existing layers, renames colliding IDs and scales layer timing to the duration.
+Generation accepts a self-contained `prompt`, up to five `requirements`, eight
+`avoid` items, four library `textureIds`, and the existing board `referenceIds`.
+Legacy inputs default the new lists to empty. A durable context step resolves
+reference pixels, selected library pixels, and the exact revision's host settings.
+Art direction, texture refinement, planning and candidate calls receive this context. Replace mode
+preserves the existing environment; add mode preserves all globals and old layers.
+
+The studio workflow validates the first candidate with a contact sheet and immediately
+commits it to the scene, with quality `unreviewed`. It does not review or repair
+automatically. Chat displays “Continue iterating on this effect?” and a **Continue**
+chip for the current generation revision.
+
+Clicking Continue sends an explicit iteration approval with the source operation
+ID. `refine_vfx` verifies the authenticated project, conversation and unchanged
+revision, restores the original brief/art direction and existing textures, then
+reviews the current effect and runs up to two repairs. The first pass stays visible
+until the best reviewed candidate is committed. Unrelated edits invalidate the chip.
+The offer is recovered from persisted operations after reload; no browser-only
+approval state is needed. Review scoring uses the existing no-regression policy.
+
+Stages `art-direction`, `effect-texture-0..1`, `texture-direction`, `plan`,
+`candidate`, `review-0..2`, and `repair-1..2` use the existing
+per-project provider reservation/settlement guard. Captures have distinct operation
+IDs. Provider, capture, cancellation, or revision errors preserve the prior effect;
+no ambiguous paid call is automatically retried. The lab runner retains its
+specialized measurement pipeline; review scoring/selection policy is shared.
 `preview_vfx` accepts up to eight requested times and an optional solo layer.
 `set_vfx_view`, `set_reference_view` acknowledge browser actions. `undo_vfx_edit`
 requires the exact revision produced by the selected agent edit. Reference listing
@@ -49,6 +82,33 @@ and inspection accept only current project board IDs.
 All returned preview contact sheets are saved to the board with operation/revision
 and timestamp provenance before pixels are sent to Eve. They are not automatically
 added to later generation inputs. Original references remain unchanged.
+
+## What the generation prompt contains
+
+`generate_vfx` runs two provider stages, plan then candidate, and the candidate
+stage is the one that has to produce a complete v2 document. It shares its system
+prompt and payload builder with the dev pipeline (`/api/local-vfx`) through
+`lib/vfx-lab/candidate-v2.ts`, so neither path can drift ahead of the other.
+
+- **Family routing.** The planner names a v1 recipe; `recipeV2For(plan.recipe,
+  prompt)` reads it as the nearest v2 family and lets the user's own words win for
+  the families the v1 vocabulary cannot name (aura/heal, glitch, column, portal,
+  vortex, water, playful). In `add` mode the routing reads the user's prompt, not
+  the existing document appended to it for context.
+- **Payload keys.** `prompt`, `plan`, `family`, `recipe` (that family's
+  construction knowledge), `technique` (the technique cards the family and the
+  prompt select, `techniqueBrief`), `scale` (`exampleScaleSummary`: the exemplar's
+  measured duration, layer count, framing, hero extent and particle budget), and
+  `example` (the exemplar document itself, as the scale reference).
+- **Deterministic repairs.** After `fromWireV2` the candidate is linted. The one
+  warning no prompt reliably fixes — a mesh hero (blob, crystals, crescent,
+  ribbon) framed in the particle band — is corrected without a model call by
+  `applyExemplarCameraV2`, which copies the exemplar's camera block and keeps the
+  candidate's own shake and push-in. There is no paid repair stage on this path:
+  the dev pipeline's second model call is deliberately not ported here.
+- **`add` mode.** Generated layers are appended with `appendGenerated`; the
+  existing scene keeps its camera and environment, so nothing re-frames a shot the
+  user did not ask about.
 
 ## Failures and recovery
 

@@ -1,7 +1,7 @@
 /* VFX studio presentation and interaction state. Generation stays outside this file. */
 .studio.lab { min-height: 0; }
 .lab { --timeline-height: 250px; --timeline-bottom: max(12px, env(safe-area-inset-bottom, 0px)); --studio-header-height: 76px; --workspace-panel-top: calc(var(--studio-header-height) + 2px); --environment-height: 36px; }
-.lab .transport { bottom: var(--timeline-bottom); }
+.lab .transport { bottom: var(--timeline-bottom); max-width: 1040px; }
 .lab .chat-panel { top: var(--workspace-panel-top); bottom: var(--timeline-bottom); }
 .lab .lab-environment-strip { position: absolute; top: var(--workspace-panel-top); left: var(--left-space); right: var(--right-space); max-width: 900px; margin: 0 auto; height: var(--environment-height); z-index: 3; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 8px; }
 .lab .lab-scene-export { display: flex; align-items: center; margin-left: auto; padding-left: 5px; border-left: 1px solid #ffffff0d; }
@@ -33,7 +33,7 @@
 .lab .lab-add-emitter { display: grid; place-items: center; width: 22px; height: 24px; padding: 0; border-radius: 4px; color: #9aa3a7; }
 .lab .lab-add-emitter:hover { background: #ffffff08; }
 .lab .timeline { --emitter-label-width: 170px; }
-.lab .lab-timeline-scroll { max-height: 148px; overflow: auto; overscroll-behavior: none; scrollbar-width: none; }
+.lab .lab-timeline-scroll { max-height: 148px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: none; scrollbar-width: none; }
 .lab .lab-timeline-scroll::-webkit-scrollbar { display: none; }
 .lab .lab-timeline-body { position: relative; }
 .lab .lab-emitter-tracks { position: relative; z-index: 0; }
@@ -68,6 +68,16 @@
 .lab input.lab-duration-input { width: 58px; padding: 4px; font-size: 10px; font-variant-numeric: tabular-nums; }
 .lab .lab-duration-error { margin: 0; padding: 0 14px 8px; color: #d2b47e; font-size: 10px; line-height: 1.5; }
 .lab .lab-scoped-edit { position: absolute; bottom: 2px; z-index: 2; min-width: 3px; height: 3px; border-radius: 2px; background: #f2d392; box-shadow: 0 0 7px #f2d39280; }
+.lab .lab-keyframe-expand { display: grid; place-items: center; flex: 0 0 19px; width: 19px; height: 19px; border-radius: 3px; color: #899396; background: #111517d9; }
+.lab .lab-keyframe-expand:hover { color: #e4d7c0; background: #292c2d; }
+.lab .lab-keyframe-expand[aria-expanded="true"] svg { transform: rotate(180deg); }
+.lab .lab-keyframe-row { display: grid; grid-template-columns: var(--emitter-label-width) minmax(0, 1fr); min-height: 22px; }
+.lab .lab-keyframe-label { overflow: hidden; padding: 5px 12px 4px 30px; border-right: 1px solid #ffffff0c; color: #7f898c; background: #0c0f1138; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.lab .lab-keyframe-lane { position: relative; min-height: 22px; background: repeating-linear-gradient(90deg, #ffffff07 0 1px, transparent 1px 25%); }
+.lab .lab-keyframe-marker { position: absolute; top: 7px; width: 9px; height: 9px; margin-left: -4px; border: 1px solid #171a1c; background: #d7be8d; box-shadow: 0 0 0 1px #d7be8d55; transform: rotate(45deg); }
+.lab .lab-keyframe-marker:hover, .lab .lab-keyframe-marker:focus-visible { background: #fff0cf; box-shadow: 0 0 0 2px #d7be8d77; }
+.lab .lab-keyframe-marker::after { content: attr(data-keyframe-value); position: absolute; z-index: 8; bottom: calc(100% + 8px); left: 50%; width: max-content; max-width: 220px; padding: 4px 6px; border: 1px solid #ffffff18; border-radius: 4px; color: #eadfc9; background: #111517f2; box-shadow: 0 4px 12px #0008; font: 9px var(--font-geist-mono), monospace; line-height: 1.2; opacity: 0; pointer-events: none; transform: translateX(-50%) rotate(-45deg) translate(5px, -5px); transform-origin: center; transition: opacity 80ms ease; white-space: nowrap; }
+.lab .lab-keyframe-marker:hover::after, .lab .lab-keyframe-marker:focus-visible::after { opacity: 1; }
 .lab .timeline { padding-bottom: 12px; }
 
 .lab .lab-controls { display: grid; gap: 11px; }

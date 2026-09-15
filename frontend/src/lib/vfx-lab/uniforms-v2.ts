@@ -1,10 +1,13 @@
 import * as THREE from "three/webgpu";
 import type { IUniform } from "three";
 import type { Curve, Ramp } from "./schema-v2";
+/** Where a radial particle mask starts falling off, as a fraction of the
+ * half-size; shared by the migration reference and the CPU light estimate. */
+export const RADIAL_CUTOFF = 0.62;
 export const CURVE_KEYS = 8;
 export const RAMP_STOPS = 6;
 
-export function rampUniforms(ramp: Ramp) {
+export function rampUniforms(ramp: Pick<Ramp, "stops">) {
   const colors: THREE.Vector4[] = [];
   const stops: number[] = [];
   for (let i = 0; i < RAMP_STOPS; i++) {
@@ -25,7 +28,7 @@ export function rampUniforms(ramp: Ramp) {
 // Reused only during synchronous uniform writes; no per-stop Color allocation.
 const rampColor = new THREE.Color();
 
-export function writeRamp(uniforms: Record<string, IUniform>, ramp: Ramp) {
+export function writeRamp(uniforms: Record<string, IUniform>, ramp: Pick<Ramp, "stops">) {
   const colors = uniforms.uRamp.value as THREE.Vector4[];
   const stops = uniforms.uRampT.value as number[];
   for (let i = 0; i < RAMP_STOPS; i++) {

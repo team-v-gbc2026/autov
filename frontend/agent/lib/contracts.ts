@@ -34,8 +34,10 @@ export function parseTurn(body: Record<string, unknown>) {
   const context = isRecord(body.clientContext) ? body.clientContext : {};
   const references = context.referenceIds ?? [];
   if (!Array.isArray(references) || references.length > 8 || references.some(id => typeof id !== "string" || !UUID.test(id)) || new Set(references).size !== references.length) throw new ChatError("INVALID_REFERENCES", "Use at most eight unique project references.");
-  // Only these fields can become model context. None are authorization inputs.
-  return { prompt: body.message.trim(), referenceIds: references as string[], context: { document: context.document ?? null, selectedEmitterId: context.selectedEmitterId ?? null } };
+  const refineOperationId = context.refineOperationId;
+  if (refineOperationId !== undefined && (typeof refineOperationId !== "string" || !UUID.test(refineOperationId))) throw new ChatError("INVALID_BODY", "Invalid iteration approval.");
+  // Project identity still comes from authentication; the optional operation ID records this user turn's iteration approval and is checked against project/session/revision.
+  return { prompt: body.message.trim(), referenceIds: references as string[], context: { document: context.document ?? null, selectedEmitterId: context.selectedEmitterId ?? null, refineOperationId: refineOperationId ?? null } };
 }
 export function responseError(error: unknown) {
   const known = error instanceof ChatError;
