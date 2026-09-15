@@ -10,12 +10,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const { data: project, error } = await supabase.from("projects").select("id,name,created_at").eq("id", id).maybeSingle();
   if (error) throw new Error("Could not load this project.");
   if (!project) notFound();
-  const [assets, operations, versions] = await Promise.all([
+  const [assets, operations] = await Promise.all([
     supabase.from("assets").select("id,name,storage_path,mime_type").eq("project_id", id).eq("archived", false).order("created_at"),
     supabase.from("studio_operations").select("input").eq("project_id", id).eq("kind", "generate"),
-    supabase.from("effect_versions").select("id,schema_version,created_at").eq("project_id", id).order("created_at", { ascending: false }),
   ]);
-  if (assets.error || operations.error || versions.error) throw new Error("Could not load project history. Please retry.");
+  if (assets.error || operations.error) throw new Error("Could not load project history. Please retry.");
   const references = await Promise.all((await productionBoardAssets(assets.data || [])).map(async asset => {
     const { data, error } = await supabase.storage.from("references").createSignedUrl(asset.storage_path, 3600);
     if (error || !data) throw new Error("Could not load a reference image. Please retry.");
@@ -27,5 +26,5 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     const ids = (operation.input as { referenceIds?: unknown })?.referenceIds;
     return Array.isArray(ids) ? ids.filter((value): value is string => typeof value === "string") : [];
   }))];
-  return <Studio key={project.id} project={project} userId={user.id} email={user.email || ""} initialReferences={references} usedReferenceIds={usedReferenceIds} versions={versions.data || []} />;
+  return <Studio key={project.id} project={project} userId={user.id} email={user.email || ""} initialReferences={references} usedReferenceIds={usedReferenceIds} />;
 }

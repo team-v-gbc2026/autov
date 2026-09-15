@@ -24,7 +24,6 @@ export default async function VfxUiReviewPage() {
       email="preview@autov.app"
       initialReferences={[]}
       usedReferenceIds={[]}
-      versions={[]}
       initialDocument={document}
       standalone
     />

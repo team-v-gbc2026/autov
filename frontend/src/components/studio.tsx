@@ -19,7 +19,6 @@ import { useReferences } from "./studio/use-references";
 import type {
   Project,
   Reference,
-  EffectVersion,
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
 import EmitterControls from "./vfx-studio/emitter-controls";
@@ -53,7 +52,6 @@ type StudioProps = {
   email: string;
   initialReferences: Reference[];
   usedReferenceIds: string[];
-  versions: EffectVersion[];
   /** A v2 document to open the timeline on. Absent in the product workspace. */
   initialDocument?: VfxDocumentV2;
   /** Dev pages: no Supabase project behind the chat, generate locally only. */
@@ -67,7 +65,6 @@ export default function Studio({
   email,
   initialReferences,
   usedReferenceIds,
-  versions,
   initialDocument,
   standalone = false,
   headerActions,
@@ -526,7 +523,6 @@ export default function Studio({
         <ChatPanel
           key={project.id}
           projectId={project.id}
-          versions={versions}
           ref={chat}
           references={displayReferences}
           uploadFile={references.uploadFile}

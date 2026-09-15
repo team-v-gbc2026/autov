@@ -60,7 +60,6 @@ export default async function VfxStudioV2Page({
       email="preview@autov.app"
       initialReferences={[]}
       usedReferenceIds={[]}
-      versions={[]}
       initialDocument={document}
       standalone
     />

@@ -6,7 +6,6 @@ import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
 import { useEveAgent } from "eve/react";
 import { agentHeaders, loadConversation } from "@/lib/agent/client";
-import type { EffectVersion } from "@/lib/project-types";
 import ReferenceComposer, { type ComposerHandle } from "./composer/reference-composer";
 import { displayPrompt } from "./composer/prompt-format";
 import type { Reference } from "@/lib/project-types";
@@ -44,7 +43,6 @@ const localId = () =>
 
 export default function ChatPanel({
   projectId,
-  versions,
   references,
   uploadFile,
   ref,
@@ -55,7 +53,6 @@ export default function ChatPanel({
   vfx,
 }: {
   projectId: string;
-  versions: EffectVersion[];
   references: Reference[];
   uploadFile: (file: File) => Promise<Reference>;
   ref: Ref<ChatPanelHandle>;
@@ -183,7 +180,7 @@ export default function ChatPanel({
     } catch (error) { setNotice(error instanceof Error ? error.message : "Could not clear chat."); }
     finally { setClearing(false); }
   }
-  const hasHistory = messages.length > 0 || (!historyCleared && (versions.length > 0 || scopedEdits.length > 0)) || !!connection?.sessionId || agentHasHistory;
+  const hasHistory = messages.length > 0 || (!historyCleared && scopedEdits.length > 0) || !!connection?.sessionId || agentHasHistory;
   return (
     <ChatTargets.Provider value={{ references, emitters: vfx?.document.layers || [], onReference: vfx?.onReference, onPreview: vfx?.standalone ? undefined : setPreviewId, onEmitter: vfx?.onEmitter }}><aside className={`glass chat-panel ${styles.panel}`}>
       <div className="panel-heading">
@@ -196,15 +193,6 @@ export default function ChatPanel({
         {!hasHistory && <ChatEmptyState disabled={saving || (!vfx?.standalone && !connection)} onSelect={value => { composer.current?.setText(value); }} />}
         <div className="messages" aria-live="polite">
           {messages.map(message => <ChatMessage key={message.id} role="user" text={message.prompt} caption={message.status === "draft" ? "Saved prompt · history" : `Generation ${message.status}`} />)}
-          {!historyCleared && versions.map((version) => (
-            <a
-              className="effect-download"
-              key={version.id}
-              href={`/api/effects/${version.id}`}
-            >
-              Download effect JSON · {version.schema_version} ↓
-            </a>
-          ))}
           {!historyCleared && scopedEdits.map(({ layer, edit }) => (
             <div key={edit.id} className="scoped-edit-message">
               <p className="user-message">{displayPrompt(edit.prompt)}</p>
