@@ -125,7 +125,7 @@ export const RECIPES_V2: Record<
     name: "Fire slash",
     subtitle: "An airborne arc with a hot core and dim body.",
     knowledge:
-      "A wind-up glow and an ignition flash sprite precede two full-circle ribbon geometries (radius = 2π) grown by animating transform.scale, not geometry.length: an additive hot core (leading edge) and a wider alpha-blended dim body (trailing edge), sharing one position/rotation so they read as one blade. Each ribbon drives per-stop material.erosion.curve.keys[i][1] tracks so the burn front advances stop by stop instead of eroding as a whole. A line emitter along the same arc axis throws curl-forced embers, velocity-stretched sparks and dot glints; alpha-blended, heavily eroded smoke trails last and longest. One orange point light lands it — no ground decal, since the sweep happens in the air.",
+      "A wind-up glow and an ignition flash sprite precede two full-circle ribbon geometries (length = 2π radians, radius = spatial radius) grown by animating transform.scale or geometry.radius; animate geometry.length only to change the swept angle: an additive hot core (leading edge) and a wider alpha-blended dim body (trailing edge), sharing one position/rotation so they read as one blade. Each ribbon drives per-stop material.erosion.curve.keys[i][1] tracks so the burn front advances stop by stop instead of eroding as a whole. A line emitter along the same arc axis throws curl-forced embers, velocity-stretched sparks and dot glints; alpha-blended, heavily eroded smoke trails last and longest. One orange point light lands it — no ground decal, since the sweep happens in the air.",
   },
   beam: {
     name: "Sustained beam",
@@ -350,5 +350,10 @@ export function recipeV2For(id: string, prompt?: string): RecipeV2Id {
   if (prompt)
     for (const [pattern, family] of FAMILY_KEYWORDS)
       if (pattern.test(prompt)) return family;
+  // The benchmark planner supplies a legacy RecipeId, while the active Studio
+  // supplies the already-selected v2 family. Accept both contracts. Falling
+  // through here previously mapped most Studio families to fire-projectile.
+  if ((RECIPE_V2_IDS as readonly string[]).includes(id))
+    return id as RecipeV2Id;
   return V1_RECIPE_TO_V2[id as RecipeId] ?? "fire-projectile";
 }

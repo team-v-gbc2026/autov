@@ -222,7 +222,7 @@ const RequestSchema = z.discriminatedUnion("action", [
       runId: z.string(),
       document: AnyDocumentSchema,
       sheet: sheetImageSchema,
-      times: z.array(z.number().min(0).max(12)).min(1).max(16),
+      times: z.array(z.number().min(0).max(12)).min(1),
       temporal: TemporalDiagnosticsSchema.optional(),
       // v2 only: the motion strip and its spike measure.
       strip: sheetImageSchema.optional(),
@@ -471,7 +471,14 @@ export async function POST(request: Request) {
         DocumentV2WireSchema,
         `${CANDIDATE_V2_SYSTEM} Give this candidate a distinctive structure: ${directions[body.index]}`,
         JSON.stringify(
-          candidatePayloadV2({ prompt: run.prompt, plan: run.plan, family }),
+          candidatePayloadV2({
+            prompt: run.prompt,
+            plan: run.plan,
+            family,
+            // The product path authors against the measured exemplar scale;
+            // the dev route has to see the same payload to be a rehearsal.
+            scale: true,
+          }),
         ),
         run.references,
         request.signal,

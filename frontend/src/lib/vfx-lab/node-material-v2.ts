@@ -84,7 +84,7 @@ export function createV2NodeMaterial(
           originalUpdate(frame);
         });
         bindings[name] = node;
-      } else if (/^u(?:Curve[A-Z]N|RampN|(?:Parent)?SpeedN|(?:Parent)?BurstN|Procedural|RenderMode)$/.test(name)) {
+      } else if (/^u(?:Curve[A-Z]N|RampN|(?:Parent)?SpeedN|(?:Parent)?BurstN|Procedural|RenderMode|SmokeLit|SmokeCard)$/.test(name)) {
         // These values are structural within an installed document. Baking them
         // lets the GPU unroll short curve/ramp loops and discard unused shapes.
         // Edits install new materials; animated keys preserve the same lengths.
@@ -120,7 +120,8 @@ export function createV2NodeMaterial(
   }
   const material = new THREE.NodeMaterial() as V2NodeMaterial;
   material.setValues(parameters);
-  // V2 effects author their own unlit shading; fog only affects scene dressing.
+  // V2 effects author their shading; litSmoke uses explicit light uniforms.
+  // Fog only affects scene dressing.
   material.fog = false;
   material.forceSinglePass = true;
   material.uniforms = uniforms;

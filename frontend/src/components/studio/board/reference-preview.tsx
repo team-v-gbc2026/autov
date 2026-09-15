@@ -10,9 +10,9 @@ function PreviewAction({ label, children, onClick, disabled, destructive = false
   return <button type="button" className={`${styles.previewAction} ${destructive ? styles.destructive : ""}`} aria-label={label} title={label} onClick={onClick} disabled={disabled}>{children}</button>;
 }
 
-export default function ReferencePreview({ reference, onClose, onRename, onMention, onRemove, onEdit, disabled }: {
+export default function ReferencePreview({ reference, onClose, onRename, onMention, onRemove, onEdit, disabled, promptInitiallyOpen = false }: {
   reference: Reference | null; onClose: () => void; onRename: (name: string) => void;
-  onMention: () => void; onRemove: () => void; onEdit?: (prompt: string) => Promise<void>; disabled: boolean;
+  onMention: () => void; onRemove: () => void; onEdit?: (prompt: string) => Promise<void>; disabled: boolean; promptInitiallyOpen?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -21,7 +21,7 @@ export default function ReferencePreview({ reference, onClose, onRename, onMenti
   const [editError, setEditError] = useState("");
   const submitting = useRef(false);
   const [confirm, setConfirm] = useState(false);
-  const [promptOpen, setPromptOpen] = useState(!reference);
+  const [promptOpen, setPromptOpen] = useState(!reference || promptInitiallyOpen);
   const [editPrompt, setEditPrompt] = useState("");
   useEffect(() => { const el = dialog.current; el?.showModal(); return () => el?.close(); }, []);
   const saveName = () => {

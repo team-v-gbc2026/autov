@@ -1087,6 +1087,24 @@ ${
   float u=clamp(age/max(life,1e-4),0.,1.);
 `;
 
+// Life playback holds its last frame; FPS playback blends through the loop.
+export const glslFlipbook = /* glsl */ `
+float flipFrame(float life, float age, float tiles, int mode, float fps){
+  float frame=0.;
+  if(mode==1) frame=clamp(life,0.,1.)*max(tiles-1.,0.);
+  else if(mode==2) frame=mod(max(age,0.)*fps,tiles);
+  return frame;
+}
+float nextFlipFrame(float frame, float tiles, int mode){
+  float next=min(floor(frame)+1.,tiles-1.);
+  if(mode==2) next=mod(floor(frame)+1.,tiles);
+  return next;
+}
+vec2 tileOffset(float frame, float cols, float rows){
+  return vec2(mod(floor(frame),cols)/cols,floor(floor(frame)/cols)/rows);
+}
+`;
+
 export function particleVertexSource(
   sub = false,
   source = false,
@@ -1102,7 +1120,7 @@ uniform float uTime,uStretch,uAtlasTiles,uMotionBlur,uFlipFps,uSpan;
 uniform float uTwinkleFreq,uTwinkleDepth;
 uniform int uRenderMode,uHasAlphaSpawn,uAtlasCols,uAtlasRows,uFlipMode,uAnchorHead;
 uniform vec2 uSize,uRot,uRotInit;
-varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile,vNextTile; varying float vFrameMix; varying vec3 vWp;
 ${glslNoise}
 ${glslOrtho}
 ${glslPath("E", "E")}
@@ -1110,6 +1128,7 @@ ${glslCurve("A")}
 ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
+${glslFlipbook}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
 ${glslCurve("T")}
@@ -1192,9 +1211,15 @@ ${glslResolveBirth(sub)}
   float tiles=max(uAtlasTiles,1.);
   // uFlipMode: 0 = random atlas tile, 1 = flipbook over life, 2 = flipbook at fps.
   float ti=floor(aExtra.z*tiles*.9999);
-  if(uFlipMode==1) ti=floor(clamp(u,0.,.9999)*tiles);
-  else if(uFlipMode==2) ti=floor(mod(max(age,0.)*uFlipFps,tiles));
-  vTile=vec2(mod(ti,cols)/cols, floor(ti/cols)/rows);
+  float frame=ti;
+  if(uFlipMode>0) frame=flipFrame(u,age,tiles,uFlipMode,uFlipFps);
+  vTile=tileOffset(frame,cols,rows);
+  vNextTile=vTile;
+  vFrameMix=0.;
+  if(uFlipMode>0){
+    vNextTile=tileOffset(nextFlipFrame(frame,tiles,uFlipMode),cols,rows);
+    vFrameMix=fract(frame);
+  }
 }
 `;
 }
@@ -1467,6 +1492,7 @@ ${glslCurve("B")}
 ${glslCurve("D")}
 ${glslCurve("E")}
 ${glslCurve("G")}
+${glslFlipbook}
 ${glslCurve("H")}
 ${glslCurveInverse("H")}
 ${glslCurve("T")}
@@ -1535,6 +1561,33 @@ void main(){
 }
 `;
 
+// Wrapped diffuse shading with an authored hemisphere normal for cards.
+// Light values are scene-linear. This is an approximation, not volume scattering.
+export const glslSmokeLighting = /* glsl */ `
+uniform int uSmokeLit,uSmokeCard;
+uniform float uSmokeAmbient;
+uniform vec3 uSmokeRight,uSmokeUp,uSmokeForward;
+uniform vec4 uSmokeLights[8];
+vec3 smokeNormal(vec2 uv){
+  vec2 xy=uv*2.-1.;
+  float z=sqrt(max(0.,1.-dot(xy,xy)));
+  return normalize(uSmokeRight*xy.x+uSmokeUp*xy.y+uSmokeForward*max(z,.01));
+}
+vec3 smokeLighting(vec3 normal, vec3 world){
+  vec3 light=vec3(uSmokeAmbient);
+  for(int i=0;i<4;i++){
+    vec3 delta=uSmokeLights[i].xyz-world;
+    float d=length(delta);
+    vec3 direction=delta/max(d,.001);
+    float wrap=clamp((dot(normal,direction)+.5)/1.5,0.,1.);
+    float rangeFade=1.-smoothstep(uSmokeLights[i].w*.75,uSmokeLights[i].w,d);
+    float attenuation=rangeFade/max(pow(max(d,.25),uSmokeLights[i+4].w),1.);
+    light+=uSmokeLights[i+4].rgb*wrap*attenuation;
+  }
+  return light;
+}
+`;
+
 export const particleFragmentV2 = /* glsl */ `
 precision highp float;
 uniform sampler2D uMask,uNoise;
@@ -1544,7 +1597,7 @@ uniform float uRampKeyMode,uGroundY,uHeightSpan,uFlicker;
 uniform float uRampBlendMode,uRampBlendWeight;
 uniform vec2 uNoiseScale,uNoisePan,uMaskScale,uMaskPan,uDistortPan;
 uniform vec3 uEdgeCol;
-varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile; varying vec3 vWp;
+varying vec2 vUv; varying float vU,vAlpha,vRot; varying vec3 vSeed; varying vec2 vTile,vNextTile; varying float vFrameMix; varying vec3 vWp;
 ${glslNoise}
 ${glslRamp}
 ${glslCurve("C")}
@@ -1563,6 +1616,7 @@ float particleRampKey(float mode){
   if(mode>2.5) return clamp((vWp.y-uGroundY)/max(uHeightSpan,1e-3),0.,1.);
   return clamp(vU,0.,1.);
 }
+${glslSmokeLighting}
 void main(){
   if(vAlpha<=0.) discard;
   if(uProcedural>=21){
@@ -1615,7 +1669,14 @@ void main(){
   vec2 muv=duv*uMaskScale+uMaskPan;
   vec2 auv=vec2(muv.x/float(max(uAtlasCols,1)), muv.y/float(max(uAtlasRows,1)))+vTile;
   float shape;
-  if(uHasMask==1){ vec4 m=texture2D(uMask,auv); shape=m.a*max(m.r,max(m.g,m.b)); }
+  if(uHasMask==1){
+    vec4 m=texture2D(uMask,auv);
+    shape=m.a*max(m.r,max(m.g,m.b));
+    if(vFrameMix>0.){
+      vec4 next=texture2D(uMask,auv-vTile+vNextTile);
+      shape=mix(shape,next.a*max(next.r,max(next.g,next.b)),vFrameMix);
+    }
+  }
   else shape=proceduralShape(p,uvp,n,uTime,0.,uMaskScale,vec3(1.,1.,.1),uProcedural);
   shape*=inside;
   float er=shape, edge=0.;
@@ -1634,6 +1695,7 @@ void main(){
   if(uRampBlendWeight>0.)
     key = mix(key, particleRampKey(uRampBlendMode), uRampBlendWeight);
   vec3 col=rampColor(key);
+  if(uSmokeLit==1) col*=smokeLighting(smokeNormal(vUv),vWp);
   col+=uEdgeCol*uEdgeI*edge*shape;
   // material.flicker: the hashed per-step multiplier, computed on the CPU from
   // floor(layerTime * rate) so every kind that carries it steps together.
@@ -1886,6 +1948,9 @@ uniform vec3 uStreakCol;
 uniform vec3 uCrease;    // (frequency, depth, alongStart)
 uniform float uSymbolSeed;
 varying vec3 vN,vWp,vObj; varying float vAlong,vLobe,vRing; varying vec2 vUv;
+uniform int uFlipMode,uAtlasCols,uAtlasRows;
+uniform float uFlipFps;
+${glslFlipbook}
 ${glslNoise}
 ${glslRamp}
 ${glslCurve("C")}
@@ -1895,6 +1960,8 @@ ${glslFrame}
 ${glslFlow}
 ${glslSwirl}
 ${glslLattice}
+${glslSmokeLighting}
+${glslSoft}
 void main(){
   vec3 V=safeDir(uCam-vWp, vec3(0.,0.,1.));
   float fres=1.-abs(dot(vN,V));
@@ -2070,7 +2137,10 @@ void main(){
       shape=uShell==1
         ? proceduralShape(vec2(vRing,vAlong)-.5,vec2(vRing,vAlong),n,uTime,fres,uMaskScale,dims,uProcedural)
         : proceduralShape(vUv-.5,vUv,n,uTime,fres,uMaskScale,dims,uProcedural);
-  } else {
+  } else if(uHasMask==0) {
+    shape=proceduralShape(vUv-.5,vUv,n,uTime,fres,uMaskScale,dims,uProcedural);
+  }
+  if(uHasMask==1){
     // noise.distortionPan scrolls the field that drives the distortion.
     float nd=n;
     vec2 dp=uDistortPan*uTime;
@@ -2081,8 +2151,22 @@ void main(){
     vec2 duv=vUv+(nd-.5)*uDistort;
     float mc=cos(uMaskRot), ms=sin(uMaskRot);
     vec2 muv=(mat2(mc,-ms,ms,mc)*(duv-.5)+.5)*uMaskScale+uMaskPan;
-    if(uHasMask==1){ vec4 m=texture2D(uMask,muv); shape=m.a*max(m.r,max(m.g,m.b)); }
-    else shape=proceduralShape(vUv-.5,vUv,n,uTime,fres,uMaskScale,dims,uProcedural);
+    vec2 sampleUv=muv;
+    float frame=0.;
+    float cols=float(max(uAtlasCols,1)), rows=float(max(uAtlasRows,1));
+    float tiles=cols*rows;
+    if(uFlipMode>0){
+      frame=flipFrame(uLayerU,uTime,tiles,uFlipMode,uFlipFps);
+      sampleUv=muv/vec2(cols,rows)+tileOffset(frame,cols,rows);
+    }
+    vec4 m=texture2D(uMask,sampleUv);
+    float maskShape=m.a*max(m.r,max(m.g,m.b));
+    if(uFlipMode>0 && fract(frame)>0.){
+      vec2 nextUv=muv/vec2(cols,rows)+tileOffset(nextFlipFrame(frame,tiles,uFlipMode),cols,rows);
+      vec4 next=texture2D(uMask,nextUv);
+      maskShape=mix(maskShape,next.a*max(next.r,max(next.g,next.b)),fract(frame));
+    }
+    shape*=maskShape;
   }
 
   // Every ramp space this surface understands, as one function, so
@@ -2137,7 +2221,7 @@ void main(){
   }
   // shape is 1 on an analytic shell with procedural "none", so this is a no-op
   // there and the procedural pattern applies everywhere else.
-  alpha*=shape;
+  alpha*=shape*softDepth();
   // material.stripes: panning hard bands on the along coordinate in world
   // metres, so a beam that extends does not squash its own bands.
   // material.flicker: the hashed per-step multiplier, computed on the CPU.
@@ -2243,6 +2327,7 @@ void main(){
   if(uHasLattice==1) col=col*mix(.35,1.,latticeVis)+latticeCol;
   if(uHasPlaneGlow==1) col+=uPlaneCol*nearGround*uPlaneI;
   if(uBand==1) col*=gl_FrontFacing ? 1. : .42;
+  if(uSmokeLit==1) col*=smokeLighting(uSmokeCard==1?smokeNormal(vUv):normalize(vN),vWp);
   if(uShell==1){
     col*=mix(1.+(n-.5)*.18, 1., smoothstep(.08,.45,vAlong));
     alpha*=(1.-smoothstep(.5,1.,vAlong)*.5);

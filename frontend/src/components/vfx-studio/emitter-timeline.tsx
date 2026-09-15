@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type PointerEvent, type ReactNode } from "react";
+import { Fragment, useState, type PointerEvent, type ReactNode } from "react";
 import EmitterRow from "./emitter-row";
 import Icon from "../studio/icon";
 import type { VfxLayer } from "./ui-model";
@@ -41,6 +41,7 @@ export default function EmitterTimeline({
   onTimingChange: (id: string, edge: "start" | "end", value: number) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [lastFocus, setLastFocus] = useState(focusRequest);
   if (focusRequest !== lastFocus) { setLastFocus(focusRequest); if (focusRequest) setEditingId(focusRequest.id); }
   const selectLayer = (id: string) => {
@@ -97,9 +98,8 @@ export default function EmitterTimeline({
             </div>
           </div>
           <div className="lab-emitter-tracks" aria-label="Emitter timeline">
-            {layers.map((layer) => (
+            {layers.map((layer) => <Fragment key={layer.id}>
             <EmitterRow
-              key={layer.id}
               name={layer.name}
               selected={selected === layer.id}
               editing={editingId === layer.id && selected === layer.id}
@@ -142,6 +142,15 @@ export default function EmitterTimeline({
                 >
                   <Icon name="solo" size={13} />
                 </button>
+                {!!layer.keyframes?.length && <button
+                  type="button"
+                  className="lab-keyframe-expand"
+                  aria-label={`${expandedId === layer.id ? "Collapse" : "Expand"} keyframes for ${layer.name}`}
+                  aria-expanded={expandedId === layer.id}
+                  onClick={() => setExpandedId(current => current === layer.id ? null : layer.id)}
+                >
+                  <Icon name="chevron" size={12} />
+                </button>}
               </div>
               <div className="lab-emitter-lane">
                 <button
@@ -235,7 +244,25 @@ export default function EmitterTimeline({
               </div>
               </>}
             </EmitterRow>
+            {expandedId === layer.id && keyframeGroups(layer).map(track => (
+              <div className="lab-keyframe-row" key={`${layer.id}-${track.target}`}>
+                <div className="lab-keyframe-label" title={track.domain ?? track.target}>{track.label ?? keyframeLabel(track.target)}</div>
+                <div className="lab-keyframe-lane">
+                  {track.keys.map(({ time: localTime, values }, index) => (
+                    <button
+                      key={`${localTime}-${index}`}
+                      type="button"
+                      className="lab-keyframe-marker"
+                      aria-label={`${keyframeLabel(track.target)} keyframe at ${(layer.start + localTime).toFixed(2)} seconds, ${values.length === 1 ? `value ${values[0]}` : `${values.length} component values`}`}
+                      data-keyframe-value={values.length === 1 ? String(values[0]) : `[${values.join(", ")}]`}
+                      style={{ left: `${((layer.start + localTime) / duration) * 100}%` }}
+                      onClick={() => { selectLayer(layer.id); onSeek(layer.start + localTime); }}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
+            </Fragment>)}
           </div>
           <div className="lab-playhead-area" aria-hidden="true">
             <div className="lab-timeline-playhead" style={{ left: `${(time / duration) * 100}%` }} />
@@ -244,4 +271,83 @@ export default function EmitterTimeline({
       </div>
     </div>
   );
+}
+
+function keyframeLabel(target: string) {
+  const leaf = target.split(".").at(-1)?.replaceAll("[]", "") ?? target;
+  return leaf
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/^./, character => character.toUpperCase());
+}
+
+function trackValueAt(track: NonNullable<VfxLayer["keyframes"]>[number], time: number) {
+  const keys = track.keys;
+  if (time <= keys[0][0]) return keys[0][1];
+  if (time >= keys[keys.length - 1][0]) return keys[keys.length - 1][1];
+  const nextIndex = keys.findIndex(([keyTime]) => keyTime >= time);
+  const [fromTime, fromValue] = keys[nextIndex - 1];
+  const [toTime, toValue] = keys[nextIndex];
+  let t = (time - fromTime) / (toTime - fromTime);
+  if (track.ease === "smooth") t = t * t * (3 - 2 * t);
+  else if (track.ease === "outCubic") t = 1 - Math.pow(1 - t, 3);
+  else if (track.ease === "inQuad") t *= t;
+  return fromValue + (toValue - fromValue) * t;
+}
+
+function keyframeGroups(layer: VfxLayer) {
+  const keyframes = layer.keyframes ?? [];
+  const groups = new Map<string, {
+    target: string;
+    label?: string;
+    domain?: string;
+    timeScale: "seconds" | "normalized";
+    ease: Set<string>;
+    keys: Map<number, number[]>;
+  }>();
+  for (const track of keyframes) {
+    const target = track.target.replace(/\[\d+\]/g, "[]");
+    const groupKey = `${target}:${track.timeScale ?? "seconds"}:${track.domain ?? ""}`;
+    const group = groups.get(groupKey) ?? {
+      target,
+      label: track.label,
+      domain: track.domain,
+      timeScale: track.timeScale ?? "seconds",
+      ease: new Set<string>(),
+      keys: new Map<number, number[]>(),
+    };
+    group.ease.add(track.ease);
+    for (const [time, value] of track.keys)
+      group.keys.set(time, [...(group.keys.get(time) ?? []), value]);
+    groups.set(groupKey, group);
+  }
+  return [...groups.values()].map(group => {
+    const transformMatch = /^transform\.(position|rotation|scale)\[\]$/.exec(group.target);
+    if (!transformMatch) return {
+      target: group.target,
+      label: group.label,
+      domain: group.domain,
+      ease: [...group.ease],
+      keys: [...group.keys].sort(([a], [b]) => a - b).map(([time, values]) => ({
+        time: group.timeScale === "normalized" ? time * (layer.end - layer.start) : time,
+        values,
+      })),
+    };
+    const property = transformMatch[1] as "position" | "rotation" | "scale";
+    const componentTracks = [0, 1, 2].map(index =>
+      keyframes.find(track => track.target === `transform.${property}[${index}]`),
+    );
+    const times = [...new Set(componentTracks.flatMap(track => track?.keys.map(([time]) => time) ?? []))].sort((a, b) => a - b);
+    const base = layer.sourceTransform?.[property] ?? (property === "scale" ? [1, 1, 1] : [0, 0, 0]);
+    return {
+      target: group.target,
+      label: group.label,
+      domain: group.domain,
+      ease: [...group.ease],
+      keys: times.map(time => ({
+        time,
+        values: componentTracks.map((track, index) => track ? trackValueAt(track, time) : base[index]),
+      })),
+    };
+  });
 }

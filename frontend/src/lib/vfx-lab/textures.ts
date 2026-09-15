@@ -20,6 +20,12 @@ export async function generateTexture(
   input: z.infer<typeof TextureRequestSchema>,
   references: string[],
   signal: AbortSignal,
+  runtime?: {
+    apiKey: string | undefined;
+    cacheScope: string;
+    reserve: typeof reserveUsd;
+    settle: typeof settleUsd;
+  },
 ): Promise<{ asset: TextureAsset; usage?: Usage; cached: boolean }> {
   const request = TextureRequestSchema.parse(input);
   if (request.libraryAssetId)
@@ -44,6 +50,7 @@ export async function generateTexture(
         size: 1024,
         quality: "medium",
         revision: 1,
+        scope: runtime?.cacheScope,
       }),
     )
     .digest("hex");
@@ -64,10 +71,13 @@ export async function generateTexture(
     if ((e as NodeJS.ErrnoException).code !== "ENOENT")
       throw new Error("Texture cache invalid; generation stopped.");
   }
-  const apiKey = await getKey();
+  const apiKey = runtime ? runtime.apiKey : await getKey();
   if (!apiKey) throw new Error("OpenAI API key is not configured.");
   signal.throwIfAborted();
-  const reservation = await reserveUsd(IMAGE_RESERVATION_USD);
+  const reservation = await (runtime?.reserve ?? reserveUsd)(
+    IMAGE_RESERVATION_USD,
+  );
+  const settle = runtime?.settle ?? settleUsd;
   const client = new OpenAI({ apiKey, maxRetries: 0, timeout: 180000 });
   const params = {
     model,
@@ -107,7 +117,7 @@ export async function generateTexture(
         error instanceof OpenAI.APIError &&
         [400, 401, 403, 404, 422].includes(error.status || 0)
       )
-        await settleUsd(reservation, 0);
+        await settle(reservation, 0);
       throw error;
     }
   })();
@@ -120,7 +130,7 @@ export async function generateTexture(
         u.input_tokens_details.image_tokens * 8 +
         u.output_tokens * 30) /
       1e6;
-    await settleUsd(reservation, usd, u.input_tokens, u.output_tokens);
+    await settle(reservation, usd, u.input_tokens, u.output_tokens);
     usage = {
       input: u.input_tokens,
       output: u.output_tokens,

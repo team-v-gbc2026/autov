@@ -192,6 +192,36 @@ function projectParameters(layer: LayerV2): Record<ParameterName, number> {
   };
 }
 
+function layerCurves(layer: LayerV2): NonNullable<VfxLayer["curves"]> {
+  const result: NonNullable<VfxLayer["curves"]> = [];
+  const add = (path: string, label: string, domain: string, value: import("./schema-v2").Curve | null | undefined) => {
+    if (value) result.push({ path, label, domain, value });
+  };
+  add("material.erosion.curve", "Erosion", layer.emitter ? "Particle lifetime" : "Layer lifetime", layer.material?.erosion?.curve);
+  add("light.intensity", "Light intensity", "Layer lifetime", layer.light?.intensity);
+  add("emitter.render.sizeCurve", "Particle size", "Particle lifetime", layer.emitter?.render.sizeCurve);
+  add("emitter.render.alphaCurve", "Particle opacity", "Particle lifetime", layer.emitter?.render.alphaCurve);
+  add("emitter.velocity.speedCurve", "Speed multiplier", "Particle lifetime", layer.emitter?.velocity.speedCurve);
+  add("emitter.forces.curl.envelope", "Turbulence envelope", "Particle lifetime", layer.emitter?.forces.curl?.envelope);
+  add("emitter.render.alphaAlongSpawn", "Opacity along spawn", "Spawn position", layer.emitter?.render.alphaAlongSpawn);
+  add("emitter.trail.widthCurve", "Trail width", "Trail length", layer.emitter?.trail?.widthCurve);
+  add("geometry.vertexNoise.alongCurve", "Displacement", "Mesh axis", layer.geometry?.vertexNoise?.alongCurve);
+  add("geometry.lightning.widthCurve", "Lightning width", "Beam length", layer.geometry?.lightning?.widthCurve);
+  add("blob.head", "Path head", "Layer lifetime", layer.blob?.head);
+  add("ribbon.window.head", "Ribbon head", "Layer lifetime", layer.ribbon?.window.head);
+  add("ribbon.morph.curve", "Path morph", "Layer lifetime", layer.ribbon?.morph?.curve);
+  add("wireBurst.scale", "Wire burst scale", "Layer lifetime", layer.wireBurst?.scale);
+  add("streakBurst.grow", "Streak growth", "Layer lifetime", layer.streakBurst?.grow);
+  add("crescent.window.head", "Blade head", "Layer lifetime", layer.crescent?.window.head);
+  add("crescent.window.tail", "Blade tail", "Layer lifetime", layer.crescent?.window.tail);
+  add("material.swirl.strength", "Swirl strength", "Layer lifetime", layer.material?.swirl?.strength);
+  add("material.symbol.hot.alpha", "Symbol hot core", "Layer lifetime", layer.material?.symbol?.hot?.alpha);
+  add("collapse.heightCurve", "Collapse height", "Collapse progress", layer.collapse?.heightCurve);
+  add("collapse.widthCurve", "Collapse width", "Collapse progress", layer.collapse?.widthCurve);
+  add("emitter.spawn.headCurve", "Spawn head", "Layer lifetime", layer.emitter?.spawn.headCurve);
+  return result;
+}
+
 function projectLayer(layer: LayerV2): VfxLayer {
   const stops = rampStops(layer);
   const color =
@@ -211,6 +241,32 @@ function projectLayer(layer: LayerV2): VfxLayer {
         ? "normal"
         : "additive",
     parameters: projectParameters(layer),
+    curves: layerCurves(layer),
+    keyframes: [
+      ...layer.tracks.map(track => ({
+        target: track.target,
+        ease: track.ease,
+        keys: track.keys,
+        timeScale: "seconds" as const,
+      })),
+      ...(layer.motion ? [0, 1, 2].map(component => ({
+        target: `motion.position[${component}]`,
+        label: "Position",
+        domain: "Layer time",
+        ease: layer.motion!.ease,
+        keys: layer.motion!.keys.map(key => [key[0], key[component + 1]] as [number, number]),
+        timeScale: "seconds" as const,
+      })) : []),
+      ...layerCurves(layer).map(curve => ({
+        target: curve.path,
+        label: curve.label,
+        domain: curve.domain,
+        ease: curve.value.ease,
+        keys: curve.value.keys,
+        timeScale: "normalized" as const,
+      })),
+    ],
+    sourceTransform: layer.transform,
     edits: layer.overrides.map((override, index) => ({
       id: `${layer.id}-override-${index + 1}`,
       prompt: `${override.target} → ${override.value}`,
@@ -278,6 +334,7 @@ function writeIntensity(layer: LayerV2, ui: number) {
       target,
       LIGHT_INTENSITY,
     );
+    delete layer.light.intensity.formula;
     layer.light.intensity.keys = layer.light.intensity.keys.map(
       ([t], index) => [t, scaled[index]] as [number, number],
     );
@@ -450,6 +507,7 @@ function writeErosion(layer: LayerV2, ui: number) {
     target,
     EROSION,
   );
+  delete material.erosion.curve.formula;
   material.erosion.curve.keys = keys.map(
     ([t], index) => [t, scaled[index]] as [number, number],
   );
@@ -582,10 +640,20 @@ export function applyLayerPatch(
     if (patch.blend === "normal" && current !== "premultiplied")
       layer.material.blend = "alpha";
   }
+  if (patch.curves) {
+    const allowed = new Set(layerCurves(layer).map(curve => curve.path));
+    for (const curve of patch.curves) {
+      if (!allowed.has(curve.path)) continue;
+      const parts = curve.path.split(".");
+      let owner = layer as unknown as Record<string, unknown>;
+      for (const part of parts.slice(0, -1)) owner = owner[part] as Record<string, unknown>;
+      owner[parts[parts.length - 1]] = structuredClone(curve.value);
+    }
+  }
   if (patch.parameters)
     for (const name of PARAMETER_NAMES) {
       const value = patch.parameters[name];
-      if (typeof value === "number" && Number.isFinite(value))
+      if (typeof value === "number" && Number.isFinite(value) && value !== projectParameters(layer)[name])
         WRITERS[name](layer, value);
     }
   return commit(next, doc);
