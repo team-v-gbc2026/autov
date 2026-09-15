@@ -4507,7 +4507,12 @@ export const EmitterWireSchema = EmitterSchema.extend({
     sizeCurve: CurveWireSchema,
     alphaCurve: CurveWireSchema,
     alphaAlongSpawn: CurveWireSchema.nullable(),
-    rotation: ParticleRotationSchema.extend({ initial: num2, speed: num2 }),
+    rotation: ParticleRotationSchema.extend({
+      // Structured Outputs uses arrays instead of tuples, but must retain the
+      // runtime bounds: a valid model response must not fail during conversion.
+      initial: z.array(scalar(-Math.PI * 2, Math.PI * 2)).length(2),
+      speed: z.array(scalar(-10, 10)).length(2),
+    }),
     twinkle: TwinkleSchema.nullable(),
     strip: StripSchema.extend({ length: num2, width: num2 }).nullable(),
     anchor: z.enum(["center", "head"]),
