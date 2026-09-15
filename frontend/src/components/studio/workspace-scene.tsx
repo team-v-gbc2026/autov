@@ -121,6 +121,8 @@ export default function WorkspaceScene({
       instance?.dispose();
       runtime.current = null;
       installed.current = null;
+      preparing.current = false;
+      framed.current = false;
     };
   }, [attempt]);
 
@@ -135,7 +137,8 @@ export default function WorkspaceScene({
       const release = clock.hold();
       preparing.current = true;
       const settle = () => {
-        preparing.current = false;
+        if (runtime.current === instance && installed.current === doc)
+          preparing.current = false;
         release();
       };
       try {
@@ -146,7 +149,7 @@ export default function WorkspaceScene({
         void instance.whenReady().then(
           () => {
             settle();
-            if (runtime.current === instance && first) setStatus("ready");
+            if (runtime.current === instance && installed.current === doc) setStatus("ready");
           },
           problem => {
             settle();
@@ -156,6 +159,7 @@ export default function WorkspaceScene({
           },
         );
       } catch (problem) {
+        if (runtime.current === instance) preparing.current = false;
         settle();
         setError(problem instanceof Error ? problem.message : "Invalid effect.");
         setStatus("error");
