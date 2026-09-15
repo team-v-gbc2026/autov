@@ -23,6 +23,33 @@ const FIXTURE = path.join(
 const raw = JSON.parse(readFileSync(FIXTURE, "utf8"));
 const load = (): VfxDocumentV2 => structuredClone(raw);
 
+/** The document as a model returns it: kind slots present, explicitly null. */
+const toWire = (doc: VfxDocumentV2) => {
+  const wire = {
+    ...structuredClone(doc),
+    layers: doc.layers.map((layer) => ({
+      ...structuredClone(layer),
+      material: layer.material ?? null,
+      emitter: layer.emitter ?? null,
+      geometry: layer.geometry ?? null,
+      light: layer.light ?? null,
+      blob: layer.blob ?? null,
+      splash: layer.splash ?? null,
+      ribbon: layer.ribbon ?? null,
+      wireBurst: layer.wireBurst ?? null,
+      crystals: layer.crystals ?? null,
+      arcs: layer.arcs ?? null,
+      streakBurst: layer.streakBurst ?? null,
+      reflection: layer.reflection ?? null,
+      sheets: layer.sheets ?? null,
+      crescent: layer.crescent ?? null,
+      licks: layer.licks ?? null,
+    })),
+  };
+  delete (wire as Record<string, unknown>).textures;
+  return wire;
+};
+
 test("existing documents retain unlit shading and can opt into smoke lighting", () => {
   const document = DocumentV2Schema.parse(load());
   for (const layer of document.layers) {
@@ -258,31 +285,80 @@ test("a malformed hex color is refused", () => {
 
 test("wire round-trip: homogeneous arrays parse back into the runtime contract", () => {
   const doc = validateDocumentV2(load());
-  const wire = {
-    ...structuredClone(doc),
-    layers: doc.layers.map((layer) => ({
-      ...structuredClone(layer),
-      material: layer.material ?? null,
-      emitter: layer.emitter ?? null,
-      geometry: layer.geometry ?? null,
-      light: layer.light ?? null,
-      blob: layer.blob ?? null,
-      splash: layer.splash ?? null,
-      ribbon: layer.ribbon ?? null,
-      wireBurst: layer.wireBurst ?? null,
-      crystals: layer.crystals ?? null,
-      arcs: layer.arcs ?? null,
-      streakBurst: layer.streakBurst ?? null,
-    reflection: layer.reflection ?? null,
-    sheets: layer.sheets ?? null,
-    crescent: layer.crescent ?? null,
-    licks: layer.licks ?? null,
-    })),
-  };
-  delete (wire as Record<string, unknown>).textures;
+  const wire = toWire(doc);
   DocumentV2WireSchema.parse(wire);
   const back = fromWireV2(wire);
   assert.deepEqual(back, { ...doc, textures: [] });
+});
+
+test("a track just outside its range is clamped, not rejected", () => {
+  const doc = validateDocumentV2(load());
+  const layer = doc.layers[0];
+  const span = layer.end - layer.start;
+  // A hot core past the top of the intensity range, and a last key authored
+  // for a longer effect than the layer ended up with.
+  layer.tracks = [
+    {
+      target: "material.ramp.stops[0].intensity",
+      keys: [
+        [0, 0],
+        [span / 2, 12],
+        [span + 1, 0],
+      ],
+      ease: "smooth",
+    },
+  ];
+  assert.throws(() => validateDocumentV2(doc), /Invalid keyframe/);
+  const back = fromWireV2(toWire(doc));
+  assert.deepEqual(back.layers[0].tracks[0].keys, [
+    [0, 0],
+    [span / 2, 8],
+    [span, 0],
+  ]);
+});
+
+test("a layer running past the document end is pulled back to it", () => {
+  const doc = validateDocumentV2(load());
+  doc.layers[0].end = doc.duration + 0.5;
+  assert.throws(() => validateDocumentV2(doc), /Invalid interval/);
+  assert.equal(fromWireV2(toWire(doc)).layers[0].end, doc.duration);
+});
+
+test("a backwards emitter range is put the right way round", () => {
+  const doc = validateDocumentV2(load());
+  const layer = doc.layers.find((l) => l.emitter)!;
+  layer.emitter!.velocity.speed = [6, 2];
+  layer.emitter!.life = [3, 0.4];
+  assert.throws(() => validateDocumentV2(doc), /Range minimum/);
+  const back = fromWireV2(toWire(doc)).layers.find((l) => l.id === layer.id)!;
+  assert.deepEqual(back.emitter!.velocity.speed, [2, 6]);
+  assert.deepEqual(back.emitter!.life, [0.4, 3]);
+});
+
+test("a two-number field that is not a range keeps its order", () => {
+  const doc = validateDocumentV2(load());
+  const layer = doc.layers.find((l) => l.material?.mask.uvPan)!;
+  layer.material!.mask.uvPan = [0.4, -0.2];
+  const back = fromWireV2(toWire(doc)).layers.find((l) => l.id === layer.id)!;
+  assert.deepEqual(back.material!.mask.uvPan, [0.4, -0.2]);
+});
+
+test("a track a clamp cannot save is still refused", () => {
+  const doc = validateDocumentV2(load());
+  const layer = doc.layers[0];
+  // Both keys sit past the layer's end: clamping leaves one key, which is no
+  // track at all, so the document keeps its rejection.
+  layer.tracks = [
+    {
+      target: "material.opacity",
+      keys: [
+        [layer.end - layer.start + 1, 1],
+        [layer.end - layer.start + 2, 0],
+      ],
+      ease: "linear",
+    },
+  ];
+  assert.throws(() => fromWireV2(toWire(doc)), /Invalid keyframe/);
 });
 
 test("the wire schema publishes no tuple types", () => {
