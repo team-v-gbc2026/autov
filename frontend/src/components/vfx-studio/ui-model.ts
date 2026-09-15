@@ -30,6 +30,19 @@ export type VfxLayer = {
   enabled: boolean;
   parameters: Record<ParameterName, number>;
   curves?: { path: string; label: string; domain: string; value: Curve }[];
+  keyframes?: {
+    target: string;
+    label?: string;
+    domain?: string;
+    timeScale?: "seconds" | "normalized";
+    ease: string;
+    keys: [number, number][];
+  }[];
+  sourceTransform?: {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  };
   edits: ScopedEdit[];
 };
 

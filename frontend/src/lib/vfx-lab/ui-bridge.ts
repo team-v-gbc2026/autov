@@ -242,6 +242,31 @@ function projectLayer(layer: LayerV2): VfxLayer {
         : "additive",
     parameters: projectParameters(layer),
     curves: layerCurves(layer),
+    keyframes: [
+      ...layer.tracks.map(track => ({
+        target: track.target,
+        ease: track.ease,
+        keys: track.keys,
+        timeScale: "seconds" as const,
+      })),
+      ...(layer.motion ? [0, 1, 2].map(component => ({
+        target: `motion.position[${component}]`,
+        label: "Position",
+        domain: "Layer time",
+        ease: layer.motion!.ease,
+        keys: layer.motion!.keys.map(key => [key[0], key[component + 1]] as [number, number]),
+        timeScale: "seconds" as const,
+      })) : []),
+      ...layerCurves(layer).map(curve => ({
+        target: curve.path,
+        label: curve.label,
+        domain: curve.domain,
+        ease: curve.value.ease,
+        keys: curve.value.keys,
+        timeScale: "normalized" as const,
+      })),
+    ],
+    sourceTransform: layer.transform,
     edits: layer.overrides.map((override, index) => ({
       id: `${layer.id}-override-${index + 1}`,
       prompt: `${override.target} → ${override.value}`,
