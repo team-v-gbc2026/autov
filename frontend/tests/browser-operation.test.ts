@@ -25,3 +25,9 @@ test("expired operation diagnostics survive the server transition used by workfl
     assert.match(result.result.message, /stopped renewing/);
   } finally { globalThis.fetch = original; }
 });
+
+
+test("ordinary preview expiry does not offer candidate-only recovery", () => {
+  assert.match(browserExpiry({ kind: "preview", lease_id: "lease" }).message, /retry the preview/);
+  assert.doesNotMatch(browserExpiry({ kind: "preview" }).message, /recover the saved candidate/);
+});
