@@ -2171,3 +2171,29 @@ test("a particle-hero document keeps the wider framing band", () => {
     [],
   );
 });
+
+test("generated particle rotation keeps the runtime angle and speed bounds", () => {
+  for (const field of ["initial", "speed"] as const) {
+    const limit = field === "initial" ? Math.PI * 2 : 10;
+    for (const pair of [
+      [-limit, limit],
+      [0, limit],
+    ]) {
+      const doc = validateDocumentV2(load());
+      doc.layers.find((layer) => layer.emitter)!.emitter!.render.rotation[
+        field
+      ] = pair as [number, number];
+      assert.doesNotThrow(() => fromWireV2(toWire(doc)));
+    }
+    for (const pair of [
+      [0, limit + 0.001],
+      [-limit - 0.001, 0],
+    ]) {
+      const doc = validateDocumentV2(load());
+      doc.layers.find((layer) => layer.emitter)!.emitter!.render.rotation[
+        field
+      ] = pair as [number, number];
+      assert.equal(DocumentV2WireSchema.safeParse(toWire(doc)).success, false);
+    }
+  }
+});

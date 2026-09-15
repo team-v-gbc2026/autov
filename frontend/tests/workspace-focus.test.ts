@@ -32,6 +32,9 @@ for (const area of [
     assert.ok(y >= area.top && y <= area.top + area.height);
     assert.ok(ndc.z >= 0 && ndc.z <= 1);
   }
+  const fittedDistance = camera.position.distanceTo(target);
+  VfxRuntimeV2.prototype.focus.call(runtime as unknown as VfxRuntimeV2, area, undefined, 0.5);
+  assert.ok(camera.position.distanceTo(target) > fittedDistance * 1.9);
 });
 
 /**
@@ -88,4 +91,42 @@ test("the first loaded document is framed instead of keeping the placeholder pos
   assert.equal(visible(), true);
   assert.ok(camera.position.distanceTo(sphere.center) > placeholder);
   assert.equal(box.containsPoint(camera.position), false);
+});
+
+import { needsWorkspaceFraming, workspaceVisibleArea } from "../src/components/studio/workspace-presentation";
+import { createDocument, createWorkspaceDocument } from "../src/lib/vfx-lab/ui-bridge";
+
+test("empty to generated, first loaded, and authored camera changes reframe; ordinary edits keep orbit", () => {
+  const empty = createWorkspaceDocument();
+  const generated = createDocument();
+  assert.equal(needsWorkspaceFraming(empty, generated, true), true);
+  assert.equal(needsWorkspaceFraming(generated, generated, false), true);
+  for (const key of ["azimuth", "elevation", "fov", "framing"] as const) {
+    const changed = structuredClone(generated);
+    changed.camera[key] += 0.1;
+    assert.equal(needsWorkspaceFraming(generated, changed, true), true);
+  }
+  const changed = structuredClone(generated);
+  changed.post.exposure += 0.1;
+  changed.camera.shake = { amplitude: 0.1, frequency: 2, start: 0, end: 1, fade: 0.1 };
+  assert.equal(needsWorkspaceFraming(generated, changed, true), false);
+});
+
+test("initial framing and Focus share the unobscured panel rectangle", () => {
+  const panel = (id: string, chat: boolean, rect: object, visible = true) => ({
+    id, classList: { contains: () => chat },
+    getClientRects: () => visible ? [rect] : [], getBoundingClientRect: () => rect,
+  });
+  const host = {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1440, height: 1000 }),
+    closest: () => ({
+      querySelectorAll: () => [
+        panel("", false, { right: 288 }), panel("", true, { left: 1104 }),
+        panel("playback-timeline", false, { top: 856 }),
+        panel("", false, { right: 1400 }, false),
+      ],
+      querySelector: () => ({ getBoundingClientRect: () => ({ bottom: 114 }) }),
+    }),
+  } as unknown as HTMLElement;
+  assert.deepEqual(workspaceVisibleArea(host), { left: 304, top: 130, width: 784, height: 710 });
 });
