@@ -31,6 +31,8 @@ const range = (min: number, max: number) =>
   z.tuple([scalar(min, max), scalar(min, max)]);
 const TIME = 12;
 const localTime = scalar(0, TIME);
+/** Slack on a keyframe time, so a span that is a float subtraction still fits. */
+const KEY_TIME_EPSILON = 1e-6;
 
 export const KINDS_V2 = [
   "ring",
@@ -3285,7 +3287,7 @@ export function validateDocumentV2(input: unknown, options: { workspace?: boolea
     if (layer.collapse) {
       checkCurve(layer.collapse.heightCurve, `${label}/collapse.heightCurve`);
       checkCurve(layer.collapse.widthCurve, `${label}/collapse.widthCurve`);
-      if (layer.collapse.start > layer.end - layer.start + 1e-6)
+      if (layer.collapse.start > layer.end - layer.start + KEY_TIME_EPSILON)
         throw new Error(
           `Collapse starts after the layer ends, so it never runs: ${label}`,
         );
@@ -3374,7 +3376,7 @@ export function validateDocumentV2(input: unknown, options: { workspace?: boolea
       for (let i = 0; i < layer.motion.keys.length; i++) {
         const t = layer.motion.keys[i][0];
         if (
-          t > layer.end - layer.start + 1e-6 ||
+          t > layer.end - layer.start + KEY_TIME_EPSILON ||
           (i > 0 && t <= layer.motion.keys[i - 1][0])
         )
           throw new Error(`Invalid motion keys: ${label}`);
@@ -3389,7 +3391,7 @@ export function validateDocumentV2(input: unknown, options: { workspace?: boolea
       for (let i = 0; i < track.keys.length; i++) {
         const [t, v] = track.keys[i];
         if (
-          t > layer.end - layer.start + 1e-6 ||
+          t > layer.end - layer.start + KEY_TIME_EPSILON ||
           (i > 0 && t <= track.keys[i - 1][0]) ||
           (bounds && (v < bounds[0] || v > bounds[1]))
         )
@@ -4598,15 +4600,138 @@ export const DocumentV2WireSchema = DocumentV2Schema.omit({
 
 export type VfxDocumentV2Wire = z.infer<typeof DocumentV2WireSchema>;
 
+/** The window a layer keeps when a clamped end would otherwise invert it. */
+const MIN_LAYER_SPAN = 0.01;
+
+/** The bound a track value carries when V2_TARGET_RANGES names no range. */
+const TRACK_VALUE_RANGE: readonly [number, number] = [-20, 20];
+
+/**
+ * The property names the contract spells `range(min, max)` and checkRange reads
+ * as `[min, max]`. Every one of them arrives on the wire as a bare pair of
+ * numbers, and no other two-number field in the document carries any of these
+ * names — the rest are pans, UV scales, grids, centres and curve keys, whose
+ * order means something else and which are left alone.
+ */
+const RANGE_PAIR_KEYS = new Set([
+  "along",
+  "curl",
+  "detach",
+  "elevation",
+  "fade",
+  "initial",
+  "life",
+  "length",
+  "offset",
+  "onTime",
+  "period",
+  "pitch",
+  "radius",
+  "scaleIn",
+  "sides",
+  "size",
+  "speed",
+  "spread",
+  "stagger",
+  "thresholds",
+  "width",
+  "window",
+]);
+
+const isNumberPair = (value: unknown): value is number[] =>
+  Array.isArray(value) &&
+  value.length === 2 &&
+  value.every((n) => typeof n === "number" && Number.isFinite(n));
+
+/**
+ * Put a backwards range the right way round, in place. A model that writes a
+ * speed of [6, 2] has said what it means — the layer is refused today over the
+ * order of two numbers it already chose, and reading them the other way round
+ * is the only thing the pair can mean.
+ */
+function orderRangePairs(value: unknown): void {
+  if (Array.isArray(value)) {
+    value.forEach(orderRangePairs);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    if (RANGE_PAIR_KEYS.has(key) && isNumberPair(child)) {
+      if (child[0] > child[1]) child.reverse();
+    } else orderRangePairs(child);
+  }
+}
+
+const clampTo = (value: number, [min, max]: readonly [number, number]) =>
+  Math.min(Math.max(value, min), max);
+
+/**
+ * Saturate the near-misses a generated document arrives with, instead of
+ * refusing the whole document over one number. A keyframe value a little past
+ * its target's range, a key past the end of its own layer and a layer running
+ * past the document's end are each a single value the renderer would have
+ * clamped anyway, and losing a generation to one of them costs the user the
+ * effect. Nothing else is touched, so a document broken in a way a clamp cannot
+ * express is still rejected with the message that says why — including a track
+ * whose keys the clamp would collapse, which is put back as it was authored.
+ */
+export function clampWireDocumentV2(
+  input: VfxDocumentV2Wire,
+): VfxDocumentV2Wire {
+  const wire = structuredClone(input);
+  orderRangePairs(wire);
+  return {
+    ...wire,
+    layers: wire.layers.map((layer) => {
+      const end = Math.min(layer.end, wire.duration);
+      const start =
+        layer.start < end ? layer.start : Math.max(0, end - MIN_LAYER_SPAN);
+      const span = end - start;
+      // A key pulled back onto the one before it says nothing that key does not
+      // already say, so it goes rather than break the ascending contract.
+      const inSpan = (keys: number[][]) => {
+        const kept: number[][] = [];
+        for (const key of keys) {
+          // The validator's own slack, so a key only a float's width past the
+          // span is left exactly as the model wrote it.
+          const at = key[0] > span + KEY_TIME_EPSILON ? span : key[0];
+          if (kept.length && at <= kept[kept.length - 1][0]) continue;
+          kept.push([at, ...key.slice(1)]);
+        }
+        return kept.length >= 2 ? kept : keys;
+      };
+      return {
+        ...layer,
+        start,
+        end,
+        motion: layer.motion && {
+          ...layer.motion,
+          keys: inSpan(layer.motion.keys),
+        },
+        tracks: layer.tracks.map((track) => {
+          const bounds = V2_TARGET_RANGES[track.target] ?? TRACK_VALUE_RANGE;
+          return {
+            ...track,
+            keys: inSpan(track.keys.map(([t, v]) => [t, clampTo(v, bounds)])),
+          };
+        }),
+      };
+    }),
+  };
+}
+
 /**
  * Parse a Structured Outputs payload and re-validate it as a runtime document.
  * Kind-dependent slots arrive as explicit nulls on the wire and are dropped.
+ * Out-of-range track values and overlong windows are clamped on the way in:
+ * every caller — studio authoring, the local run, a refine proposal — wants the
+ * same near-miss saturated rather than the generation thrown away.
  */
 export function fromWireV2(
   input: unknown,
   textures: TextureAsset[] = [],
 ): VfxDocumentV2 {
-  const wire = DocumentV2WireSchema.parse(input);
+  const wire = clampWireDocumentV2(DocumentV2WireSchema.parse(input));
   const layers = wire.layers.map((layer) => {
     const next: Record<string, unknown> = { ...layer };
     for (const slot of [
