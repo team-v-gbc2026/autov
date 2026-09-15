@@ -1,100 +1,149 @@
-# autoV — Team V! · TAI × OpenAI 100-Hour Game Builder Challenge 2026
+<div align="center">
 
-> **Track 2: Game Development Tools** — an AI-powered tool that changes how games are developed, tested, localized, operated or distributed.
+# ⚡ autoV
 
-**Status:** building · **Deadline:** Tue Sep 15, 23:59 JST · **Showcase:** Thu Sep 17, 18:00 @ Sakura Deeptech Shibuya
+### Prompt-to-VFX for real-time games — editable, not just pretty
 
-## Local VFX studio
+**AI-authored Three.js effects you can actually open, tweak, and ship.**
 
-The local studio now generates editable Three.js effects with OpenAI. It retains the current References / Chat / Timeline UI and adds layer controls, three candidate directions, rendered visual review, bounded refinement, scoped edits, undo/redo, JSON import/export and a self-contained HTML player.
+[![Track 2](https://img.shields.io/badge/TAI%20×%20OpenAI-100--Hour%20Challenge-000?style=for-the-badge)](https://github.com/team-v-gbc2026/autov)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)](https://nextjs.org)
+[![Three.js](https://img.shields.io/badge/Three.js-r186-049EF4?style=for-the-badge&logo=three.js&logoColor=white)](https://threejs.org)
+[![OpenAI](https://img.shields.io/badge/OpenAI-Structured%20Outputs-412991?style=for-the-badge&logo=openai)](https://platform.openai.com)
+[![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
 
-```sh
+<br/>
+
+<!-- DEMO VIDEO — replace the URL below.
+     GitHub plays .mp4/.webm inline if you drag the file into an Issue/PR comment
+     and paste the resulting https://github.com/user-attachments/... URL here.
+     For a YouTube demo, use the thumbnail-link form instead (commented out under this). -->
+
+https://github.com/user-attachments/assets/REPLACE_WITH_UPLOADED_VIDEO
+
+<!-- YouTube alternative:
+<a href="https://youtu.be/VIDEO_ID"><img src="https://img.youtube.com/vi/VIDEO_ID/maxresdefault.jpg" width="80%" alt="Watch the autoV demo" /></a>
+<br/><sub>▶︎ Watch the 90-second demo</sub>
+-->
+
+<br/>
+
+<a href="docs/screenshots/vfx-studio-ui-chat-edit.jpg"><img src="docs/screenshots/vfx-studio-ui-chat-edit.jpg" width="49%" alt="autoV studio — chat-driven scoped edits" /></a>
+<a href="docs/screenshots/vfx-studio-ui-effect-controls.jpg"><img src="docs/screenshots/vfx-studio-ui-effect-controls.jpg" width="49%" alt="autoV studio — layer and effect controls" /></a>
+
+</div>
+
+---
+
+## The one-liner
+
+> **A game artist's VFX pass can now start from a prompt and end in an editable layer stack**, because OpenAI's Structured Outputs let us have the model author a *declarative effect document* instead of opaque code — so every spark, trail and shockwave stays yours to tune.
+
+## The problem
+
+Prompt-to-VFX tools give you a **video**. A video is not a visual effect. You can't retime it, recolor it, relight it, or drop it into an engine. The moment an art director says "make the trail 20% longer," you start over.
+
+## The solution
+
+autoV never lets the model write executable code. It designs a **bounded declarative document** (`autov.lab/1`) — layers, tracks, colors, emission shapes, timing — and a **fixed Three.js renderer** owns everything that actually runs. That one constraint buys us the whole product:
+
+|  | What you get |
+|---|---|
+| 🎚️ **Editable** | 18 layers, independent color / scale / rotation / opacity / local-time animation |
+| 🔀 **Three directions** | Distinct candidate compositions per prompt, not three rerolls of one idea |
+| 👁️ **Rendered critique** | Effects are actually rendered, then reviewed on four criteria — no blind generation |
+| 🎯 **Scoped edits** | A chat edit touches exactly one layer in one time window. Everything else is bit-identical |
+| ↩️ **Undo / redo** | Immutable best-state checkpoints — a bad refinement can never destroy good work |
+| 📦 **Portable** | JSON import/export, plus a self-contained single-file HTML player |
+
+## How it works
+
+```mermaid
+flowchart LR
+  A[Prompt + references] --> B[Director<br/>structure & motion]
+  B --> C[3 recipe-conditioned<br/>candidates]
+  C --> D[Schema +<br/>resource limits]
+  D --> E[Three.js render<br/>at event times]
+  E --> F[Visual review<br/>4 criteria]
+  F --> G[Best valid<br/>checkpoint]
+  G --> H[One bounded<br/>correction]
+  H --> I{Clear<br/>improvement?}
+  I -->|Yes| J[Keep]
+  I -->|No| G
+```
+
+The renderer ships seven fixed primitives — annular ring, Fresnel noise shell, crescent trail, energy beam, glow/smoke sprite, analytic instanced particles, engraved decal — with HDR bloom and ACES tone mapping. GPU particles use hash-derived birth attributes and closed-form drag + gravity, so there's **no simulation state and no model calls during playback**. Scrub the timeline; it's deterministic.
+
+Grounded in [ParticleGen](https://arxiv.org/abs/2608.00629) (plan/parameterize split, rendered critique, bounded refinement) and [KinemaFX, UIST 2025](https://arxiv.org/abs/2507.19782) (explicit motion intent, user-selected directions) — adapted to Three.js, not reproduced. See [DESIGN.md](docs/vfx-lab/DESIGN.md) for the honest boundaries.
+
+## Quickstart
+
+```bash
+git clone https://github.com/team-v-gbc2026/autov.git
+cd autov
+cp frontend/.env.example frontend/.env.local   # add your OPENAI_API_KEY
 npm --prefix frontend ci
 npm --prefix frontend run dev:local
 ```
 
-Open [the legacy lab studio](http://127.0.0.1:3000/dev/vfx-lab) — a dev-only route that needs no Supabase login. The product studio lives at `/workspace` and does require Supabase; on localhost it also runs local generation through `/api/local-vfx`. Connect a project API key through `/dev/vfx-lab/settings` or `frontend/.env.local`. A persistent server-side ledger stops calls before the approved cumulative **$30** local limit would be exceeded.
+Open **[127.0.0.1:3000/dev/vfx-lab](http://127.0.0.1:3000/dev/vfx-lab)** — a dev-only route that needs no Supabase login.
 
-[Local setup and controls](docs/vfx-lab/LOCAL_SETUP.md) · [Research, architecture and limitations](docs/vfx-lab/DESIGN.md)
+The product studio lives at `/workspace` and does require Supabase; on localhost it routes generation through `/api/local-vfx`. Add a key via `/dev/vfx-lab/settings` or `frontend/.env.local`. A server-side ledger hard-stops calls before the approved cumulative **$30** local spend limit.
 
-This branch is a local implementation. AAA quality remains an artistic acceptance target; model scores and renderer tests do not certify it. The existing cloud workspace and Supabase integration are retained.
+📖 [Local setup & controls](docs/vfx-lab/LOCAL_SETUP.md) · [Architecture & limitations](docs/vfx-lab/DESIGN.md) · [App & database](docs/APP_DATABASE.md)
 
-## One-liner
-<!-- Fill at kickoff: "(who)'s (which step of game dev) can now (what), because OpenAI's (which capability) lets us (how)." -->
-TBD
+## Stack
 
-## Problem
-TBD
+`Next.js 16 (App Router)` · `React 19` · `Three.js r186 (WebGL2)` · `OpenAI SDK` · `Supabase` · `Zod` · `Tailwind v4` · Deployed on Vercel
 
-## Solution
-TBD
+<details>
+<summary><b>Deploying to Vercel</b></summary>
 
-## Demo
-- Live: <Vercel URL>
-- Video: <link>
+Set the Vercel project's **Root Directory** to `frontend` — Vercel then detects the Next.js app and its lockfile correctly. `frontend/vercel.json` pins install to `npm ci` and build to `npm run build`.
 
-## How we use OpenAI
-<!-- Judges weight this at 30%. Be specific: which API / model / feature, and what it enables that wasn't possible before. -->
-TBD
-
-## Architecture
-```
-[UI] → [API route] → [OpenAI API] → [result]
-```
-
-## Tech stack
-- Next.js (App Router) on Vercel
-- OpenAI API (`openai` SDK)
-
-## Setup
-```bash
-git clone https://github.com/team-v-gbc2026/autov.git
-cd autov
-cp frontend/.env.example frontend/.env.local
-npm --prefix frontend ci
-npm --prefix frontend run dev
-```
-
-## Vercel deploy
-
-Set the Vercel project's **Root Directory** to `frontend`. Vercel will then detect the Next.js app and its lockfile correctly. The app-level `frontend/vercel.json` uses:
-- Install: `npm ci`
-- Build: `npm run build`
-
-## Environment variables
-| Name | Where | Notes |
+| Env var | Where | Notes |
 |---|---|---|
-| `OPENAI_API_KEY` | `.env.local` (local) / Vercel env vars (prod) | Use your own key + your own hackathon credit locally. The production key lives only in Vercel. |
+| `OPENAI_API_KEY` | `.env.local` (local) / Vercel env vars (prod) | Use your own key and your own hackathon credit locally. The production key lives only in Vercel. |
 
-## Security — read this before your first push
+</details>
 
-This repo is **public**, so treat everything you commit as permanently readable by anyone.
+## 🔒 Security — read before your first push
 
-- **Never commit API keys or tokens.** GitHub's push protection will reject the push anyway — if that happens, remove the secret and rotate the key rather than working around it.
+This repo is **public**. Treat everything you commit as permanently readable by anyone.
+
+- **Never commit API keys or tokens.** GitHub push protection will reject it anyway — if it fires, remove the secret and *rotate the key* rather than working around it.
 - `main` is protected: no direct pushes, no force-push. Branch → PR → 1 approval → merge.
 - Every PR is scanned by **gitleaks** and **CodeQL**. A high-severity CodeQL finding blocks the merge.
-- Want an AI review? Comment **`@coderabbitai review`** on your PR. (CodeRabbit's free tier only reviews automatically once a repo has 10+ stars, so we ask for it by hand.)
+- Want an AI review? Comment **`@coderabbitai review`** on your PR.
 - 2FA is required for every member of this org.
 
-Full rules and the reasoning behind them: [`SECURITY.md`](SECURITY.md) — 2 minutes, please read once.
+Full rules and reasoning: **[SECURITY.md](SECURITY.md)** — 2 minutes, please read once.
 
-## How we work (short version)
-- One task = one GitHub Issue. Board: **Projects → Team V! Board**.
-- `main` is deploy-to-prod. Work on a branch, open a small PR, get one approval, merge.
-- Pushing new commits dismisses earlier approvals — push everything before asking for review.
-- Stuck for 15–30 min? Post in `#dev` on Discord.
-- Decisions go in [`docs/DECISIONS.md`](docs/DECISIONS.md), not just chat.
+## How we work
 
-## Team
-| Name | Role | GitHub |
-|---|---|---|
-| Taiki Kawa | Lead / PM | [@TaikiKawa](https://github.com/TaikiKawa) |
-| Eric Volkmann | Engineer | [@gd193](https://github.com/gd193) |
-| Rahul Ghosh | Engineer | [@SYBIOTE](https://github.com/SYBIOTE) |
+- One task = one GitHub Issue. Board: **Projects → Team V! Board**
+- `main` deploys to prod. Small branches, small PRs, one approval
+- New commits dismiss earlier approvals — push everything *before* asking for review
+- Stuck 15–30 min? Post in `#dev` on Discord
+- Decisions go in [`docs/DECISIONS.md`](docs/DECISIONS.md), not just chat
 
-## Future work
-TBD
+## Team V!
 
-## App, login, and database
+| | Name | Role | GitHub |
+|---|---|---|---|
+| 🎯 | Taiki Kawa | Lead / PM | [@TaikiKawa](https://github.com/TaikiKawa) |
+| 🛠️ | Eric Volkmann | Engineer | [@gd193](https://github.com/gd193) |
+| 🛠️ | Rahul Ghosh | Engineer | [@SYBIOTE](https://github.com/SYBIOTE) |
 
-The Next.js app lives in `frontend/`. See [app/database setup and generation integration](docs/APP_DATABASE.md) for environment variables, authentication, migrations, and the generation-team contract.
+## Roadmap
+
+- **Engine export** — Niagara / Unity VFX Graph emitters from the same document
+- **Renderer primitives** — soft-particle depth intersection, curl integration, spline trajectories
+- **Human benchmark** — the visual model's score is *not* a certification of AAA quality. That needs artists.
+
+---
+
+<div align="center">
+<sub>Built in 100 hours for the <b>TAI × OpenAI Game Builder Challenge 2026</b> · Track 2: Game Development Tools</sub><br/>
+<sub>Showcase: Thu Sep 17, 18:00 @ Sakura Deeptech Shibuya</sub>
+</div>
