@@ -485,3 +485,114 @@ test("library board cards reuse their identity across generation operations", as
   );
   assert.equal(first.referenceId, next.referenceId);
 });
+
+import { refineCandidate } from "../../agent/lib/candidates";
+for (const failPersistence of [false, true]) {
+  test(`refinement preserves the provider error and stops retries (status write fails: ${failPersistence})`, async () => {
+    const sourceId = "40000000-0000-4000-8000-000000000001";
+    const base = createDocument();
+    const input = AuthorCandidateSchema.parse({
+      expectedRevision: 0,
+      prompt: "A billowing burst of smoke",
+      referenceIds: [],
+      mode: "replace",
+      direction: {
+        silhouette: "Billowing ring",
+        layering: [{ role: "primary", appearance: "Purple lobes" }],
+        palette: "Purple",
+        timing: "Short burst",
+        motionDirection: "Outward",
+        uncertainties: [],
+        textureNeeds: [],
+      },
+      textures: { bindings: [] },
+      family: "smoke-burst",
+      techniqueIds: [],
+    });
+    let providerCalls = 0;
+    let recordedMessage = "";
+    const actions: string[] = [];
+    globalThis.fetch = async (url, init) => {
+      const address = String(url);
+      if (address.includes("api.openai.com")) {
+        providerCalls++;
+        return Response.json(
+          {
+            error: {
+              message: "Synthetic provider rejection",
+              type: "invalid_request_error",
+            },
+          },
+          { status: 400 },
+        );
+      }
+      if (address.includes("/rest/v1/projects?"))
+        return Response.json({ id: identity.projectId });
+      if (address.includes("/rest/v1/studio_documents?"))
+        return Response.json({ revision: 1, document: base });
+      if (address.includes("/rest/v1/studio_operations?"))
+        return Response.json({
+          id: sourceId,
+          kind: "generate",
+          status: "completed",
+          after_revision: 1,
+          input,
+        });
+      if (address.includes("/rpc/studio_transition")) {
+        const args = JSON.parse(String(init?.body));
+        actions.push(args.p_action);
+        if (args.p_action === "create")
+          return Response.json({ ...operation, status: "pending" });
+        if (args.p_action === "reserve")
+          return Response.json({
+            call: { id: "reservation", reserved_usd: 3 },
+            replayed: false,
+          });
+        if (args.p_action === "poll")
+          return Response.json({ status: "running" });
+        if (args.p_action === "fail") {
+          recordedMessage = args.p_args.result.message;
+          return failPersistence
+            ? Response.json(
+                { message: "Synthetic DB failure" },
+                { status: 400 },
+              )
+            : Response.json({ status: "failed" });
+        }
+      }
+      throw new Error(`Unexpected mocked request: ${address}`);
+    };
+    const ctx = {
+      session: {
+        id: "test-session",
+        turn: { id: "test-turn" },
+        auth: {
+          current: {
+            authenticator: "supabase",
+            principalType: "user",
+            principalId: identity.userId,
+            attributes: {
+              projectId: identity.projectId,
+              refineOperationId: sourceId,
+            },
+          },
+        },
+      },
+      callId: "refine-test",
+      abortSignal: signal,
+    } as unknown as Parameters<typeof refineCandidate>[0];
+    await assert.rejects(
+      refineCandidate(ctx, "Improve the silhouette", 1),
+      (error: unknown) => {
+        assert.equal((error as { fatal: boolean }).fatal, true);
+        assert.match((error as Error).message, /Synthetic provider rejection/);
+        return true;
+      },
+    );
+    assert.equal(providerCalls, 1);
+    assert.match(recordedMessage, /Synthetic provider rejection/);
+    assert.equal(actions.filter((action) => action === "create").length, 1);
+    assert.equal(actions.filter((action) => action === "fail").length, 1);
+    assert.equal(actions.includes("settle"), false);
+  });
+}

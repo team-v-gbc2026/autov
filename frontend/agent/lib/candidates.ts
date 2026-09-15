@@ -423,49 +423,80 @@ export async function refineCandidate(
     false,
     ctx.session.turn.id,
   );
-  const contextInput = GenerationSchema.parse(
-    Object.fromEntries(
-      Object.entries(input).filter(
-        ([key]) =>
-          ![
-            "direction",
-            "textures",
-            "techniqueIds",
-            "family",
-            "effectTextureOperationIds",
-          ].includes(key),
+  if (!["pending", "running"].includes(operation.status))
+    throw Object.assign(
+      new OperationError(
+        "CONFLICT",
+        String(
+          operation.result?.message || "This generation is no longer pending.",
+        ),
       ),
-    ),
-  );
-  const context = await resolveGenerationContext(identity, contextInput);
-  if (addBase) {
-    context.base = validateWorkspaceDocumentV2(addBase);
-    context.brief = generationBrief(contextInput, context.base);
+      { fatal: true },
+    );
+  try {
+    const contextInput = GenerationSchema.parse(
+      Object.fromEntries(
+        Object.entries(input).filter(
+          ([key]) =>
+            ![
+              "direction",
+              "textures",
+              "techniqueIds",
+              "family",
+              "effectTextureOperationIds",
+            ].includes(key),
+        ),
+      ),
+    );
+    const context = await resolveGenerationContext(identity, contextInput);
+    if (addBase) {
+      context.base = validateWorkspaceDocumentV2(addBase);
+      context.brief = generationBrief(contextInput, context.base);
+    }
+    context.effectTextures = state.document.textures ?? [];
+    context.brief += `\nCurrent candidate for refinement: ${JSON.stringify(
+      summarize(
+        state.document,
+        state.document.layers.map((layer) => layer.id),
+      ),
+    )}`;
+    const result = await authorCandidate(
+      identity,
+      operation,
+      input,
+      ctx.abortSignal ?? new AbortController().signal,
+      context,
+    );
+    const capture = await createOperation(
+      identity,
+      ctx.session.id,
+      `${ctx.callId}:capture`,
+      "capture_candidate",
+      expectedRevision,
+      { document: result.document, candidateOperationId: operation.id },
+      true,
+      ctx.session.turn.id,
+      operation.id,
+    );
+    return { identity, operation, capture };
+  } catch (error) {
+    // Refinements have the same billing and terminal-state contract as drafts.
+    // Preserve the first failure instead of replaying an ambiguous reservation.
+    const failure = Object.assign(
+      error instanceof Error
+        ? error
+        : new Error("Candidate refinement failed."),
+      { fatal: true },
+    );
+    try {
+      await transition(identity, "fail", {
+        id: operation.id,
+        result: { code: "UNAVAILABLE", message: failure.message },
+      });
+    } catch {
+      // A failed status write must not turn a provider failure into a retry.
+      // Keep the reservation conservative and surface the original error.
+    }
+    throw failure;
   }
-  context.effectTextures = state.document.textures ?? [];
-  context.brief += `\nCurrent candidate for refinement: ${JSON.stringify(
-    summarize(
-      state.document,
-      state.document.layers.map((layer) => layer.id),
-    ),
-  )}`;
-  const result = await authorCandidate(
-    identity,
-    operation,
-    input,
-    ctx.abortSignal ?? new AbortController().signal,
-    context,
-  );
-  const capture = await createOperation(
-    identity,
-    ctx.session.id,
-    `${ctx.callId}:capture`,
-    "capture_candidate",
-    expectedRevision,
-    { document: result.document, candidateOperationId: operation.id },
-    true,
-    ctx.session.turn.id,
-    operation.id,
-  );
-  return { identity, operation, capture };
 }
