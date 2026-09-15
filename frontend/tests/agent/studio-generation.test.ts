@@ -514,7 +514,7 @@ for (const failPersistence of [false, true]) {
     const actions: string[] = [];
     globalThis.fetch = async (url, init) => {
       const address = String(url);
-      if (address.includes("api.openai.com")) {
+      if (new URL(address).hostname === "api.openai.com") {
         providerCalls++;
         return Response.json(
           {
