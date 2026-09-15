@@ -59,9 +59,8 @@
 .activityRow > .toolHint, .activityRow > .generationProgress { flex: 1; min-width: 0; }
 .generationHintText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.iterationOffer { padding: 12px 0; font-size: 13px; color: var(--text-secondary, #aaa); }
-.iterationOffer p { margin: 0 0 10px; }
-.iterationOffer button { border: 1px solid currentColor; border-radius: 999px; padding: 7px 16px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
-.iterationOffer button:hover { color: var(--text-primary, #fff); }
-.iterationOffer button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
-.iterationOffer button:disabled { opacity: .5; cursor: default; }
+.queuedMessage { position: relative; align-self: flex-end; max-width: 92%; opacity: .68; }
+.queuedMessage .message { width: auto; }
+.queuedCancel { position: absolute; top: 0; right: -6px; transform: translateX(100%); display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #96a79c; }
+.queuedCancel:hover { color: #d4e3d9; background: #ffffff08; }
+.queuedCancel:focus-visible { outline: 2px solid #aec5b6; outline-offset: 2px; }

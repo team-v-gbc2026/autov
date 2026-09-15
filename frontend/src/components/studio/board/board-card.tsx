@@ -1,6 +1,7 @@
 "use client";
 import Image from "next/image";
 import ImageResizeHandle, { type ResizeCorner } from "./image-resize-handle";
+import { downloadReference } from "./download-reference";
 import { useRef, useState } from "react";
 import Draggable from "react-draggable";
 import type { Reference } from "@/lib/project-types";
@@ -21,6 +22,10 @@ export default function BoardCard({ reference, position, size, scale, onSize, on
   const [name, setName] = useState(reference.name);
   const cancelEdit = useRef(false);
   const saveName = () => { if (!cancelEdit.current && name.trim()) onRename(name.trim()); setEditing(false); };
+  const handleDownload = async () => {
+    try { await downloadReference(reference); }
+    catch { onError(); }
+  };
   return <Draggable nodeRef={nodeRef} position={position} scale={scale} disabled={disabled} cancel=".board-no-drag" onStart={() => { moved.current = false; distance.current = { x: 0, y: 0 }; }} onDrag={(_event, data) => { distance.current.x += data.deltaX; distance.current.y += data.deltaY; if (Math.hypot(distance.current.x, distance.current.y) * scale >= 6) moved.current = true; if (moved.current) onMove({ ...position, x: data.x, y: data.y }); }} onStop={onStop}>
     <div ref={nodeRef} style={{ width: size.width + 2 }} className={`${styles.card} board-card`} onClickCapture={event => { if (moved.current) { event.preventDefault(); event.stopPropagation(); moved.current = false; } }}>
       <button className={styles.imageButton} onClick={onPreview} aria-label={`Preview ${reference.name}`}>
@@ -28,6 +33,7 @@ export default function BoardCard({ reference, position, size, scale, onSize, on
       </button>
       <div className={`${styles.cardActions} board-no-drag`} role="toolbar" aria-label={`Actions for ${reference.name}`} style={{ transform: `translateX(-50%) scale(${1 / scale}) translateY(-8px)` }}>
         <Tooltip content="Regenerate image"><button type="button" onClick={onRegenerate} aria-label={`Regenerate ${reference.name}`} disabled={disabled}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z" /></svg></button></Tooltip>
+        <Tooltip content="Download image" side="top"><button type="button" onClick={handleDownload} aria-label={`Download ${reference.name}`}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></svg></button></Tooltip>
         <Tooltip content="Mention in chat" side="top"><button className={`${styles.mention} board-no-drag`} onClick={onMention} aria-label={`Mention ${reference.name} in chat`} disabled={disabled}>@</button></Tooltip>
         <Tooltip content="Delete reference" side="top"><button type="button" aria-label={`Delete ${reference.name}`} onClick={onRemove} disabled={disabled}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg></button></Tooltip>
       </div>

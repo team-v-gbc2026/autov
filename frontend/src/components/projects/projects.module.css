@@ -12,7 +12,6 @@
 .account button { padding: 8px 10px; border: 1px solid #ffffff13; border-radius: 5px; }
 .content { max-width: 1440px; margin: 0 auto; padding: 60px 5% 28px; }
 .intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.kicker { font-family: var(--font-geist-mono), monospace; font-size: 8px; letter-spacing: 1.8px; color: #727c83; }
 .intro h1 { font-size: 42px; font-weight: 450; letter-spacing: -1.8px; margin: 11px 0 9px; line-height: 1.2; }
 .intro h1 span { color: #69757d; }
 .intro p { font-size: 12px; color: #7f8a92; margin: 0; }
@@ -38,8 +37,6 @@
 .orbit i:nth-child(3) { inset: 22px -8px; transform: rotate(25deg); }
 .variant1 .orbit { transform: rotate(35deg); border-radius: 35% 65% 52% 48%; }
 .variant2 .orbit { transform: rotate(-65deg); width: 125px; height: 90px; }
-.artIndex, .artLabel { position: absolute; bottom: 13px; font-family: var(--font-geist-mono), monospace; font-size: 7px; letter-spacing: 1px; color: #56646d; }
-.artIndex { left: 14px; }.artLabel { right: 14px; }
 .cardBody { padding: 17px 18px 14px; border-top: 1px solid #ffffff0a; }
 .cardBody h2 { font-size: 13px; font-weight: 500; margin: 0 0 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cardBody > div { display: flex; align-items: center; justify-content: space-between; color: #75818a; font-size: 9px; }
@@ -56,10 +53,7 @@
 .newCard > span { font-size: 26px; font-weight: 200; color: #687781; margin-bottom: 3px; }
 .newCard strong { font-size: 11px; font-weight: 400; }.newCard small { color: #5f6d76; font-size: 9px; }
 .empty { min-height: 340px; padding: 45px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-.emptyIcon { font-size: 27px; font-weight: 200; color: #93a0aa; padding: 10px 22px; border: 1px solid #ffffff12; border-radius: 12px; margin-bottom: 20px; background: linear-gradient(130deg, #ffffff05, transparent); }
 .empty h2 { font-size: 23px; font-weight: 400; letter-spacing: -.6px; margin: 0 0 10px; }.empty p { max-width: 320px; color: #788791; font-size: 12px; line-height: 1.8; margin: 0 0 24px; }
-.footer { margin-top: 46px; padding-top: 19px; border-top: 1px solid #ffffff0b; display: flex; justify-content: space-between; color: #56636c; font-size: 8px; }
-.footer > span:first-child { font-family: var(--font-geist-mono), monospace; font-size: 7px; letter-spacing: 1.3px; }
 .dialog { margin: auto; padding: 29px; width: 410px; max-width: calc(100vw - 32px); background: #1d2226; color: #dce1e4; border: 1px solid #ffffff20; border-radius: 12px; box-shadow: 0 25px 90px #0008; }
 .dialog::backdrop { background: #07090bb3; backdrop-filter: blur(5px); }
 .dialog h2 { font-size: 24px; font-weight: 400; letter-spacing: -.6px; margin: 16px 0 23px; }

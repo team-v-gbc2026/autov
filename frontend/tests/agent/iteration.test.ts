@@ -1,6 +1,5 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { GET } from "../../src/app/api/studio/iteration/route";
 import { prepareRefinement } from "../../agent/lib/refinement";
 import { finishFirstPass } from "../../agent/lib/generation";
 import { createDocument } from "../../src/lib/vfx-lab/ui-bridge";
@@ -20,53 +19,6 @@ function env() {
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "test";
   process.env.SUPABASE_SECRET_KEY = "test";
 }
-const request = () =>
-  new Request("http://localhost/api/studio/iteration", {
-    headers: { "x-autov-project-id": project, Authorization: "Bearer test" },
-  });
-test("iteration offers require authentication", async () => {
-  assert.equal(
-    (
-      await GET(
-        new Request("http://localhost/api/studio/iteration", {
-          headers: { "x-autov-project-id": project },
-        }),
-      )
-    ).status,
-    401,
-  );
-});
-test("only the current revision from this conversation gets a Continue offer", async () => {
-  env();
-  let revision = 4;
-  globalThis.fetch = async (input, init) => {
-    const url = new URL(String(input));
-    if (url.pathname === "/auth/v1/user") return Response.json({ id: user });
-    if (url.pathname === "/rest/v1/projects")
-      return Response.json({ id: project });
-    if (url.pathname === "/rest/v1/project_conversations")
-      return init?.method === "POST"
-        ? new Response(null, { status: 201 })
-        : Response.json({ session_id: "owned" });
-    assert.equal(url.searchParams.get("project_id"), `eq.${project}`);
-    if (url.pathname === "/rest/v1/studio_operations") {
-      assert.equal(url.searchParams.get("session_id"), "eq.owned");
-      assert.equal(url.searchParams.get("status"), "eq.completed");
-      return Response.json({
-        id: operationId,
-        status: "completed",
-        after_revision: 4,
-      });
-    }
-    return Response.json({ revision });
-  };
-  assert.deepEqual(await (await GET(request())).json(), {
-    operationId,
-    revision: 4,
-  });
-  revision = 5;
-  assert.equal(await (await GET(request())).json(), null);
-});
 test("refinement cannot run from an unapproved agent call", async () => {
   globalThis.fetch = async () => {
     throw Error("No network before approval");

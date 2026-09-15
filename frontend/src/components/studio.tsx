@@ -19,13 +19,12 @@ import { useReferences } from "./studio/use-references";
 import type {
   Project,
   Reference,
-  Generation,
-  EffectVersion,
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
 import EmitterControls from "./vfx-studio/emitter-controls";
 import AuthoringPanel from "./vfx-studio/authoring-panel";
 import WorkspaceScene from "./studio/workspace-scene";
+import WebGpuGate from "./studio/webgpu-gate";
 import {
   createEmitter,
   normalizeVfxDocument,
@@ -52,8 +51,7 @@ type StudioProps = {
   userId: string;
   email: string;
   initialReferences: Reference[];
-  initialGenerations: Generation[];
-  versions: EffectVersion[];
+  usedReferenceIds: string[];
   /** A v2 document to open the timeline on. Absent in the product workspace. */
   initialDocument?: VfxDocumentV2;
   /** Dev pages: no Supabase project behind the chat, generate locally only. */
@@ -61,37 +59,12 @@ type StudioProps = {
   headerActions?: React.ReactNode;
 };
 
-/**
- * Export the autov.lab/2 document when one exists — that is the real, lossless
- * effect — and the UI-dialect document only when the timeline is UI-only.
- */
-function downloadDocument(document: VfxUiDocument | VfxDocumentV2) {
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify(document, null, 2)], {
-      type: "application/json",
-    }),
-  );
-  const anchor = window.document.createElement("a");
-  anchor.href = url;
-  // Generated v2 names are free text, so keep the filename to safe characters.
-  anchor.download = `${
-    document.name
-      .toLowerCase()
-      .replaceAll(" ", "-")
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "effect"
-  }.json`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 export default function Studio({
   project,
   userId,
   email,
   initialReferences,
-  initialGenerations,
-  versions,
+  usedReferenceIds,
   initialDocument,
   standalone = false,
   headerActions,
@@ -122,6 +95,8 @@ export default function Studio({
   const [left, setLeft] = useState(true);
   const [right, setRight] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState("");
   // The autov.lab/2 document is the source of truth; the timeline, the emitter
   // rows and the controls all read a pure projection of it.
   const [selectedLayerId, setSelectedLayerId] = useState(
@@ -173,6 +148,12 @@ export default function Studio({
     () => uiImport ?? projectToUi(doc),
     [uiImport, doc],
   );
+  // Board images this effect was built or refined from, per generate_vfx's
+  // durably-recorded referenceIds input — not reconstructed from chat text.
+  const usedReferences = useMemo(() => {
+    const ids = new Set(usedReferenceIds);
+    return references.references.filter((reference) => ids.has(reference.id));
+  }, [usedReferenceIds, references.references]);
   const [importError, setImportError] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
   const clock = usePlaybackClock(vfxDocument.duration);
@@ -425,17 +406,48 @@ export default function Studio({
         />
         <IconButton
           name="download"
-          label="Export effect JSON"
-          onClick={() => {
+          label="Export for another AI agent (JSON + reference stills + clip)"
+          disabled={handoffBusy}
+          onClick={async () => {
             setEnvironmentOpen(false);
-            downloadDocument(uiImport ?? doc);
+            setHandoffError("");
+            setHandoffBusy(true);
+            try {
+              const { buildAgentHandoffBundle, zipFiles } = await import(
+                "@/lib/vfx-lab/agent-handoff"
+              );
+              const bundle = await buildAgentHandoffBundle(doc, {
+                references: usedReferences,
+              });
+              const zip = await zipFiles(bundle.files);
+              const url = URL.createObjectURL(zip);
+              const anchor = window.document.createElement("a");
+              anchor.href = url;
+              anchor.download = `${
+                doc.name
+                  .toLowerCase()
+                  .replaceAll(" ", "-")
+                  .replace(/[^a-z0-9-]+/g, "-")
+                  .replace(/^-+|-+$/g, "") || "effect"
+              }-agent-handoff.zip`;
+              anchor.click();
+              window.setTimeout(() => URL.revokeObjectURL(url), 0);
+            } catch (error) {
+              setHandoffError(
+                error instanceof Error ? error.message : "Handoff export failed.",
+              );
+            } finally {
+              setHandoffBusy(false);
+            }
           }}
         />
       </div>
+      {handoffError && <p className="lab-scene-export-error">{handoffError}</p>}
     </section>
   );
 
   return (
+    <WebGpuGate>
     <main
       className={`studio lab ${left ? "left-open" : ""} ${right ? "right-open" : ""}`}
     >
@@ -511,8 +523,6 @@ export default function Studio({
         <ChatPanel
           key={project.id}
           projectId={project.id}
-          initialGenerations={initialGenerations}
-          versions={versions}
           ref={chat}
           references={displayReferences}
           uploadFile={references.uploadFile}
@@ -656,5 +666,6 @@ export default function Studio({
         </div>
       )}
     </main>
+    </WebGpuGate>
   );
 }

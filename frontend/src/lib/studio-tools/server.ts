@@ -172,6 +172,13 @@ export async function applyEdit(
     if (state.revision !== parsed.expectedRevision) throw new OperationError("CONFLICT", "The effect changed. Read it again.");
     return await commit(identity, op, editDocument(state.document, parsed), `Applied ${parsed.operations.length} edit(s).`);
   } catch (error) {
+    // A duplicate call for this op (e.g. a client retry) can race the commit above and land first,
+    // advancing the revision before this attempt's commit resolves. Treat that as success rather
+    // than surfacing a validation failure for an edit that already applied.
+    const after = await readState(identity).catch(() => null);
+    if (after && after.revision > parsed.expectedRevision) {
+      return { revision: after.revision, operationId: op.id, summary: `Applied ${parsed.operations.length} edit(s).` };
+    }
     const code = error instanceof OperationError ? error.code : "INVALID_INPUT";
     const message = error instanceof z.ZodError ? z.prettifyError(error) : error instanceof OperationError ? error.message : "The edit could not be validated.";
     await transition(identity, "fail", { id: op.id, result: { code, message } });

@@ -6,7 +6,6 @@ import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
 import { useEveAgent } from "eve/react";
 import { agentHeaders, loadConversation } from "@/lib/agent/client";
-import type { Generation, EffectVersion } from "@/lib/project-types";
 import ReferenceComposer, { type ComposerHandle } from "./composer/reference-composer";
 import { displayPrompt } from "./composer/prompt-format";
 import type { Reference } from "@/lib/project-types";
@@ -44,8 +43,6 @@ const localId = () =>
 
 export default function ChatPanel({
   projectId,
-  initialGenerations,
-  versions,
   references,
   uploadFile,
   ref,
@@ -56,8 +53,6 @@ export default function ChatPanel({
   vfx,
 }: {
   projectId: string;
-  initialGenerations: Generation[];
-  versions: EffectVersion[];
   references: Reference[];
   uploadFile: (file: File) => Promise<Reference>;
   ref: Ref<ChatPanelHandle>;
@@ -77,6 +72,7 @@ export default function ChatPanel({
   const [clearing, setClearing] = useState(false);
   const [historyCleared, setHistoryCleared] = useState(false);
   const [responding, setResponding] = useState(false);
+  const [queued, setQueued] = useState<{ id: string; prompt: string; referenceIds: string[] }[]>([]);
   const scroll = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   useEffect(() => {
@@ -106,8 +102,20 @@ export default function ChatPanel({
     return () => controller.abort();
   }, [projectId, attempt, vfx?.standalone]);
   function reconnect() { setConnection(undefined); setConnectionError(""); setAttempt(value => value + 1); }
-  // Local generation progress, kept next to the saved prompts without touching
-  // the Supabase-backed `Generation` type.
+  // Drain the next queued message once the assistant frees up, one at a time.
+  useEffect(() => {
+    if (saving || queued.length === 0 || !agent.current) return;
+    const [next, ...rest] = queued;
+    setQueued(rest);
+    void (async () => {
+      try { await vfx?.beforeSend?.(); }
+      catch (error) { setNotice(error instanceof Error ? error.message : "Could not save studio changes."); return; }
+      await agent.current?.send(next.prompt, next.referenceIds);
+    })();
+  }, [saving, queued, vfx]);
+  // Standalone/local generation only: prompts sent through the dev-page local
+  // pipeline, kept separate from the real (Eve-resumed) conversation history.
+  const [messages, setMessages] = useState<{ id: string; prompt: string; status: string; created_at: string; error: string | null }[]>([]);
   const [progress, setProgress] = useState<{ id: string; text: string }[]>([]);
   const say = (text: string) =>
     setProgress(items =>
@@ -118,12 +126,6 @@ export default function ChatPanel({
     onDocument: document => vfx?.onDocument?.(document),
     onProgress: say,
   });
-  const [messages, setMessages] = useState(initialGenerations);
-  const [loaded, setLoaded] = useState(initialGenerations);
-  if (loaded !== initialGenerations) {
-    setLoaded(initialGenerations);
-    setMessages(initialGenerations);
-  }
   /**
    * Run the v2 pipeline for a prompt that was just saved. The `#[name](emitter:id)`
    * tags stay in the prompt text verbatim: scoped, per-emitter v2 edits are a
@@ -174,11 +176,11 @@ export default function ChatPanel({
         }
         reconnect();
       }
-      setMessages([]); setProgress([]); setNotice(""); setAgentHasHistory(false); setHistoryCleared(true);
+      setMessages([]); setProgress([]); setNotice(""); setAgentHasHistory(false); setHistoryCleared(true); setQueued([]);
     } catch (error) { setNotice(error instanceof Error ? error.message : "Could not clear chat."); }
     finally { setClearing(false); }
   }
-  const hasHistory = messages.length > 0 || (!historyCleared && (versions.length > 0 || scopedEdits.length > 0)) || !!connection?.sessionId || agentHasHistory;
+  const hasHistory = messages.length > 0 || (!historyCleared && scopedEdits.length > 0) || !!connection?.sessionId || agentHasHistory;
   return (
     <ChatTargets.Provider value={{ references, emitters: vfx?.document.layers || [], onReference: vfx?.onReference, onPreview: vfx?.standalone ? undefined : setPreviewId, onEmitter: vfx?.onEmitter }}><aside className={`glass chat-panel ${styles.panel}`}>
       <div className="panel-heading">
@@ -191,15 +193,6 @@ export default function ChatPanel({
         {!hasHistory && <ChatEmptyState disabled={saving || (!vfx?.standalone && !connection)} onSelect={value => { composer.current?.setText(value); }} />}
         <div className="messages" aria-live="polite">
           {messages.map(message => <ChatMessage key={message.id} role="user" text={message.prompt} caption={message.status === "draft" ? "Saved prompt · history" : `Generation ${message.status}`} />)}
-          {!historyCleared && versions.map((version) => (
-            <a
-              className="effect-download"
-              key={version.id}
-              href={`/api/effects/${version.id}`}
-            >
-              Download effect JSON · {version.schema_version} ↓
-            </a>
-          ))}
           {!historyCleared && scopedEdits.map(({ layer, edit }) => (
             <div key={edit.id} className="scoped-edit-message">
               <p className="user-message">{displayPrompt(edit.prompt)}</p>
@@ -213,6 +206,14 @@ export default function ChatPanel({
               {connectionError && <button type="button" onClick={reconnect}>Retry connection</button>}
             </p>
           ))}
+          {queued.map(item => (
+            <div key={item.id} className={styles.queuedMessage}>
+              <ChatMessage role="user" text={item.prompt} caption="Queued · will send when the assistant is free" />
+              <button type="button" className={styles.queuedCancel} aria-label="Remove queued message" onClick={() => setQueued(items => items.filter(queuedItem => queuedItem.id !== item.id))}>
+                <Icon name="close" size={13} />
+              </button>
+            </div>
+          ))}
           {progress.map(item => (
             <p key={item.id} className="assistant-message">
               {item.text}
@@ -225,10 +226,10 @@ export default function ChatPanel({
           )}
         </div>
       </div>
-      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy || (vfx?.standalone ? generation.busy : !connection)} saving={saving} responding={responding} onStop={async () => { if (!agent.current) throw new Error("Assistant disconnected"); await agent.current.stop(); }} sendLabel="Send message" onSend={async (prompt, referenceIds) => {
-        if (saving || busy || clearing) return false;
+      <ReferenceComposer ref={composer} references={references} emitters={vfx?.document.layers} uploadFile={uploadFile} busy={busy || (vfx?.standalone ? generation.busy : !connection)} saving={vfx?.standalone ? saving : false} responding={responding} onStop={async () => { if (!agent.current) throw new Error("Assistant disconnected"); await agent.current.stop(); }} sendLabel="Send message" onSend={async (prompt, referenceIds) => {
+        if (busy || clearing) return false;
         if (vfx?.standalone) {
-          if (generation.busy) return false;
+          if (saving || generation.busy) return false;
           if (!generation.available) { setNotice("Local generation is not configured. Add OPENAI_API_KEY to frontend/.env.local."); return false; }
           setNotice("");
           stickToBottom.current = true;
@@ -236,9 +237,14 @@ export default function ChatPanel({
           void runGeneration(prompt, referenceIds);
           return true;
         }
-        if (!agent.current) return false;
+        if (!connection) return false;
         setNotice("");
         stickToBottom.current = true;
+        if (saving) {
+          setQueued(items => [...items, { id: localId(), prompt, referenceIds }]);
+          return true;
+        }
+        if (!agent.current) return false;
         try { await vfx?.beforeSend?.(); }
         catch (error) { setNotice(error instanceof Error ? error.message : "Could not save studio changes."); return false; }
         return agent.current.send(prompt, referenceIds);
@@ -326,13 +332,24 @@ const generationHints = ["Building your VFX…", "Making your idea real…", "Wa
 const editingHints = ["Shaping your effect…", "Fine-tuning the particles…", "Working on the details…"];
 const referenceHints = ["Looking at your references…", "Exploring the details…", "Taking a closer look…"];
 const previewHints = ["Preparing your preview…", "Framing your effect…", "Capturing the moment…"];
+const inspectHints = ["Inspecting the pixels…", "Checking how it looks…", "Comparing against the request…", "Studying the details…"];
+const refineHints = ["Reviewing your effect…", "Iterating on the details…", "Comparing against your request…"];
+const readingHints = ["Reading the current effect…", "Getting up to speed…", "Checking the latest revision…"];
+const textureHints = ["Generating a texture…", "Crafting the mask…", "Shaping the material…"];
+const commitHints = ["Locking in your changes…", "Saving the result…"];
+const undoHints = ["Undoing that change…", "Reverting to the last version…"];
 function ToolHint({ tools, submitting, projectId, generationCallId }: { tools: string[]; submitting: boolean; projectId: string; generationCallId?: string }) {
   const hints = tools.includes("generate_reference_image") ? ["Creating your image…", "Bringing your reference to life…", "Working on the details…"]
-    : tools.includes("refine_vfx") ? ["Reviewing and iterating on your effect…"]
+    : tools.includes("refine_vfx") ? refineHints
     : tools.includes("generate_vfx") ? generationHints
+    : tools.some(tool => tool.startsWith("inspect_")) ? inspectHints
     : tools.includes("preview_vfx") ? previewHints
+    : tools.includes("generate_effect_texture") ? textureHints
     : tools.some(tool => tool.includes("reference")) ? referenceHints
-    : tools.some(tool => tool === "edit_vfx" || tool === "undo_vfx_edit") ? editingHints
+    : tools.includes("commit_vfx_candidate") ? commitHints
+    : tools.includes("undo_vfx_edit") ? undoHints
+    : tools.some(tool => tool === "edit_vfx" || tool === "edit_vfx_candidate") ? editingHints
+    : tools.some(tool => tool === "read_vfx" || tool === "set_vfx_view" || tool === "recover_vfx_candidate") ? readingHints
     : tools.length ? ["Exploring your effect…", "Looking at the details…"]
     : [submitting ? "Sending your idea…" : "Thinking it through…"];
   const [index, setIndex] = useState(0);

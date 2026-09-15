@@ -72,20 +72,75 @@ function ascending(times: number[], duration: number) {
 }
 
 /**
- * Broad, predictable coverage plus three frames around the real impact.
+ * Times ordered 0, duration, duration/2, then successive binary
+ * subdivisions of the remaining gaps (duration/4, 3*duration/4, ...). Each
+ * prefix of this sequence is itself a near-evenly-spread sample of the full
+ * duration, so callers who truncate to fewer times (e.g. a still-image
+ * budget) still get full-duration coverage rather than a cluster at the
+ * start.
  */
-export function captureTimesV2(doc: VfxDocumentV2) {
+function bisectionOrder(duration: number, count: number) {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  const push = (time: number) => {
+    const value = round3(clamp(time, 0, Math.max(0, duration - 0.001)));
+    if (seen.has(value)) return false;
+    seen.add(value);
+    out.push(value);
+    return true;
+  };
+  push(0);
+  if (out.length < count) push(duration);
+  // Each level subdivides every existing gap at its midpoint, so pass k
+  // yields 2^(k-1) new points spread evenly across the whole span.
+  for (let denom = 2; out.length < count && denom <= 4096; denom *= 2) {
+    for (let numerator = 1; numerator < denom && out.length < count; numerator += 2)
+      push((duration * numerator) / denom);
+  }
+  return out;
+}
+
+/** Last moment any enabled layer is still visible — `visible` requires
+ * `time < layer.end`, so nothing renders past this regardless of the
+ * document's nominal `duration`. Trailing seconds after every layer has
+ * ended are empty frames and not worth spending capture budget on. */
+function lastActiveTimeV2(doc: VfxDocumentV2) {
+  const ends = doc.layers.filter((l) => l.enabled).map((l) => l.end);
+  return ends.length ? Math.min(doc.duration, Math.max(...ends)) : doc.duration;
+}
+
+/**
+ * Coverage of the effect's actually active span (through the last frame any
+ * layer is visible, not the nominal document duration) plus three frames
+ * around the real impact.
+ *
+ * `limit` trims the set before it is sorted, so it drops the least
+ * informative times rather than the latest ones: the result still spans the
+ * whole active span. Callers that render a contact sheet want every time and
+ * should omit it; a caller with a small still budget passes its budget here
+ * instead of slicing the sorted result.
+ */
+export function captureTimesV2(doc: VfxDocumentV2, limit = 24) {
   const impact = impactTimeV2(doc);
+  const span = lastActiveTimeV2(doc);
+  const count = Math.max(1, Math.min(24, Math.floor(limit)));
   const normalize = (time: number) =>
     round3(clamp(time, 0, Math.max(0, doc.duration - 0.001)));
-  const selected = new Set(
-    Array.from({ length: 21 }, (_, i) => normalize((doc.duration * i) / 20)),
-  );
+  const selected: number[] = [];
+  const seen = new Set<number>();
+  const push = (time: number) => {
+    const value = normalize(time);
+    if (seen.has(value)) return;
+    seen.add(value);
+    selected.push(value);
+  };
+  // Impact frames first, then broad coverage: both lists are in priority
+  // order, so truncating at `count` keeps the most informative times.
   for (const time of [impact - 1 / 30, impact, impact + 0.05])
-    selected.add(normalize(time));
-  for (let i = 1; selected.size < 24 && i < 48; i++)
-    selected.add(normalize((doc.duration * i) / 48));
-  return ascending([...selected].sort((a, b) => a - b).slice(0, 24), doc.duration);
+    if (selected.length < count) push(time);
+  for (const time of bisectionOrder(span, count))
+    if (selected.length < count) push(time);
+  return ascending(selected.sort((a, b) => a - b), doc.duration);
 }
 
 function jpeg(canvas: HTMLCanvasElement, maxBytes = Infinity) {
