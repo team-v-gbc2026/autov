@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { browserExpiry } from "./browser-operation";
 import {
   OperationError,
   editDocument,
@@ -68,6 +69,13 @@ export async function transition(
         ? "Generation budget exceeded."
         : "Studio operation unavailable. Check migrations and reconnect.",
     );
+  if (data?.status === "expired" && ["view", "reference_view", "preview", "capture_candidate"].includes(data.kind)) {
+    const diagnostic = browserExpiry(data);
+    console.warn("studio_browser_expired", { operationId: data.id, kind: data.kind,
+      createdAt: data.created_at, expiresAt: data.expires_at, leaseUntil: data.lease_until,
+      reason: diagnostic.reason });
+    return { ...data, result: { ...data.result, code: "UNAVAILABLE", ...diagnostic } };
+  }
   return data;
 }
 export async function readState(

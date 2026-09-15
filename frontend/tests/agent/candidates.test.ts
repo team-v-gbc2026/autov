@@ -208,3 +208,26 @@ test("valid inspected candidate commits through the revisioned operation", async
   assert.equal(result?.revision, 8);
   assert.deepEqual(writes, ["commit"]);
 });
+
+for (const mode of ["storage", "missing", "conversation"] as const) {
+  test(`candidate lookup distinguishes ${mode} without committing or crossing projects`, async () => {
+    mock();
+    let writes = 0;
+    globalThis.fetch = async (request, init) => {
+      const url = new URL(String(request));
+      if (init?.method && init.method !== "GET") writes++;
+      if (url.pathname.endsWith("/projects")) return Response.json({ id: projectId });
+      assert.ok(url.pathname.endsWith("/studio_operations"));
+      assert.equal(url.searchParams.get("project_id"), `eq.${projectId}`);
+      if (url.searchParams.has("session_id")) {
+        assert.equal(url.searchParams.get("session_id"), "eq.session");
+        return mode === "storage" ? Response.json({ message: "offline", code: "XX000" }, { status: 500 }) : Response.json(null);
+      }
+      assert.equal(url.searchParams.get("select"), "session_id");
+      return Response.json(mode === "conversation" ? { session_id: "other" } : null);
+    };
+    await assert.rejects(commitCandidate(ctx, { operationId, captureId, inspectedReferenceId: referenceId, review: "Inspected the full effect." }),
+      mode === "storage" ? /storage could not be read/ : mode === "conversation" ? /another conversation/ : /exact operationId and captureId/);
+    assert.equal(writes, 0);
+  });
+}

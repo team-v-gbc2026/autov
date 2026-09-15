@@ -1,6 +1,10 @@
 # Issue #41: prepare the actual playback pipelines cooperatively
 
-Base: `6c0534c004a5a4fe7c9f0d7d8c84e3c26e70c41a` (main, including PR #43).
+Original measurement baseline: `6c0534c004a5a4fe7c9f0d7d8c84e3c26e70c41a` (including PR #43).
+
+Integration base: `08c83b871f90e0f2bd67841e6c1308108974c678` (main after PR #50).
+The original timing tables below retain their original baseline; they are not new
+measurements of the #50 merge.
 
 ## Behavior
 
@@ -27,6 +31,38 @@ Prepared layer objects are retained in a WeakSet. Existing material-instance reu
 remains in place: a live opacity edit creates neither geometry nor GPU pipelines.
 AA/post/environment/light-structure changes invalidate preparation; changing only
 live layer appearance values does not repeat it. Empty workspaces prepare their graph too.
+
+## Integration with PR #50
+
+Main is merged into the existing #51 branch without rewriting its published
+history. The conflict was in `workspace-scene.tsx`'s preparation completion:
+
+- Keep #50's authored environment, first-effect framing, panel-safe fitting,
+  camera-change detection, and authored `camera.framing` in runtime focus.
+- Keep #51's current-document/runtime guards, playback holds, preparation reuse,
+  cancellation, cleanup, and ready-state transition for ordinary edits.
+- Carry a pending fit through a superseding live edit. Otherwise the first
+  document's stale completion is correctly ignored but its successor can miss
+  the camera fit, leaving the effect under the panels or the loading state stuck.
+  Completion uses the latest solo selection and fits only when required.
+
+`node scripts/webgpu/verify-workspace-preparation.mjs` exercises the actual React
+component and playback clock in a browser, with controlled GPU-ready completion.
+It covers overlapping initial/authored-camera edits, stale callbacks, authored
+background, panel-safe framing, current solo, ordinary-edit orbit preservation,
+and unmount. Real WebGPU checks are separate.
+
+After integration, all 609 unit tests passed (one existing test skipped), as did
+changed-file lint, typecheck, the production build, and development-route exclusion.
+The GPU comparison against #50's main passed for ice-blast, smoke-burst, and
+fire-projectile: all nine sampled images are identical, no pipelines were built
+during candidate playback or live opacity edits, and the preparation lifecycle
+checks passed. For ice-blast the longest preparation task was 6,953 → 1,100 ms;
+smoke-burst was 3,368 → 868 ms. These sample results do not change the cold-load
+limitations below. Raw evidence: [main comparison](evidence/issue-41/main-50-preview.json),
+[pixels](evidence/issue-41/main-50-pixels.json).
+
+## Quality contract
 
 No authored resolution, particle count, geometry detail, shader math, material
 appearance, AA mode, bloom or texture filtering has been reduced. The 64×64 hidden
@@ -85,8 +121,8 @@ From `frontend/`, with Node 24+, installed dependencies, and Playwright Chromium
 
 ```sh
 # Compare the changed runtime with its base version; all its imports are unchanged.
-AUTOV_BASELINE_REF=6c0534c AUTOV_LIFECYCLE=1 node scripts/webgpu/verify-hitch.mjs
-AUTOV_BASELINE_REF=6c0534c AUTOV_PLAYER=1 AUTOV_LIFECYCLE=1 AUTOV_EVIDENCE_DIR=.autov-local/issue-41-player node scripts/webgpu/verify-hitch.mjs
+AUTOV_BASELINE_REF=08c83b8 AUTOV_LIFECYCLE=1 node scripts/webgpu/verify-hitch.mjs
+AUTOV_BASELINE_REF=08c83b8 AUTOV_PLAYER=1 AUTOV_LIFECYCLE=1 AUTOV_EVIDENCE_DIR=.autov-local/issue-41-player node scripts/webgpu/verify-hitch.mjs
 # Alternatively supply a separately built complete Probe baseline via AUTOV_BASELINE_BUNDLE.
 
 # Existing full fixture + maximum configuration + shared-WGSL contract, stricter zero late builds.

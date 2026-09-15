@@ -17,8 +17,8 @@ export async function renewCaptureLease(
     .eq("project_id", identity.projectId)
     .eq("id", id)
     .single();
-  if (error || !operation)
-    throw new OperationError("NOT_FOUND", "Capture unavailable.");
+  if (error) throw new OperationError("UNAVAILABLE", "Capture storage could not be read. Check the connection and recover the saved candidate.");
+  if (!operation) throw new OperationError("NOT_FOUND", "Capture ID not found in this project.");
   const now = Date.now();
   const deadline = Math.min(
     now + CAPTURE_LEASE_MS,
@@ -46,7 +46,8 @@ export async function renewCaptureLease(
     .gt("expires_at", new Date(now).toISOString())
     .select("*")
     .maybeSingle();
-  if (updateError || !data)
+  if (updateError) throw new OperationError("UNAVAILABLE", "Capture lease could not be renewed because storage is unavailable. Recover the saved candidate when the connection returns.");
+  if (!data)
     throw new OperationError(
       "CONFLICT",
       "Capture lease expired or changed. Recover the saved candidate instead of regenerating.",

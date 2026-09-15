@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useImperativeHandle, type Ref } from "react";
+import CapturePreview from "./capture-preview";
 import ChatMessage, { ChatTargets } from "./chat-message";
 import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
@@ -72,6 +73,7 @@ export default function ChatPanel({
     mentionEmitter: emitter => composer.current?.mentionEmitter(emitter),
     setText: text => composer.current?.setText(text),
   }));
+  const [previewId, setPreviewId] = useState<string>();
   const [clearing, setClearing] = useState(false);
   const [historyCleared, setHistoryCleared] = useState(false);
   const [responding, setResponding] = useState(false);
@@ -178,7 +180,7 @@ export default function ChatPanel({
   }
   const hasHistory = messages.length > 0 || (!historyCleared && (versions.length > 0 || scopedEdits.length > 0)) || !!connection?.sessionId || agentHasHistory;
   return (
-    <ChatTargets.Provider value={{ references, emitters: vfx?.document.layers || [], onReference: vfx?.onReference, onEmitter: vfx?.onEmitter }}><aside className={`glass chat-panel ${styles.panel}`}>
+    <ChatTargets.Provider value={{ references, emitters: vfx?.document.layers || [], onReference: vfx?.onReference, onPreview: vfx?.standalone ? undefined : setPreviewId, onEmitter: vfx?.onEmitter }}><aside className={`glass chat-panel ${styles.panel}`}>
       <div className="panel-heading">
         <div>
           <h2>Assistant</h2><span className={styles.subtitle}>Your VFX creative partner</span>
@@ -248,7 +250,7 @@ export default function ChatPanel({
           `Local generation ready · $${generation.budget.used.toFixed(2)} of $${generation.budget.limit.toFixed(2)} used`
         ) : "Local generation is not configured."}
       </div>
-    </aside></ChatTargets.Provider>
+    </aside>{previewId && <CapturePreview key={previewId} projectId={projectId} referenceId={previewId} onClose={() => setPreviewId(undefined)} />}</ChatTargets.Provider>
   );
 }
 
