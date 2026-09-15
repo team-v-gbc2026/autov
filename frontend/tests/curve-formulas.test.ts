@@ -10,6 +10,13 @@ test("bounded formulas compile exact breakpoints", () => {
   assert.equal(CurveFormulaSchema.safeParse({...formula,attack:NaN}).success,false);
   assert.equal(CurveFormulaSchema.safeParse({...formula,kind:"eval"}).success,false);
 });
+test("formulas only require the fields their kind reads", () => {
+  assert.equal(CurveFormulaSchema.safeParse({kind:"ramp",start:0,end:1}).success,true);
+  assert.equal(CurveFormulaSchema.safeParse({kind:"constant",start:0.4}).success,true);
+  assert.equal(CurveFormulaSchema.safeParse({kind:"smooth",start:0}).success,false);
+  assert.equal(CurveFormulaSchema.safeParse({kind:"envelope",start:0,end:0,peak:1}).success,false);
+  assert.deepEqual(compileCurveFormula({kind:"ramp",start:0,end:1}), {keys:[[0,0],[1,1]],ease:"linear"});
+});
 test("UI patch preserves formulas across validation and JSON round trip", () => {
   const id = readdirSync("fixtures/v2").find(id => {
     try { return JSON.parse(readFileSync(`fixtures/v2/${id}/document.json`,"utf8")).layers.some((l: {emitter?:unknown})=>l.emitter); } catch { return false; }
@@ -24,4 +31,12 @@ test("UI patch preserves formulas across validation and JSON round trip", () => 
   assert.deepEqual(actual.keys,compileCurveFormula(formula).keys);
   assert.deepEqual(actual.formula,formula);
   assert.deepEqual(doc.layers.find(l=>l.id===layer.id)!.emitter!.render.sizeCurve,curve.value);
+});
+test("wire materials default shading like the document schema", async () => {
+  const { MaterialWireSchema, MaterialSchema, defaultMaterial } = await import("../src/lib/vfx-lab/schema-v2");
+  const { shading: _omitted, ...material } = defaultMaterial();
+  assert.equal(MaterialSchema.safeParse(material).success, true);
+  const wire = MaterialWireSchema.safeParse(material);
+  assert.equal(wire.success, true);
+  if (wire.success) assert.equal(wire.data.shading, "unlit");
 });
