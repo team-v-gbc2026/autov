@@ -363,18 +363,20 @@ export const CurveFormulaSchema = z
   .object({
     kind: z.enum(["constant", "ramp", "smooth", "envelope"]),
     start: scalar(-20, 20),
-    end: scalar(-20, 20).optional(),
-    peak: scalar(-20, 20).optional(),
-    attack: scalar(0.001, 0.499).optional(),
-    release: scalar(0.501, 0.999).optional(),
+    // nullable as well as optional: the structured-output contract sent to the
+    // model accepts null but not absent keys.
+    end: scalar(-20, 20).nullable().optional(),
+    peak: scalar(-20, 20).nullable().optional(),
+    attack: scalar(0.001, 0.499).nullable().optional(),
+    release: scalar(0.501, 0.999).nullable().optional(),
   })
   .strict()
   .superRefine((f, ctx) => {
-    if (f.kind !== "constant" && f.end === undefined)
+    if (f.kind !== "constant" && f.end == null)
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["end"], message: `${f.kind} needs end` });
     if (f.kind === "envelope")
       for (const key of ["peak", "attack", "release"] as const)
-        if (f[key] === undefined)
+        if (f[key] == null)
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `envelope needs ${key}` });
   });
 export type CurveFormula = z.infer<typeof CurveFormulaSchema>;

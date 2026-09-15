@@ -425,7 +425,7 @@ export function applyKnobs(
       const formula = layer.light.intensity.formula;
       for (const field of ["start", "end", "peak"] as const) {
         const value = formula[field];
-        if (value !== undefined) formula[field] = clamp(value * kLight, -20, 20);
+        if (value != null) formula[field] = clamp(value * kLight, -20, 20);
       }
     }
     if (layer.light)
