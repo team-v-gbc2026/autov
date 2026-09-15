@@ -19,7 +19,6 @@ import { useReferences } from "./studio/use-references";
 import type {
   Project,
   Reference,
-  Generation,
   EffectVersion,
 } from "@/lib/project-types";
 import EmitterTimeline from "./vfx-studio/emitter-timeline";
@@ -46,7 +45,6 @@ import {
   type VfxDocumentV2,
 } from "@/lib/vfx-lab/schema-v2";
 import { saveProjectThumbnail } from "@/lib/project-thumbnail";
-import { parseMentions } from "@/lib/studio-tools/mentions";
 import "./vfx-studio/studio-ui.css";
 
 type StudioProps = {
@@ -54,7 +52,7 @@ type StudioProps = {
   userId: string;
   email: string;
   initialReferences: Reference[];
-  initialGenerations: Generation[];
+  usedReferenceIds: string[];
   versions: EffectVersion[];
   /** A v2 document to open the timeline on. Absent in the product workspace. */
   initialDocument?: VfxDocumentV2;
@@ -68,7 +66,7 @@ export default function Studio({
   userId,
   email,
   initialReferences,
-  initialGenerations,
+  usedReferenceIds,
   versions,
   initialDocument,
   standalone = false,
@@ -153,25 +151,12 @@ export default function Studio({
     () => uiImport ?? projectToUi(doc),
     [uiImport, doc],
   );
-  // References mentioned while building this effect: saved generation prompts
-  // and per-layer scoped edits are the only record of which board images a
-  // prompt drew on, since the document itself doesn't persist that link.
+  // Board images this effect was built or refined from, per generate_vfx's
+  // durably-recorded referenceIds input — not reconstructed from chat text.
   const usedReferences = useMemo(() => {
-    const prompts = [
-      ...initialGenerations.map((generation) => generation.prompt),
-      ...vfxDocument.layers.flatMap((layer) =>
-        layer.edits.map((edit) => edit.prompt),
-      ),
-    ];
-    const ids = new Set(
-      prompts.flatMap((prompt) =>
-        parseMentions(prompt).flatMap((token) =>
-          token.type === "reference" ? [token.id] : [],
-        ),
-      ),
-    );
+    const ids = new Set(usedReferenceIds);
     return references.references.filter((reference) => ids.has(reference.id));
-  }, [initialGenerations, vfxDocument, references.references]);
+  }, [usedReferenceIds, references.references]);
   const [importError, setImportError] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
   const clock = usePlaybackClock(vfxDocument.duration);
@@ -541,7 +526,6 @@ export default function Studio({
         <ChatPanel
           key={project.id}
           projectId={project.id}
-          initialGenerations={initialGenerations}
           versions={versions}
           ref={chat}
           references={displayReferences}

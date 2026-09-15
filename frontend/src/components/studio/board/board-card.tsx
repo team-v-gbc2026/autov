@@ -1,6 +1,7 @@
 "use client";
 import Image from "next/image";
 import ImageResizeHandle, { type ResizeCorner } from "./image-resize-handle";
+import { downloadReference } from "./download-reference";
 import { useRef, useState } from "react";
 import Draggable from "react-draggable";
 import type { Reference } from "@/lib/project-types";
@@ -22,18 +23,8 @@ export default function BoardCard({ reference, position, size, scale, onSize, on
   const cancelEdit = useRef(false);
   const saveName = () => { if (!cancelEdit.current && name.trim()) onRename(name.trim()); setEditing(false); };
   const handleDownload = async () => {
-    try {
-      const response = await fetch(reference.url);
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = `${reference.name || "image"}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch { onError(); }
+    try { await downloadReference(reference); }
+    catch { onError(); }
   };
   return <Draggable nodeRef={nodeRef} position={position} scale={scale} disabled={disabled} cancel=".board-no-drag" onStart={() => { moved.current = false; distance.current = { x: 0, y: 0 }; }} onDrag={(_event, data) => { distance.current.x += data.deltaX; distance.current.y += data.deltaY; if (Math.hypot(distance.current.x, distance.current.y) * scale >= 6) moved.current = true; if (moved.current) onMove({ ...position, x: data.x, y: data.y }); }} onStop={onStop}>
     <div ref={nodeRef} style={{ width: size.width + 2 }} className={`${styles.card} board-card`} onClickCapture={event => { if (moved.current) { event.preventDefault(); event.stopPropagation(); moved.current = false; } }}>

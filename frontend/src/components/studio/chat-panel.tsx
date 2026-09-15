@@ -6,7 +6,7 @@ import styles from "./chat.module.css";
 import ChatEmptyState from "./chat-empty-state";
 import { useEveAgent } from "eve/react";
 import { agentHeaders, loadConversation } from "@/lib/agent/client";
-import type { Generation, EffectVersion } from "@/lib/project-types";
+import type { EffectVersion } from "@/lib/project-types";
 import ReferenceComposer, { type ComposerHandle } from "./composer/reference-composer";
 import { displayPrompt } from "./composer/prompt-format";
 import type { Reference } from "@/lib/project-types";
@@ -44,7 +44,6 @@ const localId = () =>
 
 export default function ChatPanel({
   projectId,
-  initialGenerations,
   versions,
   references,
   uploadFile,
@@ -56,7 +55,6 @@ export default function ChatPanel({
   vfx,
 }: {
   projectId: string;
-  initialGenerations: Generation[];
   versions: EffectVersion[];
   references: Reference[];
   uploadFile: (file: File) => Promise<Reference>;
@@ -118,8 +116,9 @@ export default function ChatPanel({
       await agent.current?.send(next.prompt, next.referenceIds);
     })();
   }, [saving, queued, vfx]);
-  // Local generation progress, kept next to the saved prompts without touching
-  // the Supabase-backed `Generation` type.
+  // Standalone/local generation only: prompts sent through the dev-page local
+  // pipeline, kept separate from the real (Eve-resumed) conversation history.
+  const [messages, setMessages] = useState<{ id: string; prompt: string; status: string; created_at: string; error: string | null }[]>([]);
   const [progress, setProgress] = useState<{ id: string; text: string }[]>([]);
   const say = (text: string) =>
     setProgress(items =>
@@ -130,12 +129,6 @@ export default function ChatPanel({
     onDocument: document => vfx?.onDocument?.(document),
     onProgress: say,
   });
-  const [messages, setMessages] = useState(initialGenerations);
-  const [loaded, setLoaded] = useState(initialGenerations);
-  if (loaded !== initialGenerations) {
-    setLoaded(initialGenerations);
-    setMessages(initialGenerations);
-  }
   /**
    * Run the v2 pipeline for a prompt that was just saved. The `#[name](emitter:id)`
    * tags stay in the prompt text verbatim: scoped, per-emitter v2 edits are a

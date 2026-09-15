@@ -2,6 +2,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Reference } from "@/lib/project-types";
+import { downloadReference } from "./download-reference";
 import styles from "./board.module.css";
 
 function PreviewAction({ label, children, onClick, disabled, destructive = false }: {
@@ -26,18 +27,9 @@ export default function ReferencePreview({ reference, onClose, onRename, onMenti
   useEffect(() => { const el = dialog.current; el?.showModal(); return () => el?.close(); }, []);
   const handleDownload = async () => {
     if (!reference) return;
-    try {
-      const response = await fetch(reference.url);
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = `${reference.name || "image"}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch { /* ignore */ }
+    setEditError("");
+    try { await downloadReference(reference); }
+    catch { setEditError("Could not download this image."); }
   };
   const saveName = () => {
     if (!reference) return;

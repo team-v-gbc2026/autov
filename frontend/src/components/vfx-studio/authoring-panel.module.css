@@ -11,13 +11,6 @@
 .subTabs button[aria-pressed="true"] { color: #d8c9ae; border-color: #ffffff18; background: #ffffff0a; }
 .scroll { display: grid; max-height: min(58vh, 500px); overflow: auto; scrollbar-color: #5a5347 transparent; }
 .basics { display: grid; gap: 6px; padding: 7px 8px; }
-.palette { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-.swatchField { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 4px 5px; border: 1px solid #ffffff12; border-radius: 5px; background: #121619; cursor: pointer; }
-.swatchField:hover { border-color: #ffffff28; }
-.swatchField > i { flex: 0 0 22px; width: 22px; height: 23px; border-radius: 3px; box-shadow: inset 0 0 0 1px #ffffff24; }
-.swatchField span { display: grid; gap: 2px; min-width: 0; }
-.swatchField b { color: #b8c0c2; font-size: 9px; font-weight: 500; }
-.swatchField code { overflow: hidden; color: #737e81; font: 8px var(--font-geist-mono), monospace; text-overflow: ellipsis; }
 .controlRow { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 8px; color: #99a4a7; font-size: 9px; }
 .segmented { display: flex; gap: 2px; min-width: 0; padding: 2px; border: 1px solid #ffffff0d; border-radius: 5px; background: #101416; }
 .segmented button { flex: 1; min-width: 0; padding: 5px 4px; border-radius: 3px; color: #737f82; font-size: 8px; white-space: nowrap; }
