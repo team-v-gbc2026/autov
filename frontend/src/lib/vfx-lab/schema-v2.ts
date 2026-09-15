@@ -355,19 +355,37 @@ export const LICK_BUDGET_V2 = 24;
 // (particle life, layer time, distance along a mesh axis, ...).
 // Declarative, bounded formulas. They compile exactly to the existing piecewise
 // curve evaluator, so CPU integration and GPU playback share one representation.
-export const CurveFormulaSchema = z.object({
-  kind: z.enum(["constant", "ramp", "smooth", "envelope"]),
-  start: scalar(-20, 20),
-  end: scalar(-20, 20),
-  peak: scalar(-20, 20),
-  attack: scalar(0.001, 0.499),
-  release: scalar(0.501, 0.999),
-}).strict();
+// Only `start` is common to every kind: a constant needs nothing else, ramp and
+// smooth need `end`, and envelope alone reads `peak`/`attack`/`release`. The
+// unused fields stay optional so a model-authored `{kind:"ramp",start,end}` is
+// not rejected for omitting the envelope terms.
+export const CurveFormulaSchema = z
+  .object({
+    kind: z.enum(["constant", "ramp", "smooth", "envelope"]),
+    start: scalar(-20, 20),
+    end: scalar(-20, 20).optional(),
+    peak: scalar(-20, 20).optional(),
+    attack: scalar(0.001, 0.499).optional(),
+    release: scalar(0.501, 0.999).optional(),
+  })
+  .strict()
+  .superRefine((f, ctx) => {
+    if (f.kind !== "constant" && f.end === undefined)
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["end"], message: `${f.kind} needs end` });
+    if (f.kind === "envelope")
+      for (const key of ["peak", "attack", "release"] as const)
+        if (f[key] === undefined)
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `envelope needs ${key}` });
+  });
 export type CurveFormula = z.infer<typeof CurveFormulaSchema>;
 export function compileCurveFormula(f: CurveFormula): { keys: [number, number][]; ease: "linear" | "smooth" } {
+  const end = f.end ?? f.start;
   if (f.kind === "constant") return { keys: [[0, f.start], [1, f.start]], ease: "linear" };
-  if (f.kind === "envelope") return { keys: [[0, f.start], [f.attack, f.peak], [f.release, f.peak], [1, f.end]], ease: "smooth" };
-  return { keys: [[0, f.start], [1, f.end]], ease: f.kind === "smooth" ? "smooth" : "linear" };
+  if (f.kind === "envelope") {
+    const peak = f.peak ?? end, attack = f.attack ?? 0.25, release = f.release ?? 0.75;
+    return { keys: [[0, f.start], [attack, peak], [release, peak], [1, end]], ease: "smooth" };
+  }
+  return { keys: [[0, f.start], [1, end]], ease: f.kind === "smooth" ? "smooth" : "linear" };
 }
 
 export const CurveSchema = z
@@ -4313,7 +4331,8 @@ export const ErosionWireSchema = ErosionSchema.extend({
 });
 export const MaterialWireSchema = MaterialSchema.extend({
   ramp: RampWireSchema,
-  shading: z.enum(SHADING_MODES_V2),
+  // Defaulted like MaterialSchema: a wire payload that omits it is unlit, not invalid.
+  shading: z.enum(SHADING_MODES_V2).default("unlit"),
   mask: MaskWireSchema,
   noise: NoiseWireSchema.nullable(),
   erosion: ErosionWireSchema.nullable(),
