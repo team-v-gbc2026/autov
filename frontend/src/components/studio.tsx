@@ -446,6 +446,7 @@ export default function Studio({
           doc={doc}
           clock={clock}
           solo={soloLayerId}
+          loaded={synced.ready}
         />
       </div>
       <StudioHeader project={project} email={email} actions={headerActions} />
