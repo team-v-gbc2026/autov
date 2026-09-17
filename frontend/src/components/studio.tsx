@@ -10,6 +10,7 @@ import PlaybackPanel from "./studio/playback-panel";
 import PanelToggle from "./studio/panel-toggle";
 import Icon from "./studio/icon";
 import IconButton from "./studio/icon-button";
+import AvfxExportButton from "./studio/avfx-export-button";
 import { PlaybackFrames, usePlaybackClock } from "./studio/playback-clock";
 import {
   useStudioDocument,
@@ -386,26 +387,7 @@ export default function Studio({
       </div>
       <div className="lab-scene-export">
         <IconButton
-          name="reset"
-          label="Reset effect"
-          disabled={saving || !synced.ready}
-          onClick={() => {
-            setEnvironmentOpen(false);
-            openDocument(createWorkspaceDocument(project.name));
-            setEmitterFocus(undefined);
-            setImportError("");
-          }}
-        />
-        <IconButton
-          name="upload"
-          label="Import effect JSON"
-          onClick={() => {
-            setEnvironmentOpen(false);
-            importInput.current?.click();
-          }}
-        />
-        <IconButton
-          name="download"
+          name="agent-export"
           label="Export for another AI agent (JSON + reference stills + clip)"
           disabled={handoffBusy}
           onClick={async () => {
@@ -441,6 +423,26 @@ export default function Studio({
             }
           }}
         />
+        <IconButton
+          name="reset"
+          label="Reset effect"
+          disabled={saving || !synced.ready}
+          onClick={() => {
+            setEnvironmentOpen(false);
+            openDocument(createWorkspaceDocument(project.name));
+            setEmitterFocus(undefined);
+            setImportError("");
+          }}
+        />
+        <IconButton
+          name="upload"
+          label="Import effect JSON"
+          onClick={() => {
+            setEnvironmentOpen(false);
+            importInput.current?.click();
+          }}
+        />
+        <AvfxExportButton document={doc} disabled={saving || !synced.ready || handoffBusy} />
       </div>
       {handoffError && <p className="lab-scene-export-error">{handoffError}</p>}
     </section>

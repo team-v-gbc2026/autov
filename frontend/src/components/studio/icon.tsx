@@ -17,6 +17,7 @@ export default function Icon({
     "eye-off": <><path d="m3 3 18 18M10.5 5.1A12 12 0 0 1 12 5c6.5 0 10 7 10 7a20 20 0 0 1-3.2 4.1M6.2 6.2A20 20 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.8-1.5M10 10a3 3 0 0 0 4 4" /></>,
     arrow: <path d="m7 14 5-5 5 5M12 9v11" />,
     download: <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />,
+    "agent-export": <><path d="m7 5-4 4 4 4m5-8 4 4-4 4M3 18h14m-4-3 4 3-4 3" /></>,
     upload: <path d="M12 15V3m-5 5 5-5 5 5M4 16v5h16v-5" />,
     close: <path d="m6 6 12 12M6 18 18 6" />,
     panel: (
