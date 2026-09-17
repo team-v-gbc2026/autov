@@ -2,7 +2,7 @@
 export const AVFX_GEOMETRY_KINDS = new Set(["ring", "shell", "trail", "beam", "sprite", "decal"]);
 export const isAvfxKind = (kind: string) => kind === "particles" || AVFX_GEOMETRY_KINDS.has(kind);
 
-/** Studio export is all-or-nothing; the dev workbench may explicitly exclude layers. */
-export function hasOnlyAvfxLayers(layers: readonly { kind: string; enabled: boolean }[]) {
-  return layers.some(layer => layer.enabled) && layers.every(layer => isAvfxKind(layer.kind));
+/** Export stays available when at least one enabled layer is supported. */
+export function hasExportableAvfxLayers(layers: readonly { kind: string; enabled: boolean }[]) {
+  return layers.some(layer => layer.enabled && isAvfxKind(layer.kind));
 }
