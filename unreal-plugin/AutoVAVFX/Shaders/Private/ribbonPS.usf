@@ -1,0 +1,125 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float vFade;
+static float vSide;
+static float vW;
+static float vStrand;
+static float4 avfxColor;
+
+struct SPIRV_Cross_Input
+{
+    float vSide : TEXCOORD0;
+    float vW : TEXCOORD1;
+    float vStrand : TEXCOORD2;
+    float vFade : TEXCOORD3;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+float4 avfx_uRamp(int i)
+{
+    return asfloat(AVFXData.Load4((26 + i) * 16 + 0));
+}
+
+float avfx_uRampT(int i)
+{
+    return asfloat(AVFXData.Load((32 + i) * 16 + 0));
+}
+
+float3 rampColor(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    int param = 0;
+    int param_1 = 0;
+    float3 c = avfx_uRamp(param).xyz * avfx_uRamp(param_1).w;
+    int param_2 = 0;
+    float prev = avfx_uRampT(param_2);
+    for (int i = 1; i < 6; i++)
+    {
+        if (i >= int(asfloat(AVFXData.Load(608))))
+        {
+            break;
+        }
+        int param_3 = i;
+        float t = avfx_uRampT(param_3);
+        int param_4 = i;
+        int param_5 = i;
+        float3 ci = avfx_uRamp(param_4).xyz * avfx_uRamp(param_5).w;
+        c = lerp(c, ci, smoothstep(prev, max(t, prev + 9.9999997473787516355514526367188e-05f), u).xxx);
+        prev = t;
+    }
+    return c;
+}
+
+void avfxMain()
+{
+    if (vFade <= 0.0f)
+    {
+        discard;
+    }
+    float q = abs(vSide);
+    float core = exp(((-q) * q) * 9.0f);
+    float halo = exp(((-q) * q) * 1.60000002384185791015625f);
+    float flicker = 0.85000002384185791015625f + (0.1500000059604644775390625f * sin(((vW * 40.0f) + (asfloat(AVFXData.Load(0)) * 6.0f)) + (vStrand * 9.0f)));
+    float param = q;
+    float3 _167 = rampColor(param);
+    float3 col = (_167 * (((core * 1.5f) * asfloat(AVFXData.Load(384))) + (halo * 0.300000011920928955078125f))) * flicker;
+    float a = (vFade * asfloat(AVFXData.Load(368))) * ((core * 0.89999997615814208984375f) + (halo * 0.3499999940395355224609375f));
+    if (a < 0.00200000009499490261077880859375f)
+    {
+        discard;
+    }
+    if (int(asfloat(AVFXData.Load(400))) == 1)
+    {
+        avfxColor = float4(col, a);
+    }
+    else
+    {
+        avfxColor = float4(col * a, a);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _230 = avfxColor;
+    float3 _232 = _230.xyz * asfloat(AVFXData.Load(944));
+    avfxColor.x = _232.x;
+    avfxColor.y = _232.y;
+    avfxColor.z = _232.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vFade = stage_input.vFade;
+    vSide = stage_input.vSide;
+    vW = stage_input.vW;
+    vStrand = stage_input.vStrand;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

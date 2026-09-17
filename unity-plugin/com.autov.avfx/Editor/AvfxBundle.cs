@@ -13,10 +13,7 @@ public sealed class AvfxBundle {
     public readonly Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
     public JObject Manifest, Timeline;
     public readonly List<JObject> Layers = new List<JObject>();
-    static readonly Dictionary<string,string[]> Versions = new Dictionary<string,string[]> {
-        {"particle", new[]{"a031010eed1957f7422b613c9d3ba8254be22d61a463d2a7a8fd71f3b3cd8082", "df5a63375111d8ec5b234a9ad2f38fbcf10b21e8ba742dbcf77a2304880d26eb"}},
-        {"surface", new[]{"1f9030d68f3719121fac50a8c5cafeeb7bd0efe9fad36793c0afa0e169c99bca", "31a2e693e02db0d3583d1ab97007fc4d9ced67bee74e4a8cadd4b8455f887efe"}}
-    };
+    static readonly Dictionary<string,string[]> Versions = AvfxShaderAbi.Versions;
     public static void Require(bool ok, string message) { if(!ok) throw new InvalidDataException("AVFX: " + message); }
     public static bool SafePath(string path) { return !string.IsNullOrEmpty(path) && path.All(c=>c>='a' && c<='z' || c>='A' && c<='Z' || c>='0' && c<='9' || "_./-".Contains(c)) && path.Split('/').All(p=>p.Length>0 && p!="." && p!=".."); }
     public static string Hash(byte[] bytes) { using(var sha=SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant(); }
@@ -83,7 +80,7 @@ public sealed class AvfxBundle {
         var drawIds=new HashSet<string>();
         foreach(var entry in (JArray)m["layers"]) {
             var layer=bundle.Read((string)entry["path"]);
-            Require(new[]{"particles","ring","shell","trail","beam","sprite","decal"}.Contains((string)layer["kind"]),"unsupported layer kind");
+            Require(new[]{"particles","ring","shell","trail","beam","sprite","decal","blob","crystals","splash","ribbon","wireBurst","arcs","streakBurst","sheets","crescent","licks","reflection"}.Contains((string)layer["kind"]),"unsupported layer kind");
             Require(Number(layer["start"])>=0 && Number(layer["end"])>Number(layer["start"]),"invalid layer interval");
             foreach(var draw in (JArray)layer["draws"]) {
                 string id=(string)draw["id"], program=(string)draw["program"];
@@ -96,6 +93,7 @@ public sealed class AvfxBundle {
                     float time=Number(sample["time"]); Require(time>previous && time<=Number(m["duration"]),"invalid timeline order"); previous=time;
                     Require(Values(sample["matrix"]).Length==16 && sample["uniforms"] is JObject && sample["visible"]?.Type==JTokenType.Boolean,"invalid sample");
                     bundle.Get((string)sample["mesh"]);
+                    if(sample["instances"]?.Type==JTokenType.String) bundle.Get((string)sample["instances"]);
                 }
                 bundle.Get((string)draw["mesh"]);
                 if(draw["instances"]?.Type==JTokenType.String) bundle.Get((string)draw["instances"]);
@@ -135,14 +133,14 @@ public sealed class AvfxBundle {
             }
         }
     }
-    public sealed class MeshData { public float[] Positions, Normals, UV; public int[] Indices; public int Count => Positions.Length/3; }
+    public sealed class MeshData { public float[] Positions, Normals, UV; public int[] Indices; public bool Lines; public readonly Dictionary<string,float[]> Attributes=new Dictionary<string,float[]>(); public readonly Dictionary<string,int> Widths=new Dictionary<string,int>(); public int Count => Positions.Length/3; }
     public static MeshData Mesh(byte[] bytes) {
         Require(U32(bytes,0)==0x46546c67 && U32(bytes,4)==2 && U32(bytes,8)==bytes.Length,"invalid GLB");
         int length=checked((int)U32(bytes,12)), bin=checked(20+length);
         Require(U32(bytes,16)==0x4e4f534a && U32(bytes,bin+4)==0x004e4942 && (long)bin+8+U32(bytes,bin)==bytes.Length,"invalid GLB chunks");
         var json=new byte[length]; Buffer.BlockCopy(bytes,20,json,0,length); var gltf=Json(json); int start=bin+8;
         Require(gltf["meshes"] is JArray meshes && meshes.Count==1 && ((JArray)gltf["meshes"][0]["primitives"]).Count==1,"expected one mesh primitive");
-        var primitive=gltf["meshes"][0]["primitives"][0]; Require((int?)primitive["mode"]==4,"only triangles supported");
+        var primitive=gltf["meshes"][0]["primitives"][0]; Require(new[]{1,4}.Contains((int?)primitive["mode"]??4),"only triangles/lines supported");
         Func<int,int,int,float[]> read=(index,components,type)=> {
             var a=gltf["accessors"][index]; var view=gltf["bufferViews"][(int)a["bufferView"]];
             Require((int)a["componentType"]==type && (string)a["type"]==new[]{"","SCALAR","VEC2","VEC3","VEC4"}[components] && a["sparse"]==null && (bool?)a["normalized"]!=true,"unsupported GLB accessor");
@@ -155,14 +153,22 @@ public sealed class AvfxBundle {
             return values;
         };
         var attrs=(JObject)primitive["attributes"];
-        Require(attrs.Properties().All(p=>new[]{"POSITION","NORMAL","TEXCOORD_0"}.Contains(p.Name)),"unsupported mesh attribute");
-        var mesh=new MeshData { Positions=read((int)attrs["POSITION"],3,5126) };
+        var mesh=new MeshData { Positions=read((int)attrs["POSITION"],3,5126), Lines=(int?)primitive["mode"]==1 };
+        var map=gltf["meshes"][0]["extras"]?["attributeMap"] as JObject;
+        foreach(var attr in attrs.Properties().Where(p=>!new[]{"POSITION","NORMAL","TEXCOORD_0"}.Contains(p.Name))) {
+            string name=map?.Properties().FirstOrDefault(p=>(string)p.Value==attr.Name)?.Name;
+            Require(name!=null,"missing custom attribute mapping");
+            int width=Array.IndexOf(new[]{"","SCALAR","VEC2","VEC3","VEC4"},(string)gltf["accessors"][(int)attr.Value]["type"]);
+            Require(width>0,"invalid custom attribute width");
+            var values=read((int)attr.Value,width,5126); Require(values.Length==mesh.Count*width,"custom attribute count mismatch");
+            mesh.Attributes.Add(name,values); mesh.Widths.Add(name,width);
+        }
         Require(mesh.Count<=1000000,"mesh vertex budget exceeded");
         mesh.Normals=attrs["NORMAL"]!=null?read((int)attrs["NORMAL"],3,5126):new float[mesh.Count*3];
         mesh.UV=attrs["TEXCOORD_0"]!=null?read((int)attrs["TEXCOORD_0"],2,5126):new float[mesh.Count*2];
         Require(mesh.Normals.Length==mesh.Positions.Length && mesh.UV.Length==mesh.Count*2,"attribute count mismatch");
         var indices=primitive["indices"]!=null?read((int)primitive["indices"],1,5125):Enumerable.Range(0,mesh.Count).Select(i=>(float)i).ToArray();
-        Require(indices.Length%3==0 && indices.All(i=>i>=0 && i<mesh.Count),"invalid triangle indices");
+        Require(indices.Length%(mesh.Lines?2:3)==0 && indices.All(i=>i>=0 && i<mesh.Count && i==Math.Floor(i)),"invalid primitive indices");
         mesh.Indices=indices.Select(i=>(int)i).ToArray(); return mesh;
     }
 }

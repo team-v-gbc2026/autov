@@ -12,9 +12,11 @@ the root for editor preview, time scrubbing and playback controls. **No unzip,
 `effect.unity.json`, or alternate exporter is needed.** Runtime API:
 `AvfxPlayer.Play()`, `Pause()`, `Restart()`, `Seek(seconds)`.
 
-Supported programs are particle and surface, with double-sided triangle meshes
-and linear PNG textures. Unknown shader revisions and unsupported programs or
-features fail import. URP/HDRP and numeric data textures are not supported yet.
+All 17 trusted source programs are supported, including the ten generator kinds
+and auxiliary particle draws. Triangle/line meshes, per-vertex and per-instance
+attributes, sampled instance changes, front/back/double-sided materials, linear
+PNGs and float RGBA data textures are supported. Unknown shader revisions and
+unsupported features fail import. URP/HDRP and screen blending are not supported.
 Soft intersection fading is disabled; camera-dependent particle sorting is not
 implemented. Imported effects do not include source lighting or post-processing.
 
@@ -24,3 +26,7 @@ and validates file hashes, GLBs and shader revisions. Third-party notice:
 `THREE-LICENSE.txt`. Shared fire-projectile import and an offscreen render were
 verified in Windows Unity 6000.0.44f1. Visual parity and standalone builds remain
 unverified.
+
+Expanded validation: all ten generator fixtures render, animate and reproduce
+identical pixels on rewind in Windows Unity 6000.0.44f1 / D3D11. The fire-projectile
+regression and 27 archive assertions pass. This is not source-image parity.

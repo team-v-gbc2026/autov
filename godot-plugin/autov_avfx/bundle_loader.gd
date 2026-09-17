@@ -5,7 +5,7 @@ const Asset = preload("asset.gd")
 const Versions = preload("shader_versions.gd")
 const MAX_BYTES := 268435456
 const MAX_FILES := 4096
-const PROGRAMS := ["particle", "surface"]
+const PROGRAMS := ["particle", "surface", "subParticle", "trail", "subTrail", "strip", "sliver", "blob", "crystal", "splash", "ribbon", "wireBurst", "arc", "streak", "sheet", "crescent", "lick"]
 var error := ""
 
 func _fail(message: String):
@@ -132,11 +132,11 @@ func load_bundle(path: String):
 		if not item is Dictionary or not files.has(item.get("path", "")): return _fail("Missing layer descriptor")
 		var layer = _json(files[item.path], item.path)
 		if layer == null: return null
-		if not layer.get("kind") in ["particles", "ring", "shell", "trail", "beam", "sprite", "decal"]: return _fail("Unsupported layer kind")
+		if not layer.get("kind") in ["particles", "ring", "shell", "trail", "beam", "sprite", "decal", "blob", "crystals", "splash", "ribbon", "wireBurst", "arcs", "streakBurst", "sheets", "crescent", "licks", "reflection"]: return _fail("Unsupported layer kind")
 		if not (layer.get("start") is float or layer.get("start") is int) or not (layer.get("end") is float or layer.get("end") is int): return _fail("Invalid layer window")
 		if not layer.get("draws") is Array: return _fail("Missing draws")
 		for draw in layer.draws:
-			if not draw is Dictionary or not draw.get("program") in PROGRAMS: return _fail("Unsupported program; first pass supports particle/surface only")
+			if not draw is Dictionary or not draw.get("program") in PROGRAMS: return _fail("Unsupported shader program")
 			if not manifest.get("programs", {}).has(draw.program): return _fail("Missing program fingerprint")
 			var id: String = draw.get("id", "")
 			if id.is_empty() or draw_ids.has(id) or not timeline.draws.has(id): return _fail("Invalid draw ID/timeline")
@@ -145,7 +145,7 @@ func load_bundle(path: String):
 			if draw.get("instances") != null and not files.has(draw.instances): return _fail("Missing particle attributes")
 			var state: Dictionary = draw.get("renderState", {})
 			if not state.get("blend") in ["alpha", "additive", "premultiplied"]: return _fail("Unsupported blend mode (screen is not supported)")
-			if state.get("side") != "double" or not state.get("depthTest", true): return _fail("Unsupported cull/depth state")
+			if not state.get("side") in ["double", "front", "back"]: return _fail("Unsupported cull state")
 			for uniform in draw.uniforms.values():
 				if not uniform is Dictionary: return _fail("Invalid uniform")
 				if uniform.has("value") and not _value_valid(uniform.value, uniform): return _fail("Invalid numeric uniform value")
@@ -161,6 +161,7 @@ func load_bundle(path: String):
 				if not is_finite(time) or time < 0 or time <= last or time > duration: return _fail("Unordered sample times")
 				last = time
 				if not files.has(sample.get("mesh", "")) or not sample.get("uniforms") is Dictionary: return _fail("Invalid sampled data")
+				if sample.get("instances") != null and not files.has(sample.instances): return _fail("Missing sampled instances")
 				for name in sample.uniforms:
 					if not draw.uniforms.has(name) or not _value_valid(sample.uniforms[name], draw.uniforms[name]): return _fail("Invalid timeline uniform: " + name)
 				if not sample.get("matrix") is Array or sample.matrix.size() != 16: return _fail("Invalid transform")

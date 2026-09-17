@@ -8,11 +8,11 @@ export function prepareAvfxDocument(input: VfxDocumentV2) {
   const source = validateDocumentV2(input);
   const layers = source.layers.filter(layer => layer.enabled && isAvfxKind(layer.kind));
   const ids = new Set(layers.map(layer => layer.id));
-  if (!layers.length) throw new Error("No enabled particle or geometry layers to export.");
+  if (!layers.length) throw new Error("No enabled exportable effect layers.");
   for (const layer of layers) {
     // CPU camera-frame transforms cannot be baked for an arbitrary engine camera.
     if (layer.frame) throw new Error(`${layer.id}: camera-frame transforms are not supported by AVFX 0.1 yet.`);
-    const dependencies = [layer.emitter?.sub?.parentLayerId, layer.emitter?.shape.sourceLayerId, layer.emitter?.spawn.sourceLayerId];
+    const dependencies = [layer.licks?.anchor.sourceLayerId, layer.reflection?.sourceLayerId, layer.emitter?.sub?.parentLayerId, layer.emitter?.shape.sourceLayerId, layer.emitter?.spawn.sourceLayerId];
     for (const id of dependencies) if (id && !ids.has(id))
       throw new Error(`${layer.id} depends on excluded layer ${id}.`);
   }

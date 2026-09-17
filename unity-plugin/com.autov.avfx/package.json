@@ -1,6 +1,6 @@
 {
   "name": "com.autov.avfx",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "autoV AVFX",
   "description": "Import and play shared .avfx bundles. Experimental Built-in render pipeline adapter.",
   "dependencies": {

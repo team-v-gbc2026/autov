@@ -1,45 +1,45 @@
-Shader "autoV/Native/ribbon" { Properties { avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend]
+Shader "autoV/Native/ribbon" { Properties { avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend], One [_DstBlend]
 HLSLPROGRAM
 #pragma target 4.5
 #pragma vertex avfxVertex
 #pragma fragment avfxFragment
 #if defined(SHADER_STAGE_VERTEX)
 
-    row_major float4x4 modelMatrix;
-    row_major float4x4 viewMatrix;
-    row_major float4x4 projectionMatrix;
-    row_major float4x4 modelViewMatrix;
-    row_major float3x3 normalMatrix;
-    float3 cameraPosition;
-    float uTime;
-    float uHead;
-    float uTail;
-    float uWidth;
-    float uMorph;
-    float uSpread;
-    float uWidthJitter;
-    float uPhaseJitter;
-    float uTaperHead;
-    float uTaperTail;
-    float uOrientPath;
-    int uPathType;
-    float3 uPathA;
-    float3 uPathB;
-    float3 uPathC;
-    float4 uPathD;
-    float2 uPathW;
-    int uMorphPathType;
-    float3 uMorphPathA;
-    float3 uMorphPathB;
-    float3 uMorphPathC;
-    float4 uMorphPathD;
-    float2 uMorphPathW;
-    float uOpacity;
-    float uCore;
-    int uBlendMode;
-    float4 uRamp[6];
-    float4 uRampT[6];
-    int uRampN;
+    uniform float4x4 modelMatrix;
+    uniform float4x4 viewMatrix;
+    uniform float4x4 projectionMatrix;
+    uniform float4x4 modelViewMatrix;
+    uniform float3x3 normalMatrix;
+    uniform float3 cameraPosition;
+    uniform float uTime;
+    uniform float uHead;
+    uniform float uTail;
+    uniform float uWidth;
+    uniform float uMorph;
+    uniform float uSpread;
+    uniform float uWidthJitter;
+    uniform float uPhaseJitter;
+    uniform float uTaperHead;
+    uniform float uTaperTail;
+    uniform float uOrientPath;
+    uniform int uPathType;
+    uniform float3 uPathA;
+    uniform float3 uPathB;
+    uniform float3 uPathC;
+    uniform float4 uPathD;
+    uniform float2 uPathW;
+    uniform int uMorphPathType;
+    uniform float3 uMorphPathA;
+    uniform float3 uMorphPathB;
+    uniform float3 uMorphPathC;
+    uniform float4 uMorphPathD;
+    uniform float2 uMorphPathW;
+    uniform float uOpacity;
+    uniform float uCore;
+    uniform int uBlendMode;
+    uniform float4 uRamp[6];
+    uniform float4 uRampT[6];
+    uniform int uRampN;
 
 
 Texture2D<float4> avfxAttributes;
@@ -192,41 +192,41 @@ SPIRV_Cross_Output avfxVertex(SPIRV_Cross_Input stage_input)
 
 #else
 
-    row_major float4x4 modelMatrix;
-    row_major float4x4 viewMatrix;
-    row_major float4x4 projectionMatrix;
-    row_major float4x4 modelViewMatrix;
-    row_major float3x3 normalMatrix;
-    float3 cameraPosition;
-    float uTime;
-    float uHead;
-    float uTail;
-    float uWidth;
-    float uMorph;
-    float uSpread;
-    float uWidthJitter;
-    float uPhaseJitter;
-    float uTaperHead;
-    float uTaperTail;
-    float uOrientPath;
-    int uPathType;
-    float3 uPathA;
-    float3 uPathB;
-    float3 uPathC;
-    float4 uPathD;
-    float2 uPathW;
-    int uMorphPathType;
-    float3 uMorphPathA;
-    float3 uMorphPathB;
-    float3 uMorphPathC;
-    float4 uMorphPathD;
-    float2 uMorphPathW;
-    float uOpacity;
-    float uCore;
-    int uBlendMode;
-    float4 uRamp[6];
-    float4 uRampT[6];
-    int uRampN;
+    uniform float4x4 modelMatrix;
+    uniform float4x4 viewMatrix;
+    uniform float4x4 projectionMatrix;
+    uniform float4x4 modelViewMatrix;
+    uniform float3x3 normalMatrix;
+    uniform float3 cameraPosition;
+    uniform float uTime;
+    uniform float uHead;
+    uniform float uTail;
+    uniform float uWidth;
+    uniform float uMorph;
+    uniform float uSpread;
+    uniform float uWidthJitter;
+    uniform float uPhaseJitter;
+    uniform float uTaperHead;
+    uniform float uTaperTail;
+    uniform float uOrientPath;
+    uniform int uPathType;
+    uniform float3 uPathA;
+    uniform float3 uPathB;
+    uniform float3 uPathC;
+    uniform float4 uPathD;
+    uniform float2 uPathW;
+    uniform int uMorphPathType;
+    uniform float3 uMorphPathA;
+    uniform float3 uMorphPathB;
+    uniform float3 uMorphPathC;
+    uniform float4 uMorphPathD;
+    uniform float2 uMorphPathW;
+    uniform float uOpacity;
+    uniform float uCore;
+    uniform int uBlendMode;
+    uniform float4 uRamp[6];
+    uniform float4 uRampT[6];
+    uniform int uRampN;
 
 
 Texture2D<float4> avfxAttributes;

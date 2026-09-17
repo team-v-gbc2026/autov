@@ -45,6 +45,7 @@ struct FReader
     TMap<FString,int32> MeshIds;
     TMap<FString,UTexture2D*> Textures;
     UAVFXAsset* Asset=nullptr;
+    int64 ExpandedVertices=0;
     bool Fail(const FString& Message) {if(Error.IsEmpty())Error=Message;return false;}
     JObject Json(TConstArrayView<uint8> Data)
     {
@@ -117,9 +118,10 @@ struct FReader
         }
         return true;
     }
-    int32 Mesh(const FString& Path)
+    int32 Mesh(const FString& Path, const FString& InstancePath, const FAVFXLayout& Layout, const FString& Program)
     {
-        if(const auto* Id=MeshIds.Find(Path))return *Id;
+        const FString Key=Path+TEXT(":")+InstancePath+TEXT(":")+Program;
+        if(const auto* Id=MeshIds.Find(Key))return *Id;
         const auto* Data=Files.Find(Path);
         if(!Data||Data->Num()<28){Fail(TEXT("Missing/truncated GLB"));return -1;}
         const uint8* P=Data->GetData();const int64 JSize=U32(P+12),BHead=20+JSize;
@@ -127,8 +129,8 @@ struct FReader
         const auto Gltf=Json(MakeArrayView(P+20,int32(JSize)));const auto Meshes=Array(Gltf,TEXT("meshes"));
         const auto Primitives=Meshes.Num()==1?Array(Object(Meshes[0]),TEXT("primitives")):JArray();
         const auto Prim=Primitives.Num()==1?Object(Primitives[0]):nullptr;const auto Attr=Obj(Prim,TEXT("attributes"));
-        if(!Attr||Num(Prim,TEXT("mode"),4)!=4){Fail(TEXT("Expected one triangle primitive"));return -1;}
-        for(const auto& Pair:Attr->Values)if(Pair.Key!=TEXT("POSITION")&&Pair.Key!=TEXT("NORMAL")&&Pair.Key!=TEXT("TEXCOORD_0")){Fail(TEXT("Unsupported custom mesh attribute"));return -1;}
+        const bool bLines=Num(Prim,TEXT("mode"),4)==1;
+        if(!Attr||(!bLines&&Num(Prim,TEXT("mode"),4)!=4)){Fail(TEXT("Expected lines or triangles"));return -1;}
         TArray<double> Pos,Normal,UV,Indices;const auto Bin=MakeArrayView(P+BHead+8,int32(U32(P+BHead)));
         if(!Accessor(Gltf,Bin,Num(Attr,TEXT("POSITION"),-1),3,false,Pos))return -1;
         if(Attr->HasField(TEXT("NORMAL"))&&!Accessor(Gltf,Bin,Num(Attr,TEXT("NORMAL")),3,false,Normal))return -1;
@@ -137,16 +139,39 @@ struct FReader
         const int32 Count=Pos.Num()/3;
         if(Count>1000000||(!Normal.IsEmpty()&&Normal.Num()!=Pos.Num())||(!UV.IsEmpty()&&UV.Num()!=Count*2)){Fail(TEXT("Invalid vertex counts"));return -1;}
         FAVFXMesh Result;
-        for(int32 I=0;I<Count;I++)
+        Result.bLines=bLines;
+        const auto Instances=InstancePath.IsEmpty()?JObject():JsonFile(InstancePath);
+        const auto InstanceAttrs=Obj(Instances,TEXT("attributes"));
+        const int32 Copies=Instances?Num(Instances,TEXT("count")):1;
+        if((!InstancePath.IsEmpty()&&!Instances)||Copies<1||Copies>60000||int64(Count)*Copies>1000000){Fail(TEXT("Expanded vertex budget exceeded"));return -1;}
+        ExpandedVertices+=int64(Count)*Copies;
+        if(ExpandedVertices>2000000){Fail(TEXT("Effect exceeds 2M expanded vertices"));return -1;}
+        const auto AttributeMap=Obj(Obj(Object(Meshes[0]),TEXT("extras")),TEXT("attributeMap"));
+        TArray<TArray<double>> Custom; TArray<bool> IsInstance;
+        for(int32 K=0;K<Layout.Attributes.Num();K++)
+        {
+            const FString& Name=Layout.Attributes[K]; const int32 Width=Layout.AttributeWidths[K];
+            const auto A=Obj(InstanceAttrs,*Name); TArray<double> Values;
+            if(A)
+            {
+                const auto Rows=Array(A,TEXT("values"));
+                if(Num(A,TEXT("count"))!=Copies||Num(A,TEXT("itemSize"))!=Width||Rows.Num()!=Copies*Width){Fail(TEXT("Invalid instance attribute: ")+Name);return -1;}
+                for(const auto& Row:Rows){double N;if(!Finite(Row,N)){Fail(TEXT("Nonfinite instance attribute"));return -1;}Values.Add(N);}
+            }
+            else if(!Accessor(Gltf,Bin,Num(Attr,*Str(AttributeMap,*Name),-1),Width,false,Values)||Values.Num()!=Count*Width){Fail(TEXT("Missing vertex attribute: ")+Name);return -1;}
+            IsInstance.Add(A.IsValid()); Custom.Add(MoveTemp(Values));
+        }
+        for(int32 Copy=0;Copy<Copies;Copy++) for(int32 I=0;I<Count;I++)
         {
             Result.Vertices.Add(FVector4(Pos[I*3],Pos[I*3+1],Pos[I*3+2],1));
             Result.Vertices.Add(Normal.IsEmpty()?FVector4(0,0,1,0):FVector4(Normal[I*3],Normal[I*3+1],Normal[I*3+2],0));
             Result.Vertices.Add(UV.IsEmpty()?FVector4(0,0,0,0):FVector4(UV[I*2],UV[I*2+1],0,0));
+            for(int32 K=0;K<Custom.Num();K++) {FVector4 V(0,0,0,0); const int32 Width=Layout.AttributeWidths[K],Row=IsInstance[K]?Copy:I;for(int32 J=0;J<Width;J++)V[J]=Custom[K][Row*Width+J];Result.Vertices.Add(V);}
         }
         if(!Prim->HasField(TEXT("indices")))for(int32 I=0;I<Count;I++)Indices.Add(I);
-        if(Indices.Num()%3){Fail(TEXT("Non-triangle indices"));return -1;}
-        for(double I:Indices){if(I<0||I>=Count||I!=FMath::FloorToDouble(I)){Fail(TEXT("Index out of bounds"));return -1;}Result.Indices.Add(I);}
-        const int32 Id=Asset->Meshes.Add(MoveTemp(Result));MeshIds.Add(Path,Id);return Id;
+        if(Indices.Num()%(bLines?2:3)||int64(Indices.Num())*Copies>6000000){Fail(TEXT("Invalid primitive index count"));return -1;}
+        for(int32 Copy=0;Copy<Copies;Copy++)for(double I:Indices){if(I<0||I>=Count||I!=FMath::FloorToDouble(I)){Fail(TEXT("Index out of bounds"));return -1;}Result.Indices.Add(Copy*Count+I);}
+        const int32 Id=Asset->Meshes.Add(MoveTemp(Result));MeshIds.Add(Key,Id);return Id;
     }
     bool Uniform(TArray<FVector4>& Dest,const FAVFXField& Field,const JValue& Value)
     {
@@ -168,7 +193,19 @@ struct FReader
         const FString Key=Path+FString::FromInt(Bool(Binding,TEXT("flipY")))+Str(Binding,TEXT("wrapS"))+Str(Binding,TEXT("wrapT"))+FString::FromInt(Num(Binding,TEXT("minFilter")))+FString::FromInt(Num(Binding,TEXT("magFilter")))+FString::FromInt(Bool(Binding,TEXT("generateMipmaps")));
         if(auto* Found=Textures.Find(Key))return *Found;
         const auto* Data=Files.Find(Path);
-        if(!Data||!Path.EndsWith(TEXT(".png"))||Str(Binding,TEXT("colorSpace"))!=TEXT("linear")){Fail(TEXT("First pass requires linear PNG textures; data/lattice textures not supported"));return nullptr;}
+        if(!Data||Str(Binding,TEXT("colorSpace"))!=TEXT("linear")){Fail(TEXT("Missing or nonlinear texture"));return nullptr;}
+        if(Path.EndsWith(TEXT(".json")))
+        {
+            const auto Raw=Json(*Data); const int32 Width=Num(Raw,TEXT("width")),Height=Num(Raw,TEXT("height"));
+            const auto Values=Array(Raw,TEXT("values"));
+            if(Str(Raw,TEXT("encoding"))!=TEXT("raw-data-texture")||Num(Raw,TEXT("type"))!=1015||Num(Raw,TEXT("format"))!=1023||Width<1||Height<1||int64(Width)*Height>1048576||Values.Num()!=int64(Width)*Height*4){Fail(TEXT("Invalid float data texture"));return nullptr;}
+            TArray<float> Pixels; Pixels.Reserve(Values.Num());for(const auto& V:Values){double N;if(!Finite(V,N)||!FMath::IsFinite(float(N))){Fail(TEXT("Nonfinite data texel"));return nullptr;}Pixels.Add(float(N));}
+            auto* T=NewObject<UTexture2D>(Asset,MakeUniqueObjectName(Asset,UTexture2D::StaticClass(),TEXT("AVFXDataTexture")),RF_Transactional);
+            T->SRGB=false;T->CompressionSettings=TC_HDR_F32;T->MipGenSettings=TMGS_NoMipmaps;T->Filter=Num(Binding,TEXT("magFilter"))==1003?TF_Nearest:TF_Bilinear;
+            T->AddressX=TA_Clamp;T->AddressY=TA_Clamp;
+            T->Source.Init(Width,Height,1,1,TSF_RGBA32F,reinterpret_cast<const uint8*>(Pixels.GetData()));T->UpdateResource();Textures.Add(Key,T);return T;
+        }
+        if(!Path.EndsWith(TEXT(".png"))){Fail(TEXT("Unsupported image format"));return nullptr;}
         auto& Module=FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
         auto Image=Module.CreateImageWrapper(EImageFormat::PNG);
         TArray64<uint8> Pixels;
@@ -196,7 +233,7 @@ struct FReader
         {
             const auto Layer=JsonFile(Str(Object(Item),TEXT("path")));
             const FString Kind=Str(Layer,TEXT("kind"));
-            const TSet<FString> Kinds={TEXT("particles"),TEXT("ring"),TEXT("shell"),TEXT("trail"),TEXT("beam"),TEXT("sprite"),TEXT("decal")};
+            const TSet<FString> Kinds={TEXT("particles"),TEXT("ring"),TEXT("shell"),TEXT("trail"),TEXT("beam"),TEXT("sprite"),TEXT("decal"),TEXT("blob"),TEXT("crystals"),TEXT("splash"),TEXT("ribbon"),TEXT("wireBurst"),TEXT("arcs"),TEXT("streakBurst"),TEXT("sheets"),TEXT("crescent"),TEXT("licks"),TEXT("reflection")};
             if(!Kinds.Contains(Kind))return Fail(TEXT("Unsupported layer kind"));
             const double Start=Num(Layer,TEXT("start"),-1),End=Num(Layer,TEXT("end"),-1);
             if(!FMath::IsFinite(Start)||!FMath::IsFinite(End)||Start<0||End<=Start||End>Asset->Duration)return Fail(TEXT("Invalid layer window"));
@@ -206,7 +243,8 @@ struct FReader
                 FAVFXDraw Draw;Draw.Id=Str(Descriptor,TEXT("id"));Draw.Program=Str(Descriptor,TEXT("program"));Draw.Blend=Str(State,TEXT("blend"));Draw.Order=Num(State,TEXT("renderOrder"));Draw.Start=Start;Draw.End=End;
                 FAVFXLayout Layout;if(!Definitions||!GetAVFXLayout(Draw.Program,Layout)||Draw.Id.IsEmpty()||Ids.Contains(Draw.Id)||Ids.Num()>=256)return Fail(TEXT("Missing/unsupported draw ABI"));Ids.Add(Draw.Id);
                 if(!Programs||!Programs->HasField(Draw.Program))return Fail(TEXT("Missing program fingerprint"));
-                if((Draw.Blend!=TEXT("alpha")&&Draw.Blend!=TEXT("additive")&&Draw.Blend!=TEXT("premultiplied"))||Bool(State,TEXT("depthWrite"))||!Bool(State,TEXT("depthTest"),true)||Str(State,TEXT("side"))!=TEXT("double"))return Fail(TEXT("Unsupported blend/depth/cull state"));
+                Draw.Side=Str(State,TEXT("side")); Draw.bDepthTest=Bool(State,TEXT("depthTest"),true); Draw.bDepthWrite=Bool(State,TEXT("depthWrite"));
+                if((Draw.Blend!=TEXT("alpha")&&Draw.Blend!=TEXT("additive")&&Draw.Blend!=TEXT("premultiplied"))||(Draw.Side!=TEXT("double")&&Draw.Side!=TEXT("front")&&Draw.Side!=TEXT("back")))return Fail(TEXT("Unsupported blend/cull state"));
                 TArray<FVector4> Defaults;Defaults.Init(FVector4(0,0,0,0),Layout.Slots);TSet<FString> Constants;
                 for(const auto& Pair:Definitions->Values)
                 {
@@ -215,20 +253,7 @@ struct FReader
                     if(Def&&Def->HasField(TEXT("value"))){const auto* Field=Layout.Fields.Find(Pair.Key);if(!Field||!Uniform(Defaults,*Field,Def->Values[TEXT("value")]))return Fail(TEXT("Invalid uniform default: ")+Pair.Key);}
                     if(Str(Binding,TEXT("source"))==TEXT("bundle")){auto* T=Texture(Binding);if(!T)return false;Draw.Textures.Add(FName(Pair.Key),T);}
                 }
-                if(Draw.Program==TEXT("particle"))
-                {
-                    const auto Instances=JsonFile(Str(Descriptor,TEXT("instances"))),Attributes=Obj(Instances,TEXT("attributes"));
-                    const int32 Count=Num(Instances,TEXT("count"));if(!Attributes||Count<1||Count>60000)return Fail(TEXT("Invalid instance count"));
-                    Draw.Instances.Init(FVector4(0,0,0,0),Count*8);
-                    const TCHAR* Names[]={TEXT("aSeed"),TEXT("aExtra"),TEXT("aExtra2"),TEXT("aIndex"),TEXT("aSrcPos"),TEXT("aSrcDir"),TEXT("aEvent"),TEXT("aSub")};const int32 Widths[]={4,4,4,1,3,3,4,1};
-                    for(int32 K=0;K<8;K++)
-                    {
-                        const auto Attr=Obj(Attributes,Names[K]);const auto Values=Array(Attr,TEXT("values"));
-                        if(Num(Attr,TEXT("count"))!=Count||Num(Attr,TEXT("itemSize"))!=Widths[K]||Values.Num()!=Count*Widths[K])return Fail(TEXT("Invalid particle attributes"));
-                        for(int32 I=0;I<Count;I++)for(int32 J=0;J<Widths[K];J++)if(!Finite(Values[I*Widths[K]+J],Draw.Instances[I*8+K][J]))return Fail(TEXT("Invalid particle seed"));
-                    }
-                }
-                else Draw.Instances.Init(FVector4(0,0,0,0),8);
+                Draw.Instances.Init(FVector4(0,0,0,0),8); // One expanded draw instance.
                 const auto Samples=Array(Timelines,*Draw.Id);double Last=-1;
                 if(Samples.IsEmpty()||Samples.Num()>2048)return Fail(TEXT("Invalid timeline length"));
                 for(const auto& V:Samples)
@@ -237,7 +262,8 @@ struct FReader
                     if(!FMath::IsFinite(Sample.Time)||Sample.Time<=Last||Sample.Time<0||Sample.Time>Asset->Duration)return Fail(TEXT("Invalid sample times"));Last=Sample.Time;
                     const auto Matrix=Array(S,TEXT("matrix"));if(Matrix.Num()!=16)return Fail(TEXT("Invalid matrix"));
                     for(const auto& Component:Matrix){double N;if(!Finite(Component,N))return Fail(TEXT("Invalid matrix component"));Sample.Matrix.Add(N);}
-                    Sample.Mesh=Mesh(Str(S,TEXT("mesh")));if(Sample.Mesh<0)return false;
+                    const FString InstancePath=S->HasField(TEXT("instances"))?Str(S,TEXT("instances")):Str(Descriptor,TEXT("instances"));
+                    Sample.Mesh=Mesh(Str(S,TEXT("mesh")),InstancePath,Layout,Draw.Program);if(Sample.Mesh<0)return false;
                     Sample.Uniforms=Defaults;const auto Values=Obj(S,TEXT("uniforms"));if(!Values)return Fail(TEXT("Missing sample uniforms"));
                     for(const auto& Pair:Values->Values)if(!Constants.Contains(Pair.Key)){const auto* F=Layout.Fields.Find(Pair.Key);if(!F||!Uniform(Sample.Uniforms,*F,Pair.Value))return Fail(TEXT("Invalid timeline uniform: ")+Pair.Key);}
                     Draw.Samples.Add(MoveTemp(Sample));
@@ -246,7 +272,7 @@ struct FReader
                 Asset->Draws.Add(MoveTemp(Draw));
             }
         }
-        Asset->ImportNotes=TEXT("Experimental particle/surface renderer. No per-particle sorting, motion vectors, shadow casting or automatic source post-processing. Editor preview needs Realtime. Screen percentage must be 100% for this pass.");
+        Asset->ImportNotes=TEXT("Expanded 17-program renderer with sampled mesh/instance playback. Reimport assets made by adapter v1. No per-particle sorting, motion vectors, shadow casting or automatic source post-processing. Editor preview needs Realtime. Screen percentage must be 100% for this pass.");
         return !Asset->Draws.IsEmpty()&&Error.IsEmpty();
     }
 };

@@ -5,6 +5,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/Paths.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAVFXCoordinatesTest,"AutoV.AVFX.CoordinatesAndABI",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
@@ -15,7 +16,8 @@ bool FAVFXCoordinatesTest::RunTest(const FString&)
     FAVFXLayout Layout;
     TestTrue(TEXT("Particle ABI"),GetAVFXLayout(TEXT("particle"),Layout));
     TestTrue(TEXT("uTime exists"),Layout.Fields.Contains(TEXT("uTime")));
-    TestFalse(TEXT("Unknown program rejected"),GetAVFXLayout(TEXT("subParticle"),Layout));
+    TestTrue(TEXT("Subparticle ABI"),GetAVFXLayout(TEXT("subParticle"),Layout));
+    TestFalse(TEXT("Unknown program rejected"),GetAVFXLayout(TEXT("unknown"),Layout));
     return true;
 }
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAVFXImportTest,"AutoV.AVFX.FireProjectileImport",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
@@ -45,6 +47,32 @@ bool FAVFXImportTest::RunTest(const FString&)
     Error.Empty();
     TestNull(TEXT("Corrupted texture rejected"),ImportAVFX(Data,GetTransientPackage(),NAME_None,RF_Transient,Error));
     TestTrue(TEXT("Useful integrity error"),Error.Contains(TEXT("Hash/size")));
+    return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAVFXGeneratorsTest,"AutoV.AVFX.GeneratorImports",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FAVFXGeneratorsTest::RunTest(const FString&)
+{
+    FString Directory;
+    if(!FParse::Value(FCommandLine::Get(),TEXT("AVFXGenerators="),Directory)){AddInfo(TEXT("Generator fixtures not supplied; check skipped"));return true;}
+    const TCHAR* Kinds[]={TEXT("blob"),TEXT("crystals"),TEXT("splash"),TEXT("ribbon"),TEXT("wireBurst"),TEXT("arcs"),TEXT("streakBurst"),TEXT("sheets"),TEXT("crescent"),TEXT("licks")};
+    for(const auto* Kind:Kinds)
+    {
+        TArray<uint8> Data; FString Error;
+        if(!TestTrue(Kind,FFileHelper::LoadFileToArray(Data,*FPaths::Combine(Directory,FString(Kind)+TEXT(".avfx")))))return false;
+        auto* Asset=ImportAVFX(Data,GetTransientPackage(),MakeUniqueObjectName(GetTransientPackage(),UAVFXAsset::StaticClass()),RF_Transient,Error);
+        if(!TestNotNull(*(FString(Kind)+TEXT(": ")+Error),Asset))return false;
+        TestEqual(TEXT("Expanded asset version"),Asset->AdapterVersion,2);
+        bool bVisible=false;
+        for(const auto& Draw:Asset->Draws)for(const auto& Sample:Draw.Samples)
+        {
+            TestTrue(TEXT("Sample mesh exists"),Asset->Meshes.IsValidIndex(Sample.Mesh));
+            bVisible|=Sample.bVisible;
+        }
+        TestTrue(TEXT("Visible samples"),bVisible);
+        if(FString(Kind)==TEXT("wireBurst"))TestTrue(TEXT("Line topology"),Asset->Meshes[0].bLines);
+        if(FString(Kind)==TEXT("blob"))TestTrue(TEXT("Animated instance snapshots"),Asset->Meshes.Num()>2);
+        AddInfo(FString(TEXT("AVFX_GENERATOR_IMPORT_PASS: "))+Kind);
+    }
     return true;
 }
 #endif

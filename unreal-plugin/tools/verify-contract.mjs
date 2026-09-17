@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { unzipSync } from '../../frontend/node_modules/three/examples/jsm/libs/fflate.module.js';
 const fixture=process.argv[2];
-if(!fixture)throw new Error('Usage: node tools/verify-contract.mjs /path/fire-projectile.avfx');
+if(!fixture)throw new Error('Usage: node tools/verify-contract.mjs /path/effect.avfx');
 const files=unzipSync(new Uint8Array(await readFile(fixture)));
 const json=path=>JSON.parse(new TextDecoder().decode(files[path]));
 const layout=JSON.parse(await readFile(new URL('../AutoVAVFX/Shaders/layout.json',import.meta.url),'utf8'));
@@ -22,20 +22,22 @@ for(const layer of manifest.layers){
     draws++;
     const abi=layout.programs[draw.program];assert.ok(abi);
     assert.ok(['additive','alpha','premultiplied'].includes(draw.renderState.blend));
-    assert.equal(draw.renderState.depthWrite,false);assert.equal(draw.renderState.side,'double');
+    assert.ok(['double','front','back'].includes(draw.renderState.side));
     for(const [name,uniform]of Object.entries(draw.uniforms)){
       if(uniform.value!==undefined){const field=abi.fields[name];assert.ok(field,`Missing ${name}`);assert.equal(field.size,uniform.size??1);}
-      if(uniform.binding?.source==='bundle'){assert.ok(layout.textures.includes(name));assert.ok(uniform.binding.path.endsWith('.png'));assert.equal(uniform.binding.colorSpace,'linear');}
+      if(uniform.binding?.source==='bundle'){assert.ok(layout.textures.includes(name));assert.ok(/\.(png|json)$/.test(uniform.binding.path));assert.equal(uniform.binding.colorSpace,'linear');}
     }
     const samples=timeline.draws[draw.id];assert.equal(samples[0].time,0);
     for(let i=0;i<samples.length;i++){
       const sample=samples[i];assert.ok(sample.time<=manifest.duration);if(i)assert.ok(sample.time>samples[i-1].time);
       assert.equal(sample.matrix.length,16);assert.ok(sample.matrix.every(Number.isFinite));
       assert.ok(files[sample.mesh]);
+      if(sample.instances) assert.ok(files[sample.instances]);
       for(const name of Object.keys(sample.uniforms))assert.ok(abi.fields[name]);
     }
-    if(draw.instances){particles++;const data=json(draw.instances);assert.ok(data.count<=60000);for(const name of ['aSeed','aExtra','aExtra2','aIndex','aSrcPos','aSrcDir','aEvent','aSub']){const a=data.attributes[name];assert.equal(a.count,data.count);assert.equal(a.values.length,a.count*a.itemSize);}}
+    for(const path of new Set([draw.instances,...samples.map(s=>s.instances)].filter(Boolean))){const data=json(path);assert.ok(data.count>0&&data.count<=60000);for(const a of Object.values(data.attributes)){assert.equal(a.count,data.count);assert.equal(a.values.length,a.count*a.itemSize);}}
+    if(draw.instances)particles++;
   }
 }
-assert.equal(draws,8);assert.equal(particles,6);
-console.log('PASS: archive integrity, trusted shader hashes, uniform layouts, textures, seeds and timelines match Unreal first-pass contract (8 draws / 6 particle draws).');
+assert.ok(draws>0);
+console.log(`PASS: archive integrity, trusted shader hashes, uniform layouts, textures, attributes and timelines (${draws} draws / ${particles} instanced draws).`);

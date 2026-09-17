@@ -67,7 +67,7 @@ void AAVFXEffect::Publish()
 #if WITH_EDITOR
     if(!GetWorld()->IsGameWorld()) bVisible=bVisible&&!IsHiddenEd();
 #endif
-    if(Effect && Effect->AdapterVersion==1 && bVisible) for(const FAVFXDraw& Draw:Effect->Draws)
+    if(Effect && Effect->AdapterVersion==2 && bVisible) for(const FAVFXDraw& Draw:Effect->Draws)
     {
         if(Time<Draw.Start || Time>=Draw.End || Draw.Samples.IsEmpty()) continue;
         int32 Low=0,High=Draw.Samples.Num()-1;
@@ -78,6 +78,7 @@ void AAVFXEffect::Publish()
         if(!GetAVFXLayout(Draw.Program,Out.Layout)) continue;
         if(Sample.Uniforms.Num()!=Out.Layout.Slots) continue;
         Out.Program=Draw.Program; Out.Blend=Draw.Blend; Out.Order=Draw.Order;
+        Out.Side=Draw.Side; Out.bDepthTest=Draw.bDepthTest; Out.bDepthWrite=Draw.bDepthWrite;
         for(int32 I=0;I<16;I++) Out.Model.M[I/4][I%4]=Sample.Matrix[I];
         // Return actor transform to source coordinates. Matrices use row vectors
         // on the CPU; uploaded rows are GLSL columns (SPIRV-Cross preserves this).
@@ -85,6 +86,7 @@ void AAVFXEffect::Publish()
         for(const auto& V:Sample.Uniforms) Out.Uniforms.Add(FVector4f(V));
         if(const auto* Field=Out.Layout.Fields.Find(TEXT("uTime"))) Out.Uniforms[Field->Slot].X=Time-Draw.Start;
         const FAVFXMesh& Mesh=Effect->Meshes[Sample.Mesh];
+        Out.bLines=Mesh.bLines;
         for(const auto& V:Mesh.Vertices) Out.Vertices.Add(FVector4f(V));
         for(const auto& V:Draw.Instances) Out.Instances.Add(FVector4f(V));
         Out.Indices=Mesh.Indices;

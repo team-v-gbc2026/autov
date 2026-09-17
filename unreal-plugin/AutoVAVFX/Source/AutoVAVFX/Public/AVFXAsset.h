@@ -11,6 +11,7 @@ struct FAVFXMesh
     // Three float4s per vertex: source position, normal, UV. Source meters/Y-up.
     UPROPERTY() TArray<FVector4> Vertices;
     UPROPERTY() TArray<uint32> Indices;
+    UPROPERTY() bool bLines = false;
 };
 
 USTRUCT()
@@ -31,6 +32,9 @@ struct FAVFXDraw
     UPROPERTY() FString Id;
     UPROPERTY() FString Program;
     UPROPERTY() FString Blend;
+    UPROPERTY() FString Side = TEXT("double");
+    UPROPERTY() bool bDepthTest = true;
+    UPROPERTY() bool bDepthWrite = false;
     UPROPERTY() int32 Order = 0;
     UPROPERTY() double Start = 0;
     UPROPERTY() double End = 0;
@@ -48,7 +52,7 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AVFX") double Duration = 0;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AVFX") FString SourceFile;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="AVFX") FString ImportNotes;
-    UPROPERTY() int32 AdapterVersion = 1;
+    UPROPERTY() int32 AdapterVersion = 2;
     UPROPERTY() TArray<FAVFXMesh> Meshes;
     UPROPERTY() TArray<FAVFXDraw> Draws;
 };

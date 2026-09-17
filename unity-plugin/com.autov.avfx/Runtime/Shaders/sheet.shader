@@ -1,30 +1,30 @@
-Shader "autoV/Native/sheet" { Properties { avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend]
+Shader "autoV/Native/sheet" { Properties { avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend], One [_DstBlend]
 HLSLPROGRAM
 #pragma target 4.5
 #pragma vertex avfxVertex
 #pragma fragment avfxFragment
 #if defined(SHADER_STAGE_VERTEX)
 
-    row_major float4x4 modelMatrix;
-    row_major float4x4 viewMatrix;
-    row_major float4x4 projectionMatrix;
-    row_major float4x4 modelViewMatrix;
-    row_major float3x3 normalMatrix;
-    float3 cameraPosition;
-    float3 uShadow;
-    float3 uBody;
-    float3 uHigh;
-    float3 uRim;
-    float3 uLight;
-    float3 uCam;
-    float2 uBands;
-    float uRimPow;
-    float uRimAmt;
-    float uOpacity;
-    float uTear;
-    float uTearScale;
-    float uBandCount;
-    int uBlendMode;
+    uniform float4x4 modelMatrix;
+    uniform float4x4 viewMatrix;
+    uniform float4x4 projectionMatrix;
+    uniform float4x4 modelViewMatrix;
+    uniform float3x3 normalMatrix;
+    uniform float3 cameraPosition;
+    uniform float3 uShadow;
+    uniform float3 uBody;
+    uniform float3 uHigh;
+    uniform float3 uRim;
+    uniform float3 uLight;
+    uniform float3 uCam;
+    uniform float2 uBands;
+    uniform float uRimPow;
+    uniform float uRimAmt;
+    uniform float uOpacity;
+    uniform float uTear;
+    uniform float uTearScale;
+    uniform float uBandCount;
+    uniform int uBlendMode;
 
 
 Texture2D<float4> avfxAttributes;
@@ -93,26 +93,26 @@ SPIRV_Cross_Output avfxVertex(SPIRV_Cross_Input stage_input)
 
 #else
 
-    row_major float4x4 modelMatrix;
-    row_major float4x4 viewMatrix;
-    row_major float4x4 projectionMatrix;
-    row_major float4x4 modelViewMatrix;
-    row_major float3x3 normalMatrix;
-    float3 cameraPosition;
-    float3 uShadow;
-    float3 uBody;
-    float3 uHigh;
-    float3 uRim;
-    float3 uLight;
-    float3 uCam;
-    float2 uBands;
-    float uRimPow;
-    float uRimAmt;
-    float uOpacity;
-    float uTear;
-    float uTearScale;
-    float uBandCount;
-    int uBlendMode;
+    uniform float4x4 modelMatrix;
+    uniform float4x4 viewMatrix;
+    uniform float4x4 projectionMatrix;
+    uniform float4x4 modelViewMatrix;
+    uniform float3x3 normalMatrix;
+    uniform float3 cameraPosition;
+    uniform float3 uShadow;
+    uniform float3 uBody;
+    uniform float3 uHigh;
+    uniform float3 uRim;
+    uniform float3 uLight;
+    uniform float3 uCam;
+    uniform float2 uBands;
+    uniform float uRimPow;
+    uniform float uRimAmt;
+    uniform float uOpacity;
+    uniform float uTear;
+    uniform float uTearScale;
+    uniform float uBandCount;
+    uniform int uBlendMode;
 
 
 Texture2D<float4> avfxAttributes;

@@ -48,11 +48,24 @@ export function zipStore(files: ReadonlyMap<string, Uint8Array>): Uint8Array<Arr
 }
 
 export type PackedAttribute = { itemSize: number; count: number; values: number[] };
-export type PackedMesh = { attributes: Record<string, PackedAttribute>; indices: number[] | null };
+export type PackedMesh = { attributes: Record<string, PackedAttribute>; indices: number[] | null; mode?: 1 | 4 };
 
 /** Geometry-only glTF 2.0. Shader materials/instances live in layer JSON, not
  * in a misleading PBR approximation. All custom attributes use glTF's _ prefix. */
 export function meshGlb(mesh: PackedMesh): Uint8Array<ArrayBuffer> {
+  const mode = mesh.mode ?? 4;
+  const count = mesh.attributes.position?.count;
+  if (!count || ![1, 4].includes(mode)) throw new Error("Invalid mesh primitive.");
+  for (const [name, attr] of Object.entries(mesh.attributes)) {
+    if (!Number.isInteger(attr.itemSize) || attr.itemSize < 1 || attr.itemSize > 4 ||
+        attr.count !== count || attr.values.length !== count * attr.itemSize ||
+        attr.values.some(value => !Number.isFinite(Math.fround(value))))
+      throw new Error(`Invalid mesh attribute: ${name}`);
+  }
+  if (mesh.attributes.position.itemSize !== 3) throw new Error("Invalid position width.");
+  if ((mesh.indices?.length ?? count) % (mode === 1 ? 2 : 3)) throw new Error("Incomplete mesh primitive.");
+  if (mesh.indices?.some(index => !Number.isInteger(index) || index < 0 || index >= count))
+    throw new Error("Mesh index out of bounds.");
   const chunks: Uint8Array[] = [];
   const bufferViews: object[] = [], accessors: object[] = [];
   const attributes: Record<string, number> = {}, attributeMap: Record<string, string> = {};
@@ -77,7 +90,7 @@ export function meshGlb(mesh: PackedMesh): Uint8Array<ArrayBuffer> {
   const indices = mesh.indices ? accessor(mesh.indices, 1, true) : undefined;
   const json = jsonBytes({ asset: { version: "2.0", generator: "autoV AVFX" }, scene: 0,
     scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
-    meshes: [{ primitives: [{ attributes, ...(indices === undefined ? {} : { indices }), mode: 4 }], extras: { attributeMap } }],
+    meshes: [{ primitives: [{ attributes, ...(indices === undefined ? {} : { indices }), mode }], extras: { attributeMap } }],
     buffers: [{ byteLength }], bufferViews, accessors });
   const padded = new Uint8Array(Math.ceil(json.length / 4) * 4).fill(32); padded.set(json);
   const header = new Uint8Array(20), h = new DataView(header.buffer);

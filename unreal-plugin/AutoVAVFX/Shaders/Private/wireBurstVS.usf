@@ -1,0 +1,116 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+ByteAddressBuffer AVFXVertices;
+ByteAddressBuffer AVFXIndices;
+ByteAddressBuffer AVFXInstances;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float4 gl_Position;
+static int gl_VertexIndex;
+static float vA;
+static float vK;
+
+struct SPIRV_Cross_Input
+{
+    uint gl_VertexIndex : SV_VertexID;
+};
+
+struct SPIRV_Cross_Output
+{
+    float vA : TEXCOORD0;
+    float vK : TEXCOORD1;
+    float4 gl_Position : SV_Position;
+};
+
+float burstHash(inout float p)
+{
+    p = frac(p * 0.103100001811981201171875f);
+    p *= (p + 33.3300018310546875f);
+    p *= (p + p);
+    return frac(p);
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float2 avfx_uCurveA(int i)
+{
+    return asfloat(AVFXData.Load4((6 + i) * 16 + 0)).xy;
+}
+
+float curveA(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    int param = 0;
+    float v = avfx_uCurveA(param).y;
+    for (int i = 1; i < 8; i++)
+    {
+        if (i >= int(asfloat(AVFXData.Load(224))))
+        {
+            break;
+        }
+        int param_1 = i - 1;
+        float a = avfx_uCurveA(param_1).x;
+        int param_2 = i;
+        float b = avfx_uCurveA(param_2).x;
+        float f = clamp((u - a) / max(b - a, 9.9999997473787516355514526367188e-06f), 0.0f, 1.0f);
+        f = lerp(f, (f * f) * (3.0f - (2.0f * f)), asfloat(AVFXData.Load(240)));
+        int param_3 = i;
+        v = lerp(v, avfx_uCurveA(param_3).y, step(a, u) * f);
+    }
+    return v;
+}
+
+void vert_main()
+{
+    float param = (asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 6u) + 4u) * 16 + 0)) * 1.7000000476837158203125f) + 0.300000011920928955078125f;
+    float _176 = burstHash(param);
+    float h = _176;
+    float e = clamp(asfloat(AVFXData.Load(16)), 0.0f, 1.0f);
+    float param_1 = 1.0f - e;
+    float param_2 = 2.599999904632568359375f;
+    float out1 = 1.0f - safePow(param_1, param_2);
+    float travel = ((lerp(0.4000000059604644775390625f, 1.4500000476837158203125f, h) * out1) * asfloat(AVFXData.Load(32))) * lerp(1.0f, 1.5f, asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 6u) + 5u) * 16 + 0)));
+    float param_3 = e;
+    float _214 = curveA(param_3);
+    float scale = _214 * lerp(0.75f, 1.25f, h);
+    float3 p = (asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 6u) + 3u) * 16 + 0)).xyz * travel) + (asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 6u) * 16 + 0)).xyz * scale);
+    vA = 1.0f - smoothstep(0.25f, 1.0f, e);
+    vK = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 6u) + 5u) * 16 + 0));
+    gl_Position = mul(float4(p, 1.0f), mul(float4x4(float4(asfloat(AVFXData.Load4(640))), float4(asfloat(AVFXData.Load4(656))), float4(asfloat(AVFXData.Load4(672))), float4(asfloat(AVFXData.Load4(688)))), float4x4(float4(asfloat(AVFXData.Load4(704))), float4(asfloat(AVFXData.Load4(720))), float4(asfloat(AVFXData.Load4(736))), float4(asfloat(AVFXData.Load4(752))))));
+    if (asfloat(AVFXData.Load(48)) >= 0.0f)
+    {
+        gl_Position.x += ((((asfloat(AVFXData.Load(48)) - 1.0f) * asfloat(AVFXData.Load(64))) * (1.0f + (asfloat(AVFXData.Load(80)) * e))) * gl_Position.w);
+    }
+}
+
+SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
+{
+    gl_VertexIndex = int(stage_input.gl_VertexIndex);
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vA = vA;
+    stage_output.vK = vK;
+    return stage_output;
+}

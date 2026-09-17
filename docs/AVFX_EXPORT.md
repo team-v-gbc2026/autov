@@ -1,4 +1,4 @@
-# AVFX first-pass bundle
+# AVFX bundle
 
 Use **Dev utilities → AVFX export workbench** (`/dev/avfx`) and **Export .avfx**.
 The export uses the source document, not the current playback time or solo selection.
@@ -10,6 +10,11 @@ This is an experimental adapter contract, not a claim of engine rendering parity
 ## Scope
 
 Enabled `particles`, `ring`, `shell`, `trail`, `beam`, `sprite`, and `decal` layers.
+The expanded Godot adapter also supports `blob`, `crystals`, `splash`, `ribbon`,
+`wireBurst`, `arcs`, `streakBurst`, `sheets`, `crescent`, `licks`, and `reflection`.
+Export now retains these layers. Use updated adapters: the expanded Godot plugin,
+Unreal asset adapter version 2, or Unity package 0.3.0 / importer version 2.
+Older adapters do not support the additional programs or sampled instance data.
 Disabled layers and other kinds are explicitly listed in `avfx.json.excluded`.
 Fire-projectile exports six particle layers and two geometry layers. Its point
 light is excluded. The authored environment and post-processing are reference
@@ -19,6 +24,12 @@ Particle sub-emitters, trails, strip/sliver draws, secondary draws and surface
 RGB-split draws retain their individual programs and attributes. Camera-frame
 layer transforms are currently rejected. Dependencies on excluded layers or
 excluded path-event drivers are rejected rather than silently changing motion.
+
+Timeline samples may include an `instances` path. It selects an immutable instance
+table alongside the sampled mesh; players must update both. Absent `instances`
+means use the draw's original instance table (legacy bundles). Empty populations
+are invisible and carry a one-row placeholder. Geometry and instance snapshots
+are content-deduplicated; shader-only deformation remains live for now.
 
 ## Files
 

@@ -8,6 +8,8 @@ struct FAVFXRenderDraw
 {
     FAVFXLayout Layout;
     FString Program, Blend;
+    FString Side;
+    bool bLines=false, bDepthTest=true, bDepthWrite=false;
     int32 Order = 0;
     FMatrix Model = FMatrix::Identity;
     TArray<FVector4f> Uniforms, Vertices, Instances;

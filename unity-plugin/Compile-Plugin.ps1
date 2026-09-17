@@ -26,7 +26,7 @@ $editorArgs | ForEach-Object { '"' + $_ + '"' } | Set-Content "$stage\editor.rsp
 if ($LASTEXITCODE -ne 0) { throw 'Editor compile failed' }
 Write-Output "C# compile passed against installed Unity assemblies: $stage"
 $references = $testReferences
-$testArgs = @('/nologo', '/target:exe', '/nostdlib+') + @($references | ForEach-Object { '/reference:' + $_.FullName }) + @("/reference:$EditorData\Managed\Newtonsoft.Json.dll", "/out:$stage\BundleTests.exe", "$PSScriptRoot\com.autov.avfx\Editor\AvfxBundle.cs", "$PSScriptRoot\tests\BundleTests.cs")
+$testArgs = @('/nologo', '/target:exe', '/nostdlib+') + @($references | ForEach-Object { '/reference:' + $_.FullName }) + @("/reference:$EditorData\Managed\Newtonsoft.Json.dll", "/out:$stage\BundleTests.exe", "$PSScriptRoot\com.autov.avfx\Editor\AvfxBundle.cs", "$PSScriptRoot\com.autov.avfx\Editor\AvfxShaderAbi.cs", "$PSScriptRoot\tests\BundleTests.cs")
 $testArgs | ForEach-Object { '"' + $_ + '"' } | Set-Content "$stage\tests.rsp"
 & $mono $compiler "@$stage\tests.rsp"
 if ($LASTEXITCODE -ne 0) { throw 'Bundle tests compile failed' }

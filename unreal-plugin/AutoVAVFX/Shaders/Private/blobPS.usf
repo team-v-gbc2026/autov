@@ -1,0 +1,224 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float3 vWp;
+static float3 vLobe;
+static float4 avfxColor;
+static float3 vN;
+static float3 vV;
+
+struct SPIRV_Cross_Input
+{
+    float3 vN : TEXCOORD0;
+    float3 vV : TEXCOORD1;
+    float3 vWp : TEXCOORD2;
+    float3 vLobe : TEXCOORD3;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+float3 safeDirLocal(float3 v)
+{
+    float l = length(v);
+    float3 _135;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _135 = v / l.xxx;
+    }
+    else
+    {
+        _135 = float3(0.0f, 1.0f, 0.0f);
+    }
+    return _135;
+}
+
+float lobeRampKey(float mode)
+{
+    float _150;
+    if (mode > 2.5f)
+    {
+        _150 = clamp((vWp.y - asfloat(AVFXData.Load(240))) / max(asfloat(AVFXData.Load(256)), 0.001000000047497451305389404296875f), 0.0f, 1.0f);
+    }
+    else
+    {
+        float _178;
+        if ((mode > 0.5f) && (mode < 1.5f))
+        {
+            _178 = clamp(asfloat(AVFXData.Load(224)), 0.0f, 1.0f);
+        }
+        else
+        {
+            _178 = clamp(vLobe.x, 0.0f, 1.0f);
+        }
+        _150 = _178;
+    }
+    return _150;
+}
+
+float lobeRampKeyBlended()
+{
+    float param = asfloat(AVFXData.Load(208));
+    float key = lobeRampKey(param);
+    if (asfloat(AVFXData.Load(352)) > 0.0f)
+    {
+        float param_1 = asfloat(AVFXData.Load(336));
+        key = lerp(key, lobeRampKey(param_1), asfloat(AVFXData.Load(352)));
+    }
+    return key;
+}
+
+float4 avfx_uRamp(int i)
+{
+    return asfloat(AVFXData.Load4((27 + i) * 16 + 0));
+}
+
+float avfx_uRampT(int i)
+{
+    return asfloat(AVFXData.Load((33 + i) * 16 + 0));
+}
+
+float3 rampColor(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    int param = 0;
+    int param_1 = 0;
+    float3 c = avfx_uRamp(param).xyz * avfx_uRamp(param_1).w;
+    int param_2 = 0;
+    float prev = avfx_uRampT(param_2);
+    for (int i = 1; i < 6; i++)
+    {
+        if (i >= int(asfloat(AVFXData.Load(624))))
+        {
+            break;
+        }
+        int param_3 = i;
+        float t = avfx_uRampT(param_3);
+        int param_4 = i;
+        int param_5 = i;
+        float3 ci = avfx_uRamp(param_4).xyz * avfx_uRamp(param_5).w;
+        c = lerp(c, ci, smoothstep(prev, max(t, prev + 9.9999997473787516355514526367188e-05f), u).xxx);
+        prev = t;
+    }
+    return c;
+}
+
+void avfxMain()
+{
+    if (asfloat(AVFXData.Load(192)) > 0.5f)
+    {
+        avfxColor = float4((asfloat(AVFXData.Load4(32)).xyz * vLobe.y) * vLobe.z, vLobe.z);
+        return;
+    }
+    float3 c;
+    if (asfloat(AVFXData.Load(272)) > 0.5f)
+    {
+        float3 param = vN;
+        float3 N = safeDirLocal(param);
+        float3 param_1 = asfloat(AVFXData.Load4(96)).xyz;
+        float3 L = safeDirLocal(param_1);
+        float fall = 1.0f;
+        if (asfloat(AVFXData.Load(368)) > 0.5f)
+        {
+            float3 toLight = asfloat(AVFXData.Load4(400)).xyz - vWp;
+            float dist = length(toLight);
+            float3 param_2 = toLight;
+            L = safeDirLocal(param_2);
+            fall = 1.0f / (1.0f + (((asfloat(AVFXData.Load(384)) * dist) * asfloat(AVFXData.Load(384))) * dist));
+        }
+        float ndl = (dot(N, L) * 0.5f) + 0.5f;
+        float3 body = asfloat(AVFXData.Load4(48)).xyz;
+        float3 shadow = asfloat(AVFXData.Load4(32)).xyz;
+        float3 high = asfloat(AVFXData.Load4(64)).xyz;
+        if (asfloat(AVFXData.Load(288)) > 0.5f)
+        {
+            float param_3 = lobeRampKeyBlended();
+            float3 _321 = rampColor(param_3);
+            body = _321;
+            shadow = lerp(body * asfloat(AVFXData.Load(304)), asfloat(AVFXData.Load4(32)).xyz, 0.25f.xxx);
+            high = lerp(body, asfloat(AVFXData.Load4(64)).xyz, asfloat(AVFXData.Load(320)).xxx);
+        }
+        float3 _347;
+        if (asfloat(AVFXData.Load(112)) > 2.5f)
+        {
+            float3 _355;
+            if (ndl < asfloat(AVFXData.Load(128)))
+            {
+                _355 = shadow;
+            }
+            else
+            {
+                bool3 _368 = (ndl < asfloat(AVFXData.Load(144))).xxx;
+                _355 = float3(_368.x ? body.x : high.x, _368.y ? body.y : high.y, _368.z ? body.z : high.z);
+            }
+            _347 = _355;
+        }
+        else
+        {
+            bool3 _378 = (ndl < asfloat(AVFXData.Load(128))).xxx;
+            _347 = float3(_378.x ? shadow.x : high.x, _378.y ? shadow.y : high.y, _378.z ? shadow.z : high.z);
+        }
+        c = _347;
+        float3 param_4 = vV;
+        c += ((asfloat(AVFXData.Load4(80)).xyz * pow(max(1.0f - clamp(dot(N, safeDirLocal(param_4)), 0.0f, 1.0f), 9.9999997473787516355514526367188e-05f), asfloat(AVFXData.Load(160)))) * asfloat(AVFXData.Load(176)));
+        c *= lerp(1.0f, fall, step(0.5f, asfloat(AVFXData.Load(368))));
+    }
+    else
+    {
+        float param_5 = lobeRampKeyBlended();
+        float3 _415 = rampColor(param_5);
+        c = _415;
+    }
+    c *= vLobe.y;
+    if (int(asfloat(AVFXData.Load(416))) == 1)
+    {
+        avfxColor = float4(c, vLobe.z);
+    }
+    else
+    {
+        avfxColor = float4(c * vLobe.z, vLobe.z);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _449 = avfxColor;
+    float3 _451 = _449.xyz * asfloat(AVFXData.Load(960));
+    avfxColor.x = _451.x;
+    avfxColor.y = _451.y;
+    avfxColor.z = _451.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vWp = stage_input.vWp;
+    vLobe = stage_input.vLobe;
+    vN = stage_input.vN;
+    vV = stage_input.vV;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}
