@@ -1,0 +1,580 @@
+// Generated from Auto V surface; source SHA256 9dda3343b0e699e96809edb49f0228f39dc9a720d8f8c5f8c15abb34e3a4565c.
+// Host supplies matrices in AVFX source coordinates.
+// UE integration/bindings/blend/depth/cull/GPU precision still need validation.
+// Independent entry point, NOT code to paste into a Material Custom node.
+
+    row_major float4x4 modelMatrix;
+    row_major float4x4 viewMatrix;
+    row_major float4x4 projectionMatrix;
+    row_major float4x4 modelViewMatrix;
+    row_major float3x3 normalMatrix;
+    float3 cameraPosition;
+    float uTime;
+    float uLength;
+    float uRadius;
+    float uThickness;
+    float uArc;
+    float uVertexAmp;
+    float uVertexFreq;
+    float uVertexSpeed;
+    float uDisplaceShift;
+    float uRoll;
+    float uChannel;
+    float uSplitOffset;
+    float uSplitGrowth;
+    float uLayerU;
+    int uShell;
+    int uHasVertexNoise;
+    int uBillboard;
+    int uRibbon;
+    int uUseLocalZ;
+    int uSlab;
+    int uSlabBase;
+    float uSlabTaper;
+    int uFrameV;
+    float uFrameMargin;
+    float2 uZRange;
+    float3 uVertexBias;
+    float4 uCurveF[8];
+    int uCurveFN;
+    float uCurveFEase;
+    float uOpacity;
+    float uErodeSoft;
+    float uEdgeW;
+    float uEdgeI;
+    float uProtect;
+    float uRimBias;
+    float uFresnelPower;
+    float uFresnelStrength;
+    float uDistort;
+    float uRampKeyMode;
+    float uMaskRot;
+    float uGroundY;
+    float uHeightSpan;
+    float uRampBlendMode;
+    float uRampBlendWeight;
+    int uHasMask;
+    int uHasNoise;
+    int uUseErosion;
+    int uBlendMode;
+    int uProcedural;
+    int uHasFresnel;
+    int uBolt;
+    float2 uNoiseScale;
+    float2 uNoisePan;
+    float2 uMaskScale;
+    float2 uMaskPan;
+    float2 uDistortPan;
+    float3 uEdgeCol;
+    float3 uCam;
+    int uHasLattice;
+    int uHasReveal;
+    int uRevealMode;
+    int uHasPlaneGlow;
+    int uHasDissolve;
+    int uRippleN;
+    int uBand;
+    float uLatEdge;
+    float uLatGap;
+    float uPulseSpeed;
+    float uPhaseJitter;
+    float uGrazeFade;
+    float uDisStart;
+    float uDisStagger;
+    float uDisSoft;
+    float uRevealFrom;
+    float uRevealTo;
+    float uRevealWidth;
+    float uPlaneDist;
+    float uPlaneI;
+    float uBandStripes;
+    float3 uTileCol;
+    float3 uLatEdgeCol;
+    float3 uPlaneCol;
+    float4 uRipple[8];
+    int uSlabN;
+    float4 uSlabTier[8];
+    float uFlicker;
+    int uReflect;
+    float3 uReflectTint;
+    float uReflectOpacity;
+    float uReflectBlur;
+    int uStreakOn;
+    int uStreakRadiate;
+    int uCreaseOn;
+    float4 uStreakA;
+    float4 uStreakB;
+    float3 uStreakCol;
+    float3 uCrease;
+    float uSymbolSeed;
+    int uFlipMode;
+    int uAtlasCols;
+    int uAtlasRows;
+    float uFlipFps;
+    float4 uRamp[6];
+    float4 uRampT[6];
+    int uRampN;
+    float4 uCurveC[8];
+    int uCurveCN;
+    float uCurveCEase;
+    float4 uProcParams;
+    float4 uStripeA[3];
+    float4 uStripeB[3];
+    int uStripeN;
+    float3 uSymFill;
+    float3 uSymOutline;
+    float3 uSymHigh;
+    float3 uSymInk;
+    float3 uSymHot;
+    float uSymHotI;
+    float uSymHotA;
+    float uScreenPitch;
+    float uScreenOn;
+    float uScreenWorld;
+    float3 uScreenCol;
+    int uFrame;
+    int uSdfN;
+    int uBeadOn;
+    float uCorner;
+    float uSdfCore;
+    float uSdfSpine;
+    float uSdfInnerOff;
+    float uSdfInnerW;
+    float4 uSdfHalo[3];
+    float3 uBeads;
+    int uFlowOn;
+    int uFlowN;
+    float4 uFlowLayer[8];
+    float3 uFlowCut;
+    int uSwirlOn;
+    float4 uSwirlBands;
+    float4 uSwirlDetail;
+    float3 uSwirlLobe;
+    float uSwirlS;
+    float uCells;
+    float uCellA;
+    int uSmokeLit;
+    int uSmokeCard;
+    float uSmokeAmbient;
+    float3 uSmokeRight;
+    float3 uSmokeUp;
+    float3 uSmokeForward;
+    float4 uSmokeLights[8];
+    float2 uResolution;
+    float uNear;
+    float uFar;
+    float uSoft;
+
+
+Texture2D<float4> uMask;
+SamplerState sampleruMask;
+Texture2D<float4> uNoise;
+SamplerState sampleruNoise;
+Texture2D<float4> uSites;
+SamplerState sampleruSites;
+Texture2D<float4> tDepth;
+SamplerState samplertDepth;
+Texture2D<float4> avfxAttributes;
+SamplerState sampleravfxAttributes;
+
+static float4 gl_Position;
+static float2 vUv;
+static float2 uv;
+static float vLobe;
+static float vRing;
+static float3 vObj;
+static float3 position;
+static float vAlong;
+static float3 vWp;
+static float3 vN;
+static float3 normal;
+static float avfxVertexIndex;
+
+struct SPIRV_Cross_Input {
+    float3 position : POSITION;
+    float3 normal : NORMAL;
+    float2 uv : TEXCOORD0;
+    float avfxVertexIndex : TEXCOORD1;
+};
+
+struct SPIRV_Cross_Output
+{
+    float3 vN : TEXCOORD0;
+    float3 vWp : TEXCOORD1;
+    float3 vObj : TEXCOORD2;
+    float vAlong : TEXCOORD3;
+    float vLobe : TEXCOORD4;
+    float vRing : TEXCOORD5;
+    float2 vUv : TEXCOORD6;
+    float4 gl_Position : SV_Position;
+};
+
+float3 safeDir(float3 v, float3 fallback)
+{
+    float l = length(v);
+    float3 _452;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _452 = v / l.xxx;
+    }
+    else
+    {
+        _452 = fallback;
+    }
+    return _452;
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+float curveF(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    float v = uCurveF[0].xy.y;
+    for (int i = 1; i < 8; i++)
+    {
+        if (i >= uCurveFN)
+        {
+            break;
+        }
+        float a = uCurveF[i - 1].xy.x;
+        float b = uCurveF[i].xy.x;
+        float f = clamp((u - a) / max(b - a, 9.9999997473787516355514526367188e-06f), 0.0f, 1.0f);
+        f = lerp(f, (f * f) * (3.0f - (2.0f * f)), uCurveFEase);
+        v = lerp(v, uCurveF[i].xy.y, step(a, u) * f);
+    }
+    return v;
+}
+
+float3 orthoOf(float3 a)
+{
+    float3 _568;
+    if (abs(a.y) < 0.89999997615814208984375f)
+    {
+        _568 = cross(a, float3(0.0f, 1.0f, 0.0f));
+    }
+    else
+    {
+        _568 = cross(a, float3(1.0f, 0.0f, 0.0f));
+    }
+    float3 param = _568;
+    float3 param_1 = float3(1.0f, 0.0f, 0.0f);
+    return safeDir(param, param_1);
+}
+
+void vert_main()
+{
+    vUv = uv;
+    vLobe = 0.0f;
+    vRing = uv.x;
+    vObj = position;
+    float3 worldPos;
+    float3 worldNormal;
+    if (uFrameV == 1)
+    {
+        float2 avfxHalfExtent = float2(uRadius + uFrameMargin, (uLength * 0.5f) + uFrameMargin);
+        float3 local = float3(position.xy * avfxHalfExtent, 0.0f);
+        vObj = local;
+        vAlong = clamp(uv.y, 0.0f, 1.0f);
+        worldPos = mul(float4(local, 1.0f), modelMatrix).xyz;
+        float3 param = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+        float3 param_1 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param, param_1);
+        vWp = worldPos;
+        vN = worldNormal;
+        gl_Position = mul(float4(worldPos, 1.0f), mul(viewMatrix, projectionMatrix));
+        if (uChannel >= 0.0f)
+        {
+            gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (uSlab == 1)
+    {
+        float s = (position.x * 0.5f) + 0.5f;
+        vAlong = s;
+        vRing = (position.y * 0.5f) + 0.5f;
+        vUv = float2(s, (position.y * 0.5f) + 0.5f);
+        float3 centre = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+        float4 mv = mul(float4(centre, 1.0f), viewMatrix);
+        float3 axisV = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), mul(modelMatrix, viewMatrix)).xyz;
+        float2 _758;
+        if (length(axisV.xy) > 9.9999997473787516355514526367188e-06f)
+        {
+            _758 = normalize(axisV.xy);
+        }
+        else
+        {
+            _758 = float2(1.0f, 0.0f);
+        }
+        float2 along = _758;
+        float2 across = float2(-along.y, along.x);
+        float sAxis = length(modelMatrix[2].xyz);
+        float sRad = 0.5f * (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz));
+        float len = uLength * sAxis;
+        float half_ = ((uThickness * 0.5f) * sRad) * lerp(1.0f, uSlabTaper, s);
+        float _814;
+        if (uSlabBase == 1)
+        {
+            _814 = s * len;
+        }
+        else
+        {
+            _814 = (s - 0.5f) * len;
+        }
+        float offAlong = _814;
+        float2 _838 = mv.xy + ((along * offAlong) + ((across * position.y) * half_));
+        mv = float4(_838.x, _838.y, mv.z, mv.w);
+        vWp = centre;
+        vN = float3(0.0f, 0.0f, 1.0f);
+        gl_Position = mul(mv, projectionMatrix);
+        if (uChannel >= 0.0f)
+        {
+            gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (uRibbon == 1)
+    {
+        float ua = clamp(position.x, 0.0f, 1.0f);
+        float side = position.y;
+        vAlong = clamp(uv.y, 0.0f, 1.0f);
+        float a = ua * uArc;
+        float param_2 = max(0.0f, sin(3.1415927410125732421875f * ua));
+        float param_3 = 0.60000002384185791015625f;
+        float taper = safePow(param_2, param_3);
+        float w = max(9.9999997473787516355514526367188e-05f, uThickness * taper);
+        float rr = uRadius + (side * w);
+        float3 local_1 = float3(cos(a) * rr, sin(a) * rr, (0.119999997317790985107421875f * uRadius) * sin(a * 2.0f));
+        if (uHasVertexNoise == 1)
+        {
+            float3 param_4 = float3(local_1.xy * uVertexFreq, a - (uTime * uVertexSpeed));
+            float nz = fbm3(param_4);
+            float param_5 = vAlong;
+            float _980 = curveF(param_5);
+            local_1 += ((((float3(cos(a), sin(a), 0.0f) * nz) * uVertexAmp) * uRadius) * _980);
+        }
+        worldPos = mul(float4(local_1, 1.0f), modelMatrix).xyz;
+        float3 param_6 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+        float3 param_7 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param_6, param_7);
+    }
+    else
+    {
+        if (uShell == 1)
+        {
+            float along_1 = clamp((1.0f - position.z) * 0.5f, 0.0f, 1.0f);
+            vAlong = along_1;
+            float taper_1 = (along_1 * 2.0f) - 1.0f;
+            float sAxis_1 = length(modelMatrix[2].xyz);
+            float sRad_1 = 0.5f * (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz));
+            float radius = uRadius * sRad_1;
+            float length_ = uLength * sAxis_1;
+            float tailCap = smoothstep(1.0f, 0.949999988079071044921875f, along_1);
+            float r = (radius * (((1.0499999523162841796875f * sqrt(max(0.0f, 1.0f - (taper_1 * taper_1)))) * (1.0f - (along_1 * 0.449999988079071044921875f))) + 0.0599999986588954925537109375f)) * tailCap;
+            float _1072;
+            if (along_1 < 0.5f)
+            {
+                _1072 = along_1 * 0.89999997615814208984375f;
+            }
+            else
+            {
+                _1072 = 0.449999988079071044921875f + ((along_1 - 0.5f) * 1.10000002384185791015625f);
+            }
+            float len_1 = length_ * _1072;
+            float3 head = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+            float3 param_8 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+            float3 param_9 = float3(0.0f, 0.0f, 1.0f);
+            float3 axis = safeDir(param_8, param_9);
+            float3 param_10 = axis;
+            float3 t1 = orthoOf(param_10);
+            float3 t2 = cross(axis, t1);
+            float2 ring = normalize(position.xy + 9.9999997473787516355514526367188e-06f.xx);
+            vRing = (atan2(ring.y, ring.x) * 0.15915493667125701904296875f) + 0.5f;
+            float3 radial = (t1 * ring.x) + (t2 * ring.y);
+            float3 base = (head + (axis * len_1)) + (radial * r);
+            float _1144;
+            if (uHasVertexNoise == 1)
+            {
+                _1144 = uVertexAmp;
+            }
+            else
+            {
+                _1144 = 0.0f;
+            }
+            float amp = _1144;
+            float3 param_11 = float3((ring * uVertexFreq) + float2(along_1 * 3.5f, 0.0f), (along_1 * 4.0f) - (uTime * uVertexSpeed)) + float3(0.0f, 0.0f, along_1 * 3.0f);
+            float nz_1 = fbm3(param_11);
+            float param_12 = along_1;
+            float _1185 = curveF(param_12);
+            float disp = ((((nz_1 * amp) * _1185) * radius) * 2.400000095367431640625f) * tailCap;
+            float3 param_13 = uVertexBias;
+            float3 param_14 = float3(0.0f, 1.0f, 0.0f);
+            float3 bias = safeDir(param_13, param_14);
+            float3 param_15 = float3((ring * (uVertexFreq * 0.36000001430511474609375f)) + float2(along_1 * 1.39999997615814208984375f, 0.0f), (along_1 * 2.2000000476837158203125f) - (uTime * (uVertexSpeed * 0.75f)));
+            float lobe = snoise(param_15);
+            float up = smoothstep(0.20000000298023223876953125f, 0.949999988079071044921875f, ring.y) * smoothstep(0.3499999940395355224609375f, 0.800000011920928955078125f, along_1);
+            vLobe = (max(0.0f, lobe) * up) * step(9.9999997473787516355514526367188e-05f, amp);
+            float lick = ((vLobe * radius) * (amp * 6.19999980926513671875f)) * tailCap;
+            float param_16 = along_1;
+            float param_17 = 2.2999999523162841796875f;
+            worldPos = ((base + (radial * disp)) + (((axis * nz_1) * 0.25f) * along_1)) + (bias * ((((length_ * 0.236000001430511474609375f) * safePow(param_16, param_17)) * (0.60000002384185791015625f + (0.4000000059604644775390625f * nz_1))) + lick));
+            float3 param_18 = radial;
+            float3 param_19 = float3(0.0f, 1.0f, 0.0f);
+            worldNormal = safeDir(param_18, param_19);
+        }
+        else
+        {
+            if (uBillboard == 1)
+            {
+                vAlong = clamp(uv.y, 0.0f, 1.0f);
+                float3 centre_1 = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+                float3 right = float3(viewMatrix[0].x, viewMatrix[1].x, viewMatrix[2].x);
+                float3 up_1 = float3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
+                float2 half2_1 = float2(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz));
+                float c = cos(uRoll);
+                float s_1 = sin(uRoll);
+                float2 q = float2(position.x * half2_1.x, position.y * half2_1.y);
+                q = float2((q.x * c) - (q.y * s_1), (q.x * s_1) + (q.y * c));
+                worldPos = (centre_1 + (right * q.x)) + (up_1 * q.y);
+                float3 param_20 = cross(right, up_1);
+                float3 param_21 = float3(0.0f, 0.0f, 1.0f);
+                worldNormal = safeDir(param_20, param_21);
+            }
+            else
+            {
+                float _1394;
+                if (uUseLocalZ == 1)
+                {
+                    _1394 = clamp((position.z - uZRange.x) / max(uZRange.y - uZRange.x, 9.9999997473787516355514526367188e-05f), 0.0f, 1.0f);
+                }
+                else
+                {
+                    _1394 = clamp(uv.y, 0.0f, 1.0f);
+                }
+                vAlong = _1394;
+                float3 pos = position;
+                if (uHasVertexNoise == 1)
+                {
+                    float3 param_22 = float3(position.xy * uVertexFreq, (position.z * uVertexFreq) - (uTime * uVertexSpeed));
+                    float nz_2 = fbm3(param_22);
+                    float3 param_23 = uVertexBias;
+                    float3 param_24 = normal;
+                    float3 bias_1 = safeDir(param_23, param_24);
+                    float param_25 = vAlong;
+                    float _1464 = curveF(param_25);
+                    pos += (((lerp(normal, bias_1, 0.5f.xxx) * nz_2) * uVertexAmp) * _1464);
+                }
+                worldPos = mul(float4(pos, 1.0f), modelMatrix).xyz;
+                float3 param_26 = mul(float4(normal, 0.0f), modelMatrix).xyz;
+                float3 param_27 = float3(0.0f, 1.0f, 0.0f);
+                worldNormal = safeDir(param_26, param_27);
+            }
+        }
+    }
+    vWp = worldPos;
+    vN = worldNormal;
+    gl_Position = mul(float4(worldPos, 1.0f), mul(viewMatrix, projectionMatrix));
+    if (uChannel >= 0.0f)
+    {
+        gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+    }
+}
+
+SPIRV_Cross_Output avfxVertex(SPIRV_Cross_Input stage_input)
+{
+    uv = stage_input.uv;
+    position = stage_input.position;
+    normal = stage_input.normal;
+    avfxVertexIndex = stage_input.avfxVertexIndex;
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vUv = vUv;
+    stage_output.vLobe = vLobe;
+    stage_output.vRing = vRing;
+    stage_output.vObj = vObj;
+    stage_output.vAlong = vAlong;
+    stage_output.vWp = vWp;
+    stage_output.vN = vN;
+    return stage_output;
+}

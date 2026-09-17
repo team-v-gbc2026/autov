@@ -1,0 +1,1960 @@
+{
+  "format": "avfx-hlsl-kernels/0.1",
+  "coordinateSpace": "right-handed-y-up-metres",
+  "unrealIntegrationVerified": false,
+  "programs": {
+    "particle": {
+      "sourceSha256": "0bd3a903ae9f64f65690d89209826a3c04d923ab6162e9f48f561f380b7fd518",
+      "attributeLayout": {
+        "width": 1024,
+        "fields": [
+          {
+            "name": "aSeed",
+            "type": "vec4",
+            "kind": "attribute",
+            "size": 0
+          },
+          {
+            "name": "aExtra",
+            "type": "vec4",
+            "kind": "attribute",
+            "size": 0
+          },
+          {
+            "name": "aExtra2",
+            "type": "vec4",
+            "kind": "attribute",
+            "size": 0
+          },
+          {
+            "name": "aIndex",
+            "type": "float",
+            "kind": "attribute",
+            "size": 0
+          },
+          {
+            "name": "aSrcPos",
+            "type": "vec3",
+            "kind": "attribute",
+            "size": 0
+          },
+          {
+            "name": "aSrcDir",
+            "type": "vec3",
+            "kind": "attribute",
+            "size": 0
+          },
+          {
+            "name": "aEvent",
+            "type": "vec4",
+            "kind": "attribute",
+            "size": 0
+          }
+        ],
+        "pixel": "row * fields.length + fieldIndex; xy = (pixel % 1024, floor(pixel / 1024))"
+      },
+      "vertex": {
+        "file": "particle.vert.usf",
+        "entry": "avfxVertex"
+      },
+      "fragment": {
+        "file": "particle.frag.usf",
+        "entry": "avfxFragment"
+      },
+      "uniforms": [
+        {
+          "name": "uTime",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStretch",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAtlasTiles",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMotionBlur",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlipFps",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpan",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uTwinkleFreq",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uTwinkleDepth",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRenderMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasAlphaSpawn",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAtlasCols",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAtlasRows",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlipMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAnchorHead",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSize",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRot",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRotInit",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEPathType",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEPathA",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEPathB",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEPathC",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEPathD",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEPathW",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveA",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveAN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveAEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveB",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveBN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveBEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveD",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveDN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveDEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveE",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveEN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveEEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveH",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveHN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveHEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveT",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveTN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveTEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPeriod",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpawnWindow",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpawnDuration",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShapeLength",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShapeRadius",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShapeInner",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShapeAngle",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDrag",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurl",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurlFreq",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurlSpeed",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFloorY",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFloorSoft",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAngle",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPlanarDrag",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVortexW",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVortexFalloff",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpawnMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShapeType",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVelMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasFloor",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSurfaceOnly",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpeedN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBurstN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAxis",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDir",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uGravity",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uWind",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBias",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShapeSize",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVortexAxis",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uLife",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpeed",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSpeedKey",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uBurstT",
+          "type": "float",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uBurstC",
+          "type": "float",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uInterior",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAngleJitter",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAngleBias",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontC",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontEx",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontEy",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontN",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontR",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontPh0",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontSweep",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontSpan",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrontStart",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMask",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNoise",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasMask",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasNoise",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uUseErosion",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBlendMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uProcedural",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDistort",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uErodeSoft",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEdgeW",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEdgeI",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uOpacity",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMaskRot",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRampKeyMode",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uGroundY",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHeightSpan",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlicker",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRampBlendMode",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRampBlendWeight",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNoiseScale",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNoisePan",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMaskScale",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMaskPan",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDistortPan",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEdgeCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRamp",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 6
+        },
+        {
+          "name": "uRampT",
+          "type": "float",
+          "kind": "uniform",
+          "size": 6
+        },
+        {
+          "name": "uRampN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveC",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveCN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveCEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "tDepth",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uResolution",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNear",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFar",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSoft",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uProcParams",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStripeA",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 3
+        },
+        {
+          "name": "uStripeB",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 3
+        },
+        {
+          "name": "uStripeN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymFill",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymOutline",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHigh",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymInk",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHot",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHotI",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHotA",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenPitch",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenOn",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenWorld",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeLit",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeCard",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeAmbient",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeRight",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeUp",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeForward",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeLights",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 8
+        }
+      ],
+      "vertexInputs": {
+        "POSITION": "float3 source local position",
+        "NORMAL": "float3 source local normal",
+        "TEXCOORD0": "float2 uv",
+        "TEXCOORD1": "float compact attribute row from baseGeometry.attributeIndex"
+      },
+      "arrays": "Numeric arrays occupy float4 elements. Do not upload packed scalar/float2/float3 arrays.",
+      "matrices": "row_major HLSL; construct mathematical matrices, not unchecked memcpy of Three column-major arrays.",
+      "frontFace": "Default preserves source facing. Set AVFX_INVERT_FRONT_FACE only after measuring coordinate/winding conversion.",
+      "requiredSystemBindings": [
+        "modelMatrix",
+        "viewMatrix",
+        "projectionMatrix",
+        "modelViewMatrix",
+        "normalMatrix",
+        "cameraPosition",
+        "avfxAttributes",
+        "sampleravfxAttributes"
+      ]
+    },
+    "surface": {
+      "sourceSha256": "9dda3343b0e699e96809edb49f0228f39dc9a720d8f8c5f8c15abb34e3a4565c",
+      "attributeLayout": {
+        "width": 1024,
+        "fields": [],
+        "pixel": "row * fields.length + fieldIndex; xy = (pixel % 1024, floor(pixel / 1024))"
+      },
+      "vertex": {
+        "file": "surface.vert.usf",
+        "entry": "avfxVertex"
+      },
+      "fragment": {
+        "file": "surface.frag.usf",
+        "entry": "avfxFragment"
+      },
+      "uniforms": [
+        {
+          "name": "uTime",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uLength",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRadius",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uThickness",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uArc",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVertexAmp",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVertexFreq",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVertexSpeed",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDisplaceShift",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRoll",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uChannel",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSplitOffset",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSplitGrowth",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uLayerU",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uShell",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasVertexNoise",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBillboard",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRibbon",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uUseLocalZ",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSlab",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSlabBase",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSlabTaper",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrameV",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrameMargin",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uZRange",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uVertexBias",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveF",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveFN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveFEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uOpacity",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uErodeSoft",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEdgeW",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEdgeI",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uProtect",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRimBias",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFresnelPower",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFresnelStrength",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDistort",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRampKeyMode",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMaskRot",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uGroundY",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHeightSpan",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRampBlendMode",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRampBlendWeight",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasMask",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasNoise",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uUseErosion",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBlendMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uProcedural",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasFresnel",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBolt",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNoiseScale",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNoisePan",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMaskScale",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMaskPan",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDistortPan",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uEdgeCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCam",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uMask",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNoise",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasLattice",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasReveal",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRevealMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasPlaneGlow",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uHasDissolve",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRippleN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBand",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uLatEdge",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uLatGap",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPulseSpeed",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPhaseJitter",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uGrazeFade",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDisStart",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDisStagger",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uDisSoft",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRevealFrom",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRevealTo",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRevealWidth",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPlaneDist",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPlaneI",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBandStripes",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uTileCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uLatEdgeCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uPlaneCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRipple",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uSlabN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSlabTier",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uFlicker",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uReflect",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uReflectTint",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uReflectOpacity",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uReflectBlur",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStreakOn",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStreakRadiate",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCreaseOn",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStreakA",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStreakB",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStreakCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCrease",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymbolSeed",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlipMode",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAtlasCols",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uAtlasRows",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlipFps",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uRamp",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 6
+        },
+        {
+          "name": "uRampT",
+          "type": "float",
+          "kind": "uniform",
+          "size": 6
+        },
+        {
+          "name": "uRampN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveC",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uCurveCN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCurveCEase",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uProcParams",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uStripeA",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 3
+        },
+        {
+          "name": "uStripeB",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 3
+        },
+        {
+          "name": "uStripeN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymFill",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymOutline",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHigh",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymInk",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHot",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHotI",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSymHotA",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenPitch",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenOn",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenWorld",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uScreenCol",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFrame",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSdfN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uBeadOn",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCorner",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSdfCore",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSdfSpine",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSdfInnerOff",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSdfInnerW",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSdfHalo",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 3
+        },
+        {
+          "name": "uBeads",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlowOn",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlowN",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFlowLayer",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "uFlowCut",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSwirlOn",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSwirlBands",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSwirlDetail",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSwirlLobe",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSwirlS",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSites",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCells",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uCellA",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeLit",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeCard",
+          "type": "int",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeAmbient",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeRight",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeUp",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeForward",
+          "type": "vec3",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSmokeLights",
+          "type": "vec4",
+          "kind": "uniform",
+          "size": 8
+        },
+        {
+          "name": "tDepth",
+          "type": "sampler2D",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uResolution",
+          "type": "vec2",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uNear",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uFar",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        },
+        {
+          "name": "uSoft",
+          "type": "float",
+          "kind": "uniform",
+          "size": 0
+        }
+      ],
+      "vertexInputs": {
+        "POSITION": "float3 source local position",
+        "NORMAL": "float3 source local normal",
+        "TEXCOORD0": "float2 uv",
+        "TEXCOORD1": "float compact attribute row from baseGeometry.attributeIndex"
+      },
+      "arrays": "Numeric arrays occupy float4 elements. Do not upload packed scalar/float2/float3 arrays.",
+      "matrices": "row_major HLSL; construct mathematical matrices, not unchecked memcpy of Three column-major arrays.",
+      "frontFace": "Default preserves source facing. Set AVFX_INVERT_FRONT_FACE only after measuring coordinate/winding conversion.",
+      "requiredSystemBindings": [
+        "modelMatrix",
+        "viewMatrix",
+        "projectionMatrix",
+        "modelViewMatrix",
+        "normalMatrix",
+        "cameraPosition",
+        "avfxAttributes",
+        "sampleravfxAttributes"
+      ]
+    }
+  }
+}

@@ -96,3 +96,11 @@ Initial tsc reported only missing generated Next LayoutProps; run Next typegen b
 - Independent OpenEXR 3.4.15 + NumPy 2.0.2 decoder in an isolated temp venv verified every RGBA float32 bit for all 111 + 8 generated float textures. Preparation needs only the standard library; decoder libraries are verification-only.
 - Added UE Editor Python import draft: new-folder-only staging, source checksums, float32/linear/no-mip/nearest data texture settings, and explicit runtime-missing report. Syntax validated; UE APIs/imported precision/runtime are NOT verified because UE is not installed on this Mac.
 - This is asset-ingestion progress, not completion of Unreal VFX reproduction. Shader port, actual UE import/render checks, and playable demo remain.
+
+## 2026-09-17 — Independent particle/surface HLSL
+
+- Extracted two-case HLSL programs from the existing generated kernels, removing Unity ShaderLab wrappers and exposing front-face inversion as an explicit define rather than silently reusing Unity's setting.
+- Added a kernel manifest with source SHA, entry points, uniform types, compact attribute field order, vertex semantics and array/matrix conventions.
+- Built official Khronos glslang 16.5.0 (`a8d28bd082bff18ffbe80996e922b012f915cf07`) with HLSL enabled in /private/tmp. Standalone compilation found `float2 half2` (GLSL local colliding with an HLSL type); extraction renames the local without changing arithmetic. Unity shaders were not changed.
+- Both vertex stages and fragment stages with face inversion 0/1 pass independent HLSL-to-SPIR-V compilation (6 configurations). The repeatable verifier checks source SHA and compiler exit/output.
+- No UE shader registration, mesh render path, player or UE render validation is claimed. These remain required integration work; the source/shader/data contracts are now explicit inputs for that work.

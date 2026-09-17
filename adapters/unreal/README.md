@@ -47,3 +47,21 @@ Choose new destination folders; existing Content/source-staging folders are pres
 Continue with the main [Windows handoff](../../docs/engine-export/WINDOWS-UE58-HANDOFF.ja.md): implement the particle and surface shaders and AVFX player, verify coordinates/blending/depth/color, compare the 3 reference angles, then create a launchable UE demo. Exported base mesh positions alone do not contain the final shader-deformed effect.
 
 Official API references used for this draft: [texture factory](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/TextureFactory), [float32 compression setting](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/TextureCompressionSettings), [asset import task](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/AssetImportTask?application_version=5.7). Consult the installed 5.8 API when validating the editor script.
+
+## Standalone HLSL kernels
+
+`Shaders/particle.vert.usf`, `particle.frag.usf`, `surface.vert.usf`, and `surface.frag.usf` contain the source shader arithmetic without Unity ShaderLab wrappers. `Shaders/kernels.json` records input semantics, uniform types, compact-attribute field order, matrix/array conventions, and source SHA256.
+
+These are **independent shader entry points**, not a finished Unreal Material or a snippet that can be pasted into a Material Custom node. Unreal still needs its shader registration/parameter bindings, mesh/render path, sampler setup, blend/depth/cull state, source-to-engine coordinate conversion, player and color-output integration. Do not bind the source matrices with an unchecked memory copy or assume the automatic bindings from a standalone compiler are Unreal bindings.
+
+`AVFX_INVERT_FRONT_FACE` defaults to 0 (source facing). Unity's unconditional face inversion was deliberately made configurable; determine UE's setting from the actual coordinate and winding conversion. Numeric arrays use float4 rows, as listed in the manifest. Vertex TEXCOORD1 carries the compact attribute row, not vertex ID.
+
+Regenerate/check from `frontend`:
+
+```sh
+node --import tsx scripts/engine-export/extract-unreal-kernels.mjs
+# Set AVFX_HLSL_VALIDATOR to the local glslang executable, then:
+node scripts/engine-export/verify-unreal-kernels.mjs
+```
+
+Verification performed with [Khronos glslang](https://github.com/KhronosGroup/glslang) 16.5.0, commit `a8d28bd082bff18ffbe80996e922b012f915cf07`, built with HLSL enabled. Both vertex programs and both fragment programs with face inversion 0/1 compiled: **6 configurations**. This exposed a source local named `half2` colliding with an HLSL type name; the standalone extraction now renames it. Compile verification is not a UE shader compilation or render test. The generated report stays in `.autov-local/unreal-hlsl-check/report.json`.

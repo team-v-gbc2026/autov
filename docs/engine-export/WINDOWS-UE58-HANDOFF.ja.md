@@ -115,6 +115,10 @@ package.jsonの`dev:local`はPOSIX環境変数構文なので、そのままWind
 
 `adapters/`は編集元、`frontend/public/engine-export/Unity`と`Godot`はブラウザーがbundleへコピーする配布用です。既存adapterを修正したら双方を同期します。過去に開発した`engine-export/binary.ts`は現exportの主経路ではありません。存在するだけでGLB/Unreal対応済みと判断しないでください。
 
+## HLSL kernel supplement (2026-09-17)
+
+`adapters/unreal/Shaders/` now contains standalone particle/surface vertex and fragment HLSL plus `kernels.json` binding metadata. All 6 stage/front-face configurations compiled with independent glslang 16.5.0. This is NOT Unreal shader registration, a Material Custom node, a player, or UE render verification. See `adapters/unreal/README.md` before integrating it.
+
 ## 6. bundleの契約と落とし穴
 
 `format`は`avfx/0.1`。開発中のschemaです。古い試作bundleと新adapterを混ぜないでください。
