@@ -29,5 +29,5 @@ for(const file of await readdir('scripts/engine-export/unity')) if(file.endsWith
 const launcher=path.join(root,'Unity - Presentation.command');
 await writeFile(launcher,'#!/bin/zsh\nset -e\ncd -- "$(dirname -- "$0")"\nopen "$PWD/AutoV Unity.app"\n');
 await chmod(launcher,0o755);
-await writeFile(path.join(root,'README.txt'),`autoV · Fire Projectile / Shield\n\nUnity: Unity - Presentation.command (built application)\nGodot: Godot - fire-projectile.command / Godot - shield.command\n\nDrag = orbit, scroll = zoom, Space = pause. Unity has two effect buttons.\nKeep this folder together.\n\nBuild with Unity Editor -batchmode -projectPath "${project}" -executeMethod AvfxValidation.RunPresentation -quit, then -executeMethod AvfxPresentation.Build.\n`);
+await writeFile(path.join(root,'README.txt'),`autoV · Fire Projectile / Shield\n\nUnity: Unity - Presentation.command (built application)\nGodot: Godot - fire-projectile.command / Godot - shield.command\n\nUnity: 1 = Fire Projectile, 2 = Shield, arrows = orbit, 0 = reset, Space = pause. Godot: drag = orbit, scroll = zoom, Space = pause.\nKeep this folder together.\n\nBuild with Unity Editor -batchmode -projectPath "${project}" -executeMethod AvfxValidation.RunPresentation -quit, then -executeMethod AvfxPresentation.Build.\n`);
 console.log(root);

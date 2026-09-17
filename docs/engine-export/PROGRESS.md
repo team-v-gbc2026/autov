@@ -78,3 +78,13 @@ Initial tsc reported only missing generated Next LayoutProps; run Next typegen b
 - User requested a self-contained Windows / UE 5.8 handoff. Added WINDOWS-UE58-HANDOFF.ja.md, with exact repo/branch, data contracts, Windows setup, two-case shader scope, honest Unreal-unimplemented status, measured evidence, and completion criteria. Local transfer archive includes the two export zips and native engine captures.
 - Fixed Unity shader URL/generator output case (`Unity`) to match tracked paths on case-sensitive servers.
 - Remaining: finish presentation controls/relaunch validation, product Studio Export UI verification, and Unreal importer (Windows handoff prepared; no UE runtime available on this Mac).
+
+
+## 2026-09-17 — Standalone controls and Studio export integration
+
+- Published handoff/presentation checkpoint as `bcb7f04502ceb967cfea8c86f7cebe612da638f3`; no PR or merge.
+- Increased presentation control size, added 1/2 scene selection, arrow-key orbit, 0 reset, and enabled background playback. Built the standalone app again and relaunched it; both Fire Projectile and Shield rendered. Key 2 selected scene 1 in Player.log; key 1 returned to Fire Projectile; Space pause inspected. Native mouse automation over IMGUI buttons did not trigger selection, so mouse activation is not claimed verified.
+- Started Next locally. Turbopack failed while spawning its Node CSS worker despite a PATH correction; the supported `--webpack` switch successfully launched the same code. No application source change for this environment issue.
+- Mounted the production Studio component via existing `/dev/vfx-studio-v2?fixture=...` routes. Clicked Export 3D, selected 15 Hz, exported Fire Projectile (8 draws) and Shield (7 draws); both completed in the actual dialog. This verifies UI integration, not authentication/project persistence.
+- Geometry/data tests: 5 passed; TypeScript noEmit passed before these C#-only control changes. Unity standalone final build completed successfully.
+- Unreal importer remains unimplemented. The Windows handoff is available locally as a 9.1 MB archive with coherent export zips, reference/native captures, comparison metrics and SHA256 checksums.
