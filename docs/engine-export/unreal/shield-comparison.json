@@ -1,0 +1,34 @@
+{
+  "engine": "unreal",
+  "reference": "C:\\Users\\taiki\\dev\\hks\\AutoV-Handoff\\shield",
+  "candidate": "C:\\Users\\taiki\\dev\\hks\\autov-ue58\\.engine-validation\\unreal\\iteration-2\\shield",
+  "units": "absolute RGB byte error (0–255)",
+  "foreground": "union of pixels with max(R,G,B)>35",
+  "differencePreview": "absolute difference ×4, clamped",
+  "views": [
+    {
+      "angle": 0,
+      "width": 640,
+      "height": 360,
+      "wholeImageMAE": 0.06224392361111111,
+      "foregroundUnionMAE": 0.23697386360339975,
+      "foregroundPixels": 57455
+    },
+    {
+      "angle": 90,
+      "width": 640,
+      "height": 360,
+      "wholeImageMAE": 0.061535011574074074,
+      "foregroundUnionMAE": 0.2408739913988528,
+      "foregroundPixels": 55729
+    },
+    {
+      "angle": 180,
+      "width": 640,
+      "height": 360,
+      "wholeImageMAE": 0.05736834490740741,
+      "foregroundUnionMAE": 0.2289348857266063,
+      "foregroundPixels": 54110
+    }
+  ]
+}

@@ -499,8 +499,8 @@ void vert_main()
     float3 worldNormal;
     if (uFrameV == 1)
     {
-        float2 half2 = float2(uRadius + uFrameMargin, (uLength * 0.5f) + uFrameMargin);
-        float3 local = float3(position.xy * half2, 0.0f);
+        float2 avfxHalfExtent = float2(uRadius + uFrameMargin, (uLength * 0.5f) + uFrameMargin);
+        float3 local = float3(position.xy * avfxHalfExtent, 0.0f);
         vObj = local;
         vAlong = clamp(uv.y, 0.0f, 1.0f);
         worldPos = mul(float4(local, 1.0f), modelMatrix).xyz;

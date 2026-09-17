@@ -19,7 +19,8 @@ for(const name of ['particle','surface']) {
   let [vs,ps]=unity.split('#if defined(SHADER_STAGE_VERTEX)\n')[1].split('\n#else\n');
   ps=ps.split('\n#endif')[0];
   for(const [stage,body] of [['VS',vs],['PS',ps]]) {
-    let code=body;
+    // UE Platform.ush aliases half2 to float2; SPIRV-Cross used half2 as a local name.
+    let code=body.replace(/\bhalf2\b/g,'avfxHalfExtent');
     let prefix='#include "/Engine/Public/Platform.ush"\nfloat4 AvfxUniforms[512];\n';
     for(const b of layout) {
       const htype=b.type==='mat4'?'float4x4':b.type==='mat3'?'float3x3':b.type.replace('vec','float');

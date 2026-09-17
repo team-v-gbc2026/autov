@@ -27,8 +27,8 @@ public: \
         SetShaderValueArray(P,Uniforms,U.GetData(),U.Num()); \
         auto Tex=[&](const TCHAR* N) { const FString* Path=Draw.Textures.Find(N); return Scene.Textures.FindChecked(Path?*Path:TEXT("__white")).RHI; }; \
         auto Point=TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI(); \
-        auto Linear=TStaticSamplerState<SF_Bilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI(); \
-        auto Repeat=TStaticSamplerState<SF_Bilinear,AM_Wrap,AM_Wrap,AM_Wrap>::GetRHI(); \
+        auto Linear=TStaticSamplerState<SF_Trilinear,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI(); \
+        auto Repeat=TStaticSamplerState<SF_Trilinear,AM_Wrap,AM_Wrap,AM_Wrap>::GetRHI(); \
         SetTextureParameter(P,Attributes,AttributesSampler,Point,Scene.Textures.FindChecked(FString::Printf(TEXT("attributes/%s-%d.bin"),*Draw.Id,Geometry)).RHI); \
         SetTextureParameter(P,Mask,MaskSampler,Linear,Tex(TEXT("uMask"))); SetTextureParameter(P,Noise,NoiseSampler,Repeat,Tex(TEXT("uNoise"))); \
         SetTextureParameter(P,Sites,SitesSampler,Point,Tex(TEXT("uSites"))); SetTextureParameter(P,Depth,DepthSampler,Point,Scene.Textures.FindChecked(TEXT("__white")).RHI); \
@@ -76,9 +76,21 @@ void FAutoVScene::Init(FRHICommandListImmediate& R) {
     }
     for(auto& Pair:Textures) {
         auto& T=Pair.Value;
-        auto Desc=FRHITextureCreateDesc::Create2D(TEXT("AutoV texture"),T.Width,T.Height,T.Float?PF_A32B32G32R32F:PF_R8G8B8A8).SetFlags(TexCreate_ShaderResource).SetInitActionInitializer();
-        auto Initializer=R.CreateTextureInitializer(Desc); auto Sub=Initializer.GetTexture2DSubresource(0); int32 Stride=T.Width*(T.Float?16:4);
-        for(int32 Y=0;Y<T.Height;++Y) FMemory::Memcpy(static_cast<uint8*>(Sub.Data)+Y*Sub.Stride,T.Bytes.GetData()+Y*Stride,Stride);
+        int32 MipCount=T.Float?1:FMath::FloorLog2(FMath::Max(T.Width,T.Height))+1;
+        auto Desc=FRHITextureCreateDesc::Create2D(TEXT("AutoV texture"),T.Width,T.Height,T.Float?PF_A32B32G32R32F:PF_R8G8B8A8).SetFlags(TexCreate_ShaderResource).SetNumMips(MipCount).SetInitActionInitializer();
+        auto Initializer=R.CreateTextureInitializer(Desc); TArray<uint8> Mip=T.Bytes; int32 W=T.Width,H=T.Height;
+        for(int32 Level=0;Level<MipCount;++Level) {
+            auto Sub=Initializer.GetTexture2DSubresource(Level); int32 Stride=W*(T.Float?16:4);
+            for(int32 Y=0;Y<H;++Y) FMemory::Memcpy(static_cast<uint8*>(Sub.Data)+Y*Sub.Stride,Mip.GetData()+Y*Stride,Stride);
+            if(Level+1<MipCount) {
+                int32 NW=FMath::Max(1,W/2),NH=FMath::Max(1,H/2); TArray<uint8> Next; Next.SetNumUninitialized(NW*NH*4);
+                for(int32 Y=0;Y<NH;++Y) for(int32 X=0;X<NW;++X) for(int32 C=0;C<4;++C) {
+                    int Sum=0; for(int DY=0;DY<2;++DY) for(int DX=0;DX<2;++DX) Sum+=Mip[(FMath::Min(H-1,Y*2+DY)*W+FMath::Min(W-1,X*2+DX))*4+C];
+                    Next[(Y*NW+X)*4+C]=(Sum+2)/4;
+                }
+                Mip=MoveTemp(Next); W=NW; H=NH;
+            }
+        }
         T.RHI=Initializer.Finalize();
     }
     LinearTarget=R.CreateTexture(FRHITextureCreateDesc::Create2D(TEXT("AutoV linear HDR"),640,360,PF_FloatRGBA).SetFlags(TexCreate_RenderTargetable|TexCreate_ShaderResource).SetClearValue(FClearValueBinding(Background)).SetInitialState(ERHIAccess::SRVMask));
