@@ -1,0 +1,2788 @@
+Shader "autoV/Native/surface" { Properties { uMask ("uMask", 2D) = "white" {} uNoise ("uNoise", 2D) = "white" {} uSites ("uSites", 2D) = "white" {} tDepth ("tDepth", 2D) = "white" {} avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend]
+HLSLPROGRAM
+#pragma target 4.5
+#pragma vertex avfxVertex
+#pragma fragment avfxFragment
+#if defined(SHADER_STAGE_VERTEX)
+
+    row_major float4x4 modelMatrix;
+    row_major float4x4 viewMatrix;
+    row_major float4x4 projectionMatrix;
+    row_major float4x4 modelViewMatrix;
+    row_major float3x3 normalMatrix;
+    float3 cameraPosition;
+    float uTime;
+    float uLength;
+    float uRadius;
+    float uThickness;
+    float uArc;
+    float uVertexAmp;
+    float uVertexFreq;
+    float uVertexSpeed;
+    float uDisplaceShift;
+    float uRoll;
+    float uChannel;
+    float uSplitOffset;
+    float uSplitGrowth;
+    float uLayerU;
+    int uShell;
+    int uHasVertexNoise;
+    int uBillboard;
+    int uRibbon;
+    int uUseLocalZ;
+    int uSlab;
+    int uSlabBase;
+    float uSlabTaper;
+    int uFrameV;
+    float uFrameMargin;
+    float2 uZRange;
+    float3 uVertexBias;
+    float4 uCurveF[8];
+    int uCurveFN;
+    float uCurveFEase;
+    float uOpacity;
+    float uErodeSoft;
+    float uEdgeW;
+    float uEdgeI;
+    float uProtect;
+    float uRimBias;
+    float uFresnelPower;
+    float uFresnelStrength;
+    float uDistort;
+    float uRampKeyMode;
+    float uMaskRot;
+    float uGroundY;
+    float uHeightSpan;
+    float uRampBlendMode;
+    float uRampBlendWeight;
+    int uHasMask;
+    int uHasNoise;
+    int uUseErosion;
+    int uBlendMode;
+    int uProcedural;
+    int uHasFresnel;
+    int uBolt;
+    float2 uNoiseScale;
+    float2 uNoisePan;
+    float2 uMaskScale;
+    float2 uMaskPan;
+    float2 uDistortPan;
+    float3 uEdgeCol;
+    float3 uCam;
+    int uHasLattice;
+    int uHasReveal;
+    int uRevealMode;
+    int uHasPlaneGlow;
+    int uHasDissolve;
+    int uRippleN;
+    int uBand;
+    float uLatEdge;
+    float uLatGap;
+    float uPulseSpeed;
+    float uPhaseJitter;
+    float uGrazeFade;
+    float uDisStart;
+    float uDisStagger;
+    float uDisSoft;
+    float uRevealFrom;
+    float uRevealTo;
+    float uRevealWidth;
+    float uPlaneDist;
+    float uPlaneI;
+    float uBandStripes;
+    float3 uTileCol;
+    float3 uLatEdgeCol;
+    float3 uPlaneCol;
+    float4 uRipple[8];
+    int uSlabN;
+    float4 uSlabTier[8];
+    float uFlicker;
+    int uReflect;
+    float3 uReflectTint;
+    float uReflectOpacity;
+    float uReflectBlur;
+    int uStreakOn;
+    int uStreakRadiate;
+    int uCreaseOn;
+    float4 uStreakA;
+    float4 uStreakB;
+    float3 uStreakCol;
+    float3 uCrease;
+    float uSymbolSeed;
+    int uFlipMode;
+    int uAtlasCols;
+    int uAtlasRows;
+    float uFlipFps;
+    float4 uRamp[6];
+    float4 uRampT[6];
+    int uRampN;
+    float4 uCurveC[8];
+    int uCurveCN;
+    float uCurveCEase;
+    float4 uProcParams;
+    float4 uStripeA[3];
+    float4 uStripeB[3];
+    int uStripeN;
+    float3 uSymFill;
+    float3 uSymOutline;
+    float3 uSymHigh;
+    float3 uSymInk;
+    float3 uSymHot;
+    float uSymHotI;
+    float uSymHotA;
+    float uScreenPitch;
+    float uScreenOn;
+    float uScreenWorld;
+    float3 uScreenCol;
+    int uFrame;
+    int uSdfN;
+    int uBeadOn;
+    float uCorner;
+    float uSdfCore;
+    float uSdfSpine;
+    float uSdfInnerOff;
+    float uSdfInnerW;
+    float4 uSdfHalo[3];
+    float3 uBeads;
+    int uFlowOn;
+    int uFlowN;
+    float4 uFlowLayer[8];
+    float3 uFlowCut;
+    int uSwirlOn;
+    float4 uSwirlBands;
+    float4 uSwirlDetail;
+    float3 uSwirlLobe;
+    float uSwirlS;
+    float uCells;
+    float uCellA;
+    int uSmokeLit;
+    int uSmokeCard;
+    float uSmokeAmbient;
+    float3 uSmokeRight;
+    float3 uSmokeUp;
+    float3 uSmokeForward;
+    float4 uSmokeLights[8];
+    float2 uResolution;
+    float uNear;
+    float uFar;
+    float uSoft;
+
+
+Texture2D<float4> uMask;
+SamplerState sampleruMask;
+Texture2D<float4> uNoise;
+SamplerState sampleruNoise;
+Texture2D<float4> uSites;
+SamplerState sampleruSites;
+Texture2D<float4> tDepth;
+SamplerState samplertDepth;
+Texture2D<float4> avfxAttributes;
+SamplerState sampleravfxAttributes;
+
+static float4 gl_Position;
+static float2 vUv;
+static float2 uv;
+static float vLobe;
+static float vRing;
+static float3 vObj;
+static float3 position;
+static float vAlong;
+static float3 vWp;
+static float3 vN;
+static float3 normal;
+static float avfxVertexIndex;
+
+struct SPIRV_Cross_Input {
+    float3 position : POSITION;
+    float3 normal : NORMAL;
+    float2 uv : TEXCOORD0;
+    float avfxVertexIndex : TEXCOORD1;
+};
+
+struct SPIRV_Cross_Output
+{
+    float3 vN : TEXCOORD0;
+    float3 vWp : TEXCOORD1;
+    float3 vObj : TEXCOORD2;
+    float vAlong : TEXCOORD3;
+    float vLobe : TEXCOORD4;
+    float vRing : TEXCOORD5;
+    float2 vUv : TEXCOORD6;
+    float4 gl_Position : SV_Position;
+};
+
+float3 safeDir(float3 v, float3 fallback)
+{
+    float l = length(v);
+    float3 _452;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _452 = v / l.xxx;
+    }
+    else
+    {
+        _452 = fallback;
+    }
+    return _452;
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+float curveF(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    float v = uCurveF[0].xy.y;
+    for (int i = 1; i < 8; i++)
+    {
+        if (i >= uCurveFN)
+        {
+            break;
+        }
+        float a = uCurveF[i - 1].xy.x;
+        float b = uCurveF[i].xy.x;
+        float f = clamp((u - a) / max(b - a, 9.9999997473787516355514526367188e-06f), 0.0f, 1.0f);
+        f = lerp(f, (f * f) * (3.0f - (2.0f * f)), uCurveFEase);
+        v = lerp(v, uCurveF[i].xy.y, step(a, u) * f);
+    }
+    return v;
+}
+
+float3 orthoOf(float3 a)
+{
+    float3 _568;
+    if (abs(a.y) < 0.89999997615814208984375f)
+    {
+        _568 = cross(a, float3(0.0f, 1.0f, 0.0f));
+    }
+    else
+    {
+        _568 = cross(a, float3(1.0f, 0.0f, 0.0f));
+    }
+    float3 param = _568;
+    float3 param_1 = float3(1.0f, 0.0f, 0.0f);
+    return safeDir(param, param_1);
+}
+
+void vert_main()
+{
+    vUv = uv;
+    vLobe = 0.0f;
+    vRing = uv.x;
+    vObj = position;
+    float3 worldPos;
+    float3 worldNormal;
+    if (uFrameV == 1)
+    {
+        float2 half2 = float2(uRadius + uFrameMargin, (uLength * 0.5f) + uFrameMargin);
+        float3 local = float3(position.xy * half2, 0.0f);
+        vObj = local;
+        vAlong = clamp(uv.y, 0.0f, 1.0f);
+        worldPos = mul(float4(local, 1.0f), modelMatrix).xyz;
+        float3 param = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+        float3 param_1 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param, param_1);
+        vWp = worldPos;
+        vN = worldNormal;
+        gl_Position = mul(float4(worldPos, 1.0f), mul(viewMatrix, projectionMatrix));
+        if (uChannel >= 0.0f)
+        {
+            gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (uSlab == 1)
+    {
+        float s = (position.x * 0.5f) + 0.5f;
+        vAlong = s;
+        vRing = (position.y * 0.5f) + 0.5f;
+        vUv = float2(s, (position.y * 0.5f) + 0.5f);
+        float3 centre = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+        float4 mv = mul(float4(centre, 1.0f), viewMatrix);
+        float3 axisV = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), mul(modelMatrix, viewMatrix)).xyz;
+        float2 _758;
+        if (length(axisV.xy) > 9.9999997473787516355514526367188e-06f)
+        {
+            _758 = normalize(axisV.xy);
+        }
+        else
+        {
+            _758 = float2(1.0f, 0.0f);
+        }
+        float2 along = _758;
+        float2 across = float2(-along.y, along.x);
+        float sAxis = length(modelMatrix[2].xyz);
+        float sRad = 0.5f * (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz));
+        float len = uLength * sAxis;
+        float half_ = ((uThickness * 0.5f) * sRad) * lerp(1.0f, uSlabTaper, s);
+        float _814;
+        if (uSlabBase == 1)
+        {
+            _814 = s * len;
+        }
+        else
+        {
+            _814 = (s - 0.5f) * len;
+        }
+        float offAlong = _814;
+        float2 _838 = mv.xy + ((along * offAlong) + ((across * position.y) * half_));
+        mv = float4(_838.x, _838.y, mv.z, mv.w);
+        vWp = centre;
+        vN = float3(0.0f, 0.0f, 1.0f);
+        gl_Position = mul(mv, projectionMatrix);
+        if (uChannel >= 0.0f)
+        {
+            gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (uRibbon == 1)
+    {
+        float ua = clamp(position.x, 0.0f, 1.0f);
+        float side = position.y;
+        vAlong = clamp(uv.y, 0.0f, 1.0f);
+        float a = ua * uArc;
+        float param_2 = max(0.0f, sin(3.1415927410125732421875f * ua));
+        float param_3 = 0.60000002384185791015625f;
+        float taper = safePow(param_2, param_3);
+        float w = max(9.9999997473787516355514526367188e-05f, uThickness * taper);
+        float rr = uRadius + (side * w);
+        float3 local_1 = float3(cos(a) * rr, sin(a) * rr, (0.119999997317790985107421875f * uRadius) * sin(a * 2.0f));
+        if (uHasVertexNoise == 1)
+        {
+            float3 param_4 = float3(local_1.xy * uVertexFreq, a - (uTime * uVertexSpeed));
+            float nz = fbm3(param_4);
+            float param_5 = vAlong;
+            float _980 = curveF(param_5);
+            local_1 += ((((float3(cos(a), sin(a), 0.0f) * nz) * uVertexAmp) * uRadius) * _980);
+        }
+        worldPos = mul(float4(local_1, 1.0f), modelMatrix).xyz;
+        float3 param_6 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+        float3 param_7 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param_6, param_7);
+    }
+    else
+    {
+        if (uShell == 1)
+        {
+            float along_1 = clamp((1.0f - position.z) * 0.5f, 0.0f, 1.0f);
+            vAlong = along_1;
+            float taper_1 = (along_1 * 2.0f) - 1.0f;
+            float sAxis_1 = length(modelMatrix[2].xyz);
+            float sRad_1 = 0.5f * (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz));
+            float radius = uRadius * sRad_1;
+            float length_ = uLength * sAxis_1;
+            float tailCap = smoothstep(1.0f, 0.949999988079071044921875f, along_1);
+            float r = (radius * (((1.0499999523162841796875f * sqrt(max(0.0f, 1.0f - (taper_1 * taper_1)))) * (1.0f - (along_1 * 0.449999988079071044921875f))) + 0.0599999986588954925537109375f)) * tailCap;
+            float _1072;
+            if (along_1 < 0.5f)
+            {
+                _1072 = along_1 * 0.89999997615814208984375f;
+            }
+            else
+            {
+                _1072 = 0.449999988079071044921875f + ((along_1 - 0.5f) * 1.10000002384185791015625f);
+            }
+            float len_1 = length_ * _1072;
+            float3 head = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+            float3 param_8 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+            float3 param_9 = float3(0.0f, 0.0f, 1.0f);
+            float3 axis = safeDir(param_8, param_9);
+            float3 param_10 = axis;
+            float3 t1 = orthoOf(param_10);
+            float3 t2 = cross(axis, t1);
+            float2 ring = normalize(position.xy + 9.9999997473787516355514526367188e-06f.xx);
+            vRing = (atan2(ring.y, ring.x) * 0.15915493667125701904296875f) + 0.5f;
+            float3 radial = (t1 * ring.x) + (t2 * ring.y);
+            float3 base = (head + (axis * len_1)) + (radial * r);
+            float _1144;
+            if (uHasVertexNoise == 1)
+            {
+                _1144 = uVertexAmp;
+            }
+            else
+            {
+                _1144 = 0.0f;
+            }
+            float amp = _1144;
+            float3 param_11 = float3((ring * uVertexFreq) + float2(along_1 * 3.5f, 0.0f), (along_1 * 4.0f) - (uTime * uVertexSpeed)) + float3(0.0f, 0.0f, along_1 * 3.0f);
+            float nz_1 = fbm3(param_11);
+            float param_12 = along_1;
+            float _1185 = curveF(param_12);
+            float disp = ((((nz_1 * amp) * _1185) * radius) * 2.400000095367431640625f) * tailCap;
+            float3 param_13 = uVertexBias;
+            float3 param_14 = float3(0.0f, 1.0f, 0.0f);
+            float3 bias = safeDir(param_13, param_14);
+            float3 param_15 = float3((ring * (uVertexFreq * 0.36000001430511474609375f)) + float2(along_1 * 1.39999997615814208984375f, 0.0f), (along_1 * 2.2000000476837158203125f) - (uTime * (uVertexSpeed * 0.75f)));
+            float lobe = snoise(param_15);
+            float up = smoothstep(0.20000000298023223876953125f, 0.949999988079071044921875f, ring.y) * smoothstep(0.3499999940395355224609375f, 0.800000011920928955078125f, along_1);
+            vLobe = (max(0.0f, lobe) * up) * step(9.9999997473787516355514526367188e-05f, amp);
+            float lick = ((vLobe * radius) * (amp * 6.19999980926513671875f)) * tailCap;
+            float param_16 = along_1;
+            float param_17 = 2.2999999523162841796875f;
+            worldPos = ((base + (radial * disp)) + (((axis * nz_1) * 0.25f) * along_1)) + (bias * ((((length_ * 0.236000001430511474609375f) * safePow(param_16, param_17)) * (0.60000002384185791015625f + (0.4000000059604644775390625f * nz_1))) + lick));
+            float3 param_18 = radial;
+            float3 param_19 = float3(0.0f, 1.0f, 0.0f);
+            worldNormal = safeDir(param_18, param_19);
+        }
+        else
+        {
+            if (uBillboard == 1)
+            {
+                vAlong = clamp(uv.y, 0.0f, 1.0f);
+                float3 centre_1 = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+                float3 right = float3(viewMatrix[0].x, viewMatrix[1].x, viewMatrix[2].x);
+                float3 up_1 = float3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
+                float2 half2_1 = float2(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz));
+                float c = cos(uRoll);
+                float s_1 = sin(uRoll);
+                float2 q = float2(position.x * half2_1.x, position.y * half2_1.y);
+                q = float2((q.x * c) - (q.y * s_1), (q.x * s_1) + (q.y * c));
+                worldPos = (centre_1 + (right * q.x)) + (up_1 * q.y);
+                float3 param_20 = cross(right, up_1);
+                float3 param_21 = float3(0.0f, 0.0f, 1.0f);
+                worldNormal = safeDir(param_20, param_21);
+            }
+            else
+            {
+                float _1394;
+                if (uUseLocalZ == 1)
+                {
+                    _1394 = clamp((position.z - uZRange.x) / max(uZRange.y - uZRange.x, 9.9999997473787516355514526367188e-05f), 0.0f, 1.0f);
+                }
+                else
+                {
+                    _1394 = clamp(uv.y, 0.0f, 1.0f);
+                }
+                vAlong = _1394;
+                float3 pos = position;
+                if (uHasVertexNoise == 1)
+                {
+                    float3 param_22 = float3(position.xy * uVertexFreq, (position.z * uVertexFreq) - (uTime * uVertexSpeed));
+                    float nz_2 = fbm3(param_22);
+                    float3 param_23 = uVertexBias;
+                    float3 param_24 = normal;
+                    float3 bias_1 = safeDir(param_23, param_24);
+                    float param_25 = vAlong;
+                    float _1464 = curveF(param_25);
+                    pos += (((lerp(normal, bias_1, 0.5f.xxx) * nz_2) * uVertexAmp) * _1464);
+                }
+                worldPos = mul(float4(pos, 1.0f), modelMatrix).xyz;
+                float3 param_26 = mul(float4(normal, 0.0f), modelMatrix).xyz;
+                float3 param_27 = float3(0.0f, 1.0f, 0.0f);
+                worldNormal = safeDir(param_26, param_27);
+            }
+        }
+    }
+    vWp = worldPos;
+    vN = worldNormal;
+    gl_Position = mul(float4(worldPos, 1.0f), mul(viewMatrix, projectionMatrix));
+    if (uChannel >= 0.0f)
+    {
+        gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+    }
+}
+
+SPIRV_Cross_Output avfxVertex(SPIRV_Cross_Input stage_input)
+{
+    uv = stage_input.uv;
+    position = stage_input.position;
+    normal = stage_input.normal;
+    avfxVertexIndex = stage_input.avfxVertexIndex;
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vUv = vUv;
+    stage_output.vLobe = vLobe;
+    stage_output.vRing = vRing;
+    stage_output.vObj = vObj;
+    stage_output.vAlong = vAlong;
+    stage_output.vWp = vWp;
+    stage_output.vN = vN;
+    return stage_output;
+}
+
+#else
+
+    row_major float4x4 modelMatrix;
+    row_major float4x4 viewMatrix;
+    row_major float4x4 projectionMatrix;
+    row_major float4x4 modelViewMatrix;
+    row_major float3x3 normalMatrix;
+    float3 cameraPosition;
+    float uTime;
+    float uLength;
+    float uRadius;
+    float uThickness;
+    float uArc;
+    float uVertexAmp;
+    float uVertexFreq;
+    float uVertexSpeed;
+    float uDisplaceShift;
+    float uRoll;
+    float uChannel;
+    float uSplitOffset;
+    float uSplitGrowth;
+    float uLayerU;
+    int uShell;
+    int uHasVertexNoise;
+    int uBillboard;
+    int uRibbon;
+    int uUseLocalZ;
+    int uSlab;
+    int uSlabBase;
+    float uSlabTaper;
+    int uFrameV;
+    float uFrameMargin;
+    float2 uZRange;
+    float3 uVertexBias;
+    float4 uCurveF[8];
+    int uCurveFN;
+    float uCurveFEase;
+    float uOpacity;
+    float uErodeSoft;
+    float uEdgeW;
+    float uEdgeI;
+    float uProtect;
+    float uRimBias;
+    float uFresnelPower;
+    float uFresnelStrength;
+    float uDistort;
+    float uRampKeyMode;
+    float uMaskRot;
+    float uGroundY;
+    float uHeightSpan;
+    float uRampBlendMode;
+    float uRampBlendWeight;
+    int uHasMask;
+    int uHasNoise;
+    int uUseErosion;
+    int uBlendMode;
+    int uProcedural;
+    int uHasFresnel;
+    int uBolt;
+    float2 uNoiseScale;
+    float2 uNoisePan;
+    float2 uMaskScale;
+    float2 uMaskPan;
+    float2 uDistortPan;
+    float3 uEdgeCol;
+    float3 uCam;
+    int uHasLattice;
+    int uHasReveal;
+    int uRevealMode;
+    int uHasPlaneGlow;
+    int uHasDissolve;
+    int uRippleN;
+    int uBand;
+    float uLatEdge;
+    float uLatGap;
+    float uPulseSpeed;
+    float uPhaseJitter;
+    float uGrazeFade;
+    float uDisStart;
+    float uDisStagger;
+    float uDisSoft;
+    float uRevealFrom;
+    float uRevealTo;
+    float uRevealWidth;
+    float uPlaneDist;
+    float uPlaneI;
+    float uBandStripes;
+    float3 uTileCol;
+    float3 uLatEdgeCol;
+    float3 uPlaneCol;
+    float4 uRipple[8];
+    int uSlabN;
+    float4 uSlabTier[8];
+    float uFlicker;
+    int uReflect;
+    float3 uReflectTint;
+    float uReflectOpacity;
+    float uReflectBlur;
+    int uStreakOn;
+    int uStreakRadiate;
+    int uCreaseOn;
+    float4 uStreakA;
+    float4 uStreakB;
+    float3 uStreakCol;
+    float3 uCrease;
+    float uSymbolSeed;
+    int uFlipMode;
+    int uAtlasCols;
+    int uAtlasRows;
+    float uFlipFps;
+    float4 uRamp[6];
+    float4 uRampT[6];
+    int uRampN;
+    float4 uCurveC[8];
+    int uCurveCN;
+    float uCurveCEase;
+    float4 uProcParams;
+    float4 uStripeA[3];
+    float4 uStripeB[3];
+    int uStripeN;
+    float3 uSymFill;
+    float3 uSymOutline;
+    float3 uSymHigh;
+    float3 uSymInk;
+    float3 uSymHot;
+    float uSymHotI;
+    float uSymHotA;
+    float uScreenPitch;
+    float uScreenOn;
+    float uScreenWorld;
+    float3 uScreenCol;
+    int uFrame;
+    int uSdfN;
+    int uBeadOn;
+    float uCorner;
+    float uSdfCore;
+    float uSdfSpine;
+    float uSdfInnerOff;
+    float uSdfInnerW;
+    float4 uSdfHalo[3];
+    float3 uBeads;
+    int uFlowOn;
+    int uFlowN;
+    float4 uFlowLayer[8];
+    float3 uFlowCut;
+    int uSwirlOn;
+    float4 uSwirlBands;
+    float4 uSwirlDetail;
+    float3 uSwirlLobe;
+    float uSwirlS;
+    float uCells;
+    float uCellA;
+    int uSmokeLit;
+    int uSmokeCard;
+    float uSmokeAmbient;
+    float3 uSmokeRight;
+    float3 uSmokeUp;
+    float3 uSmokeForward;
+    float4 uSmokeLights[8];
+    float2 uResolution;
+    float uNear;
+    float uFar;
+    float uSoft;
+
+
+Texture2D<float4> uSites;
+SamplerState sampleruSites;
+Texture2D<float4> tDepth;
+SamplerState samplertDepth;
+Texture2D<float4> uNoise;
+SamplerState sampleruNoise;
+Texture2D<float4> uMask;
+SamplerState sampleruMask;
+Texture2D<float4> avfxAttributes;
+SamplerState sampleravfxAttributes;
+
+static float4 gl_FragCoord;
+static bool gl_FrontFacing;
+static float3 vWp;
+static float3 vN;
+static float2 vUv;
+static float3 vObj;
+static float4 avfxColor;
+static float vAlong;
+static float vRing;
+static float vLobe;
+
+struct SPIRV_Cross_Input
+{
+    float3 vN : TEXCOORD0;
+    float3 vWp : TEXCOORD1;
+    float3 vObj : TEXCOORD2;
+    float vAlong : TEXCOORD3;
+    float vLobe : TEXCOORD4;
+    float vRing : TEXCOORD5;
+    float2 vUv : TEXCOORD6;
+    float4 gl_FragCoord : SV_Position;
+    bool gl_FrontFacing : SV_IsFrontFace;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target;
+};
+
+float mod(float x, float y)
+{
+    return x - y * floor(x / y);
+}
+
+float2 mod(float2 x, float2 y)
+{
+    return x - y * floor(x / y);
+}
+
+float3 mod(float3 x, float3 y)
+{
+    return x - y * floor(x / y);
+}
+
+float4 mod(float4 x, float4 y)
+{
+    return x - y * floor(x / y);
+}
+
+float3 safeDir(float3 v, float3 fallback)
+{
+    float l = length(v);
+    float3 _681;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _681 = v / l.xxx;
+    }
+    else
+    {
+        _681 = fallback;
+    }
+    return _681;
+}
+
+float symStar(inout float2 p, float r, float rf, float points)
+{
+    float m = max(points, 3.0f);
+    float an = 3.1415927410125732421875f / m;
+    float en = 3.1415927410125732421875f / lerp(3.0f, m, clamp(rf, 0.0f, 1.0f));
+    float2 acs = float2(cos(an), sin(an));
+    float2 ecs = float2(cos(en), sin(en));
+    float bn = mod(atan2(p.x, p.y), 2.0f * an) - an;
+    p = float2(cos(bn), abs(sin(bn))) * length(p);
+    p -= (acs * r);
+    p += (ecs * clamp(-dot(p, ecs), 0.0f, (r * acs.y) / ecs.y));
+    return length(p) * sign(p.x);
+}
+
+float symC(float2 p, float r)
+{
+    return length(p) - r;
+}
+
+float symE(float2 p, float2 r)
+{
+    return (length(p / r) - 1.0f) * min(r.x, r.y);
+}
+
+float symHeart(inout float2 p)
+{
+    p.x = abs(p.x);
+    if ((p.y + p.x) > 1.0f)
+    {
+        return sqrt(dot(p - float2(0.25f, 0.75f), p - float2(0.25f, 0.75f))) - 0.3535533845424652099609375f;
+    }
+    float2 a = p - float2(0.0f, 1.0f);
+    float2 b = p - (0.5f * max(p.x + p.y, 0.0f)).xx;
+    return sqrt(min(dot(a, a), dot(b, b))) * sign(p.x - p.y);
+}
+
+float procHash21(float2 p)
+{
+    float3 q = frac(float3(p.xyx) * 0.103100001811981201171875f);
+    q += dot(q, q.yzx + 33.3300018310546875f.xxx).xxx;
+    return frac((q.x + q.y) * q.z);
+}
+
+float symSeg(float2 p, float2 a, float2 b)
+{
+    float2 pa = p - a;
+    float2 ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0f, 1.0f);
+    return length(pa - (ba * h));
+}
+
+void symbolShape(float2 p, float sd, int mode, inout float body, inout float ring, inout float ink, inout float high, inout float hot)
+{
+    float aa = (fwidth(p.x) * 1.39999997615814208984375f) + 0.0040000001899898052215576171875f;
+    float ow = max(uProcParams.x, 0.0f);
+    float d = 1000.0f;
+    float dInk = 1000.0f;
+    float dHot = 1000.0f;
+    float dHigh = 1000.0f;
+    if (mode == 21)
+    {
+        float2 param = p;
+        float param_1 = 0.699999988079071044921875f;
+        float param_2 = clamp(uProcParams.y, 0.100000001490116119384765625f, 0.89999997615814208984375f);
+        float param_3 = max(uProcParams.x, 3.0f);
+        float _2765 = symStar(param, param_1, param_2, param_3);
+        d = _2765;
+        float2 param_4 = p;
+        float param_5 = 0.699999988079071044921875f * clamp(uProcParams.w, 0.0500000007450580596923828125f, 1.0f);
+        float param_6 = clamp(uProcParams.y, 0.100000001490116119384765625f, 0.89999997615814208984375f);
+        float param_7 = max(uProcParams.x, 3.0f);
+        float _2781 = symStar(param_4, param_5, param_6, param_7);
+        dHot = _2781;
+        ow = max(uProcParams.z, 0.0f);
+    }
+    else
+    {
+        if (mode == 22)
+        {
+            float ear = clamp(uProcParams.z, 0.0500000007450580596923828125f, 0.60000002384185791015625f);
+            float2 param_8 = p;
+            float param_9 = 0.579999983310699462890625f;
+            d = symC(param_8, param_9);
+            float2 param_10 = p - float2(-0.439999997615814208984375f, 0.4600000083446502685546875f);
+            float param_11 = ear;
+            d = min(d, symC(param_10, param_11));
+            float2 param_12 = p - float2(0.439999997615814208984375f, 0.4600000083446502685546875f);
+            float param_13 = ear;
+            d = min(d, symC(param_12, param_13));
+            float expr = floor(frac(sd * 7.309999942779541015625f) * max(uProcParams.x, 1.0f));
+            float2 el = p - float2(-0.23499999940395355224609375f, 0.115000002086162567138671875f);
+            float2 er = p - float2(0.23499999940395355224609375f, 0.115000002086162567138671875f);
+            float eye;
+            if ((expr > 0.5f) && (expr < 1.5f))
+            {
+                float2 param_14 = el;
+                float param_15 = 0.13500000536441802978515625f;
+                float2 param_16 = er;
+                float param_17 = 0.13500000536441802978515625f;
+                eye = min(abs(symC(param_14, param_15)) - 0.0419999994337558746337890625f, abs(symC(param_16, param_17)) - 0.0419999994337558746337890625f);
+                eye = max(eye, -(p.y - 0.085000000894069671630859375f));
+            }
+            else
+            {
+                float2 param_18 = el;
+                float2 param_19 = float2(0.087999999523162841796875f, 0.115000002086162567138671875f);
+                float2 param_20 = er;
+                float2 param_21 = float2(0.087999999523162841796875f, 0.115000002086162567138671875f);
+                eye = min(symE(param_18, param_19), symE(param_20, param_21));
+            }
+            float _2885;
+            if (expr > 1.5f)
+            {
+                float2 param_22 = p - float2(0.0f, -0.185000002384185791015625f);
+                float2 param_23 = float2(0.115000002086162567138671875f, 0.0949999988079071044921875f);
+                _2885 = symE(param_22, param_23);
+            }
+            else
+            {
+                float2 param_24 = p - float2(0.0f, 0.119999997317790985107421875f);
+                float param_25 = 0.300000011920928955078125f;
+                _2885 = max(abs(symC(param_24, param_25)) - 0.0379999987781047821044921875f, -((-p.y) - 0.054999999701976776123046875f));
+            }
+            float mouth = _2885;
+            dInk = min(eye, mouth);
+            float2 param_26 = p - float2(-0.439999997615814208984375f, 0.4699999988079071044921875f);
+            float param_27 = ear * 0.4900000095367431640625f;
+            float2 param_28 = p - float2(0.439999997615814208984375f, 0.4699999988079071044921875f);
+            float param_29 = ear * 0.4900000095367431640625f;
+            float inner = min(symC(param_26, param_27), symC(param_28, param_29));
+            float2 param_30 = p - float2(0.0f, -0.115000002086162567138671875f);
+            float2 param_31 = float2(0.23499999940395355224609375f, 0.17499999701976776123046875f) * clamp(uProcParams.w, 0.100000001490116119384765625f, 2.0f);
+            dHigh = min(inner, symE(param_30, param_31));
+            ow = max(uProcParams.y, 0.0f);
+        }
+        else
+        {
+            if (mode == 23)
+            {
+                float2 param_32 = (p + float2(0.0f, 0.7799999713897705078125f)) / 1.5499999523162841796875f.xx;
+                float _2969 = symHeart(param_32);
+                d = _2969 * 1.5499999523162841796875f;
+            }
+            else
+            {
+                if (mode == 24)
+                {
+                    float bite = clamp(uProcParams.y, 0.0f, 1.0f);
+                    float2 param_33 = p - float2(-0.0599999986588954925537109375f, 0.0199999995529651641845703125f);
+                    float param_34 = 0.560000002384185791015625f;
+                    float2 param_35 = p - float2(0.2599999904632568359375f + (bite * 0.20000000298023223876953125f), 0.23999999463558197021484375f);
+                    float param_36 = 0.5f;
+                    d = max(symC(param_33, param_34), -symC(param_35, param_36));
+                }
+                else
+                {
+                    if (mode == 25)
+                    {
+                        float lobes = max(uProcParams.x, 1.0f);
+                        float rr = clamp(uProcParams.y, 0.0500000007450580596923828125f, 0.60000002384185791015625f);
+                        for (int i = 0; i < 4; i++)
+                        {
+                            if (float(i) >= lobes)
+                            {
+                                break;
+                            }
+                            float f = float(i) + (sd * 13.0f);
+                            float2 param_37 = float2(f, 1.0f);
+                            float2 param_38 = float2(f + 3.099999904632568359375f, 2.0f);
+                            float2 o = float2(procHash21(param_37) - 0.5f, procHash21(param_38) - 0.5f) * 0.7200000286102294921875f;
+                            float2 param_39 = float2(f + 7.30000019073486328125f, 3.0f);
+                            d = min(d, length(p - o) - (rr + (0.1599999964237213134765625f * procHash21(param_39))));
+                        }
+                        dHigh = (d + 0.1599999964237213134765625f) - (0.300000011920928955078125f * ((p.y * 0.5f) + 0.5f));
+                        ow = 0.0f;
+                    }
+                    else
+                    {
+                        float w = max(uProcParams.x, 0.0199999995529651641845703125f) * (1.0f - (clamp(uProcParams.y, 0.0f, 0.89999997615814208984375f) * abs(p.y)));
+                        float2 param_40 = p;
+                        float2 param_41 = float2(-0.300000011920928955078125f, 0.86000001430511474609375f);
+                        float2 param_42 = 0.1599999964237213134765625f.xx;
+                        float seg = symSeg(param_40, param_41, param_42);
+                        float2 param_43 = p;
+                        float2 param_44 = 0.1599999964237213134765625f.xx;
+                        float2 param_45 = float2(-0.1599999964237213134765625f, -0.0199999995529651641845703125f);
+                        seg = min(seg, symSeg(param_43, param_44, param_45));
+                        float2 param_46 = p;
+                        float2 param_47 = float2(-0.1599999964237213134765625f, -0.0199999995529651641845703125f);
+                        float2 param_48 = float2(0.300000011920928955078125f, -0.86000001430511474609375f);
+                        seg = min(seg, symSeg(param_46, param_47, param_48));
+                        d = seg - w;
+                        ow = 0.0f;
+                    }
+                }
+            }
+        }
+    }
+    body = smoothstep(aa, -aa, d);
+    float _3128;
+    if (ow > 0.0f)
+    {
+        _3128 = max(smoothstep(aa, -aa, d - ow) - body, 0.0f);
+    }
+    else
+    {
+        _3128 = 0.0f;
+    }
+    ring = _3128;
+    ink = smoothstep(aa, -aa, dInk) * body;
+    high = smoothstep(aa, -aa, dHigh) * body;
+    hot = smoothstep(aa, -aa, dHot) * body;
+}
+
+float screentoneAt(float2 uvp, float3 wp)
+{
+    if (uScreenOn < 0.5f)
+    {
+        return 0.0f;
+    }
+    float2 _3176;
+    if (uScreenWorld > 0.5f)
+    {
+        _3176 = wp.xy;
+    }
+    else
+    {
+        _3176 = uvp;
+    }
+    float2 q = _3176;
+    float2 g = frac(q / max(uScreenPitch, 0.001000000047497451305389404296875f).xx) - 0.5f.xx;
+    return smoothstep(0.36000001430511474609375f, 0.23999999463558197021484375f, length(g));
+}
+
+float stripeHash(inout float p)
+{
+    p = frac(p * 0.103100001811981201171875f);
+    p *= (p + 33.3300018310546875f);
+    p *= (p + p);
+    return frac(p);
+}
+
+float stripeTerm(float along, float ring, float t)
+{
+    if (uStripeN < 1)
+    {
+        return 1.0f;
+    }
+    float acc = 0.0f;
+    float weight = 0.0f;
+    float band = floor(ring * 15.0f);
+    for (int i = 0; i < 3; i++)
+    {
+        if (i >= uStripeN)
+        {
+            break;
+        }
+        float4 s = uStripeA[i];
+        float e = lerp(0.14000000059604644775390625f, 0.008000000379979610443115234375f, clamp(s.w, 0.0f, 1.0f));
+        float param = ((band * 3.1700000762939453125f) + 1.7000000476837158203125f) + (float(i) * 7.30000019073486328125f);
+        float _2524 = stripeHash(param);
+        float o = s.z * _2524;
+        float f = frac(((along * s.x) - (t * s.y)) + o);
+        acc += smoothstep(0.699999988079071044921875f - e, 0.699999988079071044921875f + e, f);
+        weight = max(weight, uStripeB[i].x);
+    }
+    return lerp(1.0f, 0.07999999821186065673828125f + (acc * 0.89999997615814208984375f), clamp(weight, 0.0f, 1.0f));
+}
+
+float sdRoundRect(float2 p, float2 h, float r)
+{
+    float2 d = (abs(p) - h) + r.xx;
+    return (length(max(d, 0.0f.xx)) + min(max(d.x, d.y), 0.0f)) - r;
+}
+
+float framePerimeter(float2 p, float2 h)
+{
+    float2 a = float2(abs(p.x), p.y);
+    float2 c = clamp(a, float2(0.0f, -h.y), h);
+    float db = c.y + h.y;
+    float dt = h.y - c.y;
+    float dr = h.x - c.x;
+    float m = min(dr, min(db, dt));
+    float _3267;
+    if (m == db)
+    {
+        _3267 = c.x;
+    }
+    else
+    {
+        float _3276;
+        if (m == dr)
+        {
+            _3276 = (h.x + c.y) + h.y;
+        }
+        else
+        {
+            _3276 = ((h.x + (2.0f * h.y)) + h.x) - c.x;
+        }
+        _3267 = _3276;
+    }
+    float sArc = _3267;
+    return sArc / max((2.0f * h.x) + (2.0f * h.y), 9.9999997473787516355514526367188e-05f);
+}
+
+float beadTerm(float u, float t)
+{
+    if (uBeadOn == 0)
+    {
+        return 0.0f;
+    }
+    float acc = 0.0f;
+    for (int i = 0; i < 8; i++)
+    {
+        if (float(i) >= uBeads.x)
+        {
+            break;
+        }
+        float k = float(i);
+        float bp = frac(((t * uBeads.y) + (k * 0.37000000476837158203125f)) + (frac(sin(k * 3.099999904632568359375f) * 43758.546875f) * 0.4000000059604644775390625f));
+        float g = (u - bp) / max(uBeads.z, 0.001000000047497451305389404296875f);
+        acc += exp((-g) * g);
+    }
+    return acc;
+}
+
+float3 rampColor(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    float3 c = uRamp[0].xyz * uRamp[0].w;
+    float prev = uRampT[0].x;
+    for (int i = 1; i < 6; i++)
+    {
+        if (i >= uRampN)
+        {
+            break;
+        }
+        float t = uRampT[i].x;
+        float3 ci = uRamp[i].xyz * uRamp[i].w;
+        c = lerp(c, ci, smoothstep(prev, max(t, prev + 9.9999997473787516355514526367188e-05f), u).xxx);
+        prev = t;
+    }
+    return c;
+}
+
+float flowNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    f = (f * f) * (3.0f.xx - (f * 2.0f));
+    float2 param = i;
+    float a = procHash21(param);
+    float2 param_1 = i + float2(1.0f, 0.0f);
+    float b = procHash21(param_1);
+    float2 param_2 = i + float2(0.0f, 1.0f);
+    float c = procHash21(param_2);
+    float2 param_3 = i + 1.0f.xx;
+    float d = procHash21(param_3);
+    return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+}
+
+float swirlFbm2(float2 p)
+{
+    float2 param = p;
+    float2 param_1 = (p * 2.0699999332427978515625f) + 19.299999237060546875f.xx;
+    return (flowNoise(param) + (0.5f * flowNoise(param_1))) / 1.5f;
+}
+
+float swirlFbm3(inout float2 p)
+{
+    float acc = 0.0f;
+    float a = 0.5f;
+    for (int i = 0; i < 3; i++)
+    {
+        float2 param = p;
+        acc += (a * flowNoise(param));
+        p = (mul(p, float2x2(float2(0.800000011920928955078125f, 0.60000002384185791015625f), float2(-0.60000002384185791015625f, 0.800000011920928955078125f))) * 2.0299999713897705078125f) + float2(11.30000019073486328125f, 7.099999904632568359375f);
+        a *= 0.5f;
+    }
+    return acc / 0.875f;
+}
+
+float2 swirlDisc(float2 q, float t)
+{
+    float d = length(q);
+    float twist = uProcParams.x;
+    float spin = uProcParams.y;
+    float inflow = uProcParams.z;
+    bool _3597 = uSwirlOn == 1;
+    bool _3604;
+    if (_3597)
+    {
+        _3604 = uSwirlBands.x > 0.0f;
+    }
+    else
+    {
+        _3604 = _3597;
+    }
+    float _3605;
+    if (_3604)
+    {
+        _3605 = uSwirlBands.x;
+    }
+    else
+    {
+        _3605 = max(uProcParams.w, 1.0f);
+    }
+    float arms = _3605;
+    float rot = ((uSwirlS * twist) / (d + 0.07999999821186065673828125f)) + ((t * spin) * 6.283185482025146484375f);
+    float c = cos(rot);
+    float sn = sin(rot);
+    float2 p = (float2((q.x * c) - (q.y * sn), (q.x * sn) + (q.y * c)) * (1.0f + ((t * inflow) * uSwirlS))) * 3.0f;
+    float2 param = p * 1.14999997615814208984375f;
+    float2 param_1 = (p * 1.14999997615814208984375f) + 31.700000762939453125f.xx;
+    float2 w = float2(swirlFbm2(param), swirlFbm2(param_1)) - 0.5f.xx;
+    float2 param_2 = p + (w * 1.14999997615814208984375f);
+    float n = swirlFbm2(param_2);
+    float ang = atan2(q.y, q.x);
+    float _3696;
+    if (uSwirlOn == 1)
+    {
+        _3696 = uSwirlBands.y;
+    }
+    else
+    {
+        _3696 = 1.85000002384185791015625f;
+    }
+    float wind = _3696;
+    float _3708;
+    if (uSwirlOn == 1)
+    {
+        _3708 = uSwirlBands.w;
+    }
+    else
+    {
+        _3708 = 1.39999997615814208984375f;
+    }
+    float warp = _3708;
+    float band = 0.5f + (0.5f * sin(((arms * (ang + (((uSwirlS * twist) * wind) * log(d + 0.0900000035762786865234375f)))) + (((t * spin) * 6.283185482025146484375f) * arms)) + ((n - 0.5f) * warp)));
+    float lobe = 0.0f;
+    if (uSwirlOn == 1)
+    {
+        float2 param_3 = (p * uSwirlLobe.x) + 57.0f.xx;
+        float _3760 = swirlFbm3(param_3);
+        float2 param_4 = (p * uSwirlLobe.y) + 91.0f.xx;
+        lobe = ((_3760 - 0.5f) + (0.300000011920928955078125f * (swirlFbm2(param_4) - 0.5f))) * uSwirlLobe.z;
+    }
+    float _3781;
+    if (uSwirlOn == 1)
+    {
+        _3781 = uSwirlBands.z;
+    }
+    else
+    {
+        _3781 = 0.5f;
+    }
+    float width = _3781;
+    float m = ((band * (0.4000000059604644775390625f + (0.7599999904632568359375f * width))) + (n * 0.4600000083446502685546875f)) + lobe;
+    float _3804;
+    if (uSwirlOn == 1)
+    {
+        _3804 = uSwirlDetail.x;
+    }
+    else
+    {
+        _3804 = 7.0f;
+    }
+    float dArms = _3804;
+    float _3816;
+    if (uSwirlOn == 1)
+    {
+        _3816 = uSwirlDetail.y;
+    }
+    else
+    {
+        _3816 = 2.75f;
+    }
+    float dWind = _3816;
+    float _3828;
+    if (uSwirlOn == 1)
+    {
+        _3828 = uSwirlDetail.z;
+    }
+    else
+    {
+        _3828 = 6.19999980926513671875f;
+    }
+    float dWarp = _3828;
+    float _3840;
+    if (uSwirlOn == 1)
+    {
+        _3840 = uSwirlDetail.w;
+    }
+    else
+    {
+        _3840 = 0.62000000476837158203125f;
+    }
+    float dCon = _3840;
+    float2 param_5 = (p * 2.349999904632568359375f) + 113.0f.xx;
+    float _3855 = swirlFbm3(param_5);
+    float fine = _3855;
+    float det = 0.5f + (0.5f * sin(((dArms * (ang + (((uSwirlS * twist) * dWind) * log(d + 0.0900000035762786865234375f)))) + (((t * spin) * 6.283185482025146484375f) * dArms)) + ((fine - 0.5f) * dWarp)));
+    float shade = smoothstep(0.100000001490116119384765625f, 0.920000016689300537109375f, (det * dCon) + (fine * 0.540000021457672119140625f));
+    return float2(clamp(m, 0.0f, 2.0f), shade);
+}
+
+float curveC(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    float v = uCurveC[0].xy.y;
+    for (int i = 1; i < 8; i++)
+    {
+        if (i >= uCurveCN)
+        {
+            break;
+        }
+        float a = uCurveC[i - 1].xy.x;
+        float b = uCurveC[i].xy.x;
+        float f = clamp((u - a) / max(b - a, 9.9999997473787516355514526367188e-06f), 0.0f, 1.0f);
+        f = lerp(f, (f * f) * (3.0f - (2.0f * f)), uCurveCEase);
+        v = lerp(v, uCurveC[i].xy.y, step(a, u) * f);
+    }
+    return v;
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float flowField(float2 q, float t, float2 parallax)
+{
+    float acc = 0.0f;
+    float weight = 0.0f;
+    float2 _3482;
+    for (int i = 0; i < 4; i++)
+    {
+        if (i >= uFlowN)
+        {
+            break;
+        }
+        float4 L = uFlowLayer[i];
+        float c = cos(L.w);
+        float sn = sin(L.w);
+        float2 r = float2((q.x * c) - (q.y * sn), (q.x * sn) + (q.y * c));
+        if (i == 0)
+        {
+            _3482 = parallax * uFlowCut.z;
+        }
+        else
+        {
+            _3482 = 0.0f.xx;
+        }
+        float2 off = _3482;
+        float2 param = ((r + off) * L.x) + (L.yz * t);
+        acc += (flowNoise(param) * uFlowLayer[4 + i].x);
+        weight += uFlowLayer[4 + i].x;
+    }
+    return acc / max(weight, 9.9999997473787516355514526367188e-05f);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+float hexCells(float2 uv, float2 cell)
+{
+    float2 q = (uv * float2(24.0f, 12.0f)) * max(cell, 0.0199999995529651641845703125f.xx);
+    float2 spacing = float2(1.7320499420166015625f, 3.0f);
+    float2 h1 = mod(q, spacing) - (spacing * 0.5f);
+    float2 h2 = mod(q - (spacing * 0.5f), spacing) - (spacing * 0.5f);
+    bool2 _1049 = (dot(h1, h1) < dot(h2, h2)).xx;
+    float2 h = float2(_1049.x ? h1.x : h2.x, _1049.y ? h1.y : h2.y);
+    float edge = abs(max(abs(h.x), (abs(h.x) * 0.5f) + (abs(h.y) * 0.86602497100830078125f)) - 0.86602497100830078125f);
+    return 1.0f - smoothstep(0.0350000001490116119384765625f, 0.100000001490116119384765625f, edge);
+}
+
+float pointedShape(float2 p, float arms, float outerRadius, float innerRadius)
+{
+    float angle = atan2(p.y, p.x);
+    float halfAngle = 3.1415927410125732421875f / arms;
+    float q = abs(mod((angle - 1.57079601287841796875f) + halfAngle, halfAngle * 2.0f) - halfAngle);
+    float2 outer = float2(outerRadius, 0.0f);
+    float2 inner = float2(cos(halfAngle), sin(halfAngle)) * innerRadius;
+    float2 ray = float2(cos(q), sin(q));
+    float2 edge = inner - outer;
+    float boundary = (outer.x * inner.y) / ((ray.x * edge.y) - (ray.y * edge.x));
+    return 1.0f - smoothstep(boundary - 0.008000000379979610443115234375f, boundary + 0.008000000379979610443115234375f, length(p));
+}
+
+float procNoise(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = frac(p);
+    float2 param = i;
+    float a = procHash21(param);
+    float2 param_1 = i + float2(1.0f, 0.0f);
+    float b = procHash21(param_1);
+    float2 param_2 = i + float2(0.0f, 1.0f);
+    float c = procHash21(param_2);
+    float2 param_3 = i + 1.0f.xx;
+    float d = procHash21(param_3);
+    float2 u = (f * f) * (3.0f.xx - (f * 2.0f));
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+
+float proceduralShape(float2 p, float2 uv, float n, float t, float fres, float2 cell, float3 dims, int mode)
+{
+    if (mode == 3)
+    {
+        return 1.0f;
+    }
+    float disc = smoothstep(0.5f, 0.100000001490116119384765625f, length(p));
+    if (mode == 1)
+    {
+        return clamp(disc * (0.449999988079071044921875f + (n * 1.10000002384185791015625f)), 0.0f, 1.0f);
+    }
+    if (mode == 2)
+    {
+        return clamp(disc * (0.60000002384185791015625f + (n * 0.800000011920928955078125f)), 0.0f, 1.0f);
+    }
+    float2 q = p * 2.0f;
+    if (mode == 4)
+    {
+        float2 param = uv;
+        float2 param_1 = cell;
+        return clamp(0.100000001490116119384765625f + (0.89999997615814208984375f * hexCells(param, param_1)), 0.0f, 1.0f);
+    }
+    if (mode == 5)
+    {
+        float3 param_2 = float3((uv * float2(12.0f, 6.0f)) * max(cell, 0.0199999995529651641845703125f.xx), 1.0f);
+        float field = 0.5f + (0.5f * snoise(param_2));
+        float veins = 1.0f - smoothstep(0.01200000010430812835693359375f, 0.02999999932944774627685546875f, abs(field - 0.5f));
+        return clamp((0.119999997317790985107421875f + ((0.550000011920928955078125f * fres) * fres)) + (0.800000011920928955078125f * veins), 0.0f, 1.0f);
+    }
+    if ((mode == 6) || (mode == 7))
+    {
+        float bend = sin((q.y * 2.7999999523162841796875f) - (t * 2.2000000476837158203125f)) * 0.119999997317790985107421875f;
+        float waves = sin(((q.x + bend) * 9.5f) + (q.y * 0.699999988079071044921875f));
+        float streak = smoothstep(0.7200000286102294921875f, 0.920000016689300537109375f, waves) * (0.64999997615814208984375f + (0.3499999940395355224609375f * sin((q.y * 2.0f) - (t * 2.0f))));
+        float _1219;
+        if (mode == 7)
+        {
+            _1219 = streak;
+        }
+        else
+        {
+            _1219 = 0.87999999523162841796875f + (0.119999997317790985107421875f * streak);
+        }
+        return clamp(_1219, 0.0f, 1.0f);
+    }
+    if (mode == 8)
+    {
+        float2 param_3 = q;
+        float param_4 = 5.0f;
+        float param_5 = 0.7799999713897705078125f;
+        float param_6 = 0.310000002384185791015625f;
+        return pointedShape(param_3, param_4, param_5, param_6);
+    }
+    if (mode == 9)
+    {
+        float2 param_7 = q;
+        float param_8 = 4.0f;
+        float param_9 = 0.89999997615814208984375f;
+        float param_10 = 0.0900000035762786865234375f;
+        return pointedShape(param_7, param_8, param_9, param_10);
+    }
+    if (mode == 10)
+    {
+        float edgeDistance = min((1.0f - abs(q.x)) * max(dims.x, 0.001000000047497451305389404296875f), ((1.0f - abs(q.y)) * max(dims.y, 0.001000000047497451305389404296875f)) * 0.5f);
+        float border = 1.0f - smoothstep(max(dims.z, 0.001000000047497451305389404296875f) * 0.64999997615814208984375f, max(dims.z, 0.001000000047497451305389404296875f) * 1.14999997615814208984375f, edgeDistance);
+        return clamp((border * 0.800000011920928955078125f) + ((0.07999999821186065673828125f + (0.2199999988079071044921875f * n)) * (1.0f - border)), 0.0f, 1.0f);
+    }
+    if (mode == 12)
+    {
+        float c = 0.928664624691009521484375f;
+        float sn = 0.370920479297637939453125f;
+        float2 g = float2((q.x * c) - (q.y * sn), (q.x * sn) + (q.y * c));
+        float r = length(g);
+        float param_11 = max(0.0f, 1.0f - r);
+        float param_12 = 6.0f;
+        float core = safePow(param_11, param_12);
+        float param_13 = max(0.0f, 1.0f - abs(g.x));
+        float param_14 = 2.0f;
+        float param_15 = max(0.0f, 1.0f - (abs(g.y) * 7.0f));
+        float param_16 = 2.5f;
+        float ax = safePow(param_13, param_14) * safePow(param_15, param_16);
+        float param_17 = max(0.0f, 1.0f - abs(g.y));
+        float param_18 = 2.0f;
+        float param_19 = max(0.0f, 1.0f - (abs(g.x) * 7.0f));
+        float param_20 = 2.5f;
+        float ay = safePow(param_17, param_18) * safePow(param_19, param_20);
+        return clamp(((core * 1.2000000476837158203125f) + ax) + ay, 0.0f, 2.0f);
+    }
+    if (mode == 13)
+    {
+        float param_21 = max(0.0f, 1.0f - length(q));
+        float param_22 = 2.599999904632568359375f;
+        return safePow(param_21, param_22);
+    }
+    if (mode == 14)
+    {
+        float R = max(uProcParams.x, 0.0199999995529651641845703125f);
+        float hw = max(uProcParams.y, 0.00200000009499490261077880859375f);
+        float amp = uProcParams.z;
+        float d = length(q);
+        float ang = atan2(q.y, q.x);
+        float m = 0.0f;
+        for (int i = 0; i < 3; i++)
+        {
+            float fi = float(i);
+            float spin = ((uProcParams.w * t) * (1.0f + (fi * 0.3499999940395355224609375f))) + (fi * 2.0899999141693115234375f);
+            float wob = amp * ((sin((ang * (4.0f + fi)) + spin) * 0.60000002384185791015625f) + (sin((ang * (7.0f + (fi * 2.0f))) - (spin * 0.699999988079071044921875f)) * 0.4000000059604644775390625f));
+            float r_1 = (R * ((1.0f + (fi * 0.0350000001490116119384765625f)) - 0.0350000001490116119384765625f)) + wob;
+            float g_1 = (d - r_1) / hw;
+            m += (exp((-g_1) * g_1) * (1.0f - (fi * 0.2199999988079071044921875f)));
+        }
+        float sector = floor((((ang + 3.1415927410125732421875f) / 6.283185482025146484375f) * 9.0f) + ((uProcParams.w * t) * 0.5f));
+        float ga = (d - (R * 1.15999996662139892578125f)) / (hw * 1.39999997615814208984375f);
+        float2 param_23 = float2(sector, 3.7000000476837158203125f);
+        float param_24 = abs(sin((ang * 9.0f) + ((uProcParams.w * t) * 0.5f)));
+        float param_25 = 6.0f;
+        float arc = ((step(0.62000000476837158203125f, procHash21(param_23)) * exp((-ga) * ga)) * safePow(param_24, param_25)) * smoothstep(0.0f, 0.0040000001899898052215576171875f, amp);
+        return clamp(m + (arc * 0.89999997615814208984375f), 0.0f, 2.0f);
+    }
+    if (mode == 15)
+    {
+        float R_1 = max(uProcParams.x, 0.0199999995529651641845703125f);
+        float soft = max(uProcParams.w, 0.0199999995529651641845703125f);
+        float d_1 = length(q);
+        float ang_1 = atan2(q.y, q.x);
+        float pulse = 0.7200000286102294921875f + (0.2800000011920928955078125f * sin(uProcParams.y * t));
+        float fill = smoothstep(R_1 + soft, R_1 * (1.0f - soft), d_1) * pulse;
+        float2 param_26 = float2(ang_1 * 2.400000095367431640625f, (d_1 * 5.0f) - (t * 0.699999988079071044921875f));
+        fill *= lerp(1.0f, 0.550000011920928955078125f + (0.449999988079071044921875f * procNoise(param_26)), clamp(uProcParams.z, 0.0f, 1.0f));
+        return clamp(fill, 0.0f, 1.0f);
+    }
+    if (mode == 16)
+    {
+        float r_2 = length(q);
+        float ang_2 = atan2(q.y, q.x);
+        float ta = (ang_2 / 6.283185482025146484375f) + 0.5f;
+        float rings = 0.0f;
+        float nr = max(uProcParams.x, 1.0f);
+        for (int i_1 = 0; i_1 < 6; i_1++)
+        {
+            if (float(i_1) >= nr)
+            {
+                break;
+            }
+            float rr = 0.98500001430511474609375f - (float(i_1) * 0.2150000035762786865234375f);
+            rings += ((1.0f - smoothstep(0.0f, 0.0074999998323619365692138671875f, abs(r_2 - rr))) * 1.14999997615814208984375f);
+            rings += ((1.0f - smoothstep(0.0f, 0.00449999980628490447998046875f, abs((r_2 - rr) + 0.02999999932944774627685546875f))) * 0.550000011920928955078125f);
+        }
+        float cells = max(uProcParams.y, 1.0f);
+        float ci = floor(ta * cells);
+        float cf = frac(ta * cells);
+        float glyph = 0.0f;
+        for (int k = 0; k < 3; k++)
+        {
+            float2 param_27 = float2((ci * 3.7000000476837158203125f) + (float(k) * 11.30000019073486328125f), 1.0f);
+            float hk = procHash21(param_27);
+            float2 param_28 = float2((ci * 5.099999904632568359375f) + (float(k) * 7.900000095367431640625f), 2.0f);
+            float rr_1 = 0.805000007152557373046875f + (0.13500000536441802978515625f * procHash21(param_28));
+            float2 param_29 = float2((ci * 2.2999999523162841796875f) + (float(k) * 19.1000003814697265625f), 3.0f);
+            float ln = 0.1599999964237213134765625f + (0.2800000011920928955078125f * procHash21(param_29));
+            float2 param_30 = float2((ci * 9.69999980926513671875f) + (float(k) * 3.099999904632568359375f), 4.0f);
+            float th = 0.0054999999701976776123046875f + (0.0054999999701976776123046875f * procHash21(param_30));
+            glyph += ((step(0.300000011920928955078125f, hk) * (1.0f - smoothstep(0.0f, th, abs(r_2 - rr_1)))) * smoothstep(ln, ln * 0.550000011920928955078125f, abs(cf - 0.5f)));
+        }
+        float spokes = max(uProcParams.z, 1.0f);
+        float spoke = (step(0.5f, 1.0f - (abs(frac(ta * spokes) - 0.5f) * 9.0f)) * smoothstep(0.0f, 0.0199999995529651641845703125f, r_2 - 0.795000016689300537109375f)) * smoothstep(0.954999983310699462890625f, 0.939999997615814208984375f, r_2);
+        glyph += (max(spoke, 0.0f) * 0.699999988079071044921875f);
+        float ci2 = floor((ta * cells) * 0.62000000476837158203125f);
+        float cf2 = frac((ta * cells) * 0.62000000476837158203125f);
+        float2 param_31 = float2(ci2 * 8.30000019073486328125f, 5.0f);
+        float r2 = 0.660000026226043701171875f + (0.070000000298023223876953125f * procHash21(param_31));
+        float2 param_32 = float2((ci2 * 2.7000000476837158203125f) + 5.5f, 6.0f);
+        glyph += (((step(0.4199999868869781494140625f, procHash21(param_32)) * (1.0f - smoothstep(0.0f, 0.006000000052154064178466796875f, abs(r_2 - r2)))) * smoothstep(0.300000011920928955078125f, 0.1599999964237213134765625f, abs(cf2 - 0.5f))) * 0.800000011920928955078125f);
+        float2 param_33 = float2((ta * 7.0f) + (t * 0.10999999940395355224609375f), (r_2 * 3.2000000476837158203125f) - (t * 0.180000007152557373046875f));
+        float m1 = procNoise(param_33);
+        float2 param_34 = float2((ta * 4.0f) - (t * 0.070000000298023223876953125f), (r_2 * 5.400000095367431640625f) + (t * 0.0900000035762786865234375f));
+        float m2 = procNoise(param_34);
+        float param_35 = clamp(((m1 * 0.7200000286102294921875f) + (m2 * 0.60000002384185791015625f)) - 0.2599999904632568359375f, 0.0f, 1.0f);
+        float param_36 = 1.5f;
+        float mist = (safePow(param_35, param_36) * smoothstep(0.800000011920928955078125f, 0.100000001490116119384765625f, r_2)) + (0.3400000035762786865234375f * smoothstep(0.839999973773956298828125f, 0.100000001490116119384765625f, r_2));
+        float gold = (1.0f - smoothstep(0.0f, 0.01600000075995922088623046875f, abs(r_2 - 1.0299999713897705078125f))) * clamp(uProcParams.w, 0.0f, 1.0f);
+        return clamp((((rings * 1.25f) + (glyph * 1.0f)) + (mist * 0.7200000286102294921875f)) + gold, 0.0f, 1.60000002384185791015625f);
+    }
+    if (mode == 17)
+    {
+        float tight = max(uProcParams.x, 1.0f);
+        float aniso = max(uProcParams.y, 0.0500000007450580596923828125f);
+        float spikes = max(uProcParams.z, 1.0f);
+        float fall = max(uProcParams.w, 0.0500000007450580596923828125f);
+        float2 qa = float2(q.x * aniso, q.y);
+        float r_3 = length(qa);
+        float rr_2 = length(q);
+        float core_1 = exp(((-r_3) * r_3) * tight);
+        float mid = exp((((-r_3) * r_3) * tight) * 0.17000000178813934326171875f) * 0.439999997615814208984375f;
+        float wide = exp((((-r_3) * r_3) * tight) * 0.0599999986588954925537109375f) * 0.119999997317790985107421875f;
+        float hstr = (exp(((-qa.y) * qa.y) * 230.0f) * exp((-abs(qa.x)) * 2.400000095367431640625f)) * 0.439999997615814208984375f;
+        float vstr = (exp(((-qa.x) * qa.x) * 330.0f) * exp((-abs(qa.y)) * 1.7000000476837158203125f)) * 0.37999999523162841796875f;
+        float ang_3 = atan2(q.y, q.x);
+        float param_37 = max(0.0f, cos((ang_3 * spikes) + 0.4000000059604644775390625f));
+        float param_38 = 16.0f;
+        float spk = (safePow(param_37, param_38) * exp((-rr_2) * fall)) * 0.1599999964237213134765625f;
+        float2 param_39 = float2(ang_3 * 2.2999999523162841796875f, t * 3.099999904632568359375f);
+        float flick = 0.89999997615814208984375f + (0.14000000059604644775390625f * procNoise(param_39));
+        float a = ((((((core_1 * 1.35000002384185791015625f) + mid) + wide) + hstr) + vstr) + spk) * flick;
+        return clamp(a * (1.0f - smoothstep(0.62000000476837158203125f, 1.0f, rr_2)), 0.0f, 4.0f);
+    }
+    if (mode == 18)
+    {
+        float n_1 = max(uProcParams.x, 1.0f);
+        float jit = clamp(uProcParams.y, 0.0f, 1.0f);
+        float sharp = clamp(uProcParams.w, 0.0f, 1.0f);
+        float r_4 = length(q);
+        float ang_4 = atan2(q.y, q.x) + (uProcParams.z * t);
+        float ta_1 = ((ang_4 / 6.283185482025146484375f) + 0.5f) * n_1;
+        float idx = floor(ta_1);
+        float2 param_40 = float2(idx, 3.099999904632568359375f);
+        float len = lerp(1.0f - jit, 1.0f, procHash21(param_40));
+        float f = abs(frac(ta_1) - 0.5f) * 2.0f;
+        float param_41 = max(0.0f, 1.0f - f);
+        float param_42 = lerp(2.0f, 24.0f, sharp);
+        float ray = safePow(param_41, param_42);
+        float fade = 1.0f - smoothstep(0.0f, max(len, 0.0199999995529651641845703125f), r_4);
+        return clamp(((ray * fade) * fade) * (1.0f - smoothstep(0.898999989032745361328125f, 1.0f, r_4)), 0.0f, 2.0f);
+    }
+    if (mode == 20)
+    {
+        float u = uv.y;
+        float v = (uv.x - 0.5f) * 2.0f;
+        float w = lerp(0.300000011920928955078125f, 1.0f, smoothstep(0.0f, 0.62000000476837158203125f, u)) * (1.0f - smoothstep(0.86000001430511474609375f, 1.0f, u));
+        float dd = abs(v) / max(w, 0.001000000047497451305389404296875f);
+        float param_43 = max(0.0f, 1.0f - dd);
+        float param_44 = 2.2000000476837158203125f;
+        float body = safePow(param_43, param_44);
+        float param_45 = max(0.0f, 1.0f - (dd * max(uProcParams.z, 1.0f)));
+        float param_46 = 5.0f;
+        float core_2 = safePow(param_45, param_46) * smoothstep(0.20000000298023223876953125f, 0.800000011920928955078125f, u);
+        float param_47 = max(0.0f, 1.0f - length(float2((u - 0.800000011920928955078125f) * 2.099999904632568359375f, v * 1.0499999523162841796875f)));
+        float param_48 = max(uProcParams.w, 0.5f);
+        float halo = safePow(param_47, param_48);
+        float param_49 = max(0.0f, 1.0f - (dd * 1.39999997615814208984375f));
+        float param_50 = 3.0f;
+        float dash = ((step(0.62000000476837158203125f, frac((u * max(uProcParams.x, 0.0f)) - (t * uProcParams.y))) * safePow(param_49, param_50)) * smoothstep(0.0f, 0.3499999940395355224609375f, u)) * (1.0f - smoothstep(0.550000011920928955078125f, 0.85000002384185791015625f, u));
+        return clamp((((body * 0.800000011920928955078125f) + core_2) + (halo * 1.10000002384185791015625f)) + (dash * 0.699999988079071044921875f), 0.0f, 2.0f);
+    }
+    if (mode == 11)
+    {
+        float edge = 0.4799999892711639404296875f + (0.0350000001490116119384765625f * sin((q.y * 18.0f) - (t * 10.0f)));
+        float side = 1.0f - smoothstep(edge - 0.02500000037252902984619140625f, edge + 0.02500000037252902984619140625f, abs(q.x));
+        float ends = 1.0f - smoothstep(0.939999997615814208984375f, 1.0f, abs(q.y));
+        return clamp(side * ends, 0.0f, 1.0f);
+    }
+    return disc;
+}
+
+float flipFrame(float life, float age, float tiles, int mode, float fps)
+{
+    float frame = 0.0f;
+    if (mode == 1)
+    {
+        frame = clamp(life, 0.0f, 1.0f) * max(tiles - 1.0f, 0.0f);
+    }
+    else
+    {
+        if (mode == 2)
+        {
+            frame = mod(max(age, 0.0f) * fps, tiles);
+        }
+    }
+    return frame;
+}
+
+float2 tileOffset(float frame, float cols, float rows)
+{
+    return float2(mod(floor(frame), cols) / cols, floor(floor(frame) / cols) / rows);
+}
+
+float nextFlipFrame(float frame, float tiles, int mode)
+{
+    float next = min(floor(frame) + 1.0f, tiles - 1.0f);
+    if (mode == 2)
+    {
+        next = mod(floor(frame) + 1.0f, tiles);
+    }
+    return next;
+}
+
+float proceduralKey(float2 p, float t, int mode)
+{
+    float2 q = p * 2.0f;
+    if (mode == 17)
+    {
+        float tight = max(uProcParams.x, 1.0f);
+        float aniso = max(uProcParams.y, 0.0500000007450580596923828125f);
+        float2 qa = float2(q.x * aniso, q.y);
+        float r = length(qa);
+        float core = exp(((-r) * r) * tight);
+        float hstr = (exp(((-qa.y) * qa.y) * 230.0f) * exp((-abs(qa.x)) * 2.400000095367431640625f)) * 0.439999997615814208984375f;
+        float vstr = (exp(((-qa.x) * qa.x) * 330.0f) * exp((-abs(qa.y)) * 1.7000000476837158203125f)) * 0.37999999523162841796875f;
+        return clamp(1.0f - clamp((core * 2.2000000476837158203125f) + ((hstr + vstr) * 1.10000002384185791015625f), 0.0f, 1.0f), 0.0f, 1.0f);
+    }
+    if (mode == 18)
+    {
+        return clamp(length(q), 0.0f, 1.0f);
+    }
+    return -1.0f;
+}
+
+float linDepth(float z)
+{
+    float zn = (z * 2.0f) - 1.0f;
+    return ((2.0f * uNear) * uFar) / max((uFar + uNear) - (zn * (uFar - uNear)), 9.9999997473787516355514526367188e-06f);
+}
+
+float softDepth()
+{
+    if (uSoft <= 0.0f)
+    {
+        return 1.0f;
+    }
+    float2 sc = gl_FragCoord.xy / max(uResolution, 1.0f.xx);
+    float param = tDepth.Sample(samplertDepth, sc).x;
+    float sd = linDepth(param);
+    float param_1 = gl_FragCoord.z;
+    float fd = linDepth(param_1);
+    return clamp((sd - fd) / uSoft, 0.0f, 1.0f);
+}
+
+void cellLookup(float3 nrm, out float3 site, out float id, inout float edge)
+{
+    int centre = int(floor(((1.0f - nrm.y) * uCells) * 0.5f));
+    float d1 = 9.0f;
+    float d2 = 9.0f;
+    id = 0.0f;
+    site = float3(0.0f, 1.0f, 0.0f);
+    for (int k = -52; k <= 52; k++)
+    {
+        int idx = centre + k;
+        bool _3945 = idx < 0;
+        bool _3954;
+        if (!_3945)
+        {
+            _3954 = idx >= int(uCells);
+        }
+        else
+        {
+            _3954 = _3945;
+        }
+        if (_3954)
+        {
+            continue;
+        }
+        float3 q = uSites.Sample(sampleruSites, float2((float(idx) + 0.5f) / 1024.0f, 0.5f)).xyz;
+        float d = distance(q, nrm);
+        if (d < d1)
+        {
+            d2 = d1;
+            d1 = d;
+            id = float(idx);
+            site = q;
+        }
+        else
+        {
+            if (d < d2)
+            {
+                d2 = d;
+            }
+        }
+    }
+    edge = (d2 - d1) / max(uCellA, 9.9999997473787516355514526367188e-05f);
+}
+
+float latHash(inout float p)
+{
+    p = frac(p * 0.103100001811981201171875f);
+    p *= (p + 33.3300018310546875f);
+    p *= (p + p);
+    return frac(p);
+}
+
+float3 smokeNormal(float2 uv)
+{
+    float2 xy = (uv * 2.0f) - 1.0f.xx;
+    float z = sqrt(max(0.0f, 1.0f - dot(xy, xy)));
+    return normalize(((uSmokeRight * xy.x) + (uSmokeUp * xy.y)) + (uSmokeForward * max(z, 0.00999999977648258209228515625f)));
+}
+
+float3 smokeLighting(float3 normal, float3 world)
+{
+    float3 light = uSmokeAmbient.xxx;
+    for (int i = 0; i < 4; i++)
+    {
+        float3 delta = uSmokeLights[i].xyz - world;
+        float d = length(delta);
+        float3 direction = delta / max(d, 0.001000000047497451305389404296875f).xxx;
+        float wrap = clamp((dot(normal, direction) + 0.5f) / 1.5f, 0.0f, 1.0f);
+        float rangeFade = 1.0f - smoothstep(uSmokeLights[i].w * 0.75f, uSmokeLights[i].w, d);
+        float attenuation = rangeFade / max(pow(max(d, 0.25f), uSmokeLights[i + 4].w), 1.0f);
+        light += ((uSmokeLights[i + 4].xyz * wrap) * attenuation);
+    }
+    return light;
+}
+
+void frag_main()
+{
+    float3 param = uCam - vWp;
+    float3 param_1 = float3(0.0f, 0.0f, 1.0f);
+    float3 V = safeDir(param, param_1);
+    float fres = 1.0f - abs(dot(vN, V));
+    if (uProcedural >= 21)
+    {
+        float2 sp = (vUv - 0.5f.xx) * 2.0f;
+        float2 param_2 = sp;
+        float param_3 = uSymbolSeed;
+        int param_4 = uProcedural;
+        float param_5;
+        float param_6;
+        float param_7;
+        float param_8;
+        float param_9;
+        symbolShape(param_2, param_3, param_4, param_5, param_6, param_7, param_8, param_9);
+        float body = param_5;
+        float ring = param_6;
+        float ink = param_7;
+        float high = param_8;
+        float hot = param_9;
+        float a = ((body * uOpacity) + ring) * uFlicker;
+        if (((body + ring) < 0.0040000001899898052215576171875f) || (a < 0.0030000000260770320892333984375f))
+        {
+            discard;
+        }
+        float2 param_10 = vUv;
+        float3 param_11 = vObj;
+        float tone = screentoneAt(param_10, param_11) * body;
+        float3 col = lerp(uSymFill, uScreenCol, (tone * 0.550000011920928955078125f).xxx);
+        col = lerp(col, uSymHigh, (high * 0.85000002384185791015625f).xxx);
+        col = lerp(col, uSymHot, (hot * uSymHotA).xxx);
+        col = lerp(col, uSymOutline, ring.xxx);
+        col = lerp(col, uSymInk, ink.xxx);
+        col *= (1.0f + ((hot * uSymHotA) * uSymHotI));
+        if (uChannel >= 0.0f)
+        {
+            float3 _4337;
+            if (uChannel < 0.5f)
+            {
+                _4337 = float3(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                bool3 _4346 = (uChannel < 1.5f).xxx;
+                _4337 = float3(_4346.x ? float3(0.0f, 1.0f, 0.0f).x : float3(0.0f, 0.0f, 1.0f).x, _4346.y ? float3(0.0f, 1.0f, 0.0f).y : float3(0.0f, 0.0f, 1.0f).y, _4346.z ? float3(0.0f, 1.0f, 0.0f).z : float3(0.0f, 0.0f, 1.0f).z);
+            }
+            col *= _4337;
+        }
+        if (uBlendMode == 1)
+        {
+            avfxColor = float4(col, clamp(a, 0.0f, 1.0f));
+        }
+        else
+        {
+            avfxColor = float4(col * a, clamp(a, 0.0f, 1.0f));
+        }
+        return;
+    }
+    if (uSlab == 1)
+    {
+        float y = abs(vUv.y - 0.5f) * uThickness;
+        float hmax = max(uSlabTier[0].x, 9.9999997473787516355514526367188e-05f);
+        float3 c = 0.0f.xxx;
+        float a_1 = 0.0f;
+        for (int i = 0; i < 4; i++)
+        {
+            if (i >= uSlabN)
+            {
+                break;
+            }
+            float h = max(uSlabTier[i].x, 9.9999997473787516355514526367188e-05f);
+            float e = h * 0.07999999821186065673828125f;
+            float w = 1.0f - smoothstep(h - e, h + e, y);
+            c = lerp(c, uSlabTier[4 + i].xyz, w.xxx);
+            a_1 += (w * uSlabTier[i].y);
+        }
+        a_1 += (exp(((-(y / hmax)) * (y / hmax)) * 1.60000002384185791015625f) * 0.100000001490116119384765625f);
+        a_1 *= (smoothstep(0.0f, 0.070000000298023223876953125f, vAlong) * (1.0f - smoothstep(0.87999999523162841796875f, 1.019999980926513671875f, vAlong)));
+        float param_12 = vAlong * uLength;
+        float param_13 = vUv.y;
+        float param_14 = uTime;
+        a_1 *= ((stripeTerm(param_12, param_13, param_14) * uOpacity) * uFlicker);
+        if (a_1 < 0.00200000009499490261077880859375f)
+        {
+            discard;
+        }
+        if (uBlendMode == 1)
+        {
+            avfxColor = float4(c, a_1);
+        }
+        else
+        {
+            avfxColor = float4(c * a_1, a_1);
+        }
+        return;
+    }
+    if (uFrame == 1)
+    {
+        float2 H = float2(max(uRadius - (uThickness * 0.5f), 0.001000000047497451305389404296875f), max((uLength * 0.5f) - (uThickness * 0.5f), 0.001000000047497451305389404296875f));
+        float2 param_15 = vObj.xy;
+        float2 param_16 = H;
+        float param_17 = min(uCorner, min(H.x, H.y) * 0.980000019073486328125f);
+        float d = sdRoundRect(param_15, param_16, param_17);
+        float ad = abs(d);
+        float2 param_18 = vObj.xy;
+        float2 param_19 = H;
+        float u = framePerimeter(param_18, param_19);
+        float front = lerp(uRevealFrom, uRevealTo, clamp(uLayerU, 0.0f, 1.0f));
+        float _4588;
+        if (uHasReveal == 1)
+        {
+            _4588 = 1.0f - smoothstep(front, front + max(uRevealWidth, 0.001000000047497451305389404296875f), u);
+        }
+        else
+        {
+            _4588 = 1.0f;
+        }
+        float gate = _4588;
+        float lk = (u - front) / max(uRevealWidth, 0.001000000047497451305389404296875f);
+        float _4615;
+        if (uHasReveal == 1)
+        {
+            _4615 = (exp(((-lk) * lk) * 4.0f) * step(0.0040000001899898052215576171875f, front)) * step(front, 0.995999991893768310546875f);
+        }
+        else
+        {
+            _4615 = 0.0f;
+        }
+        float lead = _4615;
+        float param_20 = u;
+        float param_21 = uTime;
+        float bead = beadTerm(param_20, param_21);
+        float hw = uThickness * 0.5f;
+        float core = 1.0f - smoothstep(hw - (uThickness * 0.07999999821186065673828125f), hw + (uThickness * 0.0500000007450580596923828125f), ad);
+        float sk = d / max(uSdfSpine, 9.9999997473787516355514526367188e-05f);
+        float ik = (d + uSdfInnerOff) / max(uSdfInnerW, 9.9999997473787516355514526367188e-05f);
+        float _4680;
+        if (uSdfSpine > 0.0f)
+        {
+            _4680 = exp((-sk) * sk);
+        }
+        else
+        {
+            _4680 = 0.0f;
+        }
+        float spine = _4680;
+        float _4694;
+        if (uSdfInnerW > 0.0f)
+        {
+            _4694 = exp((-ik) * ik);
+        }
+        else
+        {
+            _4694 = 0.0f;
+        }
+        float inner = _4694;
+        float halo = 0.0f;
+        for (int i_1 = 0; i_1 < 3; i_1++)
+        {
+            if (i_1 >= uSdfN)
+            {
+                break;
+            }
+            halo += (exp((-ad) / max(uSdfHalo[i_1].xy.x, 9.9999997473787516355514526367188e-05f)) * uSdfHalo[i_1].xy.y);
+        }
+        float lit = (bead * 0.10999999940395355224609375f) + (lead * 0.1599999964237213134765625f);
+        float param_22 = 0.2199999988079071044921875f;
+        float3 _4746 = rampColor(param_22);
+        float param_23 = 0.0f;
+        float3 _4756 = rampColor(param_23);
+        float param_24 = 0.449999988079071044921875f;
+        float3 _4768 = rampColor(param_24);
+        float param_25 = 1.0f;
+        float3 _4773 = rampColor(param_25);
+        float3 col_1 = ((((_4746 * core) * (uSdfCore + lit)) + ((_4756 * spine) * ((1.0f + (bead * 0.37999999523162841796875f)) + (lead * 1.5f)))) + (_4768 * inner)) + (_4773 * halo);
+        float a_2 = clamp((((core * uSdfCore) + (spine * 0.800000011920928955078125f)) + (inner * 0.89999997615814208984375f)) + halo, 0.0f, 1.0f);
+        float param_26 = u * max(2.0f * (uRadius + (uLength * 0.5f)), 0.001000000047497451305389404296875f);
+        float param_27 = ad / max(hw, 9.9999997473787516355514526367188e-05f);
+        float param_28 = uTime;
+        a_2 *= (((gate * uOpacity) * uFlicker) * stripeTerm(param_26, param_27, param_28));
+        col_1 *= gate;
+        if (uReflect == 1)
+        {
+            col_1 = lerp(col_1, uReflectTint, 0.449999988079071044921875f.xxx);
+            a_2 *= (uReflectOpacity * (1.0f - smoothstep(0.0f, max(1.0f - uReflectBlur, 0.0500000007450580596923828125f), clamp(vUv.y, 0.0f, 1.0f))));
+        }
+        if (uChannel >= 0.0f)
+        {
+            float3 _4860;
+            if (uChannel < 0.5f)
+            {
+                _4860 = float3(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                bool3 _4867 = (uChannel < 1.5f).xxx;
+                _4860 = float3(_4867.x ? float3(0.0f, 1.0f, 0.0f).x : float3(0.0f, 0.0f, 1.0f).x, _4867.y ? float3(0.0f, 1.0f, 0.0f).y : float3(0.0f, 0.0f, 1.0f).y, _4867.z ? float3(0.0f, 1.0f, 0.0f).z : float3(0.0f, 0.0f, 1.0f).z);
+            }
+            col_1 *= _4860;
+        }
+        if (a_2 < 0.0030000000260770320892333984375f)
+        {
+            discard;
+        }
+        if (uBlendMode == 1)
+        {
+            avfxColor = float4(col_1, a_2);
+        }
+        else
+        {
+            avfxColor = float4(col_1 * a_2, a_2);
+        }
+        return;
+    }
+    if (uProcedural == 19)
+    {
+        float2 q = (vUv - 0.5f.xx) * 2.0f;
+        float dd = length(q);
+        if (dd > 1.0f)
+        {
+            discard;
+        }
+        float2 param_29 = q;
+        float param_30 = uTime;
+        float2 sw = swirlDisc(param_29, param_30);
+        float outer = 1.0f - smoothstep(0.7799999713897705078125f, 1.03999996185302734375f, dd);
+        float param_31 = clamp(uLayerU, 0.0f, 1.0f);
+        float _4933 = curveC(param_31);
+        float thr = _4933 + ((uRimBias * 0.550000011920928955078125f) * smoothstep(0.20000000298023223876953125f, 1.0f, dd));
+        float mask = smoothstep(thr, thr + max(uErodeSoft, 0.00999999977648258209228515625f), sw.x) * outer;
+        float param_32 = dd * 1.9500000476837158203125f;
+        float param_33 = 2.0f;
+        float litR = 1.0f / (1.0f + safePow(param_32, param_33));
+        float param_34 = clamp(1.0f - litR, 0.0f, 1.0f);
+        float3 _4969 = rampColor(param_34);
+        float3 col_2 = _4969;
+        col_2 = lerp(col_2 * 0.300000011920928955078125f, col_2, sw.y.xxx);
+        col_2 *= (0.62000000476837158203125f + (0.5f * litR));
+        float param_35 = 0.0f;
+        float3 _4983 = rampColor(param_35);
+        col_2 += ((_4983 * smoothstep(0.86000001430511474609375f, 1.0f, litR)) * 0.180000007152557373046875f);
+        float a_3 = (mask * uOpacity) * uFlicker;
+        if (uReflect == 1)
+        {
+            col_2 = lerp(col_2, uReflectTint, 0.449999988079071044921875f.xxx);
+            a_3 *= uReflectOpacity;
+        }
+        if (uChannel >= 0.0f)
+        {
+            float3 _5020;
+            if (uChannel < 0.5f)
+            {
+                _5020 = float3(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                bool3 _5027 = (uChannel < 1.5f).xxx;
+                _5020 = float3(_5027.x ? float3(0.0f, 1.0f, 0.0f).x : float3(0.0f, 0.0f, 1.0f).x, _5027.y ? float3(0.0f, 1.0f, 0.0f).y : float3(0.0f, 0.0f, 1.0f).y, _5027.z ? float3(0.0f, 1.0f, 0.0f).z : float3(0.0f, 0.0f, 1.0f).z);
+            }
+            col_2 *= _5020;
+        }
+        if (a_3 < 0.0030000000260770320892333984375f)
+        {
+            discard;
+        }
+        if (uBlendMode == 1)
+        {
+            avfxColor = float4(col_2, a_3);
+        }
+        else
+        {
+            avfxColor = float4(col_2 * a_3, a_3);
+        }
+        return;
+    }
+    float flowMask = -1.0f;
+    if (uFlowOn == 1)
+    {
+        float3 param_36 = uCam - vWp;
+        float3 param_37 = float3(0.0f, 0.0f, 1.0f);
+        float2 vd = mul(float4(safeDir(param_36, param_37), 0.0f), viewMatrix).xy;
+        float2 param_38 = vUv * float2(uRadius * 2.0f, uLength);
+        float param_39 = uTime;
+        float2 param_40 = vd;
+        float field = flowField(param_38, param_39, param_40);
+        flowMask = smoothstep(uFlowCut.x, uFlowCut.x + max(uFlowCut.y, 0.001000000047497451305389404296875f), field);
+    }
+    float n = 0.5f;
+    if (uFlowOn == 1)
+    {
+        n = flowMask;
+    }
+    else
+    {
+        if (uShell == 1)
+        {
+            float3 param_41 = float3(vUv.x * 3.0f, (vAlong * 3.2000000476837158203125f) - (uTime * 2.0f), 0.699999988079071044921875f);
+            float3 param_42 = float3(vUv.x * 6.0f, (vAlong * 6.0f) - (uTime * 3.099999904632568359375f), 2.2999999523162841796875f);
+            n = 0.5f + (0.5f * ((0.699999988079071044921875f * snoise(param_41)) + (0.300000011920928955078125f * snoise(param_42))));
+            if (uHasNoise == 1)
+            {
+                float ntex = uNoise.Sample(sampleruNoise, float2(vUv.x * uNoiseScale.x, (vAlong * uNoiseScale.y) + (uNoisePan.y * uTime))).x;
+                n = (n * 0.75f) + (ntex * 0.25f);
+            }
+        }
+        else
+        {
+            if (uHasNoise == 1)
+            {
+                n = uNoise.Sample(sampleruNoise, (vUv * uNoiseScale) + (uNoisePan * uTime)).x;
+            }
+            else
+            {
+                float3 param_43 = float3(((vUv * uNoiseScale) * 2.0f) + (uNoisePan * uTime), 3.099999904632568359375f);
+                n = 0.5f + (0.5f * fbm3(param_43));
+            }
+        }
+    }
+    float shape = 1.0f;
+    float3 dims = float3(uRadius, uLength, uThickness);
+    if (uBolt == 1)
+    {
+        float param_44 = abs(dot(vN, V));
+        float param_45 = 0.64999997615814208984375f;
+        shape = safePow(param_44, param_45);
+    }
+    else
+    {
+        bool _5247 = uShell == 1;
+        bool _5255;
+        if (!_5247)
+        {
+            _5255 = uHasLattice == 1;
+        }
+        else
+        {
+            _5255 = _5247;
+        }
+        bool _5263;
+        if (!_5255)
+        {
+            _5263 = uBand == 1;
+        }
+        else
+        {
+            _5263 = _5255;
+        }
+        if (_5263)
+        {
+            bool _5268 = uProcedural >= 4;
+            bool _5274;
+            if (_5268)
+            {
+                _5274 = uProcedural < 12;
+            }
+            else
+            {
+                _5274 = _5268;
+            }
+            if (_5274)
+            {
+                float _5280;
+                if (uShell == 1)
+                {
+                    float2 param_46 = float2(vRing, vAlong) - 0.5f.xx;
+                    float2 param_47 = float2(vRing, vAlong);
+                    float param_48 = n;
+                    float param_49 = uTime;
+                    float param_50 = fres;
+                    float2 param_51 = uMaskScale;
+                    float3 param_52 = dims;
+                    int param_53 = uProcedural;
+                    _5280 = proceduralShape(param_46, param_47, param_48, param_49, param_50, param_51, param_52, param_53);
+                }
+                else
+                {
+                    float2 param_54 = vUv - 0.5f.xx;
+                    float2 param_55 = vUv;
+                    float param_56 = n;
+                    float param_57 = uTime;
+                    float param_58 = fres;
+                    float2 param_59 = uMaskScale;
+                    float3 param_60 = dims;
+                    int param_61 = uProcedural;
+                    _5280 = proceduralShape(param_54, param_55, param_56, param_57, param_58, param_59, param_60, param_61);
+                }
+                shape = _5280;
+            }
+        }
+        else
+        {
+            if (uHasMask == 0)
+            {
+                float2 param_62 = vUv - 0.5f.xx;
+                float2 param_63 = vUv;
+                float param_64 = n;
+                float param_65 = uTime;
+                float param_66 = fres;
+                float2 param_67 = uMaskScale;
+                float3 param_68 = dims;
+                int param_69 = uProcedural;
+                shape = proceduralShape(param_62, param_63, param_64, param_65, param_66, param_67, param_68, param_69);
+            }
+        }
+    }
+    if (uHasMask == 1)
+    {
+        float nd = n;
+        float2 dp = uDistortPan * uTime;
+        if (dot(dp, dp) > 0.0f)
+        {
+            float _5387;
+            if (uHasNoise == 1)
+            {
+                _5387 = uNoise.Sample(sampleruNoise, ((vUv * uNoiseScale) + (uNoisePan * uTime)) + dp).x;
+            }
+            else
+            {
+                float3 param_70 = float3((((vUv * uNoiseScale) * 2.0f) + (uNoisePan * uTime)) + dp, 3.099999904632568359375f);
+                _5387 = 0.5f + (0.5f * fbm3(param_70));
+            }
+            nd = _5387;
+        }
+        float2 duv = vUv + ((nd - 0.5f) * uDistort).xx;
+        float mc = cos(uMaskRot);
+        float ms = sin(uMaskRot);
+        float2 muv = ((mul(duv - 0.5f.xx, float2x2(float2(mc, -ms), float2(ms, mc))) + 0.5f.xx) * uMaskScale) + uMaskPan;
+        float2 sampleUv = muv;
+        float frame = 0.0f;
+        float cols = float(max(uAtlasCols, 1));
+        float rows = float(max(uAtlasRows, 1));
+        float tiles = cols * rows;
+        if (uFlipMode > 0)
+        {
+            float param_71 = uLayerU;
+            float param_72 = uTime;
+            float param_73 = tiles;
+            int param_74 = uFlipMode;
+            float param_75 = uFlipFps;
+            frame = flipFrame(param_71, param_72, param_73, param_74, param_75);
+            float param_76 = frame;
+            float param_77 = cols;
+            float param_78 = rows;
+            sampleUv = (muv / float2(cols, rows)) + tileOffset(param_76, param_77, param_78);
+        }
+        float4 m = uMask.Sample(sampleruMask, sampleUv);
+        float maskShape = m.w * max(m.x, max(m.y, m.z));
+        bool _5541 = uFlipMode > 0;
+        bool _5547;
+        if (_5541)
+        {
+            _5547 = frac(frame) > 0.0f;
+        }
+        else
+        {
+            _5547 = _5541;
+        }
+        if (_5547)
+        {
+            float param_79 = frame;
+            float param_80 = tiles;
+            int param_81 = uFlipMode;
+            float param_82 = nextFlipFrame(param_79, param_80, param_81);
+            float param_83 = cols;
+            float param_84 = rows;
+            float2 nextUv = (muv / float2(cols, rows)) + tileOffset(param_82, param_83, param_84);
+            float4 next = uMask.Sample(sampleruMask, nextUv);
+            maskShape = lerp(maskShape, next.w * max(next.x, max(next.y, next.z)), frac(frame));
+        }
+        shape *= maskShape;
+    }
+    float key;
+    if (uRampKeyMode > 4.5f)
+    {
+        key = clamp(vUv.y, 0.0f, 1.0f);
+    }
+    else
+    {
+        if (uRampKeyMode > 3.5f)
+        {
+            key = clamp(length((vUv - 0.5f.xx) * 2.0f), 0.0f, 1.0f);
+        }
+        else
+        {
+            bool _5620 = uRampKeyMode > 1.5f;
+            bool _5626;
+            if (_5620)
+            {
+                _5626 = uRampKeyMode < 2.5f;
+            }
+            else
+            {
+                _5626 = _5620;
+            }
+            if (_5626 && (flowMask >= 0.0f))
+            {
+                key = flowMask;
+            }
+            else
+            {
+                if (uRampKeyMode > 2.5f)
+                {
+                    key = clamp((vWp.y - uGroundY) / max(uHeightSpan, 0.001000000047497451305389404296875f), 0.0f, 1.0f);
+                }
+                else
+                {
+                    if (uRampKeyMode > 1.5f)
+                    {
+                        key = clamp((vAlong * 1.08000004291534423828125f) + (((n - 0.5f) * 0.3499999940395355224609375f) * smoothstep(0.1500000059604644775390625f, 0.699999988079071044921875f, vAlong)), 0.0f, 1.0f);
+                    }
+                    else
+                    {
+                        if (uRampKeyMode > 0.5f)
+                        {
+                            key = clamp(uLayerU, 0.0f, 1.0f);
+                        }
+                        else
+                        {
+                            key = clamp(vAlong, 0.0f, 1.0f);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (uRampBlendWeight > 0.0f)
+    {
+        float bkey;
+        if (uRampBlendMode > 4.5f)
+        {
+            bkey = clamp(vUv.y, 0.0f, 1.0f);
+        }
+        else
+        {
+            if (uRampBlendMode > 3.5f)
+            {
+                bkey = clamp(length((vUv - 0.5f.xx) * 2.0f), 0.0f, 1.0f);
+            }
+            else
+            {
+                bool _5712 = uRampBlendMode > 1.5f;
+                bool _5718;
+                if (_5712)
+                {
+                    _5718 = uRampBlendMode < 2.5f;
+                }
+                else
+                {
+                    _5718 = _5712;
+                }
+                if (_5718 && (flowMask >= 0.0f))
+                {
+                    bkey = flowMask;
+                }
+                else
+                {
+                    if (uRampBlendMode > 2.5f)
+                    {
+                        bkey = clamp((vWp.y - uGroundY) / max(uHeightSpan, 0.001000000047497451305389404296875f), 0.0f, 1.0f);
+                    }
+                    else
+                    {
+                        if (uRampBlendMode > 1.5f)
+                        {
+                            bkey = clamp((vAlong * 1.08000004291534423828125f) + (((n - 0.5f) * 0.3499999940395355224609375f) * smoothstep(0.1500000059604644775390625f, 0.699999988079071044921875f, vAlong)), 0.0f, 1.0f);
+                        }
+                        else
+                        {
+                            if (uRampBlendMode > 0.5f)
+                            {
+                                bkey = clamp(uLayerU, 0.0f, 1.0f);
+                            }
+                            else
+                            {
+                                bkey = clamp(vAlong, 0.0f, 1.0f);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        key = lerp(key, bkey, uRampBlendWeight);
+    }
+    if (uHasFresnel == 1)
+    {
+        float param_85 = fres;
+        float param_86 = uFresnelPower;
+        float _5794;
+        if (uHasLattice == 1)
+        {
+            _5794 = 1.0f;
+        }
+        else
+        {
+            _5794 = smoothstep(0.0f, 0.4000000059604644775390625f, vAlong);
+        }
+        key += ((safePow(param_85, param_86) * uFresnelStrength) * _5794);
+    }
+    key += (uDisplaceShift * vLobe);
+    float2 param_87 = vUv - 0.5f.xx;
+    float param_88 = uTime;
+    int param_89 = uProcedural;
+    float pk = proceduralKey(param_87, param_88, param_89);
+    if (pk >= 0.0f)
+    {
+        key = pk;
+    }
+    key = clamp(key, 0.0f, 1.0f);
+    float alpha = uOpacity;
+    float rim = 0.0f;
+    if (uUseErosion == 1)
+    {
+        float3 param_90 = float3(vUv.x * 1.14999997615814208984375f, (vAlong * 1.25f) - (uTime * 1.5f), 4.099999904632568359375f);
+        float low = 0.5f + (0.5f * snoise(param_90));
+        float _5859;
+        if (uShell == 1)
+        {
+            _5859 = (((0.25f * low) + (0.75f * n)) * 0.89999997615814208984375f) + 0.20000000298023223876953125f;
+        }
+        else
+        {
+            _5859 = shape * (0.3499999940395355224609375f + (n * 0.89999997615814208984375f));
+        }
+        float field_1 = _5859;
+        float param_91 = vAlong;
+        float _5879 = curveC(param_91);
+        float th = max(0.0f, (_5879 - (vLobe * uProtect)) + ((fres * uRimBias) * 0.5f));
+        float er = smoothstep(th, th + uErodeSoft, field_1);
+        if (er < 0.00999999977648258209228515625f)
+        {
+            discard;
+        }
+        rim = smoothstep(th - uEdgeW, th + (uErodeSoft * 0.5f), field_1) - er;
+        alpha *= er;
+    }
+    alpha *= (shape * softDepth());
+    float param_92 = vAlong * uLength;
+    float param_93 = vRing;
+    float param_94 = uTime;
+    alpha *= (stripeTerm(param_92, param_93, param_94) * uFlicker);
+    float3 param_95 = vObj;
+    float3 param_96 = float3(0.0f, 1.0f, 0.0f);
+    float3 objN = safeDir(param_95, param_96);
+    float front_1 = lerp(uRevealFrom, uRevealTo, clamp(uLayerU, 0.0f, 1.0f));
+    float ndv = abs(dot(vN, V));
+    float _5968;
+    if (uHasPlaneGlow == 1)
+    {
+        _5968 = smoothstep(uPlaneDist, 0.0f, vWp.y - uGroundY);
+    }
+    else
+    {
+        _5968 = 0.0f;
+    }
+    float nearGround = _5968;
+    float latticeVis = 0.0f;
+    float3 latticeCol = 0.0f.xxx;
+    if (uHasLattice == 1)
+    {
+        float3 param_97 = objN;
+        float3 param_98;
+        float param_99;
+        float param_100;
+        cellLookup(param_97, param_98, param_99, param_100);
+        float3 site = param_98;
+        float id = param_99;
+        float edge = param_100;
+        float param_101 = (id * 1.7000000476837158203125f) + 0.310000002384185791015625f;
+        float _6006 = latHash(param_101);
+        float hc = _6006;
+        float cellKey = (1.0f - site.y) * 0.5f;
+        float _6016;
+        if (uHasReveal == 1)
+        {
+            _6016 = 1.0f - smoothstep(front_1 - 0.039999999105930328369140625f, front_1 + 0.0199999995529651641845703125f, cellKey);
+        }
+        else
+        {
+            _6016 = 1.0f;
+        }
+        float on = _6016;
+        float _6033;
+        if (uHasReveal == 1)
+        {
+            _6033 = 1.0f - smoothstep(0.0f, max(uRevealWidth, 0.001000000047497451305389404296875f), abs(cellKey - front_1));
+        }
+        else
+        {
+            _6033 = 0.0f;
+        }
+        float band = _6033;
+        float _6052;
+        if (uHasDissolve == 1)
+        {
+            _6052 = 1.0f - smoothstep(hc * uDisStagger, (hc * uDisStagger) + uDisSoft, max(0.0f, clamp(uLayerU, 0.0f, 1.0f) - uDisStart));
+        }
+        else
+        {
+            _6052 = 1.0f;
+        }
+        float off = _6052;
+        float cellOn = on * off;
+        float pulse = 0.5f + (0.5f * sin(((uTime * uPulseSpeed) - ((1.0f - site.y) * 2.599999904632568359375f)) + ((hc * uPhaseJitter) * 6.283185482025146484375f)));
+        float rip = 0.0f;
+        for (int i_2 = 0; i_2 < 4; i_2++)
+        {
+            if (i_2 >= uRippleN)
+            {
+                break;
+            }
+            float age = uTime - uRipple[i_2].w;
+            if (age < 0.0f)
+            {
+                continue;
+            }
+            float gc = acos(clamp(dot(objN, uRipple[i_2].xyz), -1.0f, 1.0f));
+            float r = age * uRipple[4 + i_2].x;
+            rip += ((1.0f - smoothstep(0.0f, max(uRipple[4 + i_2].y, 0.001000000047497451305389404296875f), abs(gc - r))) * exp((-age) * uRipple[4 + i_2].z));
+        }
+        float gap = smoothstep(uLatGap, uLatEdge, edge);
+        float _line = smoothstep(uLatEdge * 1.7000000476837158203125f, uLatEdge, edge) * gap;
+        float fill = smoothstep(uLatEdge * 1.10000002384185791015625f, uLatEdge * 2.0f, edge);
+        float graze = smoothstep(0.02999999932944774627685546875f, max(uGrazeFade, 0.039999999105930328369140625f), ndv);
+        float param_102 = 1.0f - ndv;
+        float param_103 = 2.2000000476837158203125f;
+        float soft = safePow(param_102, param_103);
+        latticeVis = (0.2599999904632568359375f + (0.7400000095367431640625f * max(soft * graze, nearGround))) * graze;
+        float bright = ((0.699999988079071044921875f + (0.550000011920928955078125f * pulse)) + (rip * 0.89999997615814208984375f)) * cellOn;
+        latticeCol = (((((uTileCol * fill) * bright) * latticeVis) * 0.62000000476837158203125f) + ((((uLatEdgeCol * _line) * bright) * latticeVis) * 0.4600000083446502685546875f)) + ((((float3(0.89999997615814208984375f, 1.0f, 0.980000019073486328125f) * band) * ((fill * 0.3499999940395355224609375f) + (_line * 0.800000011920928955078125f))) * 0.550000011920928955078125f) * graze);
+        alpha *= lerp(0.2800000011920928955078125f, 1.0f, max(cellOn, soft * graze));
+    }
+    else
+    {
+        if (uHasReveal == 1)
+        {
+            float _6289;
+            if (uRevealMode == 0)
+            {
+                _6289 = length(vObj.xy);
+            }
+            else
+            {
+                _6289 = (1.0f - objN.y) * 0.5f;
+            }
+            float key2 = _6289;
+            alpha *= (1.0f - smoothstep(front_1 - 0.0199999995529651641845703125f, front_1 + 0.02999999932944774627685546875f, key2));
+            alpha *= (1.0f + ((1.0f - smoothstep(0.0f, max(uRevealWidth, 0.001000000047497451305389404296875f), abs(key2 - front_1))) * 0.89999997615814208984375f));
+        }
+    }
+    if (uBand == 1)
+    {
+        alpha *= (0.89999997615814208984375f + (0.100000001490116119384765625f * sin(((vUv.x * max(uBandStripes, 1.0f)) * 6.283185482025146484375f) - (uTime * 2.0f))));
+        alpha *= (smoothstep(0.0f, 0.070000000298023223876953125f, vUv.y) * smoothstep(1.0f, 0.930000007152557373046875f, vUv.y));
+        alpha *= (gl_FrontFacing ? 1.0f : 0.85000002384185791015625f);
+    }
+    float param_104 = key;
+    float3 _6364 = rampColor(param_104);
+    float3 col_3 = _6364;
+    if (uCreaseOn == 1)
+    {
+        float3 param_105 = float3(vRing * uCrease.x, ((vAlong * uCrease.x) * 0.185000002384185791015625f) - (uTime * 0.89999997615814208984375f), 5.30000019073486328125f);
+        float gr = 0.5f + (0.5f * snoise(param_105));
+        float crease = smoothstep(0.439999997615814208984375f, 0.300000011920928955078125f, gr) * smoothstep(uCrease.z, uCrease.z + 0.0900000035762786865234375f, vAlong);
+        col_3 *= lerp(1.0f, 1.0f - clamp(uCrease.y, 0.0f, 1.0f), crease);
+    }
+    if (uStreakOn == 1)
+    {
+        float _6423;
+        if (uStreakRadiate == 1)
+        {
+            _6423 = (vRing * uStreakA.x) + (vAlong * 0.89999997615814208984375f);
+        }
+        else
+        {
+            _6423 = vAlong * uStreakA.x;
+        }
+        float key_ = _6423;
+        float band_1 = frac((key_ - (uTime * uStreakA.y)) + ((n - 0.5f) * 0.100000001490116119384765625f));
+        float stripe = smoothstep(uStreakA.z, uStreakA.z * 0.3499999940395355224609375f, abs(band_1 - 0.5f));
+        float _6467;
+        if (uStreakA.w > 0.0f)
+        {
+            float3 param_106 = float3((vRing * uStreakA.w) * 6.283185482025146484375f, vAlong * 0.3499999940395355224609375f, uTime * 0.300000011920928955078125f);
+            _6467 = smoothstep(0.3400000035762786865234375f, 0.579999983310699462890625f, 0.5f + (0.5f * snoise(param_106)));
+        }
+        else
+        {
+            _6467 = 1.0f;
+        }
+        float seg = _6467;
+        float fade = smoothstep(uStreakB.y, uStreakB.y + 0.119999997317790985107421875f, vAlong) * (1.0f - smoothstep(max(uStreakB.z - 0.4000000059604644775390625f, uStreakB.y), uStreakB.z, vAlong));
+        col_3 += ((((uStreakCol * stripe) * seg) * fade) * uStreakB.x);
+    }
+    if (uHasLattice == 1)
+    {
+        col_3 = (col_3 * lerp(0.3499999940395355224609375f, 1.0f, latticeVis)) + latticeCol;
+    }
+    if (uHasPlaneGlow == 1)
+    {
+        col_3 += ((uPlaneCol * nearGround) * uPlaneI);
+    }
+    if (uBand == 1)
+    {
+        col_3 *= (gl_FrontFacing ? 1.0f : 0.4199999868869781494140625f);
+    }
+    if (uSmokeLit == 1)
+    {
+        float3 _6569;
+        if (uSmokeCard == 1)
+        {
+            float2 param_107 = vUv;
+            _6569 = smokeNormal(param_107);
+        }
+        else
+        {
+            _6569 = normalize(vN);
+        }
+        float3 param_108 = _6569;
+        float3 param_109 = vWp;
+        col_3 *= smokeLighting(param_108, param_109);
+    }
+    if (uShell == 1)
+    {
+        col_3 *= lerp(1.0f + ((n - 0.5f) * 0.180000007152557373046875f), 1.0f, smoothstep(0.07999999821186065673828125f, 0.449999988079071044921875f, vAlong));
+        alpha *= (1.0f - (smoothstep(0.5f, 1.0f, vAlong) * 0.5f));
+    }
+    col_3 += (((uEdgeCol * uEdgeI) * rim) * (1.0f - smoothstep(0.5f, 0.949999988079071044921875f, vAlong)));
+    if (uReflect == 1)
+    {
+        col_3 = lerp(col_3, uReflectTint, 0.449999988079071044921875f.xxx);
+        alpha *= (uReflectOpacity * (1.0f - smoothstep(0.0f, max(1.0f - uReflectBlur, 0.0500000007450580596923828125f), clamp(vUv.y, 0.0f, 1.0f))));
+    }
+    if (uChannel >= 0.0f)
+    {
+        float3 _6653;
+        if (uChannel < 0.5f)
+        {
+            _6653 = float3(1.0f, 0.0f, 0.0f);
+        }
+        else
+        {
+            bool3 _6660 = (uChannel < 1.5f).xxx;
+            _6653 = float3(_6660.x ? float3(0.0f, 1.0f, 0.0f).x : float3(0.0f, 0.0f, 1.0f).x, _6660.y ? float3(0.0f, 1.0f, 0.0f).y : float3(0.0f, 0.0f, 1.0f).y, _6660.z ? float3(0.0f, 1.0f, 0.0f).z : float3(0.0f, 0.0f, 1.0f).z);
+        }
+        col_3 *= _6653;
+    }
+    if (alpha < 0.00200000009499490261077880859375f)
+    {
+        discard;
+    }
+    if (uBlendMode == 1)
+    {
+        avfxColor = float4(col_3, alpha);
+    }
+    else
+    {
+        avfxColor = float4(col_3 * alpha, alpha);
+    }
+}
+
+SPIRV_Cross_Output avfxFragment(SPIRV_Cross_Input stage_input)
+{
+    gl_FragCoord = stage_input.gl_FragCoord;
+    gl_FragCoord.w = 1.0 / gl_FragCoord.w;
+    gl_FrontFacing = !stage_input.gl_FrontFacing;
+    vWp = stage_input.vWp;
+    vN = stage_input.vN;
+    vUv = stage_input.vUv;
+    vObj = stage_input.vObj;
+    vAlong = stage_input.vAlong;
+    vRing = stage_input.vRing;
+    vLobe = stage_input.vLobe;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}
+
+#endif
+ENDHLSL
+} } }

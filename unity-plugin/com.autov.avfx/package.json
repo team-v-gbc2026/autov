@@ -1,0 +1,9 @@
+{
+  "name": "com.autov.avfx",
+  "version": "0.1.0",
+  "displayName": "autoV AVFX",
+  "description": "Import and play autoV native Unity export bundles. Experimental Built-in render pipeline adapter.",
+  "unity": "6000.0",
+  "author": { "name": "autoV" },
+  "keywords": ["vfx", "autov", "avfx"]
+}
