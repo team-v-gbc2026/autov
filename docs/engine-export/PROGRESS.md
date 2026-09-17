@@ -88,3 +88,11 @@ Initial tsc reported only missing generated Next LayoutProps; run Next typegen b
 - Mounted the production Studio component via existing `/dev/vfx-studio-v2?fixture=...` routes. Clicked Export 3D, selected 15 Hz, exported Fire Projectile (8 draws) and Shield (7 draws); both completed in the actual dialog. This verifies UI integration, not authentication/project persistence.
 - Geometry/data tests: 5 passed; TypeScript noEmit passed before these C#-only control changes. Unity standalone final build completed successfully.
 - Unreal importer remains unimplemented. The Windows handoff is available locally as a 9.1 MB archive with coherent export zips, reference/native captures, comparison metrics and SHA256 checksums.
+
+## 2026-09-17 — Unreal asset ingestion foundation
+
+- Added `adapters/unreal/avfx_prepare.py`: validates bundle references/base geometry/timing, writes a manifest binding plan, preserves PNGs and converts raw float attributes/data to uncompressed 32-bit FLOAT EXR. This does not substitute a flat preview or diagnostic mesh for the requested 3D rendering.
+- Prepared Fire Projectile (8 draws / 120 texture sources) and Shield (7 draws / 8 float sources). Corrected float metadata suffix to `.rgba32f.json` after the first Shield run rejected a nonexistent path.
+- Independent OpenEXR 3.4.15 + NumPy 2.0.2 decoder in an isolated temp venv verified every RGBA float32 bit for all 111 + 8 generated float textures. Preparation needs only the standard library; decoder libraries are verification-only.
+- Added UE Editor Python import draft: new-folder-only staging, source checksums, float32/linear/no-mip/nearest data texture settings, and explicit runtime-missing report. Syntax validated; UE APIs/imported precision/runtime are NOT verified because UE is not installed on this Mac.
+- This is asset-ingestion progress, not completion of Unreal VFX reproduction. Shader port, actual UE import/render checks, and playable demo remain.

@@ -19,7 +19,7 @@ These measurements describe fixed-time captures of two fixtures, not a guarantee
 
 **Unity:** install the bundle's `Unity/` scripts and shaders once in `Assets/AutoVAdapters`. Copy the rest of the bundle into its own folder under Assets, select `effect.avfx.json`, then choose **Assets → autoV → Import selected AVFX**. Use `Imported/Effect.prefab` in a game. For the Built-in reference preview, put `Imported/Preview.prefab` in an empty scene and press Play. Do not copy duplicate adapter scripts for each additional effect. The preview camera has orbit/zoom/pause controls and matching ACES color output. URP/HDRP post-processing is not validated.
 
-**Unreal:** minimal importer still being implemented; do not treat the current branch as Unreal-ready.
+**Unreal:** [asset-ingestion draft](../../adapters/unreal/README.md) prepares manifest/texture bindings and lossless FLOAT EXR, with a UE Editor Python importer. Preparation is verified on both selected cases; UE API execution, shader port and playback remain unverified/unimplemented. Do not treat this as a playable Unreal effect yet.
 
 ## Development verification
 

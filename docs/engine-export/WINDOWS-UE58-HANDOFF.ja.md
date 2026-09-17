@@ -46,7 +46,8 @@ git switch -c feature/unreal-5.8-vfx-import
 
 **未実装・未検証：**
 
-- **Unreal importer、Unreal shader port、UE 5.8での実行。ここをWindows側で実装・検証してください。**
+- **Unreal shader port、3D再生器、UE 5.8での実行。ここをWindows側で実装・検証してください。**
+- `adapters/unreal/`に標準ライブラリだけで動く準備処理とUE Editor Pythonのasset取り込みスクリプトを追加しました。2ケースの準備処理と119枚のfloatテクスチャのlossless変換は検証済みですが、UE API実行・GPU精度・3D再生は未検証です。詳細は`adapters/unreal/README.md`を参照してください。
 - 現在のbundleにUE用プラグインや完成済みNiagara Systemは入っていません。Unity `.shader`はそのままUEへインポートできません。
 - 任意の全エフェクト、Windows上の全RHI、Unity URP/HDRP等への一般的な互換性は未検証。
 - StudioヘッダーにExport 3Dボタンは実装済みですが、主な実機検証は下記の独立したexport検証ページ経由です。製品UI全体のE2E検証済みとは扱わないでください。
@@ -123,7 +124,7 @@ package.jsonの`dev:local`はPOSIX環境変数構文なので、そのままWind
 - `source.autov.json`：元のAuto Vドキュメント。再export用。
 - `reference/view-0.png`, `view-90.png`, `view-180.png`：640×360、同じ`reference.time`の基準画像。
 - `textures/*.png`：通常の画像。色空間・UV向き・wrap設定をimport時に揃えます。
-- `textures/*.rgba32f` + 同名基底の`.json`：生のfloat32 RGBAデータとwidth/height。色画像扱い、8bit化、sRGB変換、圧縮で破壊しないこと。Shieldの`uSites`はnearest samplingが必要です。
+- `textures/*.rgba32f` + ファイル名に`.json`を追加したメタデータ（例：`texture-0.rgba32f.json`）：生のfloat32 RGBAデータとwidth/height。色画像扱い、8bit化、sRGB変換、圧縮で破壊しないこと。Shieldの`uSites`はnearest samplingが必要です。
 - `attributes/<draw-id>-<geometry-id>.bin` + `.json`：float32 RGBAの属性テクスチャ。カーネルで宣言された属性順、compact行単位。画像加工やmipmapで補間しないこと。
 
 ### Geometryと再生
