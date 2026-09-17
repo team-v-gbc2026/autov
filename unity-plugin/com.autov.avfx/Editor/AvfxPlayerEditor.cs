@@ -7,7 +7,7 @@ public sealed class AvfxPlayerEditor : Editor {
         var player = (AvfxPlayer)target;
         EditorGUILayout.LabelField("autoV Effect", EditorStyles.boldLabel);
         if (player.data == null || player.data.duration <= 0) {
-            EditorGUILayout.HelpBox("Import an extracted native Unity bundle using Assets > autoV > Import selected AVFX.", MessageType.Info);
+            EditorGUILayout.HelpBox("Drop a .avfx file into Assets, then drag the imported effect into your scene.", MessageType.Info);
             return;
         }
         EditorGUI.BeginChangeCheck();
@@ -28,7 +28,7 @@ public sealed class AvfxPlayerEditor : Editor {
                 Undo.RecordObject(player, "Restart autoV playback"); player.Restart();
             }
         }
-        EditorGUILayout.HelpBox("Built-in pipeline. This package reads effect.unity.json bundles, not the newer single-file .avfx archive.", MessageType.Info);
+        EditorGUILayout.HelpBox("Shared .avfx bundle • Built-in pipeline. Soft intersections and camera-dependent particle sorting are not yet supported.", MessageType.Info);
     }
 }
 

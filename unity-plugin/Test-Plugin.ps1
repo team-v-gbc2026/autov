@@ -1,9 +1,16 @@
-param([string]$Unity = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Unity.exe')
+param([string]$Unity = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Unity.exe', [string]$ReuseProject = '')
 $ErrorActionPreference = 'Stop'
 $stage = Join-Path $env:TEMP ('autov-unity-' + [guid]::NewGuid().ToString('N'))
+if ($ReuseProject) {
+    $resolved = [IO.Path]::GetFullPath($ReuseProject)
+    if ([IO.Path]::GetDirectoryName($resolved) -ne [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') -or !([IO.Path]::GetFileName($resolved).StartsWith('autov-unity-'))) { throw 'Only an autoV temporary test project can be reused' }
+    $stage = $resolved
+}
 New-Item -ItemType Directory -Path "$stage\Assets", "$stage\Packages", "$stage\ProjectSettings" -Force | Out-Null
-Copy-Item -Recurse (Join-Path $PSScriptRoot 'com.autov.avfx') "$stage\Packages\com.autov.avfx"
-'{"dependencies":{}}' | Set-Content -Encoding UTF8 "$stage\Packages\manifest.json"
+New-Item -ItemType Directory -Path "$stage\Packages\com.autov.avfx" -Force | Out-Null
+Copy-Item -Recurse -Force (Join-Path $PSScriptRoot 'com.autov.avfx\*') "$stage\Packages\com.autov.avfx"
+Copy-Item (Join-Path $PSScriptRoot '..\godot-plugin\examples\fire-projectile.avfx') "$stage\Assets\fire-projectile.avfx"
+'{"dependencies":{}}' | Set-Content -Encoding ASCII "$stage\Packages\manifest.json"
 $log = "$stage\unity.log"
 Write-Output "Test project: $stage"
 $process = Start-Process -FilePath $Unity -ArgumentList @('-batchmode', '-quit', '-projectPath', $stage, '-executeMethod', 'AvfxSmokeTest.Run', '-logFile', $log) -PassThru -Wait

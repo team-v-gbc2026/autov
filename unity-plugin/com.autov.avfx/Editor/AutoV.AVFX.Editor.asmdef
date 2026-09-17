@@ -1,1 +1,1 @@
-{ "name": "AutoV.AVFX.Editor", "references": ["AutoV.AVFX"], "includePlatforms": ["Editor"], "autoReferenced": true }
+{ "name": "AutoV.AVFX.Editor", "references": ["AutoV.AVFX", "Unity.Newtonsoft.Json"], "includePlatforms": ["Editor"], "autoReferenced": true }

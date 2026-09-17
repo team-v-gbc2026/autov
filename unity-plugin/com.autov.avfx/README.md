@@ -1,24 +1,26 @@
 # autoV AVFX for Unity
 
-Unity 6, Built-in render pipeline. Experimental package.
+Unity 6 / Built-in render pipeline. Experimental adapter for the **shared
+single-file `.avfx` format**, also used by the Godot and Unreal plugins.
 
-Install this `package.json` using Package Manager's **Install package from disk**.
-Do not install the legacy bundle's `Unity/` scripts alongside this package.
+Install this package through Package Manager > Install package from disk.
+Remove duplicate old autoV scripts from Assets if present.
 
-Copy an extracted native Unity export from `feature/unreal-5.8-vfx-import` into
-`Assets`, select `effect.avfx.json`, and choose **Assets > autoV > Import selected
-AVFX**. Drag `Imported/Effect.prefab` into a scene. The effect inspector provides
-editor preview, time scrubbing and playback controls. `Preview.prefab` adds the
-reference camera and Built-in tone mapper; it is optional.
+Drag a Studio-exported `.avfx` into Assets. Unity automatically imports an effect
+with mesh, material and texture subassets. Drag it into your scene and select
+the root for editor preview, time scrubbing and playback controls. **No unzip,
+`effect.unity.json`, or alternate exporter is needed.** Runtime API:
+`AvfxPlayer.Play()`, `Pause()`, `Restart()`, `Seek(seconds)`.
 
-Requires `effect.unity.json`, textures and attribute files in the original bundle
-layout. This is NOT an importer for the newer ZIP `.avfx` bundle. URP/HDRP are not
-supported. Soft intersection fading and authored post effects remain outside
-the reference adapter's supported behavior.
+Supported programs are particle and surface, with double-sided triangle meshes
+and linear PNG textures. Unknown shader revisions and unsupported programs or
+features fail import. URP/HDRP and numeric data textures are not supported yet.
+Soft intersection fading is disabled; camera-dependent particle sorting is not
+implemented. Imported effects do not include source lighting or post-processing.
 
-Runtime: `AvfxPlayer.Play()`, `Pause()`, `Restart()`, `Seek(seconds)`.
-The reference preview camera uses legacy Input Manager; enable it or Both if
-using its mouse/Space controls. Effects themselves have no input dependency.
-
-Source adapter and shader ports: reference commit
-`5ebef9e196cb13b2c755b29054ab875c21dd6356`. Three.js notice: `THREE-LICENSE.txt`.
+The importer reuses trusted Unity shader ports from commit
+`5ebef9e196cb13b2c755b29054ab875c21dd6356`, never executes shader text from a bundle,
+and validates file hashes, GLBs and shader revisions. Third-party notice:
+`THREE-LICENSE.txt`. Shared fire-projectile import and an offscreen render were
+verified in Windows Unity 6000.0.44f1. Visual parity and standalone builds remain
+unverified.

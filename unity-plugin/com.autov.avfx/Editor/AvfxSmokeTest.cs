@@ -15,15 +15,53 @@ public static class AvfxSmokeTest {
             player.Restart(); player.speed=2; player.Advance(.5f); Check(Mathf.Approximately(player.time,1),"speed");
             player.looping=false; player.Advance(2); Check(player.time==2 && !player.playing,"finish");
             player.Seek(-1); Check(player.time==0,"seek");
-            bool rejected=false;
-            try { AvfxImporter.BundlePath("Assets/Bundle","../outside.png"); } catch { rejected=true; }
-            Check(rejected,"path traversal");
-            foreach(var name in new[]{"particle","surface","trail","subParticle","strip","sliver","blob","ribbon","wireBurst","crystal","arc","streak","sheet","crescent","lick","splash","subTrail"}) {
-                var shader=Shader.Find("autoV/Native/"+name);
+            Check(!AvfxBundle.SafePath("../outside.png"),"path traversal");
+            AssetDatabase.ImportAsset("Assets/fire-projectile.avfx",ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+            var effect=AssetDatabase.LoadAssetAtPath<GameObject>("Assets/fire-projectile.avfx");
+            Check(effect!=null,"automatic .avfx import");
+            var imported=effect.GetComponent<AvfxPlayer>();
+            Check(imported!=null && imported.bindings.Length==8,"fire projectile has eight draws");
+            var instance=(GameObject)PrefabUtility.InstantiatePrefab(effect);
+            try {
+                var live=instance.GetComponent<AvfxPlayer>(); live.Seek(.5f); live.Pause();
+                Check(live.bindings[0].filter.sharedMesh!=null,"imported mesh persists");
+                Capture(live);
+            } finally { UnityEngine.Object.DestroyImmediate(instance); }
+            foreach(var name in new[]{"particle","surface"}) {
+                var shader=AssetDatabase.LoadAssetAtPath<Shader>("Packages/com.autov.avfx/Runtime/Shaders/"+name+".shader");
                 Check(shader && !ShaderUtil.ShaderHasError(shader),"shader "+name);
             }
-            Debug.Log("AUTOV_SMOKE_PASS: playback, paths and shader import");
+            Debug.Log("AUTOV_SMOKE_PASS: .avfx import, prefab instantiation, playback, paths and shader import");
         } finally { UnityEngine.Object.DestroyImmediate(go); }
     }
     static void Check(bool condition,string name) { if(!condition) throw new Exception("autoV smoke failure: "+name); }
+    static void Capture(AvfxPlayer player) {
+        var cameraObject=new GameObject("autoV test camera");
+        var target=new RenderTexture(640,360,24,RenderTextureFormat.ARGB32);
+        var image=new Texture2D(640,360,TextureFormat.RGBA32,false);
+        var previous=RenderTexture.active;
+        bool asyncCompilation=ShaderUtil.allowAsyncCompilation;
+        try {
+            ShaderUtil.allowAsyncCompilation=false;
+            var camera=cameraObject.AddComponent<Camera>();
+            camera.transform.position=new Vector3(0,2,-8); camera.transform.LookAt(Vector3.zero);
+            camera.fieldOfView=45; camera.clearFlags=CameraClearFlags.SolidColor; camera.backgroundColor=Color.black;
+            camera.targetTexture=target; target.Create(); player.Seek(1); player.Pause(); camera.Render(); camera.Render();
+            foreach(var binding in player.bindings) {
+                Check(!ShaderUtil.ShaderHasError(binding.material.shader),"compiled draw shader");
+            }
+            RenderTexture.active=target; image.ReadPixels(new Rect(0,0,640,360),0,0); image.Apply();
+            int lit=0; foreach(var pixel in image.GetPixels32()) if(pixel.r>8 || pixel.g>8 || pixel.b>8) lit++;
+            System.IO.File.WriteAllBytes("avfx-smoke.png",image.EncodeToPNG());
+            Check(lit>100,"rendered effect has visible pixels");
+            Debug.Log("AUTOV_RENDER_PASS: "+lit+" visible pixels; avfx-smoke.png");
+            var first=image.GetPixels32();
+            player.Seek(2); camera.Render(); image.ReadPixels(new Rect(0,0,640,360),0,0); image.Apply();
+            var second=image.GetPixels32(); int changed=0;
+            for(int i=0;i<first.Length;i++) if(!first[i].Equals(second[i])) changed++;
+            Check(changed>100,"seek changes rendered timeline state");
+            player.enabled=false; camera.Render(); image.ReadPixels(new Rect(0,0,640,360),0,0); image.Apply();
+            foreach(var pixel in image.GetPixels32()) Check(pixel.r==0 && pixel.g==0 && pixel.b==0,"disabled effect does not render");
+        } finally { ShaderUtil.allowAsyncCompilation=asyncCompilation; RenderTexture.active=previous; UnityEngine.Object.DestroyImmediate(cameraObject); target.Release(); UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(image); }
+    }
 }
