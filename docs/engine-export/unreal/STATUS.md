@@ -46,8 +46,10 @@ Interactive Computer Use checks on the last compiled demo: Fire/Shield switching
 reference-time pause, mouse orbit, and resuming animation worked. The preview HUD
 revealed an additional display issue: it applies gamma to the already encoded
 reference target, so the window appears brighter than the canonical saved PNGs.
-Fix that display conversion and verify it after rebuilding; the image-difference
-metrics above come from render-target readback, not the gamma-affected HUD.
+The source now uses a dedicated canvas pixel shader that copies the encoded target
+without another gamma conversion. It leaves TonePS and PNG readback unchanged.
+This SDR display correction is pending build and visual verification; HDR output
+has not been tested. The metrics above come from render-target readback, not the HUD.
 
 ## Current blocker and next steps
 
@@ -57,8 +59,9 @@ Code Integrity event 3077, error `0x800711C7`. A normal retry also failed. The
 security policy was not disabled or bypassed. The user was asked to resolve the
 Windows development-machine restriction.
 
+The latest normal build retry still failed with 0x800711C7 before C++ compilation.
 The ZIP reader source (libzip with bounded in-memory reads), the billboard unit
-correction and packaging settings were added after the last successful build.
+correction, canvas display shader and packaging settings were added after the last successful build.
 They must not be treated as verified until the following checks pass:
 
 1. Rebuild with `Build.ps1` after the OS restriction is resolved.

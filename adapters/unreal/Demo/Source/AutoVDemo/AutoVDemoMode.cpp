@@ -2,6 +2,7 @@
 #include "AutoVPlayer.h"
 #include "AutoVActor.h"
 #include "AutoVAsset.h"
+#include "AutoVDisplay.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Canvas.h"
 #include "GameFramework/PlayerController.h"
@@ -85,7 +86,7 @@ void AAutoVDemoMode::Tick(float Delta) {
 void AAutoVDemoHUD::DrawHUD() {
     Super::DrawHUD(); auto Mode=Cast<AAutoVDemoMode>(GetWorld()->GetAuthGameMode()); if(!Mode || !Mode->Player || !Mode->Player->Output) return;
     float W=Canvas->SizeX,H=W*9/16; if(H>Canvas->SizeY) { H=Canvas->SizeY; W=H*16/9; }
-    if(!Mode->Player->RenderInWorld) DrawTexture(Mode->Player->Output,(Canvas->SizeX-W)/2,(Canvas->SizeY-H)/2,W,H,0,0,1,1,FLinearColor::White,BLEND_Opaque);
+    if(!Mode->Player->RenderInWorld) DrawAutoVReference(Canvas,Mode->Player->Output,FVector2D((Canvas->SizeX-W)/2,(Canvas->SizeY-H)/2),FVector2D(W,H));
     DrawText(TEXT("AUTO V | 1/2 Effect   Space Pause   Drag Orbit   Wheel Zoom   R Restart   F Reference   V World   O Occluder"),FLinearColor::White,16,16,nullptr,1);
     DrawText(FString::Printf(TEXT("%s  |  %.2fs  |  Native 3D reference renderer"),*Mode->Player->Effect->EffectName,Mode->Player->Time),FLinearColor::White,16,40,nullptr,1);
 }

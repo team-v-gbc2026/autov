@@ -1,0 +1,8 @@
+#include "/Engine/Public/Platform.ush"
+Texture2D<float4> Source;
+SamplerState SourceSampler;
+
+float4 DisplayPS(float2 UV : TEXCOORD0) : SV_Target0 {
+    // Source is already tone-mapped and encoded by TonePS. Do not encode twice.
+    return float4(Source.Sample(SourceSampler, UV).rgb, 1);
+}
