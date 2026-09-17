@@ -11,8 +11,7 @@ exporter is unchanged. The legacy `effect.unity.json` importer was replaced.
    Package Manager resolves the official Newtonsoft JSON dependency.
 2. If an older autoV adapter lives in `Assets`, remove that adapter first to
    avoid duplicate scripts and shaders. Keep your effect source files.
-3. Export using the current Studio's **Export AVFX** button, or use the shared
-   fixture `godot-plugin/examples/fire-projectile.avfx` in this repository.
+3. Export an effect using the current Studio's **Export AVFX** button.
 4. Drag the `.avfx` file into Unity's Project window under `Assets`.
    **Do not unzip it.** Unity imports a prefab-like effect with mesh, texture
    and material subassets. No extracted files or additional export are needed.
@@ -57,7 +56,15 @@ Runtime API: `AvfxPlayer.Play()`, `Pause()`, `Restart()`, `Seek(seconds)`.
 
 ## Verification
 
-Run `Compile-Plugin.ps1` on Windows: compiles runtime/editor assemblies against
+Export the eight-draw fire-projectile effect from AutoV, then pass the downloaded
+file to each check on Windows (the fixture is not bundled in this repository):
+
+```powershell
+.\unity-plugin\Compile-Plugin.ps1 -Fixture 'C:\Downloads\fire-projectile.avfx'
+.\unity-plugin\Test-Plugin.ps1 -Fixture 'C:\Downloads\fire-projectile.avfx'
+```
+
+`Compile-Plugin.ps1` compiles runtime/editor assemblies against
 Unity 6.0.44 and runs license-independent archive/GLB/ABI tests using the shared
 fire-projectile fixture. Tests include corrupt CRC/SHA, unknown shader revisions,
 duplicate JSON keys, malformed GLB and truncated archives.

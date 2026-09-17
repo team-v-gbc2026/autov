@@ -1,5 +1,0 @@
-.godot/
-*.uid
-examples/*.avfx
-examples/*.avfx.import
-test-output/

@@ -99,7 +99,8 @@ npm run typecheck
 ```
 
 An experimental Godot particle/surface adapter is available in
-[`godot-plugin`](../godot-plugin/README.md), with a runnable fire-projectile demo.
+[`godot-plugin`](../godot-plugin/README.md). Copy its `autov_avfx` folder into
+your Godot project's `addons` directory and enable the plugin.
 Reference screenshots, engine parity, automatic LUT
 fallbacks, and export UI in the production studio are not implemented here.
 The manifest explicitly marks reference capture as `not-captured` and adapter

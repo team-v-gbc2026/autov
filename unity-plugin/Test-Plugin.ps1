@@ -1,5 +1,11 @@
-param([string]$Unity = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Unity.exe', [string]$ReuseProject = '')
+param(
+    [string]$Unity = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Unity.exe',
+    [string]$ReuseProject = '',
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Fixture
+)
 $ErrorActionPreference = 'Stop'
+if (!(Test-Path -LiteralPath $Fixture -PathType Leaf)) { throw "Fixture not found: $Fixture. Export fire-projectile from AutoV and pass its .avfx path with -Fixture." }
+$fixturePath = (Resolve-Path -LiteralPath $Fixture).ProviderPath
 $stage = Join-Path $env:TEMP ('autov-unity-' + [guid]::NewGuid().ToString('N'))
 if ($ReuseProject) {
     $resolved = [IO.Path]::GetFullPath($ReuseProject)
@@ -9,7 +15,7 @@ if ($ReuseProject) {
 New-Item -ItemType Directory -Path "$stage\Assets", "$stage\Packages", "$stage\ProjectSettings" -Force | Out-Null
 New-Item -ItemType Directory -Path "$stage\Packages\com.autov.avfx" -Force | Out-Null
 Copy-Item -Recurse -Force (Join-Path $PSScriptRoot 'com.autov.avfx\*') "$stage\Packages\com.autov.avfx"
-Copy-Item (Join-Path $PSScriptRoot '..\godot-plugin\examples\fire-projectile.avfx') "$stage\Assets\fire-projectile.avfx"
+Copy-Item -LiteralPath $fixturePath -Destination "$stage\Assets\fire-projectile.avfx"
 '{"dependencies":{}}' | Set-Content -Encoding ASCII "$stage\Packages\manifest.json"
 $log = "$stage\unity.log"
 Write-Output "Test project: $stage"

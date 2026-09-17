@@ -1,5 +1,10 @@
-param([string]$EditorData = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Data')
+param(
+    [string]$EditorData = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Data',
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Fixture
+)
 $ErrorActionPreference = 'Stop'
+if (!(Test-Path -LiteralPath $Fixture -PathType Leaf)) { throw "Fixture not found: $Fixture. Export fire-projectile from AutoV and pass its .avfx path with -Fixture." }
+$fixturePath = (Resolve-Path -LiteralPath $Fixture).ProviderPath
 $stage = Join-Path $env:TEMP ('autov-unity-compile-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage | Out-Null
 $compiler = Join-Path $EditorData 'MonoBleedingEdge\lib\mono\msbuild\Current\bin\Roslyn\csc.exe'
@@ -26,5 +31,5 @@ $testArgs | ForEach-Object { '"' + $_ + '"' } | Set-Content "$stage\tests.rsp"
 & $mono $compiler "@$stage\tests.rsp"
 if ($LASTEXITCODE -ne 0) { throw 'Bundle tests compile failed' }
 Copy-Item "$EditorData\Managed\Newtonsoft.Json.dll" $stage
-& $mono "$stage\BundleTests.exe" "$PSScriptRoot\..\godot-plugin\examples\fire-projectile.avfx"
+& $mono "$stage\BundleTests.exe" $fixturePath
 if ($LASTEXITCODE -ne 0) { throw 'Bundle tests failed' }

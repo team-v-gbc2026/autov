@@ -1,34 +1,17 @@
-# AutoV → Godot adapter (experimental)
+# AutoV AVFX Godot plugin (experimental)
 
-First-pass `avfx/0.1` importer and player, tested with **Godot 4.6.1,
-Compatibility renderer** and the exported fire-projectile fixture (six particle
-layers + two geometry layers). No Node.js or autoV server is needed at runtime.
-Forward+/Mobile and other Godot versions have not been verified.
+This directory contains the distributable Godot plugin in `autov_avfx/`.
+Copy it into an existing Godot project to use it. No Node.js or autoV server is
+needed at runtime.
 
-## Try the demo
-
-1. In autoV, open `/dev/avfx`, select fire-projectile and click **Export .avfx**.
-2. Open this folder's `project.godot` in Godot 4.6.1.
-3. Run the project (F6 runs the open scene; F5 runs this demo).
-4. Click **Open .avfx** and choose the downloaded file. Play, pause, restart or
-   scrub the timeline. It loops by default.
-
-Alternatively put the bundle at `examples/fire-projectile.avfx`, or run:
-
-```sh
-godot --path godot-plugin -- /absolute/path/to/fire-projectile.avfx
-```
-
-The demo deliberately does not recreate autoV's post-processing or lighting.
-The fixture is a local export, not a committed asset; a fresh clone needs the
-export/download step above.
+The first-pass `avfx/0.1` importer and player was tested with **Godot 4.6.1**
+and the Compatibility renderer. Forward+/Mobile and other Godot versions have
+not been verified.
 
 ## Install in your game
 
-This is a regular Godot editor/runtime plugin: only `addons/autov_avfx` is
-required. The demo project, Node tools and test scripts are optional.
-
-1. Copy `addons/autov_avfx` into your project's `addons` directory.
+1. Copy this package's `autov_avfx` folder into your project's `addons`
+   directory, so the plugin is at `res://addons/autov_avfx/plugin.cfg`.
 2. Enable **AutoV AVFX** in **Project → Project Settings → Plugins**.
 3. Copy your `.avfx` into the project's filesystem, e.g.
    `res://effects/fire-projectile.avfx`. Godot imports it as an AVFX resource.
@@ -45,15 +28,7 @@ playback speed and editor-viewport selection. Changes support scene undo/redo.
 The script field is hidden by this Inspector; implementation remains ordinary
 GDScript inside the addon, not a compiled native extension. Godot may still show
 its script icon in the scene tree. Existing AVFXPlayer scenes and script API
-remain compatible because `player.gd` has not moved.
-
-### See it without running the game
-
-Open `demo/main.tscn` and select its saved **AVFXPlayer** child. If the local
-`examples/fire-projectile.avfx` exists and has imported, the demo assigns it as
-a fallback. Otherwise copy a bundle into your Godot project and drag the imported
-resource onto **Effect**. Loading an external file through the running demo
-does not save that choice into the editor scene.
+remain compatible when installed at `res://addons/autov_avfx/`.
 
 In any scene, a node with an effect assigned shows a still frame immediately:
 
@@ -142,38 +117,6 @@ Its fingerprints must match the trusted source revision shipped by this adapter.
 - Import validation is intended for autoV-produced bundles, not a complete
   hostile-file security boundary. Hashes detect accidental corruption, not
   authenticity. No engine executable, script or shader from a bundle is run.
-
-## Development and checks
-
-From the repository root (replace `godot` with your Godot 4.6.1 executable):
-
-```sh
-godot --headless --path godot-plugin --editor --import --quit
-godot --headless --path godot-plugin --script tests/check_shaders.gd
-godot --headless --path godot-plugin --editor tests/editor_preview.tscn -- --avfx-editor-test
-godot --headless --path godot-plugin --script tests/check_bundle.gd -- /absolute/path/to/fire-projectile.avfx
-godot --path godot-plugin --rendering-method gl_compatibility --script tests/render_smoke.gd -- /absolute/path/to/fire-projectile.avfx
-```
-
-The editor test requires that fixture imported at `examples/fire-projectile.avfx`
-and checks still-frame scrubbing, animation, editor camera bindings and transient
-draw ownership. The bundle test expects the eight-layer fire-projectile fixture. It checks
-construction, repeatable backward seeks, end visibility, playback controls,
-resource roundtrip and corrupt-texture rejection. The renderer test saves
-`test-output/fire-projectile.png`; inspect it and check the console for GPU
-shader errors. On Linux CI it can run under `xvfb-run -a` (Mesa software rendering
-was used for the initial verification).
-
-Regenerate the **trusted** shader ports after changing autoV's shader source:
-
-```sh
-cd frontend
-node --import tsx ../godot-plugin/tools/generate-shaders.mjs
-```
-
-Commit the generated shaders and `shader_versions.gd` together. The generator
-is a narrow port of this project's shader dialect, not a general GLSL converter.
-Re-run both shader and actual-render checks after any source change.
 
 Godot references: [GLSL conversion](https://docs.godotengine.org/en/stable/tutorials/shaders/converting_glsl_to_godot_shaders.html),
 [spatial shaders](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/spatial_shader.html),
