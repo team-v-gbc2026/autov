@@ -1,0 +1,15 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "AutoV AVFX",
+  "Description": "Experimental AVFX particle/surface importer and effect actor.",
+  "Category": "Visual Effects",
+  "CreatedBy": "AutoV",
+  "EngineVersion": "5.6.0",
+  "CanContainContent": false,
+  "Modules": [
+    { "Name": "AutoVAVFX", "Type": "Runtime", "LoadingPhase": "PostConfigInit" },
+    { "Name": "AutoVAVFXEditor", "Type": "Editor", "LoadingPhase": "Default" }
+  ]
+}
