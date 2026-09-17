@@ -14,10 +14,11 @@ for(const folder of ['Packages','ProjectSettings']) if(path.resolve(template)!==
 for(const id of cases) {
   const bundle=path.join(root,'Bundles',id);
   await cp(path.join(source,id),bundle,{recursive:true,filter:p=>!['.godot','effect.zip'].includes(path.basename(p))&&!p.endsWith('.import')});
+  await cp('../adapters/godot/demo.gd',path.join(bundle,'Godot/demo.gd'));
   await cp(bundle,path.join(project,'Assets/Bundles',id),{recursive:true,filter:p=>!['Unity','Godot','.godot','effect.zip'].includes(path.basename(p))&&!p.endsWith('.import')});
   await cp('scripts/engine-export/capture-godot.gd',path.join(bundle,'Godot/capture.gd'));
   const file=path.join(root,`Godot - ${id}.command`);
-  await writeFile(file,`#!/bin/zsh\nset -e\ncd -- "$(dirname -- "$0")"\nengine="\${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"\n[[ -x "$engine" ]] || engine="$HOME/Downloads/Godot.app/Contents/MacOS/Godot"\nexec "$engine" --path "$PWD/Bundles/${id}/Godot"\n`);
+  await writeFile(file,`#!/bin/zsh\nset -e\ncd -- "$(dirname -- "$0")"\nengine="\${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"\n[[ -x "$engine" ]] || engine="$HOME/Downloads/Godot.app/Contents/MacOS/Godot"\nexec "$engine" --path "$PWD/Bundles/${id}/Godot" -- --presentation\n`);
   await chmod(file,0o755);
 }
 await cp('../adapters/unity',path.join(project,'Assets/AutoVAdapters'),{recursive:true});

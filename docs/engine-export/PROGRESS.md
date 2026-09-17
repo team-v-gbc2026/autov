@@ -104,3 +104,13 @@ Initial tsc reported only missing generated Next LayoutProps; run Next typegen b
 - Built official Khronos glslang 16.5.0 (`a8d28bd082bff18ffbe80996e922b012f915cf07`) with HLSL enabled in /private/tmp. Standalone compilation found `float2 half2` (GLSL local colliding with an HLSL type); extraction renames the local without changing arithmetic. Unity shaders were not changed.
 - Both vertex stages and fragment stages with face inversion 0/1 pass independent HLSL-to-SPIR-V compilation (6 configurations). The repeatable verifier checks source SHA and compiler exit/output.
 - No UE shader registration, mesh render path, player or UE render validation is claimed. These remain required integration work; the source/shader/data contracts are now explicit inputs for that work.
+
+
+## 2026-09-17 — Godot presentation relaunch and controls
+
+- Launched the permanent Fire Projectile command. Closed the old generated editor after accepting its external-file reload, then closed the old source-directory game so it could not be mistaken for the current demo. No user project was modified.
+- Added optional presentation HUD and 1/2 sibling-bundle switching to demo.gd; arrow orbit, R reference time and 0 reset are available. Player replacement removes the old node rather than accumulating geometry. Mirrored browser-distributed demo and permanent bundle copies.
+- Verified native UI: Fire Projectile reference frame, key 2 -> Hex Shield, R -> fixed frame, right arrows -> visibly different 3D viewpoint. Constant source folder launch now shows actual playback directly.
+- Re-ran 0/90/180 captures with HUD disabled: Fire MAE 1.4077 / 2.0568 / 3.3139; Shield 0.2094 / 0.2087 / 0.2001. Identical to the earlier measurements.
+- Updated launcher generator to request presentation mode and copy the latest demo controls. Shell syntax and Godot headless import passed.
+- Requested Windows Codex work status asynchronously to avoid conflicting Unreal implementation; no reply at the time of this entry. Unreal runtime integration remains incomplete; other work has continued.
