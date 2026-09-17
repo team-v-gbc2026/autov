@@ -1,7 +1,8 @@
 param(
     [string]$Unity = 'C:\Program Files\Unity\Hub\Editor\6000.0.44f1\Editor\Unity.exe',
     [string]$ReuseProject = '',
-    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Fixture
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Fixture,
+    [string]$Generators = ''
 )
 $ErrorActionPreference = 'Stop'
 if (!(Test-Path -LiteralPath $Fixture -PathType Leaf)) { throw "Fixture not found: $Fixture. Export fire-projectile from AutoV and pass its .avfx path with -Fixture." }
@@ -16,6 +17,10 @@ New-Item -ItemType Directory -Path "$stage\Assets", "$stage\Packages", "$stage\P
 New-Item -ItemType Directory -Path "$stage\Packages\com.autov.avfx" -Force | Out-Null
 Copy-Item -Recurse -Force (Join-Path $PSScriptRoot 'com.autov.avfx\*') "$stage\Packages\com.autov.avfx"
 Copy-Item -LiteralPath $fixturePath -Destination "$stage\Assets\fire-projectile.avfx"
+if ($Generators) {
+    New-Item -ItemType Directory -Path "$stage\Assets\Generators" -Force | Out-Null
+    Copy-Item -Path (Join-Path $Generators '*.avfx') -Destination "$stage\Assets\Generators" -Force
+}
 '{"dependencies":{}}' | Set-Content -Encoding ASCII "$stage\Packages\manifest.json"
 $log = "$stage\unity.log"
 Write-Output "Test project: $stage"

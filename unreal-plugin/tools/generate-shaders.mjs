@@ -7,17 +7,17 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import * as sources from '../../frontend/src/lib/vfx-lab/shaders-v2.ts';
+import { kernels as programs, parseKernel } from '../../tools/avfx/kernels.ts';
 
 const root = new URL('../AutoVAVFX/', import.meta.url);
 const temp = await mkdtemp(join(tmpdir(), 'avfx-hlsl-'));
-const programs = { particle: [sources.particleVertexSource(false, true, true), sources.particleFragmentV2], surface: [sources.surfaceVertexV2, sources.surfaceFragmentV2] };
-const attributes = { aSeed: [0, ''], aExtra: [1, ''], aExtra2: [2, ''], aIndex: [3, '.x'], aSrcPos: [4, '.xyz'], aSrcDir: [5, '.xyz'], aEvent: [6, ''], aSub: [7, '.x'] };
 const textures = ['uTexture', 'uNoise', 'uAlphaTexture', 'uMask', 'uNormalMap', 'uSites', 'tDepth'];
 const tables = {};
 await mkdir(new URL('Shaders/Private/', root), {recursive:true});
 await mkdir(new URL('Source/AutoVAVFX/Private/Generated/', root), {recursive:true});
 for (const [program, stages] of Object.entries(programs)) {
+  const attributes = parseKernel(stages[0]).bindings.filter(b=>b.kind==='attribute');
+  const stride=3+attributes.length;
   const fields = new Map();
   const varying = new Map();
   for (const source of stages) {
@@ -33,9 +33,11 @@ for (const [program, stages] of Object.entries(programs)) {
   }
   for (const name of ['modelMatrix', 'viewMatrix', 'modelViewMatrix', 'projectionMatrix', 'avfxInvProjection']) fields.set(name, {type:'mat4',size:1});
   fields.set('avfxPreExposure', {type:'float',size:1});
+  fields.set('cameraPosition', {type:'vec3',size:1});
+  fields.set('normalMatrix', {type:'mat3',size:1});
   let slot=0;
-  for (const field of fields.values()) {field.slot=slot; slot+=field.type==='mat4'?4:field.size;}
-  tables[program] = {fields:Object.fromEntries(fields),slots:slot,hashes:stages.map(s=>createHash('sha256').update(s).digest('hex'))};
+  for (const field of fields.values()) {field.slot=slot; slot+=field.type==='mat4'?4:field.type==='mat3'?3:field.size;}
+  tables[program] = {attributes,fields:Object.fromEntries(fields),slots:slot,hashes:stages.map(s=>createHash('sha256').update(s).digest('hex'))};
   for (let stage=0;stage<2;stage++) {
     let source = stages[stage].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     source=source.replace(/\b(?:precision\s+\w+\s+\w+|uniform\s+\w+\s+[^;]+|attribute\s+\w+\s+[^;]+);/g,'');
@@ -43,12 +45,13 @@ for (const [program, stages] of Object.entries(programs)) {
     let prefix='#version 450\nlayout(binding=0,std430) readonly buffer AVFXData { vec4 avfxData[]; };\n';
     if (!stage) {
       prefix+='layout(binding=1,std430) readonly buffer AVFXVertices { vec4 avfxVertices[]; };\nlayout(binding=2,std430) readonly buffer AVFXIndices { uint avfxIndices[]; };\nlayout(binding=3,std430) readonly buffer AVFXInstances { vec4 avfxInstances[]; };\n';
-      prefix+='#define position (avfxVertices[avfxIndices[gl_VertexIndex]*3].xyz)\n#define normal (avfxVertices[avfxIndices[gl_VertexIndex]*3+1].xyz)\n#define uv (avfxVertices[avfxIndices[gl_VertexIndex]*3+2].xy)\n';
-      for (const [name,[column,swizzle]] of Object.entries(attributes)) prefix+=`#define ${name} (avfxInstances[gl_InstanceIndex*8+${column}]${swizzle})\n`;
+      prefix+=`#define position (avfxVertices[avfxIndices[gl_VertexIndex]*${stride}].xyz)\n#define normal (avfxVertices[avfxIndices[gl_VertexIndex]*${stride}+1].xyz)\n#define uv (avfxVertices[avfxIndices[gl_VertexIndex]*${stride}+2].xy)\n`;
+      attributes.forEach((a,i)=>{prefix+=`#define ${a.name} (avfxVertices[avfxIndices[gl_VertexIndex]*${stride}+${3+i}]${{float:'.x',vec2:'.xy',vec3:'.xyz',vec4:''}[a.type]})\n`;});
     } else prefix+='layout(location=0) out vec4 avfxColor;\n#define gl_FragColor avfxColor\n';
     for (const [name,field] of fields) {
       const suffix={float:'.x',int:'.x',vec2:'.xy',vec3:'.xyz',vec4:''}[field.type];
       if (field.type==='mat4') prefix+=`#define ${name} mat4(avfxData[${field.slot}],avfxData[${field.slot+1}],avfxData[${field.slot+2}],avfxData[${field.slot+3}])\n`;
+      else if(field.type==='mat3') prefix+=`#define ${name} mat3(avfxData[${field.slot}].xyz,avfxData[${field.slot+1}].xyz,avfxData[${field.slot+2}].xyz)\n`;
       else if (field.size>1) {
         // Arrays become accessor functions; preserve dynamic curve indexing.
         prefix+=`${field.type} avfx_${name}(int i){return ${field.type}(avfxData[${field.slot}+i]${suffix});}\n`;
@@ -93,9 +96,12 @@ await writeFile(new URL('Shaders/layout.json',root),JSON.stringify({programs:tab
 const cpp=['// Generated shader ABI; source hashes are migration guards, not signatures.'];
 for(const [program,table]of Object.entries(tables)){
   cpp.push(`if (Program == TEXT("${program}")) { Layout.Slots=${table.slots}; Layout.VertexHash=TEXT("${table.hashes[0]}"); Layout.FragmentHash=TEXT("${table.hashes[1]}");`);
-  for(const [name,f]of Object.entries(table.fields))cpp.push(`Layout.Fields.Add(TEXT("${name}"), {${f.slot},${f.size},${{float:1,int:1,vec2:2,vec3:3,vec4:4,mat4:16}[f.type]}});`);
+  for(const [name,f]of Object.entries(table.fields))cpp.push(`Layout.Fields.Add(TEXT("${name}"), {${f.slot},${f.size},${{float:1,int:1,vec2:2,vec3:3,vec4:4,mat3:9,mat4:16}[f.type]}});`);
+  for(const a of table.attributes) cpp.push(`Layout.Attributes.Add(TEXT("${a.name}")); Layout.AttributeWidths.Add(${{float:1,vec2:2,vec3:3,vec4:4}[a.type]});`);
   cpp.push('return true; }');
 }
 cpp.push('return false;');
 await writeFile(new URL('Source/AutoVAVFX/Private/Generated/Layout.inl',root),cpp.join('\n')+'\n');
-console.log('Generated and round-trip compiled four Unreal HLSL shaders.', {temp,textures});
+await writeFile(new URL('Source/AutoVAVFX/Private/Generated/Shaders.inl',root),Object.keys(programs).map(p=>`AVFX_SHADER_CLASS(FAVFX_${p}VS)\nAVFX_SHADER_CLASS(FAVFX_${p}PS)\nIMPLEMENT_GLOBAL_SHADER(FAVFX_${p}VS,"/Plugin/AutoVAVFX/Private/${p}VS.usf","MainVS",SF_Vertex);\nIMPLEMENT_GLOBAL_SHADER(FAVFX_${p}PS,"/Plugin/AutoVAVFX/Private/${p}PS.usf","MainPS",SF_Pixel);`).join('\n'));
+await writeFile(new URL('Source/AutoVAVFX/Private/Generated/Dispatch.inl',root),Object.keys(programs).map(p=>`if(Draw.Program==TEXT("${p}")) AVFXDrawPass<FAVFX_${p}VS,FAVFX_${p}PS>(Graph,View,P,Draw);`).join('\n'));
+console.log(`Generated and round-trip compiled ${Object.keys(programs).length*2} Unreal HLSL shaders.`, {temp,textures});

@@ -1,0 +1,163 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+ByteAddressBuffer AVFXVertices;
+ByteAddressBuffer AVFXIndices;
+ByteAddressBuffer AVFXInstances;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float4 gl_Position;
+static int gl_VertexIndex;
+static float vSide;
+static float vW;
+static float vStrand;
+static float vFade;
+
+struct SPIRV_Cross_Input
+{
+    uint gl_VertexIndex : SV_VertexID;
+};
+
+struct SPIRV_Cross_Output
+{
+    float vSide : TEXCOORD0;
+    float vW : TEXCOORD1;
+    float vStrand : TEXCOORD2;
+    float vFade : TEXCOORD3;
+    float4 gl_Position : SV_Position;
+};
+
+float ribbonHash(inout float p)
+{
+    p = frac(p * 0.103100001811981201171875f);
+    p *= (p + 33.3300018310546875f);
+    p *= (p + p);
+    return frac(p);
+}
+
+float3 pathPoint(float u)
+{
+    if (int(asfloat(AVFXData.Load(176))) == 1)
+    {
+        float m = 1.0f - u;
+        return ((asfloat(AVFXData.Load4(192)).xyz * (m * m)) + (asfloat(AVFXData.Load4(208)).xyz * ((2.0f * m) * u))) + (asfloat(AVFXData.Load4(224)).xyz * (u * u));
+    }
+    float th = ((6.283185482025146484375f * asfloat(AVFXData.Load4(240)).z) * u) + asfloat(AVFXData.Load4(240)).w;
+    float r = asfloat(AVFXData.Load4(240)).x + (asfloat(AVFXData.Load4(256)).xy.x * sin(asfloat(AVFXData.Load4(256)).xy.y * th));
+    float y = (asfloat(AVFXData.Load4(192)).xyz.y + (asfloat(AVFXData.Load4(240)).y * u)) + ((asfloat(AVFXData.Load4(256)).xy.x * 0.5f) * sin(((asfloat(AVFXData.Load4(256)).xy.y * th) * 2.0f) + 1.2999999523162841796875f));
+    return float3(asfloat(AVFXData.Load4(192)).xyz.x + (cos(th) * r), y, asfloat(AVFXData.Load4(192)).xyz.z + (sin(th) * r));
+}
+
+float3 pathPointM(float u)
+{
+    if (int(asfloat(AVFXData.Load(272))) == 1)
+    {
+        float m = 1.0f - u;
+        return ((asfloat(AVFXData.Load4(288)).xyz * (m * m)) + (asfloat(AVFXData.Load4(304)).xyz * ((2.0f * m) * u))) + (asfloat(AVFXData.Load4(320)).xyz * (u * u));
+    }
+    float th = ((6.283185482025146484375f * asfloat(AVFXData.Load4(336)).z) * u) + asfloat(AVFXData.Load4(336)).w;
+    float r = asfloat(AVFXData.Load4(336)).x + (asfloat(AVFXData.Load4(352)).xy.x * sin(asfloat(AVFXData.Load4(352)).xy.y * th));
+    float y = (asfloat(AVFXData.Load4(288)).xyz.y + (asfloat(AVFXData.Load4(336)).y * u)) + ((asfloat(AVFXData.Load4(352)).xy.x * 0.5f) * sin(((asfloat(AVFXData.Load4(352)).xy.y * th) * 2.0f) + 1.2999999523162841796875f));
+    return float3(asfloat(AVFXData.Load4(288)).xyz.x + (cos(th) * r), y, asfloat(AVFXData.Load4(288)).xyz.z + (sin(th) * r));
+}
+
+float3 sweep(float u)
+{
+    float _302;
+    if (int(asfloat(AVFXData.Load(176))) == 1)
+    {
+        _302 = clamp(u, 0.0f, 1.0f);
+    }
+    else
+    {
+        _302 = frac(u);
+    }
+    float ua = _302;
+    float _317;
+    if (int(asfloat(AVFXData.Load(272))) == 1)
+    {
+        _317 = clamp(u, 0.0f, 1.0f);
+    }
+    else
+    {
+        _317 = frac(u);
+    }
+    float ub = _317;
+    float param = ua;
+    float param_1 = ub;
+    return lerp(pathPoint(param), pathPointM(param_1), asfloat(AVFXData.Load(64)).xxx);
+}
+
+void vert_main()
+{
+    float w = asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0));
+    float side = asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4));
+    float strand = asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 8));
+    float param = (strand * 11.69999980926513671875f) + 3.099999904632568359375f;
+    float _378 = ribbonHash(param);
+    float hs = _378;
+    float u = (asfloat(AVFXData.Load(16)) - ((1.0f - w) * asfloat(AVFXData.Load(32)))) + (((hs - 0.5f) * asfloat(AVFXData.Load(112))) * asfloat(AVFXData.Load(32)));
+    float param_1 = u;
+    float3 p = sweep(param_1);
+    float param_2 = u + 0.001000000047497451305389404296875f;
+    float param_3 = u - 0.001000000047497451305389404296875f;
+    float3 tangent = normalize((sweep(param_2) - sweep(param_3)) + float3(0.0f, 0.0f, 9.9999999747524270787835121154785e-07f));
+    float3 sd = normalize(cross(tangent, float3(0.0f, 1.0f, 0.0f)) + float3(9.9999997473787516355514526367188e-06f, 0.0f, 0.0f));
+    float3 upn = normalize(cross(sd, tangent));
+    float param_4 = (strand * 3.7000000476837158203125f) + 9.1000003814697265625f;
+    float _447 = ribbonHash(param_4);
+    p += ((sd * ((hs - 0.5f) * asfloat(AVFXData.Load(80)))) + (upn * ((_447 - 0.5f) * asfloat(AVFXData.Load(80)))));
+    float4 world = mul(float4(p, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(624))), float4(asfloat(AVFXData.Load4(640))), float4(asfloat(AVFXData.Load4(656))), float4(asfloat(AVFXData.Load4(672)))));
+    float fade = smoothstep(0.0f, max(asfloat(AVFXData.Load(144)), 9.9999997473787516355514526367188e-05f), w) * smoothstep(1.0f, 1.0f - max(asfloat(AVFXData.Load(128)), 9.9999997473787516355514526367188e-05f), w);
+    float strandW = lerp(1.0f - asfloat(AVFXData.Load(96)), 1.0f, hs);
+    float half_ = ((asfloat(AVFXData.Load(48)) * 0.5f) * strandW) * fade;
+    float4x4 _559 = float4x4(float4(asfloat(AVFXData.Load4(624))), float4(asfloat(AVFXData.Load4(640))), float4(asfloat(AVFXData.Load4(656))), float4(asfloat(AVFXData.Load4(672))));
+    float3 worldTangent = normalize(mul(tangent, float3x3(_559[0].xyz, _559[1].xyz, _559[2].xyz)) + float3(0.0f, 0.0f, 9.9999999747524270787835121154785e-07f));
+    float3 view = normalize(asfloat(AVFXData.Load4(960)).xyz - world.xyz);
+    float3 _586;
+    if (asfloat(AVFXData.Load(160)) > 0.5f)
+    {
+        float4x4 _617 = float4x4(float4(asfloat(AVFXData.Load4(624))), float4(asfloat(AVFXData.Load4(640))), float4(asfloat(AVFXData.Load4(656))), float4(asfloat(AVFXData.Load4(672))));
+        _586 = normalize(mul(upn, float3x3(_617[0].xyz, _617[1].xyz, _617[2].xyz)));
+    }
+    else
+    {
+        _586 = normalize(cross(worldTangent, view));
+    }
+    float3 across = _586;
+    vSide = side;
+    vW = w;
+    vStrand = hs;
+    vFade = fade;
+    gl_Position = mul(float4(world.xyz + ((across * side) * half_), 1.0f), mul(float4x4(float4(asfloat(AVFXData.Load4(688))), float4(asfloat(AVFXData.Load4(704))), float4(asfloat(AVFXData.Load4(720))), float4(asfloat(AVFXData.Load4(736)))), float4x4(float4(asfloat(AVFXData.Load4(816))), float4(asfloat(AVFXData.Load4(832))), float4(asfloat(AVFXData.Load4(848))), float4(asfloat(AVFXData.Load4(864))))));
+}
+
+SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
+{
+    gl_VertexIndex = int(stage_input.gl_VertexIndex);
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vSide = vSide;
+    stage_output.vW = vW;
+    stage_output.vStrand = vStrand;
+    stage_output.vFade = vFade;
+    return stage_output;
+}

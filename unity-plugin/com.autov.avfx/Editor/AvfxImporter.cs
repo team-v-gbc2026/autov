@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEditor.AssetImporters;
 using Object = UnityEngine.Object;
 
-[ScriptedImporter(1, "avfx")]
+[ScriptedImporter(2, "avfx")]
 public sealed class AvfxImporter : ScriptedImporter {
     readonly List<Object> created=new List<Object>();
     long texturePixels;
@@ -35,12 +35,12 @@ public sealed class AvfxImporter : ScriptedImporter {
                 AvfxBundle.Require(shader,"missing shader: "+shaderPath);
                 AvfxBundle.Require(!ShaderUtil.ShaderHasError(shader),"invalid shader: "+program+" "+string.Join("; ",ShaderUtil.GetShaderMessages(shader).Select(m=>m.message)));
                 var state=draw["renderState"]; string blend=(string)state["blend"];
-                AvfxBundle.Require((string)state["side"]=="double" && ((string)state["depthFunction"]??"less-equal")=="less-equal","only double-sided less-equal draws supported");
+                AvfxBundle.Require(new[]{"double","front","back"}.Contains((string)state["side"]) && ((string)state["depthFunction"]??"less-equal")=="less-equal","unsupported cull/depth state");
                 AvfxBundle.Require(new[]{"additive","alpha","premultiplied"}.Contains(blend),"unsupported blend");
                 var material=Own(new Material(shader){name=id});
                 material.SetFloat("_SrcBlend",(float)(blend=="premultiplied"?BlendMode.One:BlendMode.SrcAlpha));
                 material.SetFloat("_DstBlend",(float)(blend=="additive"?BlendMode.One:BlendMode.OneMinusSrcAlpha));
-                material.SetFloat("_Cull",0); material.SetFloat("_ZWrite",(bool)state["depthWrite"]?1:0);
+                material.SetFloat("_Cull",(float)((string)state["side"]=="front"?CullMode.Back:(string)state["side"]=="back"?CullMode.Front:CullMode.Off)); material.SetFloat("_ZWrite",(bool)state["depthWrite"]?1:0);
                 material.SetFloat("_ZTest",(float)((bool)state["depthTest"]?CompareFunction.LessEqual:CompareFunction.Always));
                 material.renderQueue=3000+Mathf.Clamp((int)state["renderOrder"],0,999); assets.Add(id+"/material",material);
                 var definitions=(JObject)draw["uniforms"]; // ABI verified by AvfxBundle.
@@ -48,21 +48,23 @@ public sealed class AvfxImporter : ScriptedImporter {
                     var texture=Texture(bundle,(JObject)def.Value["binding"]); texture.name=id+"/"+def.Name;
                     material.SetTexture(def.Name,texture); assets.Add(id+"/texture/"+def.Name,texture);
                 }
-                JObject instances=draw["instances"]?.Type==JTokenType.String?bundle.Read((string)draw["instances"]):null;
-                AvfxBundle.Require((program=="particle")== (instances!=null),"particle instance table mismatch");
-                int count=instances==null?1:(int)instances["count"]; AvfxBundle.Require(count>0 && count<=60000,"instance budget exceeded");
-                var attributes=Attributes(instances,count); assets.Add(id+"/attributes",attributes);
                 var geometries=new List<AvfxPlayer.GeometryAsset>(); var meshIds=new Dictionary<string,int>();
                 var samples=(JArray)bundle.Timeline["draws"][id];
-                foreach(string path in samples.Select(s=>(string)s["mesh"]).Distinct()) {
+                Func<JToken,string> instancePath=s=>(string)(s["instances"]??draw["instances"]);
+                Func<JToken,string> geometryKey=s=>(string)s["mesh"]+":"+instancePath(s);
+                foreach(var sample in samples.GroupBy(geometryKey).Select(group=>group.First())) {
+                    string path=(string)sample["mesh"], key=geometryKey(sample), instance=instancePath(sample);
+                    JObject instances=instance==null?null:bundle.Read(instance);
+                    int count=instances==null?1:(int)instances["count"]; AvfxBundle.Require(count>0 && count<=60000,"instance budget exceeded");
                     if(!meshes.TryGetValue(path,out var data)) { data=AvfxBundle.Mesh(bundle.Get(path)); meshes.Add(path,data); }
                     totalVertices+=(long)data.Count*count; AvfxBundle.Require(totalVertices<=2000000,"effect exceeds 2M expanded vertices");
                     var mesh=BuildMesh(data,count); mesh.name=id+"/"+path;
-                    int index=meshIds.Count; meshIds.Add(path,index);
-                    geometries.Add(new AvfxPlayer.GeometryAsset{id=index,mesh=mesh,attributes=attributes}); assets.Add(id+"/mesh/"+path,mesh);
+                    int index=meshIds.Count; meshIds.Add(key,index);
+                    var attributes=Attributes(program,data,instances,count);
+                    geometries.Add(new AvfxPlayer.GeometryAsset{id=index,mesh=mesh,attributes=attributes}); assets.Add(id+"/mesh/"+index,mesh); assets.Add(id+"/attributes/"+index,attributes);
                 }
                 var runtimeDraw=new AvfxPlayer.Draw {id=id,program=program,start=AvfxBundle.Number(layer["start"]),end=AvfxBundle.Number(layer["end"]),samples=samples.Select(s=>new AvfxPlayer.Sample {
-                    time=AvfxBundle.Number(s["time"]),visible=(bool)s["visible"],depthWrite=(bool)state["depthWrite"],matrix=AvfxBundle.Values(s["matrix"]),geometry=meshIds[(string)s["mesh"]],uniforms=Uniforms(definitions,(JObject)s["uniforms"])
+                    time=AvfxBundle.Number(s["time"]),visible=(bool)s["visible"],depthWrite=(bool)state["depthWrite"],matrix=AvfxBundle.Values(s["matrix"]),geometry=meshIds[geometryKey(s)],uniforms=Uniforms(definitions,(JObject)s["uniforms"])
                 }).ToArray()};
                 var child=new GameObject(id); child.transform.SetParent(root.transform,false);
                 var filter=child.AddComponent<MeshFilter>(); filter.sharedMesh=geometries[0].mesh;
@@ -92,13 +94,16 @@ public sealed class AvfxImporter : ScriptedImporter {
         }
         return result.ToArray();
     }
-    Texture2D Attributes(JObject instances,int count) {
-        var names=new[]{"aSeed","aExtra","aExtra2","aIndex","aSrcPos","aSrcDir","aEvent"}; var widths=new[]{4,4,4,1,3,3,4};
-        int height=Math.Max(1,(count*7+1023)/1024); var colors=new Color[1024*height];
-        if(instances!=null) for(int slot=0;slot<names.Length;slot++) {
-            var attr=instances["attributes"]?[names[slot]]; AvfxBundle.Require(attr!=null && (int)attr["count"]==count && (int)attr["itemSize"]==widths[slot],"invalid instance attribute: "+names[slot]);
-            var values=AvfxBundle.Values(attr["values"]); AvfxBundle.Require(values.Length==count*widths[slot],"instance length mismatch");
-            for(int i=0;i<count;i++) for(int k=0;k<widths[slot];k++) colors[i*7+slot][k]=values[i*widths[slot]+k];
+    Texture2D Attributes(string program,AvfxBundle.MeshData data,JObject instances,int count) {
+        var names=AvfxShaderAbi.Attributes[program];
+        int height=Math.Max(1,(checked(count*data.Count*names.Length)+1023)/1024); AvfxBundle.Require(height<=16384,"attribute texture exceeds budget"); var colors=new Color[1024*height];
+        for(int slot=0;slot<names.Length;slot++) {
+            var attr=instances?["attributes"]?[names[slot]];
+            int width; float[] values;
+            if(attr!=null) { width=(int)attr["itemSize"]; values=AvfxBundle.Values(attr["values"]); AvfxBundle.Require((int)attr["count"]==count && values.Length==count*width,"instance length mismatch"); }
+            else { AvfxBundle.Require(data.Attributes.ContainsKey(names[slot]),"missing attribute: "+names[slot]); width=data.Widths[names[slot]]; values=data.Attributes[names[slot]]; }
+            AvfxBundle.Require(width>=1 && width<=4,"invalid attribute width");
+            for(int i=0;i<count;i++) for(int v=0;v<data.Count;v++) for(int k=0;k<width;k++) colors[(i*data.Count+v)*names.Length+slot][k]=values[(attr!=null?i:v)*width+k];
         }
         var texture=Own(new Texture2D(1024,height,TextureFormat.RGBAFloat,false,true)); texture.SetPixels(colors); texture.Apply(false,false); texture.filterMode=FilterMode.Point; texture.wrapMode=TextureWrapMode.Clamp; return texture;
     }
@@ -106,10 +111,10 @@ public sealed class AvfxImporter : ScriptedImporter {
         int total=checked(data.Count*count); AvfxBundle.Require(total<=1000000 && (long)data.Indices.Length*count<=6000000,"expanded mesh budget exceeded");
         var positions=new Vector3[total]; var normals=new Vector3[total]; var uv=new Vector2[total]; var uv2=new Vector2[total]; var indices=new int[checked(data.Indices.Length*count)];
         for(int instance=0;instance<count;instance++) {
-            for(int v=0;v<data.Count;v++) { int dst=instance*data.Count+v; positions[dst]=new Vector3(data.Positions[v*3],data.Positions[v*3+1],data.Positions[v*3+2]); normals[dst]=new Vector3(data.Normals[v*3],data.Normals[v*3+1],data.Normals[v*3+2]); uv[dst]=new Vector2(data.UV[v*2],data.UV[v*2+1]); uv2[dst]=new Vector2(instance,0); }
+            for(int v=0;v<data.Count;v++) { int dst=instance*data.Count+v; positions[dst]=new Vector3(data.Positions[v*3],data.Positions[v*3+1],data.Positions[v*3+2]); normals[dst]=new Vector3(data.Normals[v*3],data.Normals[v*3+1],data.Normals[v*3+2]); uv[dst]=new Vector2(data.UV[v*2],data.UV[v*2+1]); uv2[dst]=new Vector2(dst,0); }
             for(int i=0;i<data.Indices.Length;i++) indices[instance*data.Indices.Length+i]=instance*data.Count+data.Indices[i];
         }
-        var mesh=Own(new Mesh{indexFormat=IndexFormat.UInt32}); mesh.vertices=positions; mesh.normals=normals; mesh.uv=uv; mesh.uv2=uv2; mesh.triangles=indices; mesh.bounds=new Bounds(Vector3.zero,Vector3.one*16384); return mesh;
+        var mesh=Own(new Mesh{indexFormat=IndexFormat.UInt32}); mesh.vertices=positions; mesh.normals=normals; mesh.uv=uv; mesh.uv2=uv2; mesh.SetIndices(indices,data.Lines?MeshTopology.Lines:MeshTopology.Triangles,0); mesh.bounds=new Bounds(Vector3.zero,Vector3.one*16384); return mesh;
     }
     Texture2D Texture(AvfxBundle bundle,JObject binding) {
         string source=(string)binding?["source"];
@@ -118,7 +123,18 @@ public sealed class AvfxImporter : ScriptedImporter {
             var zero=Own(new Texture2D(1,1,TextureFormat.RGBA32,false,true)); zero.SetPixel(0,0,Color.clear); zero.Apply(); return zero;
         }
         AvfxBundle.Require(source=="bundle" && (string)binding["colorSpace"]=="linear","unsupported texture binding/color space");
-        var bytes=bundle.Get((string)binding["path"]); AvfxBundle.Require(bytes.Length>=24 && bytes.Take(8).SequenceEqual(new byte[]{137,80,78,71,13,10,26,10}),"only PNG textures supported");
+        var bytes=bundle.Get((string)binding["path"]);
+        if(((string)binding["path"]).EndsWith(".json",StringComparison.Ordinal)) {
+            var data=AvfxBundle.Json(bytes); int w=(int)data["width"],h=(int)data["height"];
+            AvfxBundle.Require((string)data["encoding"]=="raw-data-texture" && (int)data["type"]==1015 && (int)data["format"]==1023 && w>0 && h>0 && (long)w*h<=1048576,"unsupported data texture");
+            var values=AvfxBundle.Values(data["values"]); AvfxBundle.Require(values.Length==w*h*4,"invalid data texture length");
+            texturePixels+=(long)w*h; AvfxBundle.Require(texturePixels<=33554432,"effect texture budget exceeded");
+            var raw=Own(new Texture2D(w,h,TextureFormat.RGBAFloat,false,true)); var colors=new Color[w*h];
+            for(int i=0;i<colors.Length;i++) colors[i]=new Color(values[i*4],values[i*4+1],values[i*4+2],values[i*4+3]);
+            raw.SetPixels(colors); raw.Apply(false,false); raw.filterMode=(int)binding["magFilter"]==1003?FilterMode.Point:FilterMode.Bilinear;
+            raw.wrapModeU=Wrap((string)binding["wrapS"]); raw.wrapModeV=Wrap((string)binding["wrapT"]); return raw;
+        }
+        AvfxBundle.Require(bytes.Length>=24 && bytes.Take(8).SequenceEqual(new byte[]{137,80,78,71,13,10,26,10}),"only PNG or float data textures supported");
         Func<int,int> be=p=>checked((int)(((uint)bytes[p]<<24)|((uint)bytes[p+1]<<16)|((uint)bytes[p+2]<<8)|bytes[p+3]));
         int width=be(16),height=be(20); AvfxBundle.Require(width>0 && height>0 && width<=8192 && height<=8192 && (long)width*height<=16777216,"PNG dimensions exceed budget");
         texturePixels+=(long)width*height; AvfxBundle.Require(texturePixels<=33554432,"effect texture budget exceeded");

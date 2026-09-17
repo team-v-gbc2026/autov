@@ -1,0 +1,81 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float2 vUv;
+static float vK;
+static float4 avfxColor;
+static float3 vC;
+
+struct SPIRV_Cross_Input
+{
+    float2 vUv : TEXCOORD0;
+    float vK : TEXCOORD1;
+    float3 vC : TEXCOORD2;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+void avfxMain()
+{
+    float x = vUv.x;
+    float wid = (1.0f - smoothstep(0.100000001490116119384765625f, 1.0f, x)) + 0.119999997317790985107421875f;
+    float y = (abs(vUv.y - 0.5f) * 2.0f) / max(wid, 0.001000000047497451305389404296875f);
+    float a = exp(((-y) * y) * 3.2000000476837158203125f);
+    a *= (smoothstep(0.0f, 0.01200000010430812835693359375f, x) * (1.0f - smoothstep(0.2199999988079071044921875f, 1.0f, x)));
+    a *= (((vK * asfloat(AVFXData.Load(176))) * asfloat(AVFXData.Load(192))) * 2.0f);
+    if (a < 0.00200000009499490261077880859375f)
+    {
+        discard;
+    }
+    if (int(asfloat(AVFXData.Load(208))) == 1)
+    {
+        avfxColor = float4(vC, a);
+    }
+    else
+    {
+        avfxColor = float4(vC * a, a);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _119 = avfxColor;
+    float3 _121 = _119.xyz * asfloat(AVFXData.Load(544));
+    avfxColor.x = _121.x;
+    avfxColor.y = _121.y;
+    avfxColor.z = _121.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vUv = stage_input.vUv;
+    vK = stage_input.vK;
+    vC = stage_input.vC;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

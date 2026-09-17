@@ -23,7 +23,6 @@ SamplerState _tDepth_sampler;
 
 static float4 gl_Position;
 static int gl_VertexIndex;
-static int gl_InstanceIndex;
 static float vAlpha;
 static float vU;
 static float vRot;
@@ -37,7 +36,6 @@ static float vFrameMix;
 struct SPIRV_Cross_Input
 {
     uint gl_VertexIndex : SV_VertexID;
-    uint gl_InstanceIndex : SV_InstanceID;
 };
 
 struct SPIRV_Cross_Output
@@ -988,17 +986,17 @@ float nextFlipFrame(float frame, float tiles, int mode)
 
 void vert_main()
 {
-    vUv = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 0)).xy;
-    vSeed = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 2) * 16 + 0)).xyz;
-    float4 param = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 0) * 16 + 0));
+    vUv = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 2u) * 16 + 0)).xy;
+    vSeed = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 5u) * 16 + 0)).xyz;
+    float4 param = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 3u) * 16 + 0));
     float life = selfLife(param);
     float3 subOrigin = 0.0f.xxx;
     float3 subVel = 0.0f.xxx;
     bool dead = false;
-    float4 param_1 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 0) * 16 + 0));
+    float4 param_1 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 3u) * 16 + 0));
     float param_2 = asfloat(AVFXData.Load(0));
-    float4 param_3 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 6) * 16 + 0));
-    float param_4 = asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 3) * 16 + 0));
+    float4 param_3 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 9u) * 16 + 0));
+    float param_4 = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 6u) * 16 + 0));
     float birth = selfBirth(param_1, param_2, param_3, param_4);
     if (birth > 100000000.0f)
     {
@@ -1016,13 +1014,13 @@ void vert_main()
         return;
     }
     vU = u;
-    float4 param_5 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 0) * 16 + 0));
-    float4 param_6 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 1) * 16 + 0));
-    float4 param_7 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 2) * 16 + 0));
-    float3 param_8 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 4) * 16 + 0)).xyz;
-    float3 param_9 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 5) * 16 + 0)).xyz;
-    float4 param_10 = asfloat(AVFXInstances.Load4(((gl_InstanceIndex * 8) + 6) * 16 + 0));
-    float param_11 = asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 3) * 16 + 0));
+    float4 param_5 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 3u) * 16 + 0));
+    float4 param_6 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 4u) * 16 + 0));
+    float4 param_7 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 5u) * 16 + 0));
+    float3 param_8 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 7u) * 16 + 0)).xyz;
+    float3 param_9 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 8u) * 16 + 0)).xyz;
+    float4 param_10 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 9u) * 16 + 0));
+    float param_11 = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 6u) * 16 + 0));
     float param_12 = age;
     float param_13 = life;
     float param_14 = asfloat(AVFXData.Load(0));
@@ -1035,56 +1033,56 @@ void vert_main()
     vel += subVel;
     vWp = pos;
     float param_17 = u;
-    float _3371 = curveA(param_17);
-    float size = lerp(asfloat(AVFXData.Load4(224)).xy.x, asfloat(AVFXData.Load4(224)).xy.y, asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 2) * 16 + 0))) * _3371;
-    float rot = lerp(asfloat(AVFXData.Load4(256)).xy.x, asfloat(AVFXData.Load4(256)).xy.y, asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 2) * 16 + 4))) + (lerp(asfloat(AVFXData.Load4(240)).xy.x, asfloat(AVFXData.Load4(240)).xy.y, asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 2) * 16 + 8))) * age);
-    bool _3411 = int(asfloat(AVFXData.Load(128))) == 4;
-    bool _3418;
-    if (_3411)
+    float _3399 = curveA(param_17);
+    float size = lerp(asfloat(AVFXData.Load4(224)).xy.x, asfloat(AVFXData.Load4(224)).xy.y, asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 5u) * 16 + 0))) * _3399;
+    float rot = lerp(asfloat(AVFXData.Load4(256)).xy.x, asfloat(AVFXData.Load4(256)).xy.y, asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 5u) * 16 + 4))) + (lerp(asfloat(AVFXData.Load4(240)).xy.x, asfloat(AVFXData.Load4(240)).xy.y, asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 5u) * 16 + 8))) * age);
+    bool _3443 = int(asfloat(AVFXData.Load(128))) == 4;
+    bool _3450;
+    if (_3443)
     {
-        _3418 = int(asfloat(AVFXData.Load(1616))) == 8;
+        _3450 = int(asfloat(AVFXData.Load(1616))) == 8;
     }
     else
     {
-        _3418 = _3411;
+        _3450 = _3443;
     }
-    float3 _3419;
-    if (_3418)
+    float3 _3451;
+    if (_3450)
     {
-        float param_18 = asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 3) * 16 + 0));
-        _3419 = pathTangentE(param_18);
-    }
-    else
-    {
-        _3419 = vel;
-    }
-    float3 heading = _3419;
-    bool _3435 = int(asfloat(AVFXData.Load(128))) == 2;
-    bool _3443;
-    if (!_3435)
-    {
-        _3443 = int(asfloat(AVFXData.Load(128))) == 3;
+        float param_18 = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 6u) * 16 + 0));
+        _3451 = pathTangentE(param_18);
     }
     else
     {
-        _3443 = _3435;
+        _3451 = vel;
+    }
+    float3 heading = _3451;
+    bool _3469 = int(asfloat(AVFXData.Load(128))) == 2;
+    bool _3477;
+    if (!_3469)
+    {
+        _3477 = int(asfloat(AVFXData.Load(128))) == 3;
+    }
+    else
+    {
+        _3477 = _3469;
     }
     float4 mv;
-    if (_3443)
+    if (_3477)
     {
         float c = cos(rot);
         float s = sin(rot);
-        float2 q = mul(asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)).xy, float2x2(float2(c, -s), float2(s, c))) * size;
-        float3 _3477;
+        float2 q = mul(asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) * 16 + 0)).xy, float2x2(float2(c, -s), float2(s, c))) * size;
+        float3 _3511;
         if (int(asfloat(AVFXData.Load(128))) == 2)
         {
-            _3477 = float3(q.x, 0.0f, q.y);
+            _3511 = float3(q.x, 0.0f, q.y);
         }
         else
         {
-            _3477 = float3(q.x, q.y, 0.0f);
+            _3511 = float3(q.x, q.y, 0.0f);
         }
-        float3 world = _3477;
+        float3 world = _3511;
         mv = mul(float4(pos + world, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3888))), float4(asfloat(AVFXData.Load4(3904))), float4(asfloat(AVFXData.Load4(3920))), float4(asfloat(AVFXData.Load4(3936)))));
         rot = 0.0f;
     }
@@ -1097,74 +1095,74 @@ void vert_main()
         float2 along = float2(0.0f, 1.0f);
         float2 across = float2(1.0f, 0.0f);
         float stretch = 1.0f;
-        bool _3623 = int(asfloat(AVFXData.Load(128))) == 1;
-        bool _3631;
-        if (!_3623)
+        bool _3657 = int(asfloat(AVFXData.Load(128))) == 1;
+        bool _3665;
+        if (!_3657)
         {
-            _3631 = int(asfloat(AVFXData.Load(128))) == 4;
+            _3665 = int(asfloat(AVFXData.Load(128))) == 4;
         }
         else
         {
-            _3631 = _3623;
+            _3665 = _3657;
         }
-        if (_3631 && (svl > 9.9999997473787516355514526367188e-05f))
+        if (_3665 && (svl > 9.9999997473787516355514526367188e-05f))
         {
             along = sv / svl.xx;
             across = float2(along.y, -along.x);
             rot = 0.0f;
-            float _3651;
+            float _3685;
             if (int(asfloat(AVFXData.Load(128))) == 4)
             {
-                _3651 = 1.0f + asfloat(AVFXData.Load(16));
+                _3685 = 1.0f + asfloat(AVFXData.Load(16));
             }
             else
             {
-                _3651 = 1.0f + ((asfloat(AVFXData.Load(16)) * (1.0f + (2.0f * asfloat(AVFXData.Load(48))))) * svl);
+                _3685 = 1.0f + ((asfloat(AVFXData.Load(16)) * (1.0f + (2.0f * asfloat(AVFXData.Load(48))))) * svl);
             }
-            stretch = _3651;
+            stretch = _3685;
         }
-        float _3674;
+        float _3708;
         if (int(asfloat(AVFXData.Load(208))) == 1)
         {
-            _3674 = ((-0.5f) * size) * stretch;
+            _3708 = ((-0.5f) * size) * stretch;
         }
         else
         {
-            _3674 = 0.0f;
+            _3708 = 0.0f;
         }
-        float anchorShift = _3674;
-        float2 off = ((across * asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0))) * size) + (along * (((asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4)) * size) * stretch) + anchorShift));
+        float anchorShift = _3708;
+        float2 off = ((across * asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) * 16 + 0))) * size) + (along * (((asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) * 16 + 4)) * size) * stretch) + anchorShift));
         if ((asfloat(AVFXData.Load(48)) > 0.0f) && (svl > 9.9999997473787516355514526367188e-05f))
         {
             float2 vdir = sv / svl.xx;
             off += ((((vdir * dot(off, vdir)) * asfloat(AVFXData.Load(48))) * min(svl, 8.0f)) * 0.25f);
         }
-        float4 _3738 = mv;
-        float2 _3740 = _3738.xy + off;
-        mv.x = _3740.x;
-        mv.y = _3740.y;
+        float4 _3772 = mv;
+        float2 _3774 = _3772.xy + off;
+        mv.x = _3774.x;
+        mv.y = _3774.y;
     }
     vRot = rot;
     gl_Position = mul(mv, float4x4(float4(asfloat(AVFXData.Load4(3952))), float4(asfloat(AVFXData.Load4(3968))), float4(asfloat(AVFXData.Load4(3984))), float4(asfloat(AVFXData.Load4(4000)))));
     float param_19 = u;
-    float _3784 = curveB(param_19);
-    vAlpha = _3784 * smoothstep(0.0f, 0.02999999932944774627685546875f, age);
+    float _3818 = curveB(param_19);
+    vAlpha = _3818 * smoothstep(0.0f, 0.02999999932944774627685546875f, age);
     if (int(asfloat(AVFXData.Load(144))) == 1)
     {
-        float param_20 = asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 1) * 16 + 12));
-        float _3801 = curveD(param_20);
-        vAlpha *= _3801;
+        float param_20 = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 4u) * 16 + 12));
+        float _3837 = curveD(param_20);
+        vAlpha *= _3837;
     }
     if (asfloat(AVFXData.Load(112)) > 0.0f)
     {
-        float param_21 = abs(sin((asfloat(AVFXData.Load(0)) * asfloat(AVFXData.Load(96))) + (asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 2) * 16 + 4)) * 19.700000762939453125f)));
+        float param_21 = abs(sin((asfloat(AVFXData.Load(0)) * asfloat(AVFXData.Load(96))) + (asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 5u) * 16 + 4)) * 19.700000762939453125f)));
         float param_22 = 1.5f;
         vAlpha *= lerp(1.0f, safePow(param_21, param_22), asfloat(AVFXData.Load(112)));
     }
     float cols = float(max(int(asfloat(AVFXData.Load(160))), 1));
     float rows = float(max(int(asfloat(AVFXData.Load(176))), 1));
     float tiles = max(asfloat(AVFXData.Load(32)), 1.0f);
-    float ti = floor((asfloat(AVFXInstances.Load(((gl_InstanceIndex * 8) + 1) * 16 + 8)) * tiles) * 0.99989998340606689453125f);
+    float ti = floor((asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 10u) + 4u) * 16 + 8)) * tiles) * 0.99989998340606689453125f);
     float frame = ti;
     if (int(asfloat(AVFXData.Load(192))) > 0)
     {
@@ -1197,7 +1195,6 @@ void vert_main()
 SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
 {
     gl_VertexIndex = int(stage_input.gl_VertexIndex);
-    gl_InstanceIndex = int(stage_input.gl_InstanceIndex);
     vert_main();
     SPIRV_Cross_Output stage_output;
     stage_output.gl_Position = gl_Position;

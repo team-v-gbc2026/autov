@@ -1,0 +1,23 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { exportAvfx } from "../../frontend/src/lib/avfx/export";
+import { defaultGeometry, defaultMaterial, validateDocumentV2 } from "../../frontend/src/lib/vfx-lab/schema-v2";
+
+const target = process.argv[2];
+if (!target) throw new Error("Usage: generate-animation-fixture.mts <output.avfx>");
+const source = validateDocumentV2(JSON.parse(await readFile(new URL("../../frontend/fixtures/v2/fire-projectile/document.json", import.meta.url), "utf8")));
+const layer = structuredClone(source.layers.find(layer => layer.kind === "shell")!);
+layer.kind = "ring";
+layer.id = "baked-ring";
+layer.start = 0;
+layer.end = source.duration = 2;
+layer.geometry = { ...defaultGeometry(), type: "torus", segments: 12, radialSegments: 6 };
+layer.material = defaultMaterial();
+layer.transform = { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] };
+layer.tracks = [{ target: "geometry.radius", keys: [[0,0.4], [2,1.5]], ease: "linear" }];
+layer.overrides = [];
+layer.motion = null;
+delete layer.window;
+source.layers = [layer];
+const result = await exportAvfx(source);
+await writeFile(target, result.bytes);
+console.log(`Animation fixture: ${result.fileCount} files, ${result.bytes.length} bytes`);

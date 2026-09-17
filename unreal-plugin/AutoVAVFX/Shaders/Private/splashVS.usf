@@ -1,0 +1,65 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXVertices;
+ByteAddressBuffer AVFXIndices;
+ByteAddressBuffer AVFXData;
+ByteAddressBuffer AVFXInstances;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float4 gl_Position;
+static int gl_VertexIndex;
+static float2 vUv;
+
+struct SPIRV_Cross_Input
+{
+    uint gl_VertexIndex : SV_VertexID;
+};
+
+struct SPIRV_Cross_Output
+{
+    float2 vUv : TEXCOORD0;
+    float4 gl_Position : SV_Position;
+};
+
+void vert_main()
+{
+    vUv = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 0)).xy;
+    float3 centre = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(112))), float4(asfloat(AVFXData.Load4(128))), float4(asfloat(AVFXData.Load4(144))), float4(asfloat(AVFXData.Load4(160))))).xyz;
+    float3 right = float3(float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224))))[0].x, float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224))))[1].x, float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224))))[2].x);
+    float3 up = float3(float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224))))[0].y, float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224))))[1].y, float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224))))[2].y);
+    float3 fwd = cross(right, up);
+    float2 q = float2(asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)) * asfloat(AVFXData.Load4(0)).xy.x, asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4)) * asfloat(AVFXData.Load4(0)).xy.y);
+    float c = cos(asfloat(AVFXData.Load(32)));
+    float s = sin(asfloat(AVFXData.Load(32)));
+    q = float2((q.x * c) - (q.y * s), (q.x * s) + (q.y * c));
+    float2 o = float2(asfloat(AVFXData.Load4(16)).xyz.x, asfloat(AVFXData.Load4(16)).xyz.y);
+    float3 world = ((centre + (right * (q.x + o.x))) + (up * (q.y + o.y))) + (fwd * asfloat(AVFXData.Load4(16)).xyz.z);
+    gl_Position = mul(float4(world, 1.0f), mul(float4x4(float4(asfloat(AVFXData.Load4(176))), float4(asfloat(AVFXData.Load4(192))), float4(asfloat(AVFXData.Load4(208))), float4(asfloat(AVFXData.Load4(224)))), float4x4(float4(asfloat(AVFXData.Load4(304))), float4(asfloat(AVFXData.Load4(320))), float4(asfloat(AVFXData.Load4(336))), float4(asfloat(AVFXData.Load4(352))))));
+}
+
+SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
+{
+    gl_VertexIndex = int(stage_input.gl_VertexIndex);
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vUv = vUv;
+    return stage_output;
+}

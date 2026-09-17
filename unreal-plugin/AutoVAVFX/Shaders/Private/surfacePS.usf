@@ -17,6 +17,8 @@ Texture2D<float4> uAlphaTexture;
 SamplerState _uAlphaTexture_sampler;
 Texture2D<float4> uNormalMap;
 SamplerState _uNormalMap_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
 
 static float4 gl_FragCoord;
 static bool gl_FrontFacing;

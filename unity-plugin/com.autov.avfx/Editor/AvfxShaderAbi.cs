@@ -1,0 +1,38 @@
+// Generated from trusted repository sources; never execute bundle shader text.
+using System.Collections.Generic;
+public static class AvfxShaderAbi {
+public static readonly Dictionary<string,string[]> Versions=new Dictionary<string,string[]> {{"particle",new[]{"a031010eed1957f7422b613c9d3ba8254be22d61a463d2a7a8fd71f3b3cd8082","df5a63375111d8ec5b234a9ad2f38fbcf10b21e8ba742dbcf77a2304880d26eb"}},
+{"subParticle",new[]{"d285304d95f1d53b8e57f8c72263e2f2421103e6ba5f9b34d37db26ce98b0a89","df5a63375111d8ec5b234a9ad2f38fbcf10b21e8ba742dbcf77a2304880d26eb"}},
+{"trail",new[]{"ef9dc3109d1369c96403fb4a19a5a2284f418f727412f7adcb9c0284d99ff8a9","26b9025fedf8b6d6007e5ebfc09a2e119cce7d5b8904ecda2cac32393d3bc504"}},
+{"subTrail",new[]{"6f9eaacb954791d1b92b85094b8c26e8537d0a6f0de68fa6eb1774d20303fd5e","26b9025fedf8b6d6007e5ebfc09a2e119cce7d5b8904ecda2cac32393d3bc504"}},
+{"strip",new[]{"6cb3de2efc19152e54db40f600be80502612413036353d507f7f56264ce8a589","16acc7ccdda57d879c2f6749cdb824d78490446cd0b4794db53bdf03a1beb596"}},
+{"sliver",new[]{"1e56f94d00fe500c71974e4d5b347f117897789e7dfaf43b296917cd06fdf0e2","7e6f14558a2f4806115fafcf1b81f2c63d8b05ff9081ca77b99b38588d7e4609"}},
+{"surface",new[]{"1f9030d68f3719121fac50a8c5cafeeb7bd0efe9fad36793c0afa0e169c99bca","31a2e693e02db0d3583d1ab97007fc4d9ced67bee74e4a8cadd4b8455f887efe"}},
+{"blob",new[]{"c591c009e54eacafd77848b7a2615927c3b0ed94a929b49e1969815a93c4840a","4e9934038aa0ab120dd2f5f651c12f669c854295d679cef1ca9b82edecf8405d"}},
+{"crystal",new[]{"a0af02d93bfb4ab3dbbb205403275d15b7e16e79cc082e74b0e2c6dce51fe040","256e15d4ba1d3c6d2fea1038e890898269856670b7d7011652537ab18873acf6"}},
+{"splash",new[]{"0550e72f5314e8e0e37c1f297deecd61e900f156e8708dbd12d223d9a37afca2","3b4a91765d94c4a14da8287cbe0a49c23474c28b154eac53585b90564ab6b53c"}},
+{"ribbon",new[]{"1a568b9fcba1fb0e75bd3cfc9405dafd1ef18e46cd6d6e898c1c49bbcaa48bdd","9ba9ac2d44b44f996aea9920d6575391ca648549bab3237bca8b0543e23cf4d7"}},
+{"wireBurst",new[]{"41bff9658a30882c465fd8ce683e74acd8838b2f93e15cc08e3200b4080d8608","14bb527cd4749801f699fc684c9eb49970fc023afcb5c51dd4b79867715952f3"}},
+{"arc",new[]{"c365bf12f4957a86caf30ecad20786158ce71b1f9a6407b3575d8f44e0af3695","5152744a26018b798d44b1733c553fdf9b21cb51abb32b10f7851343a409b3ac"}},
+{"streak",new[]{"84646bbad5c6d65feff2dc9e2e043485fc351670c5996c31b1d2c6e978cf591b","65aea4e10d2bd4771291c65f5560435e14f06c9ac51d0493bb1dcf2501a100d1"}},
+{"sheet",new[]{"0bfa77ad1bce74401e9948823f41b81c0396388e724e9a3cb821cc3d40ad50ec","2d22e4e94a40b928c3fb4b114904c9eb17758c38f0b827bbc7e7e94b6fb3fac8"}},
+{"crescent",new[]{"16cb57b7dbdb7415a9d906c3261979c026354097938e967e5a9136b2c4f06b1b","021ba9908a3b3d8dc3cab4a9a9dffcd14dd8c4f27af0092b1b3e17564c6df8fd"}},
+{"lick",new[]{"4c6051aa9b9084516c72a286fa6e6fa24b1f8c4e0545e66c03486b2441a1e4f6","233a55975b3ce13c30e855c7d46abb2edce6734e16eb04c97e547e5cf6511199"}}};
+public static readonly Dictionary<string,string[]> Attributes=new Dictionary<string,string[]> {{"particle",new string[]{"aSeed","aExtra","aExtra2","aIndex","aSrcPos","aSrcDir","aEvent"}},
+{"subParticle",new string[]{"aSeed","aExtra","aExtra2","aIndex","aPSeed","aPExtra","aPExtra2","aSrcPos","aSrcDir","aEvent"}},
+{"trail",new string[]{"aSeed","aExtra","aExtra2","aIndex","aSrcPos","aSrcDir","aEvent"}},
+{"subTrail",new string[]{"aSeed","aExtra","aExtra2","aIndex","aPSeed","aPExtra","aPExtra2","aSrcPos","aSrcDir","aEvent"}},
+{"strip",new string[]{"aSeed","aExtra","aExtra2","aIndex","aSrcPos","aSrcDir","aEvent"}},
+{"sliver",new string[]{"aSeed","aExtra","aExtra2","aIndex","aSrcPos","aSrcDir","aEvent","aSub"}},
+{"surface",new string[]{}},
+{"blob",new string[]{"aLobeA","aLobeB","aLobeC","aLobeP"}},
+{"crystal",new string[]{"aDir","aOrg","aLen","aWid","aT0","aSeed","aAlong"}},
+{"splash",new string[]{}},
+{"ribbon",new string[]{}},
+{"wireBurst",new string[]{"aDir","aSeed","aKind"}},
+{"arc",new string[]{"aSeed"}},
+{"streak",new string[]{"aSeed"}},
+{"sheet",new string[]{"aSheetSeed","aSheetAge"}},
+{"crescent",new string[]{"aS","aQ"}},
+{"lick",new string[]{"aSeed","aSide"}}};
+}

@@ -1,34 +1,34 @@
-Shader "autoV/Native/crystal" { Properties { avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend]
+Shader "autoV/Native/crystal" { Properties { avfxAttributes ("avfxAttributes", 2D) = "white" {} _Cull ("Cull", Float)=0 _SrcBlend ("Source blend", Float)=5 _DstBlend ("Destination blend", Float)=1 _ZWrite ("Depth write", Float)=0 _ZTest ("Depth test", Float)=4 } SubShader { Tags { "Queue"="Transparent" "RenderType"="Transparent" } Pass { Cull [_Cull] ZWrite [_ZWrite] ZTest [_ZTest] Blend [_SrcBlend] [_DstBlend], One [_DstBlend]
 HLSLPROGRAM
 #pragma target 4.5
 #pragma vertex avfxVertex
 #pragma fragment avfxFragment
 #if defined(SHADER_STAGE_VERTEX)
 
-    row_major float4x4 modelMatrix;
-    row_major float4x4 viewMatrix;
-    row_major float4x4 projectionMatrix;
-    row_major float4x4 modelViewMatrix;
-    row_major float3x3 normalMatrix;
-    float3 cameraPosition;
-    float uTime;
-    float uSpan;
-    float uGrowDur;
-    float uOvershoot;
-    float uInflate;
-    float uHasCollapse;
-    float uCollapseStart;
-    float uCollapseDur;
-    float3 uTip;
-    float3 uFace;
-    float3 uEdge;
-    float3 uCam;
-    float uFresPow;
-    float uGlintFreq;
-    float uGlintSpeed;
-    float uOpacity;
-    float uFlat;
-    int uBlendMode;
+    uniform float4x4 modelMatrix;
+    uniform float4x4 viewMatrix;
+    uniform float4x4 projectionMatrix;
+    uniform float4x4 modelViewMatrix;
+    uniform float3x3 normalMatrix;
+    uniform float3 cameraPosition;
+    uniform float uTime;
+    uniform float uSpan;
+    uniform float uGrowDur;
+    uniform float uOvershoot;
+    uniform float uInflate;
+    uniform float uHasCollapse;
+    uniform float uCollapseStart;
+    uniform float uCollapseDur;
+    uniform float3 uTip;
+    uniform float3 uFace;
+    uniform float3 uEdge;
+    uniform float3 uCam;
+    uniform float uFresPow;
+    uniform float uGlintFreq;
+    uniform float uGlintSpeed;
+    uniform float uOpacity;
+    uniform float uFlat;
+    uniform int uBlendMode;
 
 
 Texture2D<float4> avfxAttributes;
@@ -163,30 +163,30 @@ SPIRV_Cross_Output avfxVertex(SPIRV_Cross_Input stage_input)
 
 #else
 
-    row_major float4x4 modelMatrix;
-    row_major float4x4 viewMatrix;
-    row_major float4x4 projectionMatrix;
-    row_major float4x4 modelViewMatrix;
-    row_major float3x3 normalMatrix;
-    float3 cameraPosition;
-    float uTime;
-    float uSpan;
-    float uGrowDur;
-    float uOvershoot;
-    float uInflate;
-    float uHasCollapse;
-    float uCollapseStart;
-    float uCollapseDur;
-    float3 uTip;
-    float3 uFace;
-    float3 uEdge;
-    float3 uCam;
-    float uFresPow;
-    float uGlintFreq;
-    float uGlintSpeed;
-    float uOpacity;
-    float uFlat;
-    int uBlendMode;
+    uniform float4x4 modelMatrix;
+    uniform float4x4 viewMatrix;
+    uniform float4x4 projectionMatrix;
+    uniform float4x4 modelViewMatrix;
+    uniform float3x3 normalMatrix;
+    uniform float3 cameraPosition;
+    uniform float uTime;
+    uniform float uSpan;
+    uniform float uGrowDur;
+    uniform float uOvershoot;
+    uniform float uInflate;
+    uniform float uHasCollapse;
+    uniform float uCollapseStart;
+    uniform float uCollapseDur;
+    uniform float3 uTip;
+    uniform float3 uFace;
+    uniform float3 uEdge;
+    uniform float3 uCam;
+    uniform float uFresPow;
+    uniform float uGlintFreq;
+    uniform float uGlintSpeed;
+    uniform float uOpacity;
+    uniform float uFlat;
+    uniform int uBlendMode;
 
 
 Texture2D<float4> avfxAttributes;

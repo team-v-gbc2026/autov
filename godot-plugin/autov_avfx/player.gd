@@ -8,6 +8,8 @@ const BundleLoader = preload("bundle_loader.gd")
 const MeshBuilder = preload("mesh_builder.gd")
 const ParticleShader = preload("shaders/particle.gdshader")
 const SurfaceShader = preload("shaders/surface.gdshader")
+const ShaderLibrary = preload("shader_library.gd")
+const ShaderVersions = preload("shader_versions.gd")
 
 @export var effect: Resource:
 	set(value):
@@ -32,6 +34,7 @@ var last_error := ""
 var _draws: Array[Dictionary] = []
 var _meshes := {}
 var _textures := {}
+var _attribute_textures := {}
 var _builder := MeshBuilder.new()
 var _root: Node3D
 
@@ -46,7 +49,7 @@ func _fail(message: String) -> void:
 	load_failed.emit(message)
 
 func _clear() -> void:
-	_draws.clear(); _meshes.clear(); _textures.clear()
+	_draws.clear(); _meshes.clear(); _textures.clear(); _attribute_textures.clear()
 	if is_instance_valid(_root):
 		remove_child(_root)
 		_root.queue_free()
@@ -61,8 +64,11 @@ func load_file(path: String) -> Error:
 	effect = loaded
 	return OK
 
-func _mesh(path: String, instances = null):
-	var key: String = path + ":" + (str(instances.get("_id", "")) if instances != null else "surface")
+func _mesh_key(path: String, instances, program: String) -> String:
+	return path + ":" + program + ":" + (str(instances.get("_id", "")) if instances != null else "surface")
+
+func _mesh(path: String, instances = null, program := "surface"):
+	var key := _mesh_key(path, instances, program)
 	if _meshes.has(key): return _meshes[key]
 	if not effect.files.has(path):
 		last_error = "Missing mesh " + path
@@ -71,11 +77,20 @@ func _mesh(path: String, instances = null):
 	if base == null:
 		last_error = _builder.error
 		return null
-	var mesh = _builder.build(base, instances)
+	var generic: bool = program not in ["particle", "surface"]
+	var mesh = _builder.build(base, instances, generic)
 	if mesh == null:
 		last_error = _builder.error
 		return null
 	_meshes[key] = mesh
+	if generic:
+		var layout: Array = ShaderVersions.ATTRIBUTES[program]
+		if not layout.is_empty():
+			var texture = _builder.attribute_texture(base, instances, layout)
+			if texture == null:
+				last_error = _builder.error
+				return null
+			_attribute_textures[key] = texture
 	return mesh
 
 func _texture(binding: Dictionary):
@@ -157,20 +172,29 @@ func _rebuild() -> void:
 				if not instances is Dictionary:
 					_fail("Invalid particle attributes"); return
 				instances["_id"] = descriptor.instances
-				attribute_texture = _builder.instance_texture(instances)
-				if attribute_texture == null: _fail(_builder.error); return
-			var mesh = _mesh(descriptor.mesh, instances)
+				if descriptor.program == "particle":
+					attribute_texture = _builder.instance_texture(instances)
+					if attribute_texture == null: _fail(_builder.error); return
+			var mesh = _mesh(descriptor.mesh, instances, descriptor.program)
 			if mesh == null: _fail(last_error); return
-			var template: Shader = ParticleShader if descriptor.program == "particle" else SurfaceShader
+			var template: Shader = ShaderLibrary.PROGRAMS[descriptor.program]
 			var material := ShaderMaterial.new()
 			var shader := Shader.new()
 			# Only shipped code is specialized. Bundle kernel files are never read
 			# as shader programs; blend choice is a numeric uniform.
 			shader.code = template.code.replace("depth_draw_never", "depth_draw_always") if descriptor.renderState.get("depthWrite", false) else template.code
+			if not descriptor.renderState.get("depthTest", true):
+				shader.code = shader.code.replace("render_mode ", "render_mode depth_test_disabled, ")
+			var side: String = descriptor.renderState.get("side", "double")
+			if side != "double":
+				# The mesh builder already reverses source triangle winding.
+				shader.code = shader.code.replace("cull_disabled", "cull_back" if side == "front" else "cull_front")
 			material.shader = shader
 			material.render_priority = clampi(int(descriptor.renderState.get("renderOrder", 0)), -128, 127)
 			material.set_shader_parameter("avfx_blend_kind", {"additive": 0, "alpha": 1, "premultiplied": 2}[descriptor.renderState.blend])
 			if attribute_texture != null: material.set_shader_parameter("avfx_attributes", attribute_texture)
+			var generic_key := _mesh_key(descriptor.mesh, instances, descriptor.program)
+			if _attribute_textures.has(generic_key): material.set_shader_parameter("avfxAttributes", _attribute_textures[generic_key])
 			for name in descriptor.uniforms:
 				var definition: Dictionary = descriptor.uniforms[name]
 				if definition.has("value"): material.set_shader_parameter(name, _typed(definition.value, definition))
@@ -248,11 +272,23 @@ func _apply_time() -> void:
 		var sample: Dictionary = samples[low]
 		if low != draw.sample:
 			draw.sample = low
+			var instance_path = sample.get("instances", draw.descriptor.get("instances"))
+			if instance_path != null and (draw.instances == null or draw.instances.get("_id") != instance_path):
+				var instances = JSON.parse_string(effect.files[instance_path].get_string_from_utf8())
+				if not instances is Dictionary: _fail("Invalid sampled instances"); return
+				instances["_id"] = instance_path
+				draw.instances = instances
+				if draw.descriptor.program == "particle":
+					var texture = _builder.instance_texture(instances)
+					if texture == null: _fail(_builder.error); return
+					draw.material.set_shader_parameter("avfx_attributes", texture)
 			var matrix: Array = sample.matrix
 			draw.node.transform = Transform3D(Basis(Vector3(matrix[0], matrix[1], matrix[2]), Vector3(matrix[4], matrix[5], matrix[6]), Vector3(matrix[8], matrix[9], matrix[10])), Vector3(matrix[12], matrix[13], matrix[14]))
-			var mesh = _mesh(sample.mesh, draw.instances)
+			var mesh = _mesh(sample.mesh, draw.instances, draw.descriptor.program)
 			if mesh == null: _fail(last_error); return
 			draw.node.mesh = mesh
+			var generic_key := _mesh_key(sample.mesh, draw.instances, draw.descriptor.program)
+			if _attribute_textures.has(generic_key): draw.material.set_shader_parameter("avfxAttributes", _attribute_textures[generic_key])
 			for name in sample.uniforms:
 				var definition: Dictionary = draw.descriptor.uniforms.get(name, {})
 				if definition.has("type") and definition.get("storage") != "constant":

@@ -18,6 +18,8 @@ Texture2D<float4> uNormalMap;
 SamplerState _uNormalMap_sampler;
 Texture2D<float4> uSites;
 SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
 Texture2D<float4> tDepth;
 SamplerState _tDepth_sampler;
 

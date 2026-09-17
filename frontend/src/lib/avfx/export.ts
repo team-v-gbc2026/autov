@@ -3,13 +3,14 @@ import type { V2NodeMaterial } from "../vfx-lab/node-material-v2";
 import { createV2ExportScene, RUNTIME_VERSION_V2 } from "../vfx-lab/runtime-v2";
 import type { VfxDocumentV2 } from "../vfx-lab/schema-v2";
 import * as shaderReferences from "../vfx-lab/shaders-v2";
-import { jsonBytes, meshGlb, zipStore, type PackedAttribute } from "./binary";
+import { jsonBytes, zipStore } from "./binary";
+import { MeshSnapshots, instanced, packAttribute } from "./mesh-snapshots";
 import { prepareAvfxDocument } from "./scope";
 
 type Value = number | number[] | Value[];
 type Binding = { kind: string; type: string; size?: number };
 type Abi = { program: string; vertexName: string; fragmentName: string; bindings: Record<string, Binding>; constants: string[] };
-type Sample = { time: number; visible: boolean; matrix: number[]; mesh: string; uniforms: Record<string, Value> };
+type Sample = { time: number; visible: boolean; matrix: number[]; mesh: string; instances: string | null; uniforms: Record<string, Value> };
 type ExportOptions = {
   onProgress?: (message: string) => void;
   /** Injectable for offline verification; must return actual PNG bytes. */
@@ -28,20 +29,6 @@ function valueOf(value: unknown): Value {
   if (value && typeof value === "object" && "toArray" in value && typeof value.toArray === "function")
     return valueOf(value.toArray());
   throw new Error("Non-finite or unsupported shader uniform in AVFX export.");
-}
-function packAttribute(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): PackedAttribute {
-  const values: number[] = [];
-  for (let i = 0; i < attribute.count; i++) for (let k = 0; k < attribute.itemSize; k++) {
-    const value = attribute.getComponent(i, k);
-    if (!Number.isFinite(value)) throw new Error("Non-finite mesh attribute in AVFX export.");
-    values.push(value);
-  }
-  return { itemSize: attribute.itemSize, count: attribute.count, values };
-}
-function instanced(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute) {
-  return (attribute as THREE.InstancedBufferAttribute).isInstancedBufferAttribute ||
-    (attribute instanceof THREE.InterleavedBufferAttribute &&
-      attribute.data instanceof THREE.InstancedInterleavedBuffer);
 }
 async function readPng(url: string): Promise<Uint8Array> {
   const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
@@ -74,26 +61,38 @@ export async function exportAvfx(input: VfxDocumentV2, options: ExportOptions = 
   options.onProgress?.("Baking renderer geometry and particle attributes…");
   const session = createV2ExportScene(document);
   try {
-    const meshPaths = new Map<THREE.BufferGeometry, string>();
+    const snapshots = new MeshSnapshots(put);
+    const instancePaths = new Map<string, string>();
+    function instanceFile(geometry: THREE.BufferGeometry) {
+      const entries = Object.entries(geometry.attributes).filter(([, attribute]) => instanced(attribute));
+      if (!entries.length) return null;
+      const capacity = Math.min(...entries.map(([, attribute]) => attribute.count));
+      const requested = (geometry as THREE.InstancedBufferGeometry).instanceCount;
+      const count = Math.max(1, Math.min(capacity, requested));
+      if (!Number.isInteger(count) || count < 1) throw new Error("Invalid AVFX instance count.");
+      const attributes = Object.fromEntries(entries.map(([name, attribute]) => {
+        const packed = packAttribute(attribute);
+        return [name, { ...packed, count, values: packed.values.slice(0, count * packed.itemSize) }];
+      }));
+      const serialized = JSON.stringify({ count, order: "authored-seed-order", attributes });
+      const cached = instancePaths.get(serialized);
+      if (cached) return cached;
+      const path = `meshes/instances-${instancePaths.size}.json`;
+      put(path, new TextEncoder().encode(serialized));
+      instancePaths.set(serialized, path);
+      return path;
+    }
     const texturePaths = new Map<string, string>();
     const textureTasks: Array<() => Promise<void>> = [];
     const textureInfo: Record<string, unknown> = {};
     const shaderInfo: Record<string, unknown> = {};
     const draws: Array<{
-      id: string; layerId: string; mesh: THREE.Mesh; abi: Abi; material: V2NodeMaterial;
+      id: string; layerId: string; mesh: THREE.Mesh | THREE.LineSegments; abi: Abi; material: V2NodeMaterial;
       descriptor: Record<string, unknown>; samples: Sample[]; previous?: string;
     }> = [];
 
-    function meshFile(geometry: THREE.BufferGeometry) {
-      const cached = meshPaths.get(geometry);
-      if (cached) return cached;
-      const path = `meshes/mesh-${meshPaths.size}.glb`;
-      const attributes = Object.fromEntries(Object.entries(geometry.attributes)
-        .filter(([, attribute]) => !instanced(attribute)).map(([name, attribute]) => [name, packAttribute(attribute)]));
-      if (!attributes.position) throw new Error("Export draw has no position attribute.");
-      put(path, meshGlb({ attributes, indices: geometry.index ? packAttribute(geometry.index).values : null }));
-      meshPaths.set(geometry, path);
-      return path;
+    function meshFile(mesh: THREE.Mesh | THREE.LineSegments) {
+      return snapshots.capture(mesh.geometry, mesh instanceof THREE.LineSegments ? 1 : 4);
     }
     function textureBinding(texture: THREE.Texture | null) {
       if (!texture) return { source: "unbound", fallback: "zero" };
@@ -128,20 +127,14 @@ export async function exportAvfx(input: VfxDocumentV2, options: ExportOptions = 
     for (const object of session.objects) {
       const layer = object.source;
       object.object.traverse(child => {
-        if (!(child instanceof THREE.Mesh)) return;
+        if (!(child instanceof THREE.Mesh) && !(child instanceof THREE.LineSegments)) return;
         if (Array.isArray(child.material)) throw new Error("Multi-material draws are not supported in AVFX 0.1.");
         const material = child.material as V2NodeMaterial;
         const abi = material.userData.avfx as Abi | undefined;
         if (!abi) throw new Error(`Missing shader ABI for ${layer.id}.`);
         const id = `draw-${draws.length}`;
         const geometry = child.geometry as THREE.BufferGeometry;
-        const instances = Object.fromEntries(Object.entries(geometry.attributes)
-          .filter(([, attribute]) => instanced(attribute)).map(([name, attribute]) => [name, packAttribute(attribute)]));
-        const instancePath = Object.keys(instances).length ? `meshes/${id}-instances.json` : null;
-        if (instancePath) json(instancePath, {
-          count: (child.geometry as THREE.InstancedBufferGeometry).instanceCount,
-          order: "authored-seed-order", attributes: instances,
-        });
+        const instancePath = instanceFile(geometry);
         const uniforms: Record<string, unknown> = {};
         for (const [name, binding] of Object.entries(abi.bindings)) {
           if (binding.kind !== "uniform") continue;
@@ -172,9 +165,11 @@ export async function exportAvfx(input: VfxDocumentV2, options: ExportOptions = 
           }
         }
         shaderInfo[abi.program] = { vertex: `kernel/glsl/${abi.vertexName}.glsl`, fragment: `kernel/glsl/${abi.fragmentName}.glsl`, bindings: abi.bindings, constants: abi.constants };
-        const blend = layer.material!.blend;
+        // Tonal copies and reflections can override the layer's blend mode.
+        const blend = (["additive", "alpha", "premultiplied", "screen"] as const)[Number(material.uniforms.uBlendMode?.value)] ?? layer.material?.blend;
+        if (!blend) throw new Error(`Missing resolved blend mode for ${layer.id}.`);
         const descriptor = {
-          id, name: child.name, program: abi.program, mesh: meshFile(child.geometry), instances: instancePath,
+          id, name: child.name, program: abi.program, mesh: meshFile(child), instances: instancePath,
           uniforms, renderState: {
             blend, rgb: { operation: "add", source: blend === "additive" || blend === "alpha" ? "src-alpha" : "one",
               destination: blend === "additive" ? "one" : blend === "screen" ? "one-minus-src-color" : "one-minus-src-alpha" },
@@ -217,7 +212,8 @@ export async function exportAvfx(input: VfxDocumentV2, options: ExportOptions = 
           if (binding.kind !== "uniform" || binding.type === "sampler2D" || EXTERNAL[name] || name === "uTime" || draw.abi.constants.includes(name)) continue;
           uniforms[name] = valueOf(draw.material.uniforms[name].value);
         }
-        const state = { visible: visible(draw.mesh), matrix: draw.mesh.matrixWorld.toArray(), mesh: meshFile(draw.mesh.geometry), uniforms };
+        const state = { visible: visible(draw.mesh) && (draw.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount !== 0,
+          matrix: draw.mesh.matrixWorld.toArray(), mesh: meshFile(draw.mesh), instances: instanceFile(draw.mesh.geometry), uniforms };
         const serialized = JSON.stringify(state);
         if (serialized !== draw.previous) {
           timelineBytes += serialized.length;

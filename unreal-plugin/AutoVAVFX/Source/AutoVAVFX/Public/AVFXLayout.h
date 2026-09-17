@@ -7,6 +7,8 @@ struct FAVFXLayout
     int32 Slots = 0;
     FString VertexHash, FragmentHash;
     TMap<FString, FAVFXField> Fields;
+    TArray<FString> Attributes;
+    TArray<int32> AttributeWidths;
 };
 AUTOVAVFX_API bool GetAVFXLayout(const FString& Program, FAVFXLayout& Layout);
 

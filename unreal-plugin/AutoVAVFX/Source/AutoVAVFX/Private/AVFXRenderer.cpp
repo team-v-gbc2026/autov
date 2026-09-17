@@ -22,6 +22,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FAVFXParameters, )
     SHADER_PARAMETER_TEXTURE(Texture2D, uMask)
     SHADER_PARAMETER_TEXTURE(Texture2D, uNormalMap)
     SHADER_PARAMETER_TEXTURE(Texture2D, uSites)
+    SHADER_PARAMETER_TEXTURE(Texture2D, uTrail)
     SHADER_PARAMETER_RDG_TEXTURE(Texture2D, tDepth)
     SHADER_PARAMETER_SAMPLER(SamplerState, _uTexture_sampler)
     SHADER_PARAMETER_SAMPLER(SamplerState, _uNoise_sampler)
@@ -29,6 +30,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FAVFXParameters, )
     SHADER_PARAMETER_SAMPLER(SamplerState, _uMask_sampler)
     SHADER_PARAMETER_SAMPLER(SamplerState, _uNormalMap_sampler)
     SHADER_PARAMETER_SAMPLER(SamplerState, _uSites_sampler)
+    SHADER_PARAMETER_SAMPLER(SamplerState, _uTrail_sampler)
     SHADER_PARAMETER_SAMPLER(SamplerState, _tDepth_sampler)
     RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
@@ -39,14 +41,7 @@ class Name : public FGlobalShader { \
     using FParameters=FAVFXParameters; \
     static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& P) { return IsFeatureLevelSupported(P.Platform,ERHIFeatureLevel::SM5); } \
 };
-AVFX_SHADER_CLASS(FAVFXParticleVS)
-AVFX_SHADER_CLASS(FAVFXParticlePS)
-AVFX_SHADER_CLASS(FAVFXSurfaceVS)
-AVFX_SHADER_CLASS(FAVFXSurfacePS)
-IMPLEMENT_GLOBAL_SHADER(FAVFXParticleVS,"/Plugin/AutoVAVFX/Private/particleVS.usf","MainVS",SF_Vertex);
-IMPLEMENT_GLOBAL_SHADER(FAVFXParticlePS,"/Plugin/AutoVAVFX/Private/particlePS.usf","MainPS",SF_Pixel);
-IMPLEMENT_GLOBAL_SHADER(FAVFXSurfaceVS,"/Plugin/AutoVAVFX/Private/surfaceVS.usf","MainVS",SF_Vertex);
-IMPLEMENT_GLOBAL_SHADER(FAVFXSurfacePS,"/Plugin/AutoVAVFX/Private/surfacePS.usf","MainPS",SF_Pixel);
+#include "Generated/Shaders.inl"
 
 void FAVFXViewExtension::Submit(TSharedPtr<const FAVFXFrame,ESPMode::ThreadSafe> Frame)
 {
@@ -60,18 +55,20 @@ static void AVFXDrawPass(FRDGBuilder& Graph, const FSceneView& View, FAVFXParame
     TShaderMapRef<PS> Pixel(GetGlobalShaderMap(View.GetFeatureLevel()));
     const FIntRect Rect=View.UnscaledViewRect;
     const FString Blend=Draw.Blend;
-    const uint32 Triangles=Draw.Indices.Num()/3, Instances=Draw.Instances.Num()/8;
+    const uint32 Triangles=Draw.Indices.Num()/(Draw.bLines?2:3), Instances=1;
+    const bool bLines=Draw.bLines, bDepthTest=Draw.bDepthTest, bDepthWrite=Draw.bDepthWrite;
+    const FString Side=Draw.Side;
     Graph.AddPass(RDG_EVENT_NAME("AutoV AVFX"),P,ERDGPassFlags::Raster,
-        [P,Vertex,Pixel,Rect,Blend,Triangles,Instances](FRHICommandList& RHICmdList)
+        [P,Vertex,Pixel,Rect,Blend,Triangles,Instances,bLines,bDepthTest,bDepthWrite,Side](FRHICommandList& RHICmdList)
     {
         FGraphicsPipelineStateInitializer State;
         RHICmdList.ApplyCachedRenderTargets(State);
         State.BoundShaderState.VertexDeclarationRHI=GEmptyVertexDeclaration.VertexDeclarationRHI;
         State.BoundShaderState.VertexShaderRHI=Vertex.GetVertexShader();
         State.BoundShaderState.PixelShaderRHI=Pixel.GetPixelShader();
-        State.PrimitiveType=PT_TriangleList;
-        State.RasterizerState=TStaticRasterizerState<FM_Solid,CM_None>::GetRHI();
-        State.DepthStencilState=TStaticDepthStencilState<false,CF_DepthNearOrEqual>::GetRHI();
+        State.PrimitiveType=bLines?PT_LineList:PT_TriangleList;
+        State.RasterizerState=Side==TEXT("front")?TStaticRasterizerState<FM_Solid,CM_CW>::GetRHI():Side==TEXT("back")?TStaticRasterizerState<FM_Solid,CM_CCW>::GetRHI():TStaticRasterizerState<FM_Solid,CM_None>::GetRHI();
+        State.DepthStencilState=bDepthTest?(bDepthWrite?TStaticDepthStencilState<true,CF_DepthNearOrEqual>::GetRHI():TStaticDepthStencilState<false,CF_DepthNearOrEqual>::GetRHI()):(bDepthWrite?TStaticDepthStencilState<true,CF_Always>::GetRHI():TStaticDepthStencilState<false,CF_Always>::GetRHI());
         if(Blend==TEXT("additive")) State.BlendState=TStaticBlendState<CW_RGBA,BO_Add,BF_SourceAlpha,BF_One,BO_Add,BF_One,BF_One>::GetRHI();
         else if(Blend==TEXT("premultiplied")) State.BlendState=TStaticBlendState<CW_RGBA,BO_Add,BF_One,BF_InverseSourceAlpha,BO_Add,BF_One,BF_InverseSourceAlpha>::GetRHI();
         else State.BlendState=TStaticBlendState<CW_RGBA,BO_Add,BF_SourceAlpha,BF_InverseSourceAlpha,BO_Add,BF_One,BF_InverseSourceAlpha>::GetRHI();
@@ -107,8 +104,10 @@ void FAVFXViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& Graph, con
         Matrix(TEXT("modelViewMatrix"),Draw.Model*SourceView);
         Matrix(TEXT("projectionMatrix"),Projection);
         Matrix(TEXT("avfxInvProjection"),View.ViewMatrices.GetInvProjectionMatrix());
+        if(const auto* F=Draw.Layout.Fields.Find(TEXT("normalMatrix"))) {const FMatrix Normal=(Draw.Model*SourceView).Inverse().GetTransposed();for(int32 I=0;I<3;I++)Uniforms[F->Slot+I]=FVector4f(Normal.M[I][0],Normal.M[I][1],Normal.M[I][2],0);}
         const FVector Camera=AVFXSourceToUnreal().InverseTransformPosition(View.ViewMatrices.GetViewOrigin());
         Vector(TEXT("uCam"),FVector4f(FVector3f(Camera),0));
+        Vector(TEXT("cameraPosition"),FVector4f(FVector3f(Camera),0));
         Vector(TEXT("uResolution"),FVector4f(Depth->Desc.Extent.X,Depth->Desc.Extent.Y,0,0));
         Vector(TEXT("avfxPreExposure"),FVector4f(View.State?View.State->GetPreExposure():1.f,0,0,0));
         const FMatrix Inv=SourceView.Inverse();
@@ -125,12 +124,12 @@ void FAVFXViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& Graph, con
         #define AVFX_TEXTURE(Name) P->Name=Texture(TEXT(#Name)); P->_##Name##_sampler=Sampler(TEXT(#Name));
         AVFX_TEXTURE(uTexture) AVFX_TEXTURE(uNoise) AVFX_TEXTURE(uAlphaTexture)
         AVFX_TEXTURE(uMask) AVFX_TEXTURE(uNormalMap) AVFX_TEXTURE(uSites)
+        AVFX_TEXTURE(uTrail)
         #undef AVFX_TEXTURE
         P->tDepth=Depth;
         P->_tDepth_sampler=TStaticSamplerState<SF_Point,AM_Clamp,AM_Clamp,AM_Clamp>::GetRHI();
         P->RenderTargets[0]=FRenderTargetBinding(Color,ERenderTargetLoadAction::ELoad);
-        P->RenderTargets.DepthStencil=FDepthStencilBinding(Depth,ERenderTargetLoadAction::ELoad,ERenderTargetLoadAction::ELoad,FExclusiveDepthStencil::DepthRead_StencilNop);
-        if(Draw.Program==TEXT("particle")) AVFXDrawPass<FAVFXParticleVS,FAVFXParticlePS>(Graph,View,P,Draw);
-        else AVFXDrawPass<FAVFXSurfaceVS,FAVFXSurfacePS>(Graph,View,P,Draw);
+        P->RenderTargets.DepthStencil=FDepthStencilBinding(Depth,ERenderTargetLoadAction::ELoad,ERenderTargetLoadAction::ELoad,Draw.bDepthWrite?FExclusiveDepthStencil::DepthWrite_StencilNop:FExclusiveDepthStencil::DepthRead_StencilNop);
+        #include "Generated/Dispatch.inl"
     }
 }

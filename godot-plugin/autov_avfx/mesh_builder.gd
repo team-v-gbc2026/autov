@@ -45,14 +45,21 @@ func read_glb(bytes: PackedByteArray):
 	if not gltf is Dictionary or not gltf.get("accessors") is Array or not gltf.get("bufferViews") is Array or not gltf.get("meshes") is Array: return _fail("Invalid glTF JSON")
 	if gltf.meshes.size() != 1 or gltf.meshes[0].get("primitives", []).size() != 1: return _fail("Expected one mesh primitive")
 	var primitive: Dictionary = gltf.meshes[0].primitives[0]
-	if primitive.get("mode", 4) != 4 or not primitive.get("attributes") is Dictionary: return _fail("Expected triangles")
+	var mode: int = int(primitive.get("mode", 4))
+	if not mode in [1, 4] or not primitive.get("attributes") is Dictionary: return _fail("Expected lines or triangles")
 	var binary := bytes.slice(bin_header + 8)
 	var attributes := {}
+	var custom := {}
+	var attribute_map: Dictionary = gltf.meshes[0].get("extras", {}).get("attributeMap", {})
 	for name in primitive.attributes:
-		if not name in ["POSITION", "NORMAL", "TEXCOORD_0"]: return _fail("Unsupported surface vertex attribute: " + name)
 		var a = _accessor(gltf, binary, int(primitive.attributes[name]))
 		if a == null: return null
-		if a.items != (2 if name == "TEXCOORD_0" else 3): return _fail("Invalid attribute width")
+		if name in ["POSITION", "NORMAL", "TEXCOORD_0"]:
+			if a.items != (2 if name == "TEXCOORD_0" else 3): return _fail("Invalid attribute width")
+		else:
+			var original = attribute_map.find_key(name)
+			if original == null: return _fail("Missing custom attribute mapping: " + name)
+			custom[original] = a
 		attributes[name] = a
 	if not attributes.has("POSITION"): return _fail("Missing positions")
 	var count: int = attributes.POSITION.count
@@ -69,10 +76,10 @@ func read_glb(bytes: PackedByteArray):
 			indices.append(int(value))
 	else:
 		for i in count: indices.append(i)
-	if indices.size() % 3 != 0: return _fail("Non-triangle index count")
-	return {"attributes": attributes, "indices": indices, "count": count}
+	if indices.size() % (2 if mode == 1 else 3) != 0: return _fail("Incomplete primitive index count")
+	return {"attributes": attributes, "custom": custom, "indices": indices, "count": count, "mode": mode}
 
-func build(base: Dictionary, instances = null):
+func build(base: Dictionary, instances = null, per_vertex_attributes := false):
 	var count: int = int(instances.get("count", 0)) if instances != null else 1
 	if count < 1 or count > 60000 or base.count * count > MAX_VERTICES: return _fail("Expanded particle vertex budget exceeded")
 	var positions := PackedVector3Array()
@@ -95,22 +102,52 @@ func build(base: Dictionary, instances = null):
 			if attrs.has("TEXCOORD_0"):
 				var t: PackedFloat64Array = attrs.TEXCOORD_0.values
 				uv[dst] = Vector2(t[vertex * 2], t[vertex * 2 + 1])
-			uv2[dst] = Vector2(instance, 0)
-		for i in range(0, base.indices.size(), 3):
-			# Godot uses clockwise front faces, source GLB uses counterclockwise.
-			indices.append(instance * base.count + base.indices[i])
-			indices.append(instance * base.count + base.indices[i + 2])
-			indices.append(instance * base.count + base.indices[i + 1])
+			uv2[dst] = Vector2(dst if per_vertex_attributes else instance, 0)
+		if base.get("mode", 4) == 1:
+			for index in base.indices: indices.append(instance * base.count + index)
+		else:
+			for i in range(0, base.indices.size(), 3):
+				# Godot uses clockwise front faces, source GLB uses counterclockwise.
+				indices.append(instance * base.count + base.indices[i])
+				indices.append(instance * base.count + base.indices[i + 2])
+				indices.append(instance * base.count + base.indices[i + 1])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = positions; arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uv; arrays[Mesh.ARRAY_TEX_UV2] = uv2
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES if base.get("mode", 4) == 1 else Mesh.PRIMITIVE_TRIANGLES, arrays)
 	# Vertex programs can move far outside their base card/sphere bounds.
 	mesh.custom_aabb = AABB(Vector3(-1000, -1000, -1000), Vector3(2000, 2000, 2000))
 	return mesh
+
+func attribute_texture(base: Dictionary, instances, layout: Array):
+	var count: int = int(instances.get("count", 0)) if instances != null else 1
+	var total: int = base.count * count
+	if count < 1 or count > 60000 or total > MAX_VERTICES: return _fail("Attribute vertex budget exceeded")
+	if layout.is_empty(): return null
+	var height: int = ceili(total * layout.size() / 1024.0)
+	if height > 16384: return _fail("Attribute texture exceeds 16384 rows")
+	var packed := PackedFloat32Array()
+	packed.resize(1024 * height * 4)
+	for column in layout.size():
+		var definition: Dictionary = layout[column]
+		var width: int = {"float": 1, "vec2": 2, "vec3": 3, "vec4": 4}.get(definition.type, 0)
+		var instanced: bool = instances != null and instances.get("attributes", {}).has(definition.name)
+		var attr = instances.attributes[definition.name] if instanced else base.custom.get(definition.name)
+		if width == 0 or not attr is Dictionary: return _fail("Missing attribute " + definition.name)
+		if int(attr.get("itemSize", attr.get("items", 0))) != width: return _fail("Attribute width mismatch")
+		var expected: int = count if instanced else base.count
+		if attr.get("count") != expected or attr.values.size() != expected * width: return _fail("Attribute count mismatch")
+		for instance in count:
+			for vertex in int(base.count):
+				var source: int = instance if instanced else vertex
+				for k in width:
+					var value: float = attr.values[source * width + k]
+					if not is_finite(value): return _fail("Non-finite attribute")
+					packed[((instance * base.count + vertex) * layout.size() + column) * 4 + k] = value
+	return ImageTexture.create_from_image(Image.create_from_data(1024, height, false, Image.FORMAT_RGBAF, packed.to_byte_array()))
 
 func instance_texture(instances: Dictionary):
 	var count: int = int(instances.get("count", 0))

@@ -8,7 +8,7 @@ import { exportAvfx } from "../src/lib/avfx/export";
 import { prepareAvfxDocument } from "../src/lib/avfx/scope";
 import { zipStore } from "../src/lib/avfx/binary";
 import { createV2ExportScene } from "../src/lib/vfx-lab/runtime-v2";
-import { defaultGeometry, defaultMaterial, validateDocumentV2 } from "../src/lib/vfx-lab/schema-v2";
+import { defaultBlob, defaultGeometry, defaultMaterial, validateDocumentV2 } from "../src/lib/vfx-lab/schema-v2";
 
 const fixture = () => validateDocumentV2(JSON.parse(fs.readFileSync("fixtures/v2/fire-projectile/document.json", "utf8")));
 // Deliberately tiny fixture asset. Production export reads the actual URL.
@@ -146,11 +146,13 @@ test("all six geometry kinds produce surface meshes and sampled renderer state",
   } finally { session.dispose(); }
 });
 
-test("scope rejects particle dependencies on excluded generators", () => {
+test("scope includes generator dependencies and rejects disabled sources", () => {
   const doc = validateDocumentV2(JSON.parse(fs.readFileSync("fixtures/v2/ice-blast/document.json", "utf8")));
   // The authored fixture borrows its debris sites from crystal geometry.
   const dependent = doc.layers.find(layer => layer.emitter?.shape.sourceLayerId);
-  assert.ok(dependent, "fixture must exercise an excluded source-layer dependency");
+  assert.ok(dependent, "fixture must exercise a source-layer dependency");
+  assert.ok(prepareAvfxDocument(doc).document.layers.some(layer => layer.kind === "crystals"));
+  doc.layers.find(layer => layer.id === dependent.emitter!.shape.sourceLayerId)!.enabled = false;
   assert.throws(() => prepareAvfxDocument(doc), /excluded layer/);
 });
 
@@ -174,4 +176,41 @@ test("animated torus geometry is exported as a mesh sequence, not a frozen first
   for (const path of meshes) assert.ok(files.has(path));
   const mid = samples.findLast((sample: { time: number }) => sample.time <= 0.5);
   assert.notEqual(samples[0].mesh, mid.mesh);
+});
+
+test("blob exports changing instance tables, hides empty frames and preserves rewind data", async () => {
+  const doc = fixture();
+  const layer = structuredClone(doc.layers.find(layer => layer.kind === "shell")!);
+  layer.kind = "blob";
+  layer.blob = defaultBlob();
+  delete layer.geometry;
+  layer.material = defaultMaterial();
+  layer.motion = null;
+  layer.tracks = [];
+  layer.overrides = [];
+  layer.start = 0;
+  layer.end = doc.duration = 1;
+  doc.layers = [layer];
+  const result = await exportAvfx(doc);
+  const files = unzip(result.bytes);
+  const descriptor = readJson(files, result.manifest.layers[0].path);
+  assert.ok(descriptor.draws.length > 0);
+  let visibleDraws = 0;
+  for (const draw of descriptor.draws) {
+    assert.equal(draw.program, "blob");
+    const samples = readJson(files, "timeline.json").draws[draw.id];
+    assert.equal(samples[0].visible, false);
+    if (samples.some((sample: { visible: boolean }) => sample.visible)) visibleDraws++;
+    const paths = new Set<string>(samples.map((sample: { instances: string }) => sample.instances));
+    assert.ok(paths.size > 2, "live lobe data must not freeze at construction");
+    for (const path of paths) {
+      const instances = readJson(files, path);
+      assert.ok(instances.count > 0);
+      for (const attr of Object.values(instances.attributes) as Array<{ count: number; itemSize: number; values: number[] }>) {
+        assert.equal(attr.count, instances.count);
+        assert.equal(attr.values.length, attr.count * attr.itemSize);
+      }
+    }
+  }
+  assert.ok(visibleDraws > 0);
 });

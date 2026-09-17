@@ -29,22 +29,23 @@ Runtime API: `AvfxPlayer.Play()`, `Pause()`, `Restart()`, `Seek(seconds)`.
 - Bounded STORE ZIP reader; no extraction, remote loading, scripts or shader
   compilation from the bundle. Validates paths, duplicate entries, CRCs, central
   directory, inventory sizes/SHA-256, coordinates and known shader fingerprints.
-- GLB triangle meshes and authored particle instances; PNG sampling settings;
+- GLB triangle/line meshes and authored instances; PNG sampling settings;
   numeric shader uniforms, constants, step-held mesh/transform timelines and
   continuous layer-local shader time. Editor/runtime share the player.
-- Trusted particle/surface Unity shader ports reused from reference commit
+- Trusted Unity ports of all 17 source programs reused from reference commit
   `5ebef9e196cb13b2c755b29054ab875c21dd6356`; source GLSL matches this exporter's
   revisions. Separate alpha blending was corrected for the shared contract.
   The Unity ports use explicit column-major uniform declarations plus transposed
   matrix uploads for the generated row-vector math: the inherited `row_major`
   declarations were not populated by Unity's Windows material binding. The
   surface shader's reserved `half2` variable was also renamed for HLSL.
-- Supported programs: `particle`, `surface`. Other particle variants (trails,
-  subemitters, strips/slivers) are rejected, not silently approximated. Six
-  geometry layer kinds are accepted when they use supported surface features.
-- First pass accepts double-sided triangles, additive/alpha/premultiplied
-  blending and linear PNGs. Numeric data textures, screen blending, one-sided
-  draws and other shader revisions are rejected. URP/HDRP are not supported.
+- Additional programs: subParticle, trail, subTrail, strip, sliver, blob, crystal,
+  splash, ribbon, wireBurst, arc, streak, sheet, crescent and lick. Sampled mesh
+  and instance-table changes are imported together; generator simulation is not
+  rebuilt in Unity. Shader deformation remains live.
+- Accepts front/back/double-sided draws, additive/alpha/premultiplied blending,
+  linear PNGs and float RGBA data textures. Screen blending and unknown shader
+  revisions are rejected. URP/HDRP are not supported.
 - Soft intersection fading is explicitly disabled with an import warning.
   Particle seed order is retained; camera-dependent particle sorting is not
   implemented. Source lights, environment and post-processing are not imported.
@@ -63,6 +64,11 @@ file to each check on Windows (the fixture is not bundled in this repository):
 .\unity-plugin\Compile-Plugin.ps1 -Fixture 'C:\Downloads\fire-projectile.avfx'
 .\unity-plugin\Test-Plugin.ps1 -Fixture 'C:\Downloads\fire-projectile.avfx'
 ```
+
+Pass `-Generators <directory>` to the editor test to also render the ten fixtures
+made by `tools/avfx/generate-generator-fixtures.mts`. Checks cover visible pixels,
+animation and exact rewind, not source-image parity. Importer version 2 forces
+old `.avfx` assets to reimport when this package is updated.
 
 `Compile-Plugin.ps1` compiles runtime/editor assemblies against
 Unity 6.0.44 and runs license-independent archive/GLB/ABI tests using the shared

@@ -86,7 +86,7 @@ mesh/texture reconstruction is validated when the player builds the effect.
 - Original particle seeds/attributes, carried in a float data texture. Base
   particle meshes are expanded into one mesh per draw; Godot's particle
   simulator does not regenerate the effect.
-- Shipped Godot ports of the `particle` and `surface` vertex/fragment programs,
+- Shipped Godot ports of all 17 source vertex/fragment programs,
   live camera/depth bindings, alpha/additive/premultiplied blending, draw order,
   continuous shader time and step-sampled CPU state. Seek and loop use one clock.
 
@@ -97,18 +97,21 @@ Its fingerprints must match the trusted source revision shipped by this adapter.
 
 ## Current limits
 
-- Only `particle` and `surface` programs. This covers this fire projectile and
-  some basic geometry/particle combinations, **not every geometry export**.
-  Trail, strip, sub-particle and other programs fail explicitly. Generators
-  remain outside this first pass.
+- Generator programs now include blob, crystal, splash, ribbon, wireBurst, arc,
+  streak, sheet, crescent and lick, plus the auxiliary particle programs.
+  Ten isolated generator fixtures pass rendered animation and exact-rewind checks
+  on Godot 4.6.1 Compatibility. This is not full source-image parity coverage.
+- Animated instance tables and mesh snapshots are read from the bundle; the
+  adapter does not rebuild procedural generators. Remaining shader deformation
+  runs live. Camera-frame layer transforms are still rejected during export.
 - No per-particle camera-dependent alpha sorting: seed order is preserved.
   Transparent overlap can therefore differ from autoV.
 - No automatic lights, environment, glow/bloom, grading or reference camera.
   Rendering is a smoke-tested port, not a pixel-parity certification.
 - Linear textures and the shipped sampler conventions only: noise repeats,
   other image samplers clamp, lattice data uses nearest filtering. Arbitrary
-  wrap/filter variants are not implemented. Screen blending and non-double-sided
-  draws are rejected.
+  wrap/filter variants are not implemented. Screen blending is rejected.
+  Front/back/double-sided draws and disabled depth testing are supported.
 - Expanded geometry is limited to 60,000 instances / 1,000,000 vertices per draw.
   It uses a deliberately generous fixed bounding box; profile and tighten it
   before production use. This is not a GPU-instanced/high-scale implementation.

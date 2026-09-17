@@ -1,0 +1,133 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float vAlpha;
+static float vPalette;
+static float4 avfxColor;
+static float2 vUv;
+static float vU;
+static float vRot;
+static float3 vSeed;
+static float2 vTile;
+static float3 vWp;
+
+struct SPIRV_Cross_Input
+{
+    float2 vUv : TEXCOORD0;
+    float vU : TEXCOORD1;
+    float vAlpha : TEXCOORD2;
+    float vRot : TEXCOORD3;
+    float3 vSeed : TEXCOORD4;
+    float2 vTile : TEXCOORD5;
+    float3 vWp : TEXCOORD6;
+    float vPalette : TEXCOORD7;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+float4 avfx_uRamp(int i)
+{
+    return asfloat(AVFXData.Load4((150 + i) * 16 + 0));
+}
+
+float avfx_uRampT(int i)
+{
+    return asfloat(AVFXData.Load((156 + i) * 16 + 0));
+}
+
+float3 rampColor(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    int param = 0;
+    int param_1 = 0;
+    float3 c = avfx_uRamp(param).xyz * avfx_uRamp(param_1).w;
+    int param_2 = 0;
+    float prev = avfx_uRampT(param_2);
+    for (int i = 1; i < 6; i++)
+    {
+        if (i >= int(asfloat(AVFXData.Load(2592))))
+        {
+            break;
+        }
+        int param_3 = i;
+        float t = avfx_uRampT(param_3);
+        int param_4 = i;
+        int param_5 = i;
+        float3 ci = avfx_uRamp(param_4).xyz * avfx_uRamp(param_5).w;
+        c = lerp(c, ci, smoothstep(prev, max(t, prev + 9.9999997473787516355514526367188e-05f), u).xxx);
+        prev = t;
+    }
+    return c;
+}
+
+void avfxMain()
+{
+    if (vAlpha <= 0.0f)
+    {
+        discard;
+    }
+    float param = vPalette;
+    float3 _129 = rampColor(param);
+    float3 col = _129;
+    float a = (vAlpha * asfloat(AVFXData.Load(2352))) * asfloat(AVFXData.Load(2368));
+    if (a < 0.00200000009499490261077880859375f)
+    {
+        discard;
+    }
+    if (int(asfloat(AVFXData.Load(2384))) == 1)
+    {
+        avfxColor = float4(col, a);
+    }
+    else
+    {
+        avfxColor = float4(col * a, a);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _174 = avfxColor;
+    float3 _176 = _174.xyz * asfloat(AVFXData.Load(2928));
+    avfxColor.x = _176.x;
+    avfxColor.y = _176.y;
+    avfxColor.z = _176.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vAlpha = stage_input.vAlpha;
+    vPalette = stage_input.vPalette;
+    vUv = stage_input.vUv;
+    vU = stage_input.vU;
+    vRot = stage_input.vRot;
+    vSeed = stage_input.vSeed;
+    vTile = stage_input.vTile;
+    vWp = stage_input.vWp;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}
