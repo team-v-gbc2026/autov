@@ -1,0 +1,427 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+ByteAddressBuffer AVFXVertices;
+ByteAddressBuffer AVFXIndices;
+ByteAddressBuffer AVFXInstances;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float4 gl_Position;
+static int gl_VertexIndex;
+static float2 vUv;
+static float vLobe;
+static float vRing;
+static float3 vObj;
+static float vAlong;
+static float3 vWp;
+static float3 vN;
+
+struct SPIRV_Cross_Input
+{
+    uint gl_VertexIndex : SV_VertexID;
+};
+
+struct SPIRV_Cross_Output
+{
+    float3 vN : TEXCOORD0;
+    float3 vWp : TEXCOORD1;
+    float3 vObj : TEXCOORD2;
+    float vAlong : TEXCOORD3;
+    float vLobe : TEXCOORD4;
+    float vRing : TEXCOORD5;
+    float2 vUv : TEXCOORD6;
+    float4 gl_Position : SV_Position;
+};
+
+float3 safeDir(float3 v, float3 fallback)
+{
+    float l = length(v);
+    float3 _472;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _472 = v / l.xxx;
+    }
+    else
+    {
+        _472 = fallback;
+    }
+    return _472;
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+float2 avfx_uCurveF(int i)
+{
+    return asfloat(AVFXData.Load4((26 + i) * 16 + 0)).xy;
+}
+
+float curveF(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    int param = 0;
+    float v = avfx_uCurveF(param).y;
+    for (int i = 1; i < 8; i++)
+    {
+        if (i >= int(asfloat(AVFXData.Load(544))))
+        {
+            break;
+        }
+        int param_1 = i - 1;
+        float a = avfx_uCurveF(param_1).x;
+        int param_2 = i;
+        float b = avfx_uCurveF(param_2).x;
+        float f = clamp((u - a) / max(b - a, 9.9999997473787516355514526367188e-06f), 0.0f, 1.0f);
+        f = lerp(f, (f * f) * (3.0f - (2.0f * f)), asfloat(AVFXData.Load(560)));
+        int param_3 = i;
+        v = lerp(v, avfx_uCurveF(param_3).y, step(a, u) * f);
+    }
+    return v;
+}
+
+float3 orthoOf(float3 a)
+{
+    float3 _570;
+    if (abs(a.y) < 0.89999997615814208984375f)
+    {
+        _570 = cross(a, float3(0.0f, 1.0f, 0.0f));
+    }
+    else
+    {
+        _570 = cross(a, float3(1.0f, 0.0f, 0.0f));
+    }
+    float3 param = _570;
+    float3 param_1 = float3(1.0f, 0.0f, 0.0f);
+    return safeDir(param, param_1);
+}
+
+void vert_main()
+{
+    vUv = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 0)).xy;
+    vLobe = 0.0f;
+    vRing = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 0));
+    vObj = asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)).xyz;
+    float3 worldPos;
+    float3 worldNormal;
+    if (int(asfloat(AVFXData.Load(352))) == 1)
+    {
+        float2 avfx_half2 = float2(asfloat(AVFXData.Load(32)) + asfloat(AVFXData.Load(368)), (asfloat(AVFXData.Load(16)) * 0.5f) + asfloat(AVFXData.Load(368)));
+        float3 local = float3(asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)).xy * avfx_half2, 0.0f);
+        vObj = local;
+        vAlong = clamp(asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 4)), 0.0f, 1.0f);
+        worldPos = mul(float4(local, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+        float3 param = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+        float3 param_1 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param, param_1);
+        vWp = worldPos;
+        vN = worldNormal;
+        gl_Position = mul(float4(worldPos, 1.0f), mul(float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520)))), float4x4(float4(asfloat(AVFXData.Load4(3600))), float4(asfloat(AVFXData.Load4(3616))), float4(asfloat(AVFXData.Load4(3632))), float4(asfloat(AVFXData.Load4(3648))))));
+        if (asfloat(AVFXData.Load(160)) >= 0.0f)
+        {
+            gl_Position.x += ((((asfloat(AVFXData.Load(160)) - 1.0f) * asfloat(AVFXData.Load(176))) * (1.0f + (asfloat(AVFXData.Load(192)) * clamp(asfloat(AVFXData.Load(208)), 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (int(asfloat(AVFXData.Load(304))) == 1)
+    {
+        float s = (asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)) * 0.5f) + 0.5f;
+        vAlong = s;
+        vRing = (asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4)) * 0.5f) + 0.5f;
+        vUv = float2(s, (asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4)) * 0.5f) + 0.5f);
+        float3 centre = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+        float4 mv = mul(float4(centre, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520)))));
+        float3 axisV = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), mul(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456)))), float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520)))))).xyz;
+        float2 _1035;
+        if (length(axisV.xy) > 9.9999997473787516355514526367188e-06f)
+        {
+            _1035 = normalize(axisV.xy);
+        }
+        else
+        {
+            _1035 = float2(1.0f, 0.0f);
+        }
+        float2 along = _1035;
+        float2 across = float2(-along.y, along.x);
+        float sAxis = length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[2].xyz);
+        float sRad = 0.5f * (length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[0].xyz) + length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[1].xyz));
+        float len = asfloat(AVFXData.Load(16)) * sAxis;
+        float half_ = ((asfloat(AVFXData.Load(48)) * 0.5f) * sRad) * lerp(1.0f, asfloat(AVFXData.Load(336)), s);
+        float _1175;
+        if (int(asfloat(AVFXData.Load(320))) == 1)
+        {
+            _1175 = s * len;
+        }
+        else
+        {
+            _1175 = (s - 0.5f) * len;
+        }
+        float offAlong = _1175;
+        float4 _1201 = mv;
+        float2 _1203 = _1201.xy + ((along * offAlong) + ((across * asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4))) * half_));
+        mv.x = _1203.x;
+        mv.y = _1203.y;
+        vWp = centre;
+        vN = float3(0.0f, 0.0f, 1.0f);
+        gl_Position = mul(mv, float4x4(float4(asfloat(AVFXData.Load4(3600))), float4(asfloat(AVFXData.Load4(3616))), float4(asfloat(AVFXData.Load4(3632))), float4(asfloat(AVFXData.Load4(3648)))));
+        if (asfloat(AVFXData.Load(160)) >= 0.0f)
+        {
+            gl_Position.x += ((((asfloat(AVFXData.Load(160)) - 1.0f) * asfloat(AVFXData.Load(176))) * (1.0f + (asfloat(AVFXData.Load(192)) * clamp(asfloat(AVFXData.Load(208)), 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (int(asfloat(AVFXData.Load(272))) == 1)
+    {
+        float ua = clamp(asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)), 0.0f, 1.0f);
+        float side = asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4));
+        vAlong = clamp(asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 4)), 0.0f, 1.0f);
+        float a = ua * asfloat(AVFXData.Load(64));
+        float param_2 = max(0.0f, sin(3.1415927410125732421875f * ua));
+        float param_3 = 0.60000002384185791015625f;
+        float taper = safePow(param_2, param_3);
+        float w = max(9.9999997473787516355514526367188e-05f, asfloat(AVFXData.Load(48)) * taper);
+        float rr = asfloat(AVFXData.Load(32)) + (side * w);
+        float3 local_1 = float3(cos(a) * rr, sin(a) * rr, (0.119999997317790985107421875f * asfloat(AVFXData.Load(32))) * sin(a * 2.0f));
+        if (int(asfloat(AVFXData.Load(240))) == 1)
+        {
+            float3 param_4 = float3(local_1.xy * asfloat(AVFXData.Load(96)), a - (asfloat(AVFXData.Load(0)) * asfloat(AVFXData.Load(112))));
+            float nz = fbm3(param_4);
+            float param_5 = vAlong;
+            float _1388 = curveF(param_5);
+            local_1 += ((((float3(cos(a), sin(a), 0.0f) * nz) * asfloat(AVFXData.Load(80))) * asfloat(AVFXData.Load(32))) * _1388);
+        }
+        worldPos = mul(float4(local_1, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+        float3 param_6 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+        float3 param_7 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param_6, param_7);
+    }
+    else
+    {
+        if (int(asfloat(AVFXData.Load(224))) == 1)
+        {
+            float along_1 = clamp((1.0f - asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 8))) * 0.5f, 0.0f, 1.0f);
+            vAlong = along_1;
+            float taper_1 = (along_1 * 2.0f) - 1.0f;
+            float sAxis_1 = length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[2].xyz);
+            float sRad_1 = 0.5f * (length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[0].xyz) + length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[1].xyz));
+            float radius = asfloat(AVFXData.Load(32)) * sRad_1;
+            float length_ = asfloat(AVFXData.Load(16)) * sAxis_1;
+            float tailCap = smoothstep(1.0f, 0.949999988079071044921875f, along_1);
+            float r = (radius * (((1.0499999523162841796875f * sqrt(max(0.0f, 1.0f - (taper_1 * taper_1)))) * (1.0f - (along_1 * 0.449999988079071044921875f))) + 0.0599999986588954925537109375f)) * tailCap;
+            float _1623;
+            if (along_1 < 0.5f)
+            {
+                _1623 = along_1 * 0.89999997615814208984375f;
+            }
+            else
+            {
+                _1623 = 0.449999988079071044921875f + ((along_1 - 0.5f) * 1.10000002384185791015625f);
+            }
+            float len_1 = length_ * _1623;
+            float3 head = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+            float3 param_8 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+            float3 param_9 = float3(0.0f, 0.0f, 1.0f);
+            float3 axis = safeDir(param_8, param_9);
+            float3 param_10 = axis;
+            float3 t1 = orthoOf(param_10);
+            float3 t2 = cross(axis, t1);
+            float2 ring = normalize(asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)).xy + 9.9999997473787516355514526367188e-06f.xx);
+            vRing = (atan2(ring.y, ring.x) * 0.15915493667125701904296875f) + 0.5f;
+            float3 radial = (t1 * ring.x) + (t2 * ring.y);
+            float3 base = (head + (axis * len_1)) + (radial * r);
+            float _1755;
+            if (int(asfloat(AVFXData.Load(240))) == 1)
+            {
+                _1755 = asfloat(AVFXData.Load(80));
+            }
+            else
+            {
+                _1755 = 0.0f;
+            }
+            float amp = _1755;
+            float3 param_11 = float3((ring * asfloat(AVFXData.Load(96))) + float2(along_1 * 3.5f, 0.0f), (along_1 * 4.0f) - (asfloat(AVFXData.Load(0)) * asfloat(AVFXData.Load(112)))) + float3(0.0f, 0.0f, along_1 * 3.0f);
+            float nz_1 = fbm3(param_11);
+            float param_12 = along_1;
+            float _1796 = curveF(param_12);
+            float disp = ((((nz_1 * amp) * _1796) * radius) * 2.400000095367431640625f) * tailCap;
+            float3 param_13 = asfloat(AVFXData.Load4(400)).xyz;
+            float3 param_14 = float3(0.0f, 1.0f, 0.0f);
+            float3 bias = safeDir(param_13, param_14);
+            float3 param_15 = float3((ring * (asfloat(AVFXData.Load(96)) * 0.36000001430511474609375f)) + float2(along_1 * 1.39999997615814208984375f, 0.0f), (along_1 * 2.2000000476837158203125f) - (asfloat(AVFXData.Load(0)) * (asfloat(AVFXData.Load(112)) * 0.75f)));
+            float lobe = snoise(param_15);
+            float up = smoothstep(0.20000000298023223876953125f, 0.949999988079071044921875f, ring.y) * smoothstep(0.3499999940395355224609375f, 0.800000011920928955078125f, along_1);
+            vLobe = (max(0.0f, lobe) * up) * step(9.9999997473787516355514526367188e-05f, amp);
+            float lick = ((vLobe * radius) * (amp * 6.19999980926513671875f)) * tailCap;
+            float param_16 = along_1;
+            float param_17 = 2.2999999523162841796875f;
+            worldPos = ((base + (radial * disp)) + (((axis * nz_1) * 0.25f) * along_1)) + (bias * ((((length_ * 0.236000001430511474609375f) * safePow(param_16, param_17)) * (0.60000002384185791015625f + (0.4000000059604644775390625f * nz_1))) + lick));
+            float3 param_18 = radial;
+            float3 param_19 = float3(0.0f, 1.0f, 0.0f);
+            worldNormal = safeDir(param_18, param_19);
+        }
+        else
+        {
+            if (int(asfloat(AVFXData.Load(256))) == 1)
+            {
+                vAlong = clamp(asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 4)), 0.0f, 1.0f);
+                float3 centre_1 = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+                float3 right = float3(float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520))))[0].x, float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520))))[1].x, float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520))))[2].x);
+                float3 up_1 = float3(float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520))))[0].y, float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520))))[1].y, float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520))))[2].y);
+                float2 avfx_half2_1 = float2(length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[0].xyz), length(float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))[1].xyz));
+                float c = cos(asfloat(AVFXData.Load(144)));
+                float s_1 = sin(asfloat(AVFXData.Load(144)));
+                float2 q = float2(asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)) * avfx_half2_1.x, asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 4)) * avfx_half2_1.y);
+                q = float2((q.x * c) - (q.y * s_1), (q.x * s_1) + (q.y * c));
+                worldPos = (centre_1 + (right * q.x)) + (up_1 * q.y);
+                float3 param_20 = cross(right, up_1);
+                float3 param_21 = float3(0.0f, 0.0f, 1.0f);
+                worldNormal = safeDir(param_20, param_21);
+            }
+            else
+            {
+                float _2271;
+                if (int(asfloat(AVFXData.Load(288))) == 1)
+                {
+                    _2271 = clamp((asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 8)) - asfloat(AVFXData.Load4(384)).xy.x) / max(asfloat(AVFXData.Load4(384)).xy.y - asfloat(AVFXData.Load4(384)).xy.x, 9.9999997473787516355514526367188e-05f), 0.0f, 1.0f);
+                }
+                else
+                {
+                    _2271 = clamp(asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 2u) * 16 + 4)), 0.0f, 1.0f);
+                }
+                vAlong = _2271;
+                float3 pos = asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)).xyz;
+                if (int(asfloat(AVFXData.Load(240))) == 1)
+                {
+                    float3 param_22 = float3(asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 0)).xy * asfloat(AVFXData.Load(96)), (asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) * 16 + 8)) * asfloat(AVFXData.Load(96))) - (asfloat(AVFXData.Load(0)) * asfloat(AVFXData.Load(112))));
+                    float nz_2 = fbm3(param_22);
+                    float3 param_23 = asfloat(AVFXData.Load4(400)).xyz;
+                    float3 param_24 = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 1u) * 16 + 0)).xyz;
+                    float3 bias_1 = safeDir(param_23, param_24);
+                    float param_25 = vAlong;
+                    float _2386 = curveF(param_25);
+                    pos += (((lerp(asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 1u) * 16 + 0)).xyz, bias_1, 0.5f.xxx) * nz_2) * asfloat(AVFXData.Load(80))) * _2386);
+                }
+                worldPos = mul(float4(pos, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+                float3 param_26 = mul(float4(asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 3u) + 1u) * 16 + 0)).xyz, 0.0f), float4x4(float4(asfloat(AVFXData.Load4(3408))), float4(asfloat(AVFXData.Load4(3424))), float4(asfloat(AVFXData.Load4(3440))), float4(asfloat(AVFXData.Load4(3456))))).xyz;
+                float3 param_27 = float3(0.0f, 1.0f, 0.0f);
+                worldNormal = safeDir(param_26, param_27);
+            }
+        }
+    }
+    vWp = worldPos;
+    vN = worldNormal;
+    gl_Position = mul(float4(worldPos, 1.0f), mul(float4x4(float4(asfloat(AVFXData.Load4(3472))), float4(asfloat(AVFXData.Load4(3488))), float4(asfloat(AVFXData.Load4(3504))), float4(asfloat(AVFXData.Load4(3520)))), float4x4(float4(asfloat(AVFXData.Load4(3600))), float4(asfloat(AVFXData.Load4(3616))), float4(asfloat(AVFXData.Load4(3632))), float4(asfloat(AVFXData.Load4(3648))))));
+    if (asfloat(AVFXData.Load(160)) >= 0.0f)
+    {
+        gl_Position.x += ((((asfloat(AVFXData.Load(160)) - 1.0f) * asfloat(AVFXData.Load(176))) * (1.0f + (asfloat(AVFXData.Load(192)) * clamp(asfloat(AVFXData.Load(208)), 0.0f, 1.0f)))) * gl_Position.w);
+    }
+}
+
+SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
+{
+    gl_VertexIndex = int(stage_input.gl_VertexIndex);
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vUv = vUv;
+    stage_output.vLobe = vLobe;
+    stage_output.vRing = vRing;
+    stage_output.vObj = vObj;
+    stage_output.vAlong = vAlong;
+    stage_output.vWp = vWp;
+    stage_output.vN = vN;
+    return stage_output;
+}

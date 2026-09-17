@@ -1,0 +1,1586 @@
+{
+  "programs": {
+    "particle": {
+      "fields": {
+        "uTime": {
+          "type": "float",
+          "size": 1,
+          "slot": 0
+        },
+        "uStretch": {
+          "type": "float",
+          "size": 1,
+          "slot": 1
+        },
+        "uAtlasTiles": {
+          "type": "float",
+          "size": 1,
+          "slot": 2
+        },
+        "uMotionBlur": {
+          "type": "float",
+          "size": 1,
+          "slot": 3
+        },
+        "uFlipFps": {
+          "type": "float",
+          "size": 1,
+          "slot": 4
+        },
+        "uSpan": {
+          "type": "float",
+          "size": 1,
+          "slot": 5
+        },
+        "uTwinkleFreq": {
+          "type": "float",
+          "size": 1,
+          "slot": 6
+        },
+        "uTwinkleDepth": {
+          "type": "float",
+          "size": 1,
+          "slot": 7
+        },
+        "uRenderMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 8
+        },
+        "uHasAlphaSpawn": {
+          "type": "int",
+          "size": 1,
+          "slot": 9
+        },
+        "uAtlasCols": {
+          "type": "int",
+          "size": 1,
+          "slot": 10
+        },
+        "uAtlasRows": {
+          "type": "int",
+          "size": 1,
+          "slot": 11
+        },
+        "uFlipMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 12
+        },
+        "uAnchorHead": {
+          "type": "int",
+          "size": 1,
+          "slot": 13
+        },
+        "uSize": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 14
+        },
+        "uRot": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 15
+        },
+        "uRotInit": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 16
+        },
+        "uEPathType": {
+          "type": "int",
+          "size": 1,
+          "slot": 17
+        },
+        "uEPathA": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 18
+        },
+        "uEPathB": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 19
+        },
+        "uEPathC": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 20
+        },
+        "uEPathD": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 21
+        },
+        "uEPathW": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 22
+        },
+        "uCurveA": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 23
+        },
+        "uCurveAN": {
+          "type": "int",
+          "size": 1,
+          "slot": 31
+        },
+        "uCurveAEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 32
+        },
+        "uCurveB": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 33
+        },
+        "uCurveBN": {
+          "type": "int",
+          "size": 1,
+          "slot": 41
+        },
+        "uCurveBEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 42
+        },
+        "uCurveD": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 43
+        },
+        "uCurveDN": {
+          "type": "int",
+          "size": 1,
+          "slot": 51
+        },
+        "uCurveDEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 52
+        },
+        "uCurveE": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 53
+        },
+        "uCurveEN": {
+          "type": "int",
+          "size": 1,
+          "slot": 61
+        },
+        "uCurveEEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 62
+        },
+        "uCurveH": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 63
+        },
+        "uCurveHN": {
+          "type": "int",
+          "size": 1,
+          "slot": 71
+        },
+        "uCurveHEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 72
+        },
+        "uCurveT": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 73
+        },
+        "uCurveTN": {
+          "type": "int",
+          "size": 1,
+          "slot": 81
+        },
+        "uCurveTEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 82
+        },
+        "uPeriod": {
+          "type": "float",
+          "size": 1,
+          "slot": 83
+        },
+        "uSpawnWindow": {
+          "type": "float",
+          "size": 1,
+          "slot": 84
+        },
+        "uSpawnDuration": {
+          "type": "float",
+          "size": 1,
+          "slot": 85
+        },
+        "uShapeLength": {
+          "type": "float",
+          "size": 1,
+          "slot": 86
+        },
+        "uShapeRadius": {
+          "type": "float",
+          "size": 1,
+          "slot": 87
+        },
+        "uShapeInner": {
+          "type": "float",
+          "size": 1,
+          "slot": 88
+        },
+        "uShapeAngle": {
+          "type": "float",
+          "size": 1,
+          "slot": 89
+        },
+        "uDrag": {
+          "type": "float",
+          "size": 1,
+          "slot": 90
+        },
+        "uCurl": {
+          "type": "float",
+          "size": 1,
+          "slot": 91
+        },
+        "uCurlFreq": {
+          "type": "float",
+          "size": 1,
+          "slot": 92
+        },
+        "uCurlSpeed": {
+          "type": "float",
+          "size": 1,
+          "slot": 93
+        },
+        "uFloorY": {
+          "type": "float",
+          "size": 1,
+          "slot": 94
+        },
+        "uFloorSoft": {
+          "type": "float",
+          "size": 1,
+          "slot": 95
+        },
+        "uAngle": {
+          "type": "float",
+          "size": 1,
+          "slot": 96
+        },
+        "uPlanarDrag": {
+          "type": "float",
+          "size": 1,
+          "slot": 97
+        },
+        "uVortexW": {
+          "type": "float",
+          "size": 1,
+          "slot": 98
+        },
+        "uVortexFalloff": {
+          "type": "float",
+          "size": 1,
+          "slot": 99
+        },
+        "uSpawnMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 100
+        },
+        "uShapeType": {
+          "type": "int",
+          "size": 1,
+          "slot": 101
+        },
+        "uVelMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 102
+        },
+        "uHasFloor": {
+          "type": "int",
+          "size": 1,
+          "slot": 103
+        },
+        "uSurfaceOnly": {
+          "type": "int",
+          "size": 1,
+          "slot": 104
+        },
+        "uSpeedN": {
+          "type": "int",
+          "size": 1,
+          "slot": 105
+        },
+        "uBurstN": {
+          "type": "int",
+          "size": 1,
+          "slot": 106
+        },
+        "uAxis": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 107
+        },
+        "uDir": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 108
+        },
+        "uGravity": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 109
+        },
+        "uWind": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 110
+        },
+        "uBias": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 111
+        },
+        "uShapeSize": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 112
+        },
+        "uVortexAxis": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 113
+        },
+        "uLife": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 114
+        },
+        "uSpeed": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 115
+        },
+        "uSpeedKey": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 116
+        },
+        "uBurstT": {
+          "type": "float",
+          "size": 8,
+          "slot": 124
+        },
+        "uBurstC": {
+          "type": "float",
+          "size": 8,
+          "slot": 132
+        },
+        "uInterior": {
+          "type": "float",
+          "size": 1,
+          "slot": 140
+        },
+        "uAngleJitter": {
+          "type": "float",
+          "size": 1,
+          "slot": 141
+        },
+        "uAngleBias": {
+          "type": "float",
+          "size": 1,
+          "slot": 142
+        },
+        "uFrontC": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 143
+        },
+        "uFrontEx": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 144
+        },
+        "uFrontEy": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 145
+        },
+        "uFrontN": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 146
+        },
+        "uFrontR": {
+          "type": "float",
+          "size": 1,
+          "slot": 147
+        },
+        "uFrontPh0": {
+          "type": "float",
+          "size": 1,
+          "slot": 148
+        },
+        "uFrontSweep": {
+          "type": "float",
+          "size": 1,
+          "slot": 149
+        },
+        "uFrontSpan": {
+          "type": "float",
+          "size": 1,
+          "slot": 150
+        },
+        "uFrontStart": {
+          "type": "float",
+          "size": 1,
+          "slot": 151
+        },
+        "uHasMask": {
+          "type": "int",
+          "size": 1,
+          "slot": 152
+        },
+        "uHasNoise": {
+          "type": "int",
+          "size": 1,
+          "slot": 153
+        },
+        "uUseErosion": {
+          "type": "int",
+          "size": 1,
+          "slot": 154
+        },
+        "uBlendMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 155
+        },
+        "uProcedural": {
+          "type": "int",
+          "size": 1,
+          "slot": 156
+        },
+        "uDistort": {
+          "type": "float",
+          "size": 1,
+          "slot": 157
+        },
+        "uErodeSoft": {
+          "type": "float",
+          "size": 1,
+          "slot": 158
+        },
+        "uEdgeW": {
+          "type": "float",
+          "size": 1,
+          "slot": 159
+        },
+        "uEdgeI": {
+          "type": "float",
+          "size": 1,
+          "slot": 160
+        },
+        "uOpacity": {
+          "type": "float",
+          "size": 1,
+          "slot": 161
+        },
+        "uMaskRot": {
+          "type": "float",
+          "size": 1,
+          "slot": 162
+        },
+        "uRampKeyMode": {
+          "type": "float",
+          "size": 1,
+          "slot": 163
+        },
+        "uGroundY": {
+          "type": "float",
+          "size": 1,
+          "slot": 164
+        },
+        "uHeightSpan": {
+          "type": "float",
+          "size": 1,
+          "slot": 165
+        },
+        "uFlicker": {
+          "type": "float",
+          "size": 1,
+          "slot": 166
+        },
+        "uRampBlendMode": {
+          "type": "float",
+          "size": 1,
+          "slot": 167
+        },
+        "uRampBlendWeight": {
+          "type": "float",
+          "size": 1,
+          "slot": 168
+        },
+        "uNoiseScale": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 169
+        },
+        "uNoisePan": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 170
+        },
+        "uMaskScale": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 171
+        },
+        "uMaskPan": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 172
+        },
+        "uDistortPan": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 173
+        },
+        "uEdgeCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 174
+        },
+        "uRamp": {
+          "type": "vec4",
+          "size": 6,
+          "slot": 175
+        },
+        "uRampT": {
+          "type": "float",
+          "size": 6,
+          "slot": 181
+        },
+        "uRampN": {
+          "type": "int",
+          "size": 1,
+          "slot": 187
+        },
+        "uCurveC": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 188
+        },
+        "uCurveCN": {
+          "type": "int",
+          "size": 1,
+          "slot": 196
+        },
+        "uCurveCEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 197
+        },
+        "uResolution": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 198
+        },
+        "uNear": {
+          "type": "float",
+          "size": 1,
+          "slot": 199
+        },
+        "uFar": {
+          "type": "float",
+          "size": 1,
+          "slot": 200
+        },
+        "uSoft": {
+          "type": "float",
+          "size": 1,
+          "slot": 201
+        },
+        "uProcParams": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 202
+        },
+        "uStripeA": {
+          "type": "vec4",
+          "size": 3,
+          "slot": 203
+        },
+        "uStripeB": {
+          "type": "vec4",
+          "size": 3,
+          "slot": 206
+        },
+        "uStripeN": {
+          "type": "int",
+          "size": 1,
+          "slot": 209
+        },
+        "uSymFill": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 210
+        },
+        "uSymOutline": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 211
+        },
+        "uSymHigh": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 212
+        },
+        "uSymInk": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 213
+        },
+        "uSymHot": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 214
+        },
+        "uSymHotI": {
+          "type": "float",
+          "size": 1,
+          "slot": 215
+        },
+        "uSymHotA": {
+          "type": "float",
+          "size": 1,
+          "slot": 216
+        },
+        "uScreenPitch": {
+          "type": "float",
+          "size": 1,
+          "slot": 217
+        },
+        "uScreenOn": {
+          "type": "float",
+          "size": 1,
+          "slot": 218
+        },
+        "uScreenWorld": {
+          "type": "float",
+          "size": 1,
+          "slot": 219
+        },
+        "uScreenCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 220
+        },
+        "uSmokeLit": {
+          "type": "int",
+          "size": 1,
+          "slot": 221
+        },
+        "uSmokeCard": {
+          "type": "int",
+          "size": 1,
+          "slot": 222
+        },
+        "uSmokeAmbient": {
+          "type": "float",
+          "size": 1,
+          "slot": 223
+        },
+        "uSmokeRight": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 224
+        },
+        "uSmokeUp": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 225
+        },
+        "uSmokeForward": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 226
+        },
+        "uSmokeLights": {
+          "type": "vec4",
+          "size": 8,
+          "slot": 227
+        },
+        "modelMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 235
+        },
+        "viewMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 239
+        },
+        "modelViewMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 243
+        },
+        "projectionMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 247
+        },
+        "avfxInvProjection": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 251
+        },
+        "avfxPreExposure": {
+          "type": "float",
+          "size": 1,
+          "slot": 255
+        }
+      },
+      "slots": 256,
+      "hashes": [
+        "a031010eed1957f7422b613c9d3ba8254be22d61a463d2a7a8fd71f3b3cd8082",
+        "df5a63375111d8ec5b234a9ad2f38fbcf10b21e8ba742dbcf77a2304880d26eb"
+      ]
+    },
+    "surface": {
+      "fields": {
+        "uTime": {
+          "type": "float",
+          "size": 1,
+          "slot": 0
+        },
+        "uLength": {
+          "type": "float",
+          "size": 1,
+          "slot": 1
+        },
+        "uRadius": {
+          "type": "float",
+          "size": 1,
+          "slot": 2
+        },
+        "uThickness": {
+          "type": "float",
+          "size": 1,
+          "slot": 3
+        },
+        "uArc": {
+          "type": "float",
+          "size": 1,
+          "slot": 4
+        },
+        "uVertexAmp": {
+          "type": "float",
+          "size": 1,
+          "slot": 5
+        },
+        "uVertexFreq": {
+          "type": "float",
+          "size": 1,
+          "slot": 6
+        },
+        "uVertexSpeed": {
+          "type": "float",
+          "size": 1,
+          "slot": 7
+        },
+        "uDisplaceShift": {
+          "type": "float",
+          "size": 1,
+          "slot": 8
+        },
+        "uRoll": {
+          "type": "float",
+          "size": 1,
+          "slot": 9
+        },
+        "uChannel": {
+          "type": "float",
+          "size": 1,
+          "slot": 10
+        },
+        "uSplitOffset": {
+          "type": "float",
+          "size": 1,
+          "slot": 11
+        },
+        "uSplitGrowth": {
+          "type": "float",
+          "size": 1,
+          "slot": 12
+        },
+        "uLayerU": {
+          "type": "float",
+          "size": 1,
+          "slot": 13
+        },
+        "uShell": {
+          "type": "int",
+          "size": 1,
+          "slot": 14
+        },
+        "uHasVertexNoise": {
+          "type": "int",
+          "size": 1,
+          "slot": 15
+        },
+        "uBillboard": {
+          "type": "int",
+          "size": 1,
+          "slot": 16
+        },
+        "uRibbon": {
+          "type": "int",
+          "size": 1,
+          "slot": 17
+        },
+        "uUseLocalZ": {
+          "type": "int",
+          "size": 1,
+          "slot": 18
+        },
+        "uSlab": {
+          "type": "int",
+          "size": 1,
+          "slot": 19
+        },
+        "uSlabBase": {
+          "type": "int",
+          "size": 1,
+          "slot": 20
+        },
+        "uSlabTaper": {
+          "type": "float",
+          "size": 1,
+          "slot": 21
+        },
+        "uFrameV": {
+          "type": "int",
+          "size": 1,
+          "slot": 22
+        },
+        "uFrameMargin": {
+          "type": "float",
+          "size": 1,
+          "slot": 23
+        },
+        "uZRange": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 24
+        },
+        "uVertexBias": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 25
+        },
+        "uCurveF": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 26
+        },
+        "uCurveFN": {
+          "type": "int",
+          "size": 1,
+          "slot": 34
+        },
+        "uCurveFEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 35
+        },
+        "uOpacity": {
+          "type": "float",
+          "size": 1,
+          "slot": 36
+        },
+        "uErodeSoft": {
+          "type": "float",
+          "size": 1,
+          "slot": 37
+        },
+        "uEdgeW": {
+          "type": "float",
+          "size": 1,
+          "slot": 38
+        },
+        "uEdgeI": {
+          "type": "float",
+          "size": 1,
+          "slot": 39
+        },
+        "uProtect": {
+          "type": "float",
+          "size": 1,
+          "slot": 40
+        },
+        "uRimBias": {
+          "type": "float",
+          "size": 1,
+          "slot": 41
+        },
+        "uFresnelPower": {
+          "type": "float",
+          "size": 1,
+          "slot": 42
+        },
+        "uFresnelStrength": {
+          "type": "float",
+          "size": 1,
+          "slot": 43
+        },
+        "uDistort": {
+          "type": "float",
+          "size": 1,
+          "slot": 44
+        },
+        "uRampKeyMode": {
+          "type": "float",
+          "size": 1,
+          "slot": 45
+        },
+        "uMaskRot": {
+          "type": "float",
+          "size": 1,
+          "slot": 46
+        },
+        "uGroundY": {
+          "type": "float",
+          "size": 1,
+          "slot": 47
+        },
+        "uHeightSpan": {
+          "type": "float",
+          "size": 1,
+          "slot": 48
+        },
+        "uRampBlendMode": {
+          "type": "float",
+          "size": 1,
+          "slot": 49
+        },
+        "uRampBlendWeight": {
+          "type": "float",
+          "size": 1,
+          "slot": 50
+        },
+        "uHasMask": {
+          "type": "int",
+          "size": 1,
+          "slot": 51
+        },
+        "uHasNoise": {
+          "type": "int",
+          "size": 1,
+          "slot": 52
+        },
+        "uUseErosion": {
+          "type": "int",
+          "size": 1,
+          "slot": 53
+        },
+        "uBlendMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 54
+        },
+        "uProcedural": {
+          "type": "int",
+          "size": 1,
+          "slot": 55
+        },
+        "uHasFresnel": {
+          "type": "int",
+          "size": 1,
+          "slot": 56
+        },
+        "uBolt": {
+          "type": "int",
+          "size": 1,
+          "slot": 57
+        },
+        "uNoiseScale": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 58
+        },
+        "uNoisePan": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 59
+        },
+        "uMaskScale": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 60
+        },
+        "uMaskPan": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 61
+        },
+        "uDistortPan": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 62
+        },
+        "uEdgeCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 63
+        },
+        "uCam": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 64
+        },
+        "uHasLattice": {
+          "type": "int",
+          "size": 1,
+          "slot": 65
+        },
+        "uHasReveal": {
+          "type": "int",
+          "size": 1,
+          "slot": 66
+        },
+        "uRevealMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 67
+        },
+        "uHasPlaneGlow": {
+          "type": "int",
+          "size": 1,
+          "slot": 68
+        },
+        "uHasDissolve": {
+          "type": "int",
+          "size": 1,
+          "slot": 69
+        },
+        "uRippleN": {
+          "type": "int",
+          "size": 1,
+          "slot": 70
+        },
+        "uBand": {
+          "type": "int",
+          "size": 1,
+          "slot": 71
+        },
+        "uLatEdge": {
+          "type": "float",
+          "size": 1,
+          "slot": 72
+        },
+        "uLatGap": {
+          "type": "float",
+          "size": 1,
+          "slot": 73
+        },
+        "uPulseSpeed": {
+          "type": "float",
+          "size": 1,
+          "slot": 74
+        },
+        "uPhaseJitter": {
+          "type": "float",
+          "size": 1,
+          "slot": 75
+        },
+        "uGrazeFade": {
+          "type": "float",
+          "size": 1,
+          "slot": 76
+        },
+        "uDisStart": {
+          "type": "float",
+          "size": 1,
+          "slot": 77
+        },
+        "uDisStagger": {
+          "type": "float",
+          "size": 1,
+          "slot": 78
+        },
+        "uDisSoft": {
+          "type": "float",
+          "size": 1,
+          "slot": 79
+        },
+        "uRevealFrom": {
+          "type": "float",
+          "size": 1,
+          "slot": 80
+        },
+        "uRevealTo": {
+          "type": "float",
+          "size": 1,
+          "slot": 81
+        },
+        "uRevealWidth": {
+          "type": "float",
+          "size": 1,
+          "slot": 82
+        },
+        "uPlaneDist": {
+          "type": "float",
+          "size": 1,
+          "slot": 83
+        },
+        "uPlaneI": {
+          "type": "float",
+          "size": 1,
+          "slot": 84
+        },
+        "uBandStripes": {
+          "type": "float",
+          "size": 1,
+          "slot": 85
+        },
+        "uTileCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 86
+        },
+        "uLatEdgeCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 87
+        },
+        "uPlaneCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 88
+        },
+        "uRipple": {
+          "type": "vec4",
+          "size": 8,
+          "slot": 89
+        },
+        "uSlabN": {
+          "type": "int",
+          "size": 1,
+          "slot": 97
+        },
+        "uSlabTier": {
+          "type": "vec4",
+          "size": 8,
+          "slot": 98
+        },
+        "uFlicker": {
+          "type": "float",
+          "size": 1,
+          "slot": 106
+        },
+        "uReflect": {
+          "type": "int",
+          "size": 1,
+          "slot": 107
+        },
+        "uReflectTint": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 108
+        },
+        "uReflectOpacity": {
+          "type": "float",
+          "size": 1,
+          "slot": 109
+        },
+        "uReflectBlur": {
+          "type": "float",
+          "size": 1,
+          "slot": 110
+        },
+        "uStreakOn": {
+          "type": "int",
+          "size": 1,
+          "slot": 111
+        },
+        "uStreakRadiate": {
+          "type": "int",
+          "size": 1,
+          "slot": 112
+        },
+        "uCreaseOn": {
+          "type": "int",
+          "size": 1,
+          "slot": 113
+        },
+        "uStreakA": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 114
+        },
+        "uStreakB": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 115
+        },
+        "uStreakCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 116
+        },
+        "uCrease": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 117
+        },
+        "uSymbolSeed": {
+          "type": "float",
+          "size": 1,
+          "slot": 118
+        },
+        "uFlipMode": {
+          "type": "int",
+          "size": 1,
+          "slot": 119
+        },
+        "uAtlasCols": {
+          "type": "int",
+          "size": 1,
+          "slot": 120
+        },
+        "uAtlasRows": {
+          "type": "int",
+          "size": 1,
+          "slot": 121
+        },
+        "uFlipFps": {
+          "type": "float",
+          "size": 1,
+          "slot": 122
+        },
+        "uRamp": {
+          "type": "vec4",
+          "size": 6,
+          "slot": 123
+        },
+        "uRampT": {
+          "type": "float",
+          "size": 6,
+          "slot": 129
+        },
+        "uRampN": {
+          "type": "int",
+          "size": 1,
+          "slot": 135
+        },
+        "uCurveC": {
+          "type": "vec2",
+          "size": 8,
+          "slot": 136
+        },
+        "uCurveCN": {
+          "type": "int",
+          "size": 1,
+          "slot": 144
+        },
+        "uCurveCEase": {
+          "type": "float",
+          "size": 1,
+          "slot": 145
+        },
+        "uProcParams": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 146
+        },
+        "uStripeA": {
+          "type": "vec4",
+          "size": 3,
+          "slot": 147
+        },
+        "uStripeB": {
+          "type": "vec4",
+          "size": 3,
+          "slot": 150
+        },
+        "uStripeN": {
+          "type": "int",
+          "size": 1,
+          "slot": 153
+        },
+        "uSymFill": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 154
+        },
+        "uSymOutline": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 155
+        },
+        "uSymHigh": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 156
+        },
+        "uSymInk": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 157
+        },
+        "uSymHot": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 158
+        },
+        "uSymHotI": {
+          "type": "float",
+          "size": 1,
+          "slot": 159
+        },
+        "uSymHotA": {
+          "type": "float",
+          "size": 1,
+          "slot": 160
+        },
+        "uScreenPitch": {
+          "type": "float",
+          "size": 1,
+          "slot": 161
+        },
+        "uScreenOn": {
+          "type": "float",
+          "size": 1,
+          "slot": 162
+        },
+        "uScreenWorld": {
+          "type": "float",
+          "size": 1,
+          "slot": 163
+        },
+        "uScreenCol": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 164
+        },
+        "uFrame": {
+          "type": "int",
+          "size": 1,
+          "slot": 165
+        },
+        "uSdfN": {
+          "type": "int",
+          "size": 1,
+          "slot": 166
+        },
+        "uBeadOn": {
+          "type": "int",
+          "size": 1,
+          "slot": 167
+        },
+        "uCorner": {
+          "type": "float",
+          "size": 1,
+          "slot": 168
+        },
+        "uSdfCore": {
+          "type": "float",
+          "size": 1,
+          "slot": 169
+        },
+        "uSdfSpine": {
+          "type": "float",
+          "size": 1,
+          "slot": 170
+        },
+        "uSdfInnerOff": {
+          "type": "float",
+          "size": 1,
+          "slot": 171
+        },
+        "uSdfInnerW": {
+          "type": "float",
+          "size": 1,
+          "slot": 172
+        },
+        "uSdfHalo": {
+          "type": "vec2",
+          "size": 3,
+          "slot": 173
+        },
+        "uBeads": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 176
+        },
+        "uFlowOn": {
+          "type": "int",
+          "size": 1,
+          "slot": 177
+        },
+        "uFlowN": {
+          "type": "int",
+          "size": 1,
+          "slot": 178
+        },
+        "uFlowLayer": {
+          "type": "vec4",
+          "size": 8,
+          "slot": 179
+        },
+        "uFlowCut": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 187
+        },
+        "uSwirlOn": {
+          "type": "int",
+          "size": 1,
+          "slot": 188
+        },
+        "uSwirlBands": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 189
+        },
+        "uSwirlDetail": {
+          "type": "vec4",
+          "size": 1,
+          "slot": 190
+        },
+        "uSwirlLobe": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 191
+        },
+        "uSwirlS": {
+          "type": "float",
+          "size": 1,
+          "slot": 192
+        },
+        "uCells": {
+          "type": "float",
+          "size": 1,
+          "slot": 193
+        },
+        "uCellA": {
+          "type": "float",
+          "size": 1,
+          "slot": 194
+        },
+        "uSmokeLit": {
+          "type": "int",
+          "size": 1,
+          "slot": 195
+        },
+        "uSmokeCard": {
+          "type": "int",
+          "size": 1,
+          "slot": 196
+        },
+        "uSmokeAmbient": {
+          "type": "float",
+          "size": 1,
+          "slot": 197
+        },
+        "uSmokeRight": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 198
+        },
+        "uSmokeUp": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 199
+        },
+        "uSmokeForward": {
+          "type": "vec3",
+          "size": 1,
+          "slot": 200
+        },
+        "uSmokeLights": {
+          "type": "vec4",
+          "size": 8,
+          "slot": 201
+        },
+        "uResolution": {
+          "type": "vec2",
+          "size": 1,
+          "slot": 209
+        },
+        "uNear": {
+          "type": "float",
+          "size": 1,
+          "slot": 210
+        },
+        "uFar": {
+          "type": "float",
+          "size": 1,
+          "slot": 211
+        },
+        "uSoft": {
+          "type": "float",
+          "size": 1,
+          "slot": 212
+        },
+        "modelMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 213
+        },
+        "viewMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 217
+        },
+        "modelViewMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 221
+        },
+        "projectionMatrix": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 225
+        },
+        "avfxInvProjection": {
+          "type": "mat4",
+          "size": 1,
+          "slot": 229
+        },
+        "avfxPreExposure": {
+          "type": "float",
+          "size": 1,
+          "slot": 233
+        }
+      },
+      "slots": 234,
+      "hashes": [
+        "1f9030d68f3719121fac50a8c5cafeeb7bd0efe9fad36793c0afa0e169c99bca",
+        "31a2e693e02db0d3583d1ab97007fc4d9ced67bee74e4a8cadd4b8455f887efe"
+      ]
+    }
+  },
+  "textures": [
+    "uTexture",
+    "uNoise",
+    "uAlphaTexture",
+    "uMask",
+    "uNormalMap",
+    "uSites",
+    "tDepth"
+  ]
+}
