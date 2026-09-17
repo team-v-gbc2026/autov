@@ -42,6 +42,13 @@ Bundle SHA256 values:
 Small reference captures and world-occlusion evidence accompany this file.
 Large transient captures, assets and logs remain in ignored local directories.
 
+Interactive Computer Use checks on the last compiled demo: Fire/Shield switching,
+reference-time pause, mouse orbit, and resuming animation worked. The preview HUD
+revealed an additional display issue: it applies gamma to the already encoded
+reference target, so the window appears brighter than the canonical saved PNGs.
+Fix that display conversion and verify it after rebuilding; the image-difference
+metrics above come from render-target readback, not the gamma-affected HUD.
+
 ## Current blocker and next steps
 
 At 12:23 JST, Smart App Control rejected UE's generated
@@ -63,6 +70,7 @@ They must not be treated as verified until the following checks pass:
    verify particle billboard size and transformed actor placement/occlusion.
 5. Visually exercise a full lifetime and loop boundary of both effects, including
    pause/seek/orbit/zoom and editor reload. Fixed-time captures alone are insufficient.
+   Correct the HUD display conversion without changing canonical PNG readback.
 6. Build/package the demo with `Package-Demo.ps1`; launch its `.exe` without the
    Editor and repeat captures. Package and test a distributable plugin ZIP.
 
