@@ -18,7 +18,6 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Auto V") FString EffectName;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Auto V") float Duration = 0;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Auto V") float FramesPerSecond = 0;
-    UPROPERTY(VisibleAnywhere, Category="Auto V") FString SourceSHA256;
     UPROPERTY() FString Manifest;
     UPROPERTY() TArray<FAutoVFile> Files;
     const TArray<uint8>* FindFile(const FString& Path) const;

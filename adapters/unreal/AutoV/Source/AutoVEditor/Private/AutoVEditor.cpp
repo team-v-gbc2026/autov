@@ -8,14 +8,41 @@
 #include "Serialization/JsonSerializer.h"
 #include "UObject/SavePackage.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "libzip/zip.h"
+
+/** Bounded, in-memory ZIP access; no archive entries are extracted to the filesystem. */
+struct FAutoVInput {
+    TArray<uint8> Compressed;
+    zip_t* Archive=nullptr;
+    FString Directory;
+    ~FAutoVInput() { if(Archive) zip_close(Archive); }
+    bool Open(const FString& Filename) {
+        if(!Filename.EndsWith(TEXT(".zip"))) { Directory=FPaths::GetPath(Filename); return true; }
+        int64 Size=IFileManager::Get().FileSize(*Filename);
+        if(Size<=0 || Size>512ll*1024*1024 || !FFileHelper::LoadFileToArray(Compressed,*Filename)) return false;
+        zip_error_t Error; zip_error_init(&Error);
+        auto Source=zip_source_buffer_create(Compressed.GetData(),Compressed.Num(),0,&Error);
+        if(Source) { Archive=zip_open_from_source(Source,ZIP_RDONLY,&Error); if(!Archive) zip_source_free(Source); }
+        zip_error_fini(&Error); return Archive!=nullptr;
+    }
+    bool Read(const FString& Path,TArray<uint8>& Bytes) {
+        if(Path.IsEmpty() || Path.Contains(TEXT("..")) || Path.Contains(TEXT(":")) || Path.Contains(TEXT("\\")) || Path.StartsWith(TEXT("/"))) return false;
+        if(!Archive) { const FString Full=FPaths::Combine(Directory,Path); int64 Size=IFileManager::Get().FileSize(*Full); return Size>=0 && Size<=256ll*1024*1024 && FFileHelper::LoadFileToArray(Bytes,*Full); }
+        FTCHARToUTF8 Name(*Path); zip_stat_t Stat; zip_stat_init(&Stat);
+        if(zip_stat(Archive,Name.Get(),0,&Stat)!=0 || Stat.size>256ull*1024*1024 || Stat.encryption_method!=ZIP_EM_NONE) return false;
+        auto File=zip_fopen(Archive,Name.Get(),0); if(!File) return false;
+        Bytes.SetNumUninitialized(int32(Stat.size)); bool OK=zip_fread(File,Bytes.GetData(),Stat.size)==int64(Stat.size); zip_fclose(File); return OK;
+    }
+};
 
 IMPLEMENT_MODULE(FDefaultModuleImpl, AutoVEditor)
-UAutoVFactory::UAutoVFactory() { SupportedClass=UAutoVAsset::StaticClass(); bEditorImport=true; Formats.Add(TEXT("json;Auto V AVFX manifest")); }
-bool UAutoVFactory::FactoryCanImport(const FString& Filename) { return Filename.EndsWith(TEXT(".avfx.json")); }
+UAutoVFactory::UAutoVFactory() { SupportedClass=UAutoVAsset::StaticClass(); bEditorImport=true; Formats.Add(TEXT("json;Auto V AVFX manifest")); Formats.Add(TEXT("zip;Auto V exported AVFX bundle")); }
+bool UAutoVFactory::FactoryCanImport(const FString& Filename) { return Filename.EndsWith(TEXT(".avfx.json")) || Filename.EndsWith(TEXT(".zip")); }
 UObject* UAutoVFactory::FactoryCreateFile(UClass*,UObject* Parent,FName Name,EObjectFlags Flags,const FString& Filename,const TCHAR*,FFeedbackContext* Warn,bool& Canceled) {
     Canceled=false;
-    FString Text;
-    if (!FactoryCanImport(Filename) || !FFileHelper::LoadFileToString(Text,*Filename)) return nullptr;
+    FString Text; FAutoVInput Input; TArray<uint8> ManifestBytes;
+    if (!FactoryCanImport(Filename) || !Input.Open(Filename) || !Input.Read(Filename.EndsWith(TEXT(".zip"))?TEXT("effect.avfx.json"):FPaths::GetCleanFilename(Filename),ManifestBytes)) { UE_LOG(LogTemp,Error,TEXT("AutoV: cannot read effect.avfx.json from %s"),*Filename); return nullptr; }
+    FUTF8ToTCHAR Decoded(reinterpret_cast<const ANSICHAR*>(ManifestBytes.GetData()),ManifestBytes.Num()); Text=FString(Decoded.Length(),Decoded.Get());
     TSharedPtr<FJsonObject> Root;
     if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),Root) || !Root) return nullptr;
     auto Asset=NewObject<UAutoVAsset>(GetTransientPackage()); Asset->Manifest=Text;
@@ -30,15 +57,11 @@ UObject* UAutoVFactory::FactoryCreateFile(UClass*,UObject* Parent,FName Name,EOb
         for(const auto& T:(*Textures)->Values) { FString P=T.Value->AsString(); Paths.Add(P); if(P.EndsWith(TEXT(".rgba32f"))) Paths.Add(P+TEXT(".json")); }
         for(auto SValue:*Samples) { auto S=SValue->AsObject(); double Geo; if(!S || !S->TryGetNumberField(TEXT("geometry"),Geo)) return nullptr; FString Stem=FString::Printf(TEXT("attributes/%s-%d"),*Id,int32(Geo)); Paths.Add(Stem+TEXT(".bin")); Paths.Add(Stem+TEXT(".json")); }
     }
-    FString Base=FPaths::ConvertRelativePathToFull(FPaths::GetPath(Filename));
     int64 Total=0;
     for(const auto& P:Paths) {
         if(P.IsEmpty() || P.Contains(TEXT("..")) || P.Contains(TEXT(":")) || P.Contains(TEXT("\\")) || P.StartsWith(TEXT("/"))) { UE_LOG(LogTemp,Error,TEXT("AutoV: unsafe dependency path")); return nullptr; }
-        FString Full=FPaths::Combine(Base,P);
-        int64 Size=IFileManager::Get().FileSize(*Full);
-        if(Size<0 || Size>256*1024*1024 || (Total+=Size)>1024ll*1024*1024) { UE_LOG(LogTemp,Error,TEXT("AutoV: missing or oversized dependency %s"),*P); return nullptr; }
         FAutoVFile File; File.Path=P;
-        if(!FFileHelper::LoadFileToArray(File.Bytes,*Full)) return nullptr;
+        if(!Input.Read(P,File.Bytes) || (Total+=File.Bytes.Num())>1024ll*1024*1024) { UE_LOG(LogTemp,Error,TEXT("AutoV: missing or oversized dependency %s"),*P); return nullptr; }
         Asset->Files.Add(MoveTemp(File));
     }
     FString Error;

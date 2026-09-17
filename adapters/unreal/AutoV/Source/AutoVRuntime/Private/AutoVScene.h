@@ -21,4 +21,5 @@ struct FAutoVScene {
     bool Initialized=false;
     void Init(FRHICommandListImmediate& RHICmdList);
     void Render(FRHICommandListImmediate& RHICmdList,FRHITexture* TargetTexture,float Time,float Orbit,float Elevation,float Zoom);
+    void RenderWorld(FRHICommandListImmediate& R,float Time,const FMatrix44f& Actor,const FMatrix44f& View,const FMatrix44f& Projection,const FVector3f& Eye,float PreExposure);
 };

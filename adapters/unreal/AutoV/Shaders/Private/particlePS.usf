@@ -1286,6 +1286,6 @@ SPIRV_Cross_Output avfxFragment(SPIRV_Cross_Input stage_input)
     vNextTile = stage_input.vNextTile;
     frag_main();
     SPIRV_Cross_Output stage_output;
-    stage_output.avfxColor = avfxColor;
+    stage_output.avfxColor = float4(avfxColor.rgb * AvfxUniforms[511].x, avfxColor.a);
     return stage_output;
 }

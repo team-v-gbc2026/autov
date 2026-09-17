@@ -45,6 +45,7 @@ for(const name of ['particle','surface']) {
       // Source RH/Y-up geometry is retained. D3D's viewport orientation makes
       // front-facing agree with source CCW when the rasterizer winding is set.
       code=code.replace('gl_FrontFacing = !stage_input.gl_FrontFacing;','gl_FrontFacing = stage_input.gl_FrontFacing;');
+      code=code.replace('stage_output.avfxColor = avfxColor;','stage_output.avfxColor = float4(avfxColor.rgb * AvfxUniforms[511].x, avfxColor.a);');
     }
     fs.writeFileSync(path.join(shaderDir,`${name}${stage}.usf`),prefix+code);
   }

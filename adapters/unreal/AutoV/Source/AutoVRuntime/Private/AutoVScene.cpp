@@ -99,12 +99,13 @@ void FAutoVScene::Init(FRHICommandListImmediate& R) {
 }
 
 template<typename VSClass,typename PSClass>
-static void DrawAutoV(FRHICommandListImmediate& R,FAutoVScene& Scene,const FAutoVDraw& Draw,const FAutoVSample& Sample,FAutoVGeometry& G,const TArray<FVector4f>& U) {
+static void DrawAutoV(FRHICommandListImmediate& R,FAutoVScene& Scene,const FAutoVDraw& Draw,const FAutoVSample& Sample,FAutoVGeometry& G,const TArray<FVector4f>& U,bool ReversedZ=false) {
     TShaderMapRef<VSClass> VS(GetGlobalShaderMap(GMaxRHIFeatureLevel)); TShaderMapRef<PSClass> PS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
     FGraphicsPipelineStateInitializer P; R.ApplyCachedRenderTargets(P);
     P.BoundShaderState.VertexDeclarationRHI=Scene.Declaration; P.BoundShaderState.VertexShaderRHI=VS.GetVertexShader(); P.BoundShaderState.PixelShaderRHI=PS.GetPixelShader(); P.PrimitiveType=PT_TriangleList;
     P.RasterizerState=Draw.Side==TEXT("double")?TStaticRasterizerState<FM_Solid,CM_None>::GetRHI():Draw.Side==TEXT("front")?TStaticRasterizerState<FM_Solid,CM_CW>::GetRHI():TStaticRasterizerState<FM_Solid,CM_CCW>::GetRHI();
-    if(Draw.DepthTest) P.DepthStencilState=Sample.DepthWrite?TStaticDepthStencilState<true,CF_LessEqual>::GetRHI():TStaticDepthStencilState<false,CF_LessEqual>::GetRHI();
+    if(Draw.DepthTest && ReversedZ) P.DepthStencilState=Sample.DepthWrite?TStaticDepthStencilState<true,CF_GreaterEqual>::GetRHI():TStaticDepthStencilState<false,CF_GreaterEqual>::GetRHI();
+    else if(Draw.DepthTest) P.DepthStencilState=Sample.DepthWrite?TStaticDepthStencilState<true,CF_LessEqual>::GetRHI():TStaticDepthStencilState<false,CF_LessEqual>::GetRHI();
     else P.DepthStencilState=Sample.DepthWrite?TStaticDepthStencilState<true,CF_Always>::GetRHI():TStaticDepthStencilState<false,CF_Always>::GetRHI();
     if(Draw.Blend==TEXT("additive")) P.BlendState=TStaticBlendState<CW_RGBA,BO_Add,BF_SourceAlpha,BF_One,BO_Add,BF_One,BF_One>::GetRHI();
     else if(Draw.Blend==TEXT("alpha")) P.BlendState=TStaticBlendState<CW_RGBA,BO_Add,BF_SourceAlpha,BF_InverseSourceAlpha,BO_Add,BF_One,BF_InverseSourceAlpha>::GetRHI();
@@ -131,7 +132,7 @@ void FAutoVScene::Render(FRHICommandListImmediate& R,FRHITexture* TargetTexture,
         auto& S=Draw.Samples[FMath::Clamp(FMath::FloorToInt(Time*FPS+1e-5f),0,Draw.Samples.Num()-1)]; if(!S.Visible) continue;
         int32 GI=S.Geometry; while(Geometries[GI].Base>=0) GI=Geometries[GI].Base;
         auto& G=Geometries[GI]; if(!G.VB || !G.IB) continue;
-        auto U=S.Uniforms; FMatrix44f Model; FMemory::Memcpy(&Model,U.GetData(),sizeof(Model)); FMatrix44f MV=Model*View,Normal=MV.Inverse().GetTransposed();
+        auto U=S.Uniforms; U[511].X=1; FMatrix44f Model; FMemory::Memcpy(&Model,U.GetData(),sizeof(Model)); FMatrix44f MV=Model*View,Normal=MV.Inverse().GetTransposed();
         auto Put=[&](int Slot,const FMatrix44f& M,int Count) { for(int I=0;I<Count;++I) U[Slot+I]=FVector4f(M.M[I][0],M.M[I][1],M.M[I][2],M.M[I][3]); };
         Put(4,View,4); Put(8,Projection,4); Put(12,MV,4); Put(16,Normal,3); U[19]=FVector4f(Eye,0);
         auto Bindings=Draw.Program==TEXT("particle")?MakeArrayView(particleBindings):MakeArrayView(surfaceBindings);
@@ -147,4 +148,33 @@ void FAutoVScene::Render(FRHICommandListImmediate& R,FRHITexture* TargetTexture,
     P.RasterizerState=TStaticRasterizerState<FM_Solid,CM_None>::GetRHI(); P.BlendState=TStaticBlendState<>::GetRHI(); P.DepthStencilState=TStaticDepthStencilState<false,CF_Always>::GetRHI(); SetGraphicsPipelineState(R,P,0);
     SetShaderParametersLegacyPS(R,PS,LinearTarget.GetReference(),Exposure); R.DrawPrimitive(0,1,1); R.EndRenderPass();
     R.Transition(FRHITransitionInfo(TargetTexture,ERHIAccess::RTV,ERHIAccess::SRVMask));
+}
+
+void FAutoVScene::RenderWorld(FRHICommandListImmediate& R,float Time,const FMatrix44f& Actor,const FMatrix44f& UEView,const FMatrix44f& UEProjection,const FVector3f& UEEye,float PreExposure) {
+    // Source metres (x,y,z) -> UE centimetres (-z,x,y). Determinant is negative:
+    // this consistently changes handedness, including camera, normals and winding.
+    const FMatrix44f C(FPlane4f(0,100,0,0),FPlane4f(0,0,100,0),FPlane4f(-100,0,0,0),FPlane4f(0,0,0,1));
+    const FMatrix44f Inv=C.Inverse();
+    FMatrix44f Flip=FMatrix44f::Identity; Flip.M[2][2]=-1;
+    // Billboard offsets in the kernels are metres even after model-view.
+    // Keep view-space metres too, then restore cm only at UE's projection.
+    FMatrix44f ToMetres=FMatrix44f::Identity,ToCm=FMatrix44f::Identity;
+    for(int32 I=0;I<3;++I) { ToMetres.M[I][I]=.01f; ToCm.M[I][I]=100.f; }
+    const FMatrix44f View=C*UEView*Flip*ToMetres;
+    FMatrix44f Projection=ToCm*Flip*UEProjection;
+    // The shared kernel entry point maps GL clip Z to D3D. Undo here so UE's
+    // reversed-Z projection survives that final shared conversion exactly.
+    for(int32 Row=0;Row<4;++Row) Projection.M[Row][2]=2*Projection.M[Row][2]-Projection.M[Row][3];
+    const FVector3f Eye(Inv.TransformPosition(UEEye));
+    for(auto& Draw:Draws) {
+        auto& S=Draw.Samples[FMath::Clamp(FMath::FloorToInt(Time*FPS+1e-5f),0,Draw.Samples.Num()-1)]; if(!S.Visible) continue;
+        int32 GI=S.Geometry; while(Geometries[GI].Base>=0) GI=Geometries[GI].Base; auto& G=Geometries[GI]; if(!G.VB || !G.IB) continue;
+        auto U=S.Uniforms; U[511].X=PreExposure; FMatrix44f Model; FMemory::Memcpy(&Model,U.GetData(),sizeof(Model)); Model=Model*C*Actor*Inv;
+        FMatrix44f MV=Model*View,Normal=MV.Inverse().GetTransposed();
+        auto Put=[&](int Slot,const FMatrix44f& M,int Count) { for(int I=0;I<Count;++I) U[Slot+I]=FVector4f(M.M[I][0],M.M[I][1],M.M[I][2],M.M[I][3]); };
+        Put(0,Model,4); Put(4,View,4); Put(8,Projection,4); Put(12,MV,4); Put(16,Normal,3); U[19]=FVector4f(Eye,0);
+        auto Bindings=Draw.Program==TEXT("particle")?MakeArrayView(particleBindings):MakeArrayView(surfaceBindings);
+        for(auto& B:Bindings) { if(FCString::Strcmp(B.Name,TEXT("uTime"))==0) U[B.Slot].X+=Time-S.Time; if(FCString::Strcmp(B.Name,TEXT("uCam"))==0) U[B.Slot]=FVector4f(Eye,0); }
+        if(Draw.Program==TEXT("particle")) DrawAutoV<FAutoVParticleVS,FAutoVParticlePS>(R,*this,Draw,S,G,U,true); else DrawAutoV<FAutoVSurfaceVS,FAutoVSurfacePS>(R,*this,Draw,S,G,U,true);
+    }
 }

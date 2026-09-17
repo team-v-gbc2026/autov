@@ -1,6 +1,8 @@
 #include "AutoVPlayer.h"
 #include "AutoVAsset.h"
 #include "AutoVScene.h"
+#include "AutoVWorld.h"
+#include "Engine/World.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Serialization/JsonSerializer.h"
 #include "IImageWrapperModule.h"
@@ -15,10 +17,11 @@ static FString Utf8AutoV(const TArray<uint8>& Bytes) { FUTF8ToTCHAR T(reinterpre
 static FVector3f VectorAutoV(const TArray<TSharedPtr<FJsonValue>>& A) { return FVector3f(A[0]->AsNumber(),A[1]->AsNumber(),A[2]->AsNumber()); }
 static void FlattenAutoV(const TSharedPtr<FJsonValue>& V,TArray<float>& Out) { if(V->Type==EJson::Array) for(auto A:V->AsArray()) FlattenAutoV(A,Out); else if(V->Type==EJson::Boolean) Out.Add(V->AsBool()?1:0); else Out.Add(V->AsNumber()); }
 
-UAutoVPlayer::UAutoVPlayer() { PrimaryComponentTick.bCanEverTick=true; }
+UAutoVPlayer::UAutoVPlayer() { PrimaryComponentTick.bCanEverTick=true; bTickInEditor=true; }
 UAutoVPlayer::~UAutoVPlayer() = default;
+void UAutoVPlayer::OnUnregister() { if(WorldExtension) { auto E=WorldExtension; ENQUEUE_RENDER_COMMAND(AutoVUnregister)([E](FRHICommandListImmediate&) { E->Enabled=false; E->Data.Reset(); }); } FlushRenderingCommands(); WorldExtension.Reset(); Super::OnUnregister(); }
 void UAutoVPlayer::BeginPlay() { Super::BeginPlay(); if(Effect) LoadEffect(Effect); }
-void UAutoVPlayer::EndPlay(const EEndPlayReason::Type Reason) { FlushRenderingCommands(); Scene.Reset(); Super::EndPlay(Reason); }
+void UAutoVPlayer::EndPlay(const EEndPlayReason::Type Reason) { if(WorldExtension) { auto E=WorldExtension; ENQUEUE_RENDER_COMMAND(AutoVDisable)([E](FRHICommandListImmediate&) { E->Enabled=false; E->Data.Reset(); }); } FlushRenderingCommands(); WorldExtension.Reset(); Scene.Reset(); Super::EndPlay(Reason); }
 bool UAutoVPlayer::LoadEffect(UAutoVAsset* Asset) {
     FString Error;
     if(!Asset || !Asset->Validate(Error)) { UE_LOG(LogTemp,Error,TEXT("AutoV load: %s"),*Error); return false; }
@@ -91,8 +94,19 @@ void UAutoVPlayer::TickComponent(float DeltaTime,ELevelTick TickType,FActorCompo
 void UAutoVPlayer::Seek(float Seconds) { if(Scene) { Time=FMath::Clamp(Seconds,0.f,Scene->Duration); Render(); } }
 void UAutoVPlayer::Render() {
     if(!Scene || !Output) return;
+    if(!WorldExtension) WorldExtension=FSceneViewExtensions::NewExtension<FAutoVWorldExtension>();
+    auto Extension=WorldExtension; auto WorldData=Scene; bool Enabled=RenderInWorld && GetOwner() && !GetOwner()->IsHidden(); float WorldTime=Time;
+    FMatrix44f ActorMatrix=GetOwner()?FMatrix44f(GetOwner()->GetActorTransform().ToMatrixWithScale()):FMatrix44f::Identity;
+    auto WorldScene=GetWorld()?GetWorld()->Scene:nullptr;
+    ENQUEUE_RENDER_COMMAND(AutoVWorldUpdate)([Extension,WorldData,Enabled,WorldTime,ActorMatrix,WorldScene](FRHICommandListImmediate& R) { if(Enabled) WorldData->Init(R); Extension->Data=WorldData; Extension->Enabled=Enabled; Extension->Time=WorldTime; Extension->Actor=ActorMatrix; Extension->WorldScene=WorldScene; });
+    if(RenderInWorld) return;
     auto Resource=Output->GameThread_GetRenderTargetResource(); auto Data=Scene; float T=Time,O=OrbitDegrees,E=ElevationDegrees,Z=FMath::Clamp(Zoom,.1f,10.f);
     ENQUEUE_RENDER_COMMAND(AutoVRender)([Resource,Data,T,O,E,Z](FRHICommandListImmediate& RHICmdList) { Data->Render(RHICmdList,Resource->GetRenderTargetTexture(),T,O,E,Z); });
+}
+void UAutoVPlayer::GetReferenceCamera(FVector& Position,FVector& Target,float& FieldOfView) const {
+    if(!Scene) return;
+    auto Convert=[](FVector3f S){ return FVector(-S.Z,S.X,S.Y)*100; };
+    Position=Convert(Scene->Position); Target=Convert(Scene->Target); FieldOfView=Scene->Fov;
 }
 bool UAutoVPlayer::Capture(const FString& Filename) {
     if(!Scene || !Output) return false; Render(); FlushRenderingCommands();
