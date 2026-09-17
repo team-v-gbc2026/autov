@@ -178,7 +178,7 @@ export async function exportEngineBundle(input: VfxDocumentV2, options: {
         files.push({ name: `attributes/${draw.id}-${gi}.bin`, blob: new Blob([a.data.buffer]) });
         files.push({ name: `attributes/${draw.id}-${gi}.json`, blob: json({ width: a.width, height: a.height }) });
       }
-      const shader = await fetch(`/engine-export/unity/${draw.program}.shader`);
+      const shader = await fetch(`/engine-export/Unity/${draw.program}.shader`);
       if (!shader.ok) throw new Error(`Native Unity kernel ${draw.program} is missing.`);
       files.push({ name: `Unity/${draw.program}.shader`, blob: new Blob([await shader.text()]) });
     }

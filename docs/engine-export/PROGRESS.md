@@ -66,3 +66,15 @@ Initial tsc reported only missing generated Next LayoutProps; run Next typegen b
 - fixture smoke-burstをブラウザーから初めて試した。blobのinstanceCount=0の初期フレームで失敗→空geometry/不可視sampleとして保持するよう修正。Godotの空ArrayMesh対応と回帰テスト追加（この追加後のテスト実行は次回）。
 - 次のsmoke-burst再試行は192MB上限に達した。理由候補: CPUで変化するblobの属性が球の全頂点に展開され、毎frameで大きいgeometry JSONを重複保持。上限を無闇に上げず、静的base geometry共有とinstance属性のcompact encodingが必要。元runtimeのinstance属性はInstancedInterleavedBuffer。Shader attributeBytesは今全頂点へ複製、Godot VERTEX_ID/Unity uv2 indexで参照。ここをcompact化する際は両adapterを一緒に修正・検証すること。
 - 現在previewサーバーは4317、CUA exportTab はiab tab3、smoke-burst選択で192MBエラー表示。元tab2は消えたので再作成済み。複数fixture・Unreal・UI・ドキュメント最終化は未完了。
+
+
+## 2026-09-17 — Final two presentation cases and Windows handoff
+
+- User selected **Fire Projectile and Shield**, replacing smoke in the presentation acceptance set.
+- Committed native exporter/importers and published via connected GitHub API because local HTTPS git push lacked credentials. Remote commit `3e3eca61837aaf37e3c24dc57d0f252d0e74ed46` has exactly the same tree as local checkpoint `1c42d4d`; local branch synchronized after verifying tree equality, checkpoint branch preserved. No PR/main merge.
+- Re-exported Fire Projectile using current compact-geometry/float-texture/face-orientation code: 8 draws. Fresh permanent Unity project imported both cases and saved scenes; three views per case captured without compile/render errors.
+- Foreground MAE Fire Projectile: Unity 1.3234 / 1.8821 / 2.5771; Godot 1.4077 / 2.0568 / 3.3139 (0/90/180 degrees). Shield: Unity 0.8474 / 0.7266 / 0.7334; Godot 0.2094 / 0.2087 / 0.2001. RGB byte units, fixed reference time .7333333333.
+- Permanent local demo: `/Users/kawadaiki/Projects/AutoV-VFX-Presentation`. Unity standalone macOS build succeeded, opened and visibly rendered Fire Projectile. The effect-switch button has not yet been confirmed to change scenes in the live app; resolve before calling presentation fully complete. Godot three-view captures succeeded from both permanent bundle locations.
+- User requested a self-contained Windows / UE 5.8 handoff. Added WINDOWS-UE58-HANDOFF.ja.md, with exact repo/branch, data contracts, Windows setup, two-case shader scope, honest Unreal-unimplemented status, measured evidence, and completion criteria. Local transfer archive includes the two export zips and native engine captures.
+- Fixed Unity shader URL/generator output case (`Unity`) to match tracked paths on case-sensitive servers.
+- Remaining: finish presentation controls/relaunch validation, product Studio Export UI verification, and Unreal importer (Windows handoff prepared; no UE runtime available on this Mac).

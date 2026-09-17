@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const glslangFactory = require(process.env.AVFX_GLSLANG || '@webgpu/glslang');
 const cross = process.env.AVFX_SPIRV_CROSS || 'spirv-cross';
 const glslang = glslangFactory();
-const out = 'public/engine-export/unity';
+const out = 'public/engine-export/Unity';
 const temp = '.autov-local/native-kernels'; mkdirSync(out, {recursive:true}); mkdirSync(temp,{recursive:true});
 for (const [name, pair] of Object.entries(kernels)) {
   const parsed = pair.map(parseKernel);
