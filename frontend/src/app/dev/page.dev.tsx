@@ -17,6 +17,11 @@ const cardStyle = {
 
 const cards = [
   {
+    href: "/dev/avfx",
+    title: "AVFX export workbench",
+    body: "Fire-projectile preview and first-pass particle / geometry export scope.",
+  },
+  {
     href: "/dev/chat",
     title: "Agent chat preview",
     body: "Message formatting and simulated streaming with Send/Stop controls.",
