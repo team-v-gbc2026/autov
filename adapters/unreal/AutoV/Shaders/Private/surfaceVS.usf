@@ -1,0 +1,729 @@
+#include "/Engine/Public/Platform.ush"
+float4 AvfxUniforms[512];
+#define modelMatrix float4x4(AvfxUniforms[0],AvfxUniforms[1],AvfxUniforms[2],AvfxUniforms[3])
+#define viewMatrix float4x4(AvfxUniforms[4],AvfxUniforms[5],AvfxUniforms[6],AvfxUniforms[7])
+#define projectionMatrix float4x4(AvfxUniforms[8],AvfxUniforms[9],AvfxUniforms[10],AvfxUniforms[11])
+#define modelViewMatrix float4x4(AvfxUniforms[12],AvfxUniforms[13],AvfxUniforms[14],AvfxUniforms[15])
+#define normalMatrix float3x3(AvfxUniforms[16].xyz,AvfxUniforms[17].xyz,AvfxUniforms[18].xyz)
+#define cameraPosition (float3(AvfxUniforms[19].xyz))
+#define uTime (float(AvfxUniforms[20].x))
+#define uLength (float(AvfxUniforms[21].x))
+#define uRadius (float(AvfxUniforms[22].x))
+#define uThickness (float(AvfxUniforms[23].x))
+#define uArc (float(AvfxUniforms[24].x))
+#define uVertexAmp (float(AvfxUniforms[25].x))
+#define uVertexFreq (float(AvfxUniforms[26].x))
+#define uVertexSpeed (float(AvfxUniforms[27].x))
+#define uDisplaceShift (float(AvfxUniforms[28].x))
+#define uRoll (float(AvfxUniforms[29].x))
+#define uChannel (float(AvfxUniforms[30].x))
+#define uSplitOffset (float(AvfxUniforms[31].x))
+#define uSplitGrowth (float(AvfxUniforms[32].x))
+#define uLayerU (float(AvfxUniforms[33].x))
+#define uShell (int(AvfxUniforms[34].x))
+#define uHasVertexNoise (int(AvfxUniforms[35].x))
+#define uBillboard (int(AvfxUniforms[36].x))
+#define uRibbon (int(AvfxUniforms[37].x))
+#define uUseLocalZ (int(AvfxUniforms[38].x))
+#define uSlab (int(AvfxUniforms[39].x))
+#define uSlabBase (int(AvfxUniforms[40].x))
+#define uSlabTaper (float(AvfxUniforms[41].x))
+#define uFrameV (int(AvfxUniforms[42].x))
+#define uFrameMargin (float(AvfxUniforms[43].x))
+#define uZRange (float2(AvfxUniforms[44].xy))
+#define uVertexBias (float3(AvfxUniforms[45].xyz))
+#define uCurveFN (int(AvfxUniforms[54].x))
+#define uCurveFEase (float(AvfxUniforms[55].x))
+#define uOpacity (float(AvfxUniforms[56].x))
+#define uErodeSoft (float(AvfxUniforms[57].x))
+#define uEdgeW (float(AvfxUniforms[58].x))
+#define uEdgeI (float(AvfxUniforms[59].x))
+#define uProtect (float(AvfxUniforms[60].x))
+#define uRimBias (float(AvfxUniforms[61].x))
+#define uFresnelPower (float(AvfxUniforms[62].x))
+#define uFresnelStrength (float(AvfxUniforms[63].x))
+#define uDistort (float(AvfxUniforms[64].x))
+#define uRampKeyMode (float(AvfxUniforms[65].x))
+#define uMaskRot (float(AvfxUniforms[66].x))
+#define uGroundY (float(AvfxUniforms[67].x))
+#define uHeightSpan (float(AvfxUniforms[68].x))
+#define uRampBlendMode (float(AvfxUniforms[69].x))
+#define uRampBlendWeight (float(AvfxUniforms[70].x))
+#define uHasMask (int(AvfxUniforms[71].x))
+#define uHasNoise (int(AvfxUniforms[72].x))
+#define uUseErosion (int(AvfxUniforms[73].x))
+#define uBlendMode (int(AvfxUniforms[74].x))
+#define uProcedural (int(AvfxUniforms[75].x))
+#define uHasFresnel (int(AvfxUniforms[76].x))
+#define uBolt (int(AvfxUniforms[77].x))
+#define uNoiseScale (float2(AvfxUniforms[78].xy))
+#define uNoisePan (float2(AvfxUniforms[79].xy))
+#define uMaskScale (float2(AvfxUniforms[80].xy))
+#define uMaskPan (float2(AvfxUniforms[81].xy))
+#define uDistortPan (float2(AvfxUniforms[82].xy))
+#define uEdgeCol (float3(AvfxUniforms[83].xyz))
+#define uCam (float3(AvfxUniforms[84].xyz))
+#define uHasLattice (int(AvfxUniforms[85].x))
+#define uHasReveal (int(AvfxUniforms[86].x))
+#define uRevealMode (int(AvfxUniforms[87].x))
+#define uHasPlaneGlow (int(AvfxUniforms[88].x))
+#define uHasDissolve (int(AvfxUniforms[89].x))
+#define uRippleN (int(AvfxUniforms[90].x))
+#define uBand (int(AvfxUniforms[91].x))
+#define uLatEdge (float(AvfxUniforms[92].x))
+#define uLatGap (float(AvfxUniforms[93].x))
+#define uPulseSpeed (float(AvfxUniforms[94].x))
+#define uPhaseJitter (float(AvfxUniforms[95].x))
+#define uGrazeFade (float(AvfxUniforms[96].x))
+#define uDisStart (float(AvfxUniforms[97].x))
+#define uDisStagger (float(AvfxUniforms[98].x))
+#define uDisSoft (float(AvfxUniforms[99].x))
+#define uRevealFrom (float(AvfxUniforms[100].x))
+#define uRevealTo (float(AvfxUniforms[101].x))
+#define uRevealWidth (float(AvfxUniforms[102].x))
+#define uPlaneDist (float(AvfxUniforms[103].x))
+#define uPlaneI (float(AvfxUniforms[104].x))
+#define uBandStripes (float(AvfxUniforms[105].x))
+#define uTileCol (float3(AvfxUniforms[106].xyz))
+#define uLatEdgeCol (float3(AvfxUniforms[107].xyz))
+#define uPlaneCol (float3(AvfxUniforms[108].xyz))
+#define uSlabN (int(AvfxUniforms[117].x))
+#define uFlicker (float(AvfxUniforms[126].x))
+#define uReflect (int(AvfxUniforms[127].x))
+#define uReflectTint (float3(AvfxUniforms[128].xyz))
+#define uReflectOpacity (float(AvfxUniforms[129].x))
+#define uReflectBlur (float(AvfxUniforms[130].x))
+#define uStreakOn (int(AvfxUniforms[131].x))
+#define uStreakRadiate (int(AvfxUniforms[132].x))
+#define uCreaseOn (int(AvfxUniforms[133].x))
+#define uStreakA (float4(AvfxUniforms[134].xyzw))
+#define uStreakB (float4(AvfxUniforms[135].xyzw))
+#define uStreakCol (float3(AvfxUniforms[136].xyz))
+#define uCrease (float3(AvfxUniforms[137].xyz))
+#define uSymbolSeed (float(AvfxUniforms[138].x))
+#define uFlipMode (int(AvfxUniforms[139].x))
+#define uAtlasCols (int(AvfxUniforms[140].x))
+#define uAtlasRows (int(AvfxUniforms[141].x))
+#define uFlipFps (float(AvfxUniforms[142].x))
+#define uRampN (int(AvfxUniforms[155].x))
+#define uCurveCN (int(AvfxUniforms[164].x))
+#define uCurveCEase (float(AvfxUniforms[165].x))
+#define uProcParams (float4(AvfxUniforms[166].xyzw))
+#define uStripeN (int(AvfxUniforms[173].x))
+#define uSymFill (float3(AvfxUniforms[174].xyz))
+#define uSymOutline (float3(AvfxUniforms[175].xyz))
+#define uSymHigh (float3(AvfxUniforms[176].xyz))
+#define uSymInk (float3(AvfxUniforms[177].xyz))
+#define uSymHot (float3(AvfxUniforms[178].xyz))
+#define uSymHotI (float(AvfxUniforms[179].x))
+#define uSymHotA (float(AvfxUniforms[180].x))
+#define uScreenPitch (float(AvfxUniforms[181].x))
+#define uScreenOn (float(AvfxUniforms[182].x))
+#define uScreenWorld (float(AvfxUniforms[183].x))
+#define uScreenCol (float3(AvfxUniforms[184].xyz))
+#define uFrame (int(AvfxUniforms[185].x))
+#define uSdfN (int(AvfxUniforms[186].x))
+#define uBeadOn (int(AvfxUniforms[187].x))
+#define uCorner (float(AvfxUniforms[188].x))
+#define uSdfCore (float(AvfxUniforms[189].x))
+#define uSdfSpine (float(AvfxUniforms[190].x))
+#define uSdfInnerOff (float(AvfxUniforms[191].x))
+#define uSdfInnerW (float(AvfxUniforms[192].x))
+#define uBeads (float3(AvfxUniforms[196].xyz))
+#define uFlowOn (int(AvfxUniforms[197].x))
+#define uFlowN (int(AvfxUniforms[198].x))
+#define uFlowCut (float3(AvfxUniforms[207].xyz))
+#define uSwirlOn (int(AvfxUniforms[208].x))
+#define uSwirlBands (float4(AvfxUniforms[209].xyzw))
+#define uSwirlDetail (float4(AvfxUniforms[210].xyzw))
+#define uSwirlLobe (float3(AvfxUniforms[211].xyz))
+#define uSwirlS (float(AvfxUniforms[212].x))
+#define uCells (float(AvfxUniforms[213].x))
+#define uCellA (float(AvfxUniforms[214].x))
+#define uSmokeLit (int(AvfxUniforms[215].x))
+#define uSmokeCard (int(AvfxUniforms[216].x))
+#define uSmokeAmbient (float(AvfxUniforms[217].x))
+#define uSmokeRight (float3(AvfxUniforms[218].xyz))
+#define uSmokeUp (float3(AvfxUniforms[219].xyz))
+#define uSmokeForward (float3(AvfxUniforms[220].xyz))
+#define uResolution (float2(AvfxUniforms[229].xy))
+#define uNear (float(AvfxUniforms[230].x))
+#define uFar (float(AvfxUniforms[231].x))
+#define uSoft (float(AvfxUniforms[232].x))
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+
+Texture2D<float4> uMask;
+SamplerState sampleruMask;
+Texture2D<float4> uNoise;
+SamplerState sampleruNoise;
+Texture2D<float4> uSites;
+SamplerState sampleruSites;
+Texture2D<float4> tDepth;
+SamplerState samplertDepth;
+Texture2D<float4> avfxAttributes;
+SamplerState sampleravfxAttributes;
+
+static float4 gl_Position;
+static float2 vUv;
+static float2 uv;
+static float vLobe;
+static float vRing;
+static float3 vObj;
+static float3 position;
+static float vAlong;
+static float3 vWp;
+static float3 vN;
+static float3 normal;
+static float avfxVertexIndex;
+
+struct SPIRV_Cross_Input {
+    float3 position : ATTRIBUTE0;
+    float3 normal : ATTRIBUTE1;
+    float2 uv : ATTRIBUTE2;
+    float avfxVertexIndex : ATTRIBUTE3;
+};
+
+struct SPIRV_Cross_Output
+{
+    float3 vN : TEXCOORD0;
+    float3 vWp : TEXCOORD1;
+    float3 vObj : TEXCOORD2;
+    float vAlong : TEXCOORD3;
+    float vLobe : TEXCOORD4;
+    float vRing : TEXCOORD5;
+    float2 vUv : TEXCOORD6;
+    float4 gl_Position : SV_Position;
+};
+
+float3 safeDir(float3 v, float3 fallback)
+{
+    float l = length(v);
+    float3 _452;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _452 = v / l.xxx;
+    }
+    else
+    {
+        _452 = fallback;
+    }
+    return _452;
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+float curveF(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    float v = AvfxUniforms[46+(0)].xy.y;
+    for (int i = 1; i < 8; i++)
+    {
+        if (i >= uCurveFN)
+        {
+            break;
+        }
+        float a = AvfxUniforms[46+(i - 1)].xy.x;
+        float b = AvfxUniforms[46+(i)].xy.x;
+        float f = clamp((u - a) / max(b - a, 9.9999997473787516355514526367188e-06f), 0.0f, 1.0f);
+        f = lerp(f, (f * f) * (3.0f - (2.0f * f)), uCurveFEase);
+        v = lerp(v, AvfxUniforms[46+(i)].xy.y, step(a, u) * f);
+    }
+    return v;
+}
+
+float3 orthoOf(float3 a)
+{
+    float3 _568;
+    if (abs(a.y) < 0.89999997615814208984375f)
+    {
+        _568 = cross(a, float3(0.0f, 1.0f, 0.0f));
+    }
+    else
+    {
+        _568 = cross(a, float3(1.0f, 0.0f, 0.0f));
+    }
+    float3 param = _568;
+    float3 param_1 = float3(1.0f, 0.0f, 0.0f);
+    return safeDir(param, param_1);
+}
+
+void vert_main()
+{
+    vUv = uv;
+    vLobe = 0.0f;
+    vRing = uv.x;
+    vObj = position;
+    float3 worldPos;
+    float3 worldNormal;
+    if (uFrameV == 1)
+    {
+        float2 half2 = float2(uRadius + uFrameMargin, (uLength * 0.5f) + uFrameMargin);
+        float3 local = float3(position.xy * half2, 0.0f);
+        vObj = local;
+        vAlong = clamp(uv.y, 0.0f, 1.0f);
+        worldPos = mul(float4(local, 1.0f), modelMatrix).xyz;
+        float3 param = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+        float3 param_1 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param, param_1);
+        vWp = worldPos;
+        vN = worldNormal;
+        gl_Position = mul(float4(worldPos, 1.0f), mul(viewMatrix, projectionMatrix));
+        if (uChannel >= 0.0f)
+        {
+            gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (uSlab == 1)
+    {
+        float s = (position.x * 0.5f) + 0.5f;
+        vAlong = s;
+        vRing = (position.y * 0.5f) + 0.5f;
+        vUv = float2(s, (position.y * 0.5f) + 0.5f);
+        float3 centre = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+        float4 mv = mul(float4(centre, 1.0f), viewMatrix);
+        float3 axisV = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), mul(modelMatrix, viewMatrix)).xyz;
+        float2 _758;
+        if (length(axisV.xy) > 9.9999997473787516355514526367188e-06f)
+        {
+            _758 = normalize(axisV.xy);
+        }
+        else
+        {
+            _758 = float2(1.0f, 0.0f);
+        }
+        float2 along = _758;
+        float2 across = float2(-along.y, along.x);
+        float sAxis = length(modelMatrix[2].xyz);
+        float sRad = 0.5f * (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz));
+        float len = uLength * sAxis;
+        float half_ = ((uThickness * 0.5f) * sRad) * lerp(1.0f, uSlabTaper, s);
+        float _814;
+        if (uSlabBase == 1)
+        {
+            _814 = s * len;
+        }
+        else
+        {
+            _814 = (s - 0.5f) * len;
+        }
+        float offAlong = _814;
+        float2 _838 = mv.xy + ((along * offAlong) + ((across * position.y) * half_));
+        mv = float4(_838.x, _838.y, mv.z, mv.w);
+        vWp = centre;
+        vN = float3(0.0f, 0.0f, 1.0f);
+        gl_Position = mul(mv, projectionMatrix);
+        if (uChannel >= 0.0f)
+        {
+            gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+        }
+        return;
+    }
+    if (uRibbon == 1)
+    {
+        float ua = clamp(position.x, 0.0f, 1.0f);
+        float side = position.y;
+        vAlong = clamp(uv.y, 0.0f, 1.0f);
+        float a = ua * uArc;
+        float param_2 = max(0.0f, sin(3.1415927410125732421875f * ua));
+        float param_3 = 0.60000002384185791015625f;
+        float taper = safePow(param_2, param_3);
+        float w = max(9.9999997473787516355514526367188e-05f, uThickness * taper);
+        float rr = uRadius + (side * w);
+        float3 local_1 = float3(cos(a) * rr, sin(a) * rr, (0.119999997317790985107421875f * uRadius) * sin(a * 2.0f));
+        if (uHasVertexNoise == 1)
+        {
+            float3 param_4 = float3(local_1.xy * uVertexFreq, a - (uTime * uVertexSpeed));
+            float nz = fbm3(param_4);
+            float param_5 = vAlong;
+            float _980 = curveF(param_5);
+            local_1 += ((((float3(cos(a), sin(a), 0.0f) * nz) * uVertexAmp) * uRadius) * _980);
+        }
+        worldPos = mul(float4(local_1, 1.0f), modelMatrix).xyz;
+        float3 param_6 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+        float3 param_7 = float3(0.0f, 0.0f, 1.0f);
+        worldNormal = safeDir(param_6, param_7);
+    }
+    else
+    {
+        if (uShell == 1)
+        {
+            float along_1 = clamp((1.0f - position.z) * 0.5f, 0.0f, 1.0f);
+            vAlong = along_1;
+            float taper_1 = (along_1 * 2.0f) - 1.0f;
+            float sAxis_1 = length(modelMatrix[2].xyz);
+            float sRad_1 = 0.5f * (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz));
+            float radius = uRadius * sRad_1;
+            float length_ = uLength * sAxis_1;
+            float tailCap = smoothstep(1.0f, 0.949999988079071044921875f, along_1);
+            float r = (radius * (((1.0499999523162841796875f * sqrt(max(0.0f, 1.0f - (taper_1 * taper_1)))) * (1.0f - (along_1 * 0.449999988079071044921875f))) + 0.0599999986588954925537109375f)) * tailCap;
+            float _1072;
+            if (along_1 < 0.5f)
+            {
+                _1072 = along_1 * 0.89999997615814208984375f;
+            }
+            else
+            {
+                _1072 = 0.449999988079071044921875f + ((along_1 - 0.5f) * 1.10000002384185791015625f);
+            }
+            float len_1 = length_ * _1072;
+            float3 head = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+            float3 param_8 = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), modelMatrix).xyz;
+            float3 param_9 = float3(0.0f, 0.0f, 1.0f);
+            float3 axis = safeDir(param_8, param_9);
+            float3 param_10 = axis;
+            float3 t1 = orthoOf(param_10);
+            float3 t2 = cross(axis, t1);
+            float2 ring = normalize(position.xy + 9.9999997473787516355514526367188e-06f.xx);
+            vRing = (atan2(ring.y, ring.x) * 0.15915493667125701904296875f) + 0.5f;
+            float3 radial = (t1 * ring.x) + (t2 * ring.y);
+            float3 base = (head + (axis * len_1)) + (radial * r);
+            float _1144;
+            if (uHasVertexNoise == 1)
+            {
+                _1144 = uVertexAmp;
+            }
+            else
+            {
+                _1144 = 0.0f;
+            }
+            float amp = _1144;
+            float3 param_11 = float3((ring * uVertexFreq) + float2(along_1 * 3.5f, 0.0f), (along_1 * 4.0f) - (uTime * uVertexSpeed)) + float3(0.0f, 0.0f, along_1 * 3.0f);
+            float nz_1 = fbm3(param_11);
+            float param_12 = along_1;
+            float _1185 = curveF(param_12);
+            float disp = ((((nz_1 * amp) * _1185) * radius) * 2.400000095367431640625f) * tailCap;
+            float3 param_13 = uVertexBias;
+            float3 param_14 = float3(0.0f, 1.0f, 0.0f);
+            float3 bias = safeDir(param_13, param_14);
+            float3 param_15 = float3((ring * (uVertexFreq * 0.36000001430511474609375f)) + float2(along_1 * 1.39999997615814208984375f, 0.0f), (along_1 * 2.2000000476837158203125f) - (uTime * (uVertexSpeed * 0.75f)));
+            float lobe = snoise(param_15);
+            float up = smoothstep(0.20000000298023223876953125f, 0.949999988079071044921875f, ring.y) * smoothstep(0.3499999940395355224609375f, 0.800000011920928955078125f, along_1);
+            vLobe = (max(0.0f, lobe) * up) * step(9.9999997473787516355514526367188e-05f, amp);
+            float lick = ((vLobe * radius) * (amp * 6.19999980926513671875f)) * tailCap;
+            float param_16 = along_1;
+            float param_17 = 2.2999999523162841796875f;
+            worldPos = ((base + (radial * disp)) + (((axis * nz_1) * 0.25f) * along_1)) + (bias * ((((length_ * 0.236000001430511474609375f) * safePow(param_16, param_17)) * (0.60000002384185791015625f + (0.4000000059604644775390625f * nz_1))) + lick));
+            float3 param_18 = radial;
+            float3 param_19 = float3(0.0f, 1.0f, 0.0f);
+            worldNormal = safeDir(param_18, param_19);
+        }
+        else
+        {
+            if (uBillboard == 1)
+            {
+                vAlong = clamp(uv.y, 0.0f, 1.0f);
+                float3 centre_1 = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), modelMatrix).xyz;
+                float3 right = float3(viewMatrix[0].x, viewMatrix[1].x, viewMatrix[2].x);
+                float3 up_1 = float3(viewMatrix[0].y, viewMatrix[1].y, viewMatrix[2].y);
+                float2 half2_1 = float2(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz));
+                float c = cos(uRoll);
+                float s_1 = sin(uRoll);
+                float2 q = float2(position.x * half2_1.x, position.y * half2_1.y);
+                q = float2((q.x * c) - (q.y * s_1), (q.x * s_1) + (q.y * c));
+                worldPos = (centre_1 + (right * q.x)) + (up_1 * q.y);
+                float3 param_20 = cross(right, up_1);
+                float3 param_21 = float3(0.0f, 0.0f, 1.0f);
+                worldNormal = safeDir(param_20, param_21);
+            }
+            else
+            {
+                float _1394;
+                if (uUseLocalZ == 1)
+                {
+                    _1394 = clamp((position.z - uZRange.x) / max(uZRange.y - uZRange.x, 9.9999997473787516355514526367188e-05f), 0.0f, 1.0f);
+                }
+                else
+                {
+                    _1394 = clamp(uv.y, 0.0f, 1.0f);
+                }
+                vAlong = _1394;
+                float3 pos = position;
+                if (uHasVertexNoise == 1)
+                {
+                    float3 param_22 = float3(position.xy * uVertexFreq, (position.z * uVertexFreq) - (uTime * uVertexSpeed));
+                    float nz_2 = fbm3(param_22);
+                    float3 param_23 = uVertexBias;
+                    float3 param_24 = normal;
+                    float3 bias_1 = safeDir(param_23, param_24);
+                    float param_25 = vAlong;
+                    float _1464 = curveF(param_25);
+                    pos += (((lerp(normal, bias_1, 0.5f.xxx) * nz_2) * uVertexAmp) * _1464);
+                }
+                worldPos = mul(float4(pos, 1.0f), modelMatrix).xyz;
+                float3 param_26 = mul(float4(normal, 0.0f), modelMatrix).xyz;
+                float3 param_27 = float3(0.0f, 1.0f, 0.0f);
+                worldNormal = safeDir(param_26, param_27);
+            }
+        }
+    }
+    vWp = worldPos;
+    vN = worldNormal;
+    gl_Position = mul(float4(worldPos, 1.0f), mul(viewMatrix, projectionMatrix));
+    if (uChannel >= 0.0f)
+    {
+        gl_Position.x += ((((uChannel - 1.0f) * uSplitOffset) * (1.0f + (uSplitGrowth * clamp(uLayerU, 0.0f, 1.0f)))) * gl_Position.w);
+    }
+}
+
+SPIRV_Cross_Output avfxVertex(SPIRV_Cross_Input stage_input)
+{
+    uv = stage_input.uv;
+    position = stage_input.position;
+    normal = stage_input.normal;
+    avfxVertexIndex = stage_input.avfxVertexIndex;
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;
+    stage_output.vUv = vUv;
+    stage_output.vLobe = vLobe;
+    stage_output.vRing = vRing;
+    stage_output.vObj = vObj;
+    stage_output.vAlong = vAlong;
+    stage_output.vWp = vWp;
+    stage_output.vN = vN;
+    return stage_output;
+}

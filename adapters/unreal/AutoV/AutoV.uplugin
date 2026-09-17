@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Auto V AVFX Importer",
+  "Description": "Self-contained AVFX assets and native 3D reference playback for particle/surface kernels.",
+  "Category": "VFX",
+  "CanContainContent": true,
+  "Modules": [
+    { "Name": "AutoVRuntime", "Type": "Runtime", "LoadingPhase": "PostConfigInit" },
+    { "Name": "AutoVEditor", "Type": "Editor", "LoadingPhase": "Default" }
+  ]
+}

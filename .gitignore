@@ -26,3 +26,12 @@ supabase/.temp/
 astra/
 frontend/scratchpad/
 .engine-validation/
+
+# Unreal generated build and local demo assets
+**/Binaries/
+**/Intermediate/
+**/Saved/
+**/DerivedDataCache/
+*.sln
+*.vs/
+adapters/unreal/Demo/Content/
