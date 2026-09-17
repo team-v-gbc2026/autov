@@ -3,12 +3,20 @@
 Target: **UE 5.6, Win64, desktop SM5/SM6 rendering**. This branch is stacked on
 `avfx-exportCreation`; a PR should use that branch as its base until it merges.
 
-**Build status:** the four generated HLSL stages compile independently, and the
-real fire-projectile archive passes the offline ABI/asset checks. The attempted
-UE 5.6 Windows build stops before C++ compilation because UnrealBuildTool cannot
-find a valid Windows SDK. **The plugin has not yet compiled or rendered inside
-Unreal.** Treat this as source implementation awaiting engine validation, not a
-ready-to-install binary release or a parity-certified port.
+**Build status:** UE 5.6 Win64 packaging passes for Editor Development, Game
+Development and Game Shipping using MSVC 14.44.35229 / Windows SDK 10.0.26100.0
+(UE warns that MSVC 14.38 is preferred). Both Unreal automation tests pass under
+NullRHI: coordinate/ABI checks and real eight-draw fire-projectile import with
+corrupt-texture rejection. GPU-enabled D3D12/SM5 editor startup, native global
+shader compilation and both tests also pass. The generated HLSL additionally
+compiles independently.
+Visual playback, save/cook roundtrip and parity are still release gates—not
+implied by a successful package build or import test.
+
+The locally built plugin is in `dist/AutoVAVFX` (ignored by Git). Copy that whole
+folder into your project's `Plugins` directory, enable AutoV AVFX and restart.
+This package includes the editor binaries; you do not need to compile it again
+just to load it in the matching UE 5.6 editor.
 
 ## Install and build
 
@@ -109,11 +117,11 @@ asset and its referenced texture subobjects are cooked through normal references
   importer is intended for app-produced files, not a fully audited hostile-file
   security boundary. Reimport/update-in-place is not implemented yet.
 
-Required release gates: successful UE 5.6 editor **and game** build, actual
-factory import, save/reopen and cook/package roundtrip, visible fire-projectile
+Remaining release gates: actual factory UI import, save/reopen and cook/package
+roundtrip, visible fire-projectile
 render, backward seek/loop checks, actor transform and scene isolation checks,
 depth/blend comparison and teardown/resource checks. None should be inferred
-from the standalone HLSL compile or offline archive checks.
+from compilation or headless import checks.
 
 ## Development checks
 
@@ -148,6 +156,11 @@ After compiling the plugin, run the supplied Unreal automation tests:
 These cover ABI/coordinate conventions, real archive import and corruption
 rejection. They do not render with `-NullRHI`; visual/cook/runtime checks require
 a separate real editor/game run.
+
+`tools/Test-Plugin.ps1 -PackageDirectory <built-plugin> -Fixture <file.avfx>`
+creates an isolated test project and runs those tests. Add `-WithGPU` to also
+exercise GPU-enabled startup and Unreal shader compilation (not a visual parity
+test). `tests/Smoke.uproject` is its minimal project template.
 
 References: [Epic plugin structure](https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine),
 [custom import factory](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/UFactory/FactoryCreateBinary),

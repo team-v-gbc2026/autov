@@ -88,7 +88,7 @@ void FAVFXViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& Graph, con
     TSharedPtr<const FAVFXFrame,ESPMode::ThreadSafe> Frame;
     {FScopeLock Lock(&Mutex); Frame=Current;}
     if(!Frame || Frame->Scene!=View.Family->Scene || !Inputs.SceneTextures || View.GetFeatureLevel()<ERHIFeatureLevel::SM5) return;
-    const auto* Scene=Inputs.SceneTextures->GetParameters();
+    const auto& Scene=Inputs.SceneTextures->GetParameters();
     const auto Color=Scene->SceneColorTexture, Depth=Scene->SceneDepthTexture;
     if(!Color || !Depth) return;
     for(const auto& Draw:Frame->Draws)

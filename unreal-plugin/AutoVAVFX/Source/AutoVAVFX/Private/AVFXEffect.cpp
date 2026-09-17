@@ -7,7 +7,9 @@
 AAVFXEffect::AAVFXEffect()
 {
     PrimaryActorTick.bCanEverTick = true;
+#if WITH_EDITORONLY_DATA
     bRunConstructionScriptOnDrag = true;
+#endif
     RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("AVFX"));
 }
 void AAVFXEffect::SetEffect(UAVFXAsset* InEffect) { Effect=InEffect; Time=0; Publish(); }

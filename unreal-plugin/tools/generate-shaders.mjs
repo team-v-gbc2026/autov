@@ -83,10 +83,10 @@ for (const [program, stages] of Object.entries(programs)) {
     // Unreal binds reflection names; explicit register locations are not needed.
     hlsl=hlsl.replace(/\s*:\s*register\([^)]+\)/g,'');
     hlsl=hlsl.replace(/\bmain\(/g,stage?'MainPS(':'MainVS(');
-    await writeFile(new URL(`Shaders/Private/${name}.usf`,root),'// Generated from trusted autoV sources; do not edit.\n'+hlsl);
+    await writeFile(new URL(`Shaders/Private/${name}.usf`,root),'// Generated from trusted autoV sources; do not edit.\n#ifndef AVFX_STANDALONE\n#include "/Engine/Public/Platform.ush"\n#endif\n'+hlsl);
     // Independently compile generated HLSL, catching cross-compiler failures.
     const result=fileURLToPath(new URL(`Shaders/Private/${name}.usf`,root));
-    execFileSync(process.env.GLSLANG||'glslangValidator',['-D','-V','-S',stage?'frag':'vert','-e',stage?'MainPS':'MainVS','--auto-map-bindings',result,'-o',join(temp,name+'-roundtrip.spv')],{stdio:'pipe'});
+    execFileSync(process.env.GLSLANG||'glslangValidator',['-D','-DAVFX_STANDALONE=1','-V','-S',stage?'frag':'vert','-e',stage?'MainPS':'MainVS','--auto-map-bindings',result,'-o',join(temp,name+'-roundtrip.spv')],{stdio:'pipe'});
   }
 }
 await writeFile(new URL('Shaders/layout.json',root),JSON.stringify({programs:tables,textures},null,2)+'\n');

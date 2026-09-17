@@ -1,4 +1,7 @@
 // Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
 ByteAddressBuffer AVFXData;
 Texture2D<float4> tDepth;
 SamplerState _tDepth_sampler;

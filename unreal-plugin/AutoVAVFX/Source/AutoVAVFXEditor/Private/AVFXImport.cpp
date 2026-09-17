@@ -7,7 +7,9 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Modules/ModuleManager.h"
-#include "HAL/PlatformMisc.h"
+THIRD_PARTY_INCLUDES_START
+#include <openssl/sha.h>
+THIRD_PARTY_INCLUDES_END
 
 namespace
 {
@@ -32,8 +34,9 @@ bool SafePath(const FString& Name)
 }
 FString Hash(TConstArrayView<uint8> Data)
 {
-    FSHA256Signature Signature;
-    return FPlatformMisc::GetSHA256Signature(Data.GetData(),Data.Num(),Signature)?Signature.ToString().ToLower():FString();
+    uint8 Digest[SHA256_DIGEST_LENGTH];
+    if(!SHA256(Data.GetData(),Data.Num(),Digest))return FString();
+    return BytesToHex(Digest,SHA256_DIGEST_LENGTH).ToLower();
 }
 struct FReader
 {

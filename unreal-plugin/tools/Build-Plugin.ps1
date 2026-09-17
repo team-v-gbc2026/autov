@@ -11,6 +11,11 @@ if (-not $OutputDirectory) { $OutputDirectory = Join-Path $stage 'Package' }
 $uat = Join-Path $EngineRoot 'Engine\Build\BatchFiles\RunUAT.bat'
 if (-not (Test-Path $uat)) { throw "Unreal build tool not found: $uat" }
 Write-Host "Building in $stage"
-& $uat BuildPlugin "-Plugin=$stage\AutoVAVFX\AutoVAVFX.uplugin" "-Package=$OutputDirectory" -TargetPlatforms=Win64 -Rocket
+Push-Location $stage
+try {
+    & $uat BuildPlugin "-Plugin=$stage\AutoVAVFX\AutoVAVFX.uplugin" "-Package=$OutputDirectory" -TargetPlatforms=Win64 -Rocket
+} finally {
+    Pop-Location
+}
 if ($LASTEXITCODE -ne 0) { throw "Unreal plugin build failed with exit code $LASTEXITCODE. Build files retained at $stage" }
 Write-Host "Plugin package: $OutputDirectory"
