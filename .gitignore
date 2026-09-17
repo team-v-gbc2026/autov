@@ -25,3 +25,4 @@ supabase/.temp/
 *.local.md
 astra/
 frontend/scratchpad/
+.engine-validation/

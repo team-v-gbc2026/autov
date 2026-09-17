@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBoardLayout, referenceName } from "./studio/board/board-store";
 import StudioHeader from "./studio/studio-header";
+import EngineExportPanel from "./studio/engine-export-panel";
 import ReferencesPanel from "./studio/references-panel";
 import ChatPanel from "./studio/chat-panel";
 import type { ChatPanelHandle } from "./studio/chat-panel";
@@ -461,7 +462,7 @@ export default function Studio({
           loaded={synced.ready}
         />
       </div>
-      <StudioHeader project={project} email={email} actions={headerActions} />
+      <StudioHeader project={project} email={email} actions={<>{headerActions}<EngineExportPanel doc={doc} /></>} />
       {environmentControls}
       <input
         ref={importInput}

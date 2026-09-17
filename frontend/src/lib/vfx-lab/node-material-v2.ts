@@ -125,6 +125,8 @@ export function createV2NodeMaterial(
   material.fog = false;
   material.forceSinglePass = true;
   material.uniforms = uniforms;
+  // Stable, engine-neutral program identity for native engine exports.
+  material.userData.avfxProgram = kind;
 
   material.vertexNode = graphs[vertexName](bindings);
   material.fragmentNode = graphs[fragmentName](bindings);
