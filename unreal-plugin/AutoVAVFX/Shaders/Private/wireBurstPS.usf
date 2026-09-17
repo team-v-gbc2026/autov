@@ -1,0 +1,145 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float vK;
+static float vA;
+static float4 avfxColor;
+
+struct SPIRV_Cross_Input
+{
+    float vA : TEXCOORD0;
+    float vK : TEXCOORD1;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+float4 avfx_uRamp(int i)
+{
+    return asfloat(AVFXData.Load4((19 + i) * 16 + 0));
+}
+
+float avfx_uRampT(int i)
+{
+    return asfloat(AVFXData.Load((25 + i) * 16 + 0));
+}
+
+float3 rampColor(inout float u)
+{
+    u = clamp(u, 0.0f, 1.0f);
+    int param = 0;
+    int param_1 = 0;
+    float3 c = avfx_uRamp(param).xyz * avfx_uRamp(param_1).w;
+    int param_2 = 0;
+    float prev = avfx_uRampT(param_2);
+    for (int i = 1; i < 6; i++)
+    {
+        if (i >= int(asfloat(AVFXData.Load(496))))
+        {
+            break;
+        }
+        int param_3 = i;
+        float t = avfx_uRampT(param_3);
+        int param_4 = i;
+        int param_5 = i;
+        float3 ci = avfx_uRamp(param_4).xyz * avfx_uRamp(param_5).w;
+        c = lerp(c, ci, smoothstep(prev, max(t, prev + 9.9999997473787516355514526367188e-05f), u).xxx);
+        prev = t;
+    }
+    return c;
+}
+
+void avfxMain()
+{
+    bool _123 = asfloat(AVFXData.Load(272)) > 1.5f;
+    bool _130;
+    if (_123)
+    {
+        _130 = asfloat(AVFXData.Load(272)) < 2.5f;
+    }
+    else
+    {
+        _130 = _123;
+    }
+    float _131;
+    if (_130)
+    {
+        _131 = vK;
+    }
+    else
+    {
+        _131 = clamp(asfloat(AVFXData.Load(16)), 0.0f, 1.0f);
+    }
+    float key = _131;
+    float param = key;
+    float3 _145 = rampColor(param);
+    float3 col = _145;
+    float a = (vA * asfloat(AVFXData.Load(256))) * lerp(1.0f, 0.75f, vK);
+    if (asfloat(AVFXData.Load(48)) >= 0.0f)
+    {
+        float3 _167;
+        if (asfloat(AVFXData.Load(48)) < 0.5f)
+        {
+            _167 = float3(1.0f, 0.0f, 0.0f);
+        }
+        else
+        {
+            bool3 _178 = (asfloat(AVFXData.Load(48)) < 1.5f).xxx;
+            _167 = float3(_178.x ? float3(0.0f, 1.0f, 0.0f).x : float3(0.0f, 0.0f, 1.0f).x, _178.y ? float3(0.0f, 1.0f, 0.0f).y : float3(0.0f, 0.0f, 1.0f).y, _178.z ? float3(0.0f, 1.0f, 0.0f).z : float3(0.0f, 0.0f, 1.0f).z);
+        }
+        col *= _167;
+    }
+    if (a < 0.00200000009499490261077880859375f)
+    {
+        discard;
+    }
+    if (int(asfloat(AVFXData.Load(288))) == 1)
+    {
+        avfxColor = float4(col, a);
+    }
+    else
+    {
+        avfxColor = float4(col * a, a);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _217 = avfxColor;
+    float3 _219 = _217.xyz * asfloat(AVFXData.Load(832));
+    avfxColor.x = _219.x;
+    avfxColor.y = _219.y;
+    avfxColor.z = _219.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vK = stage_input.vK;
+    vA = stage_input.vA;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

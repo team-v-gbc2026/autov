@@ -1,0 +1,208 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float vAlong;
+static float4 avfxColor;
+static float3 vN;
+static float3 vW;
+static float vSeed;
+
+struct SPIRV_Cross_Input
+{
+    float3 vN : TEXCOORD0;
+    float3 vW : TEXCOORD1;
+    float vAlong : TEXCOORD2;
+    float vSeed : TEXCOORD3;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+float3 safeDir(float3 v, float3 fallback)
+{
+    float l = length(v);
+    float3 _447;
+    if (l > 9.9999997473787516355514526367188e-06f)
+    {
+        _447 = v / l.xxx;
+    }
+    else
+    {
+        _447 = fallback;
+    }
+    return _447;
+}
+
+float safePow(float base, float e)
+{
+    return pow(max(base, 9.9999997473787516355514526367188e-06f), e);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+void avfxMain()
+{
+    if (asfloat(AVFXData.Load(256)) > 0.5f)
+    {
+        float3 c = lerp(asfloat(AVFXData.Load4(160)).xyz * 0.1599999964237213134765625f, asfloat(AVFXData.Load4(160)).xyz * 0.550000011920928955078125f, smoothstep(0.0500000007450580596923828125f, 0.85000002384185791015625f, vAlong).xxx);
+        avfxColor = float4(c * asfloat(AVFXData.Load(240)), asfloat(AVFXData.Load(240)));
+        return;
+    }
+    float3 param = vN;
+    float3 param_1 = float3(0.0f, 1.0f, 0.0f);
+    float3 n = safeDir(param, param_1);
+    float3 param_2 = asfloat(AVFXData.Load4(176)).xyz - vW;
+    float3 param_3 = float3(0.0f, 0.0f, 1.0f);
+    float3 v = safeDir(param_2, param_3);
+    float ndv = abs(dot(n, v));
+    float param_4 = 1.0f - ndv;
+    float param_5 = asfloat(AVFXData.Load(192));
+    float fres = safePow(param_4, param_5);
+    float lam = 0.4199999868869781494140625f + (0.579999983310699462890625f * clamp((dot(n, float3(0.24603392183780670166015625f, 0.885722100734710693359375f, 0.3936542570590972900390625f)) * 0.5f) + 0.5f, 0.0f, 1.0f));
+    float3 col = asfloat(AVFXData.Load4(144)).xyz * (0.300000011920928955078125f + (0.5f * lam));
+    float tip = smoothstep(0.180000007152557373046875f, 0.920000016689300537109375f, vAlong);
+    col = lerp(col, asfloat(AVFXData.Load4(128)).xyz * 1.2999999523162841796875f, (tip * 0.939999997615814208984375f).xxx);
+    col *= lerp(1.0f, 0.550000011920928955078125f, tip);
+    col = lerp(col, asfloat(AVFXData.Load4(160)).xyz, ((fres * 0.300000011920928955078125f) * (1.0f - (tip * 0.550000011920928955078125f))).xxx);
+    float gb = sin((((vAlong * asfloat(AVFXData.Load(208))) - (asfloat(AVFXData.Load(0)) * asfloat(AVFXData.Load(224)))) + (vSeed * 6.283185482025146484375f)) * 3.1415927410125732421875f);
+    float param_6 = max(gb, 0.0f);
+    float param_7 = 22.0f;
+    col += (((asfloat(AVFXData.Load4(160)).xyz * safePow(param_6, param_7)) * (0.3499999940395355224609375f + (0.64999997615814208984375f * fres))) * 0.89999997615814208984375f);
+    float3 param_8 = float3((vAlong * 9.0f) + (vSeed * 17.0f), (vSeed * 31.0f) + (vW.y * 4.0f), 1.7000000476837158203125f);
+    float ice = 0.5f + (0.5f * fbm3(param_8));
+    col *= ((0.87999999523162841796875f + (0.2599999904632568359375f * ice)) * (0.7200000286102294921875f + (0.560000002384185791015625f * frac((vSeed * 13.69999980926513671875f) + 2.099999904632568359375f))));
+    float param_9 = 1.0f - ndv;
+    float param_10 = 3.0f;
+    col += ((asfloat(AVFXData.Load4(128)).xyz * safePow(param_9, param_10)) * 0.60000002384185791015625f);
+    float a = clamp(0.800000011920928955078125f + (fres * 0.20000000298023223876953125f), 0.0f, 1.0f) * asfloat(AVFXData.Load(240));
+    if (a < 0.00200000009499490261077880859375f)
+    {
+        discard;
+    }
+    if (int(asfloat(AVFXData.Load(272))) == 1)
+    {
+        avfxColor = float4(col, a);
+    }
+    else
+    {
+        avfxColor = float4(col * a, a);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _739 = avfxColor;
+    float3 _741 = _739.xyz * asfloat(AVFXData.Load(608));
+    avfxColor.x = _741.x;
+    avfxColor.y = _741.y;
+    avfxColor.z = _741.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vAlong = stage_input.vAlong;
+    vN = stage_input.vN;
+    vW = stage_input.vW;
+    vSeed = stage_input.vSeed;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

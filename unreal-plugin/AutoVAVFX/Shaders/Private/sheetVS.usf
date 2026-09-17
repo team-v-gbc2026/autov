@@ -1,0 +1,73 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXVertices;
+ByteAddressBuffer AVFXIndices;
+ByteAddressBuffer AVFXData;
+ByteAddressBuffer AVFXInstances;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float4 gl_Position;
+static int gl_VertexIndex;
+static float vSeed;
+static float vAge;
+static float2 vUv;
+static float3 vN;
+static float3 vW;
+
+struct SPIRV_Cross_Input
+{
+    uint gl_VertexIndex : SV_VertexID;
+};
+
+struct SPIRV_Cross_Output
+{
+    float3 vN : TEXCOORD0;
+    float3 vW : TEXCOORD1;
+    float2 vUv : TEXCOORD2;
+    float vSeed : TEXCOORD3;
+    float vAge : TEXCOORD4;
+    float4 gl_Position : SV_Position;
+};
+
+void vert_main()
+{
+    vSeed = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 5u) + 3u) * 16 + 0));
+    vAge = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 5u) + 4u) * 16 + 0));
+    vUv = asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 5u) + 2u) * 16 + 0)).xy;
+    float4 wp = mul(float4(asfloat(AVFXVertices.Load4((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 5u) * 16 + 0)).xyz, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(224))), float4(asfloat(AVFXData.Load4(240))), float4(asfloat(AVFXData.Load4(256))), float4(asfloat(AVFXData.Load4(272)))));
+    float4x4 _142 = float4x4(float4(asfloat(AVFXData.Load4(224))), float4(asfloat(AVFXData.Load4(240))), float4(asfloat(AVFXData.Load4(256))), float4(asfloat(AVFXData.Load4(272))));
+    vN = normalize(mul(asfloat(AVFXVertices.Load4(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 5u) + 1u) * 16 + 0)).xyz, float3x3(_142[0].xyz, _142[1].xyz, _142[2].xyz)));
+    vW = wp.xyz;
+    gl_Position = mul(wp, mul(float4x4(float4(asfloat(AVFXData.Load4(288))), float4(asfloat(AVFXData.Load4(304))), float4(asfloat(AVFXData.Load4(320))), float4(asfloat(AVFXData.Load4(336)))), float4x4(float4(asfloat(AVFXData.Load4(416))), float4(asfloat(AVFXData.Load4(432))), float4(asfloat(AVFXData.Load4(448))), float4(asfloat(AVFXData.Load4(464))))));
+}
+
+SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
+{
+    gl_VertexIndex = int(stage_input.gl_VertexIndex);
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vSeed = vSeed;
+    stage_output.vAge = vAge;
+    stage_output.vUv = vUv;
+    stage_output.vN = vN;
+    stage_output.vW = vW;
+    return stage_output;
+}

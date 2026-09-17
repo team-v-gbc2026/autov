@@ -5,6 +5,11 @@
 .lab .chat-panel { top: var(--workspace-panel-top); bottom: var(--timeline-bottom); }
 .lab .lab-environment-strip { position: absolute; top: var(--workspace-panel-top); left: var(--left-space); right: var(--right-space); max-width: 900px; margin: 0 auto; height: var(--environment-height); z-index: 3; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 8px; }
 .lab .lab-scene-export { display: flex; align-items: center; margin-left: auto; padding-left: 5px; border-left: 1px solid #ffffff0d; }
+.lab .lab-avfx-export { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; margin-left: 5px; border: 1px solid #ffffff20; border-radius: 5px; color: #d4d4d4; font-size: 11px; white-space: nowrap; }
+.lab .lab-avfx-export:hover:not(:disabled) { background: #ffffff0d; border-color: #ffffff40; }
+.lab .lab-export-control { position: relative; flex-shrink: 0; }
+.lab .lab-export-warning { position: absolute; top: -6px; right: -6px; color: #d2b47e; filter: drop-shadow(0 1px 2px #000); }
+.lab .lab-export-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .lab .lab-environment-panel { position: absolute; top: calc(100% + 6px); left: 0; width: min(320px, 100%); display: grid; gap: 20px; padding: 18px; border: 1px solid #ffffff19; border-radius: 8px; background: var(--panel); backdrop-filter: blur(22px); box-shadow: 0 16px 40px #0006; }
 .lab .lab-environment-panel[hidden] { display: none; }
 .lab .lab-environment-field { display: grid; grid-template-columns: 56px minmax(0, 1fr) 3ch; align-items: center; gap: 10px; color: #a6afb1; font-size: 10px; }

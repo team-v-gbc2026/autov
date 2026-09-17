@@ -64,6 +64,7 @@ export function createV2NodeMaterial(
     ...declarations[`${fragmentName}Bindings`],
   };
   const bindings: Record<string, THREE.Node> = {};
+  const constants: string[] = [];
   // Report the whole set at once: a program that gains a uniform block usually
   // needs several, and one name per rebuild is a slow way to find that out.
   const missing = Object.entries(definitions)
@@ -89,6 +90,7 @@ export function createV2NodeMaterial(
         // lets the GPU unroll short curve/ramp loops and discard unused shapes.
         // Edits install new materials; animated keys preserve the same lengths.
         bindings[name] = int(uniforms[name].value);
+        constants.push(name);
       } else if (binding.size) {
         // Three names a uniform buffer's WGSL struct after the node's id unless
         // the node carries a name. Naming it keeps the generated text identical
@@ -125,6 +127,9 @@ export function createV2NodeMaterial(
   material.fog = false;
   material.forceSinglePass = true;
   material.uniforms = uniforms;
+  // Serializable shader ABI for interchange; values still come from the live
+  // uniform objects above, never from a second exporter-side evaluator.
+  material.userData.avfx = { program: kind, vertexName, fragmentName, bindings: definitions, constants };
 
   material.vertexNode = graphs[vertexName](bindings);
   material.fragmentNode = graphs[fragmentName](bindings);

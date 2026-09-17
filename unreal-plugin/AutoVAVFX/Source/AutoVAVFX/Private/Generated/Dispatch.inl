@@ -1,0 +1,17 @@
+if(Draw.Program==TEXT("particle")) AVFXDrawPass<FAVFX_particleVS,FAVFX_particlePS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("subParticle")) AVFXDrawPass<FAVFX_subParticleVS,FAVFX_subParticlePS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("trail")) AVFXDrawPass<FAVFX_trailVS,FAVFX_trailPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("subTrail")) AVFXDrawPass<FAVFX_subTrailVS,FAVFX_subTrailPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("strip")) AVFXDrawPass<FAVFX_stripVS,FAVFX_stripPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("sliver")) AVFXDrawPass<FAVFX_sliverVS,FAVFX_sliverPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("surface")) AVFXDrawPass<FAVFX_surfaceVS,FAVFX_surfacePS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("blob")) AVFXDrawPass<FAVFX_blobVS,FAVFX_blobPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("crystal")) AVFXDrawPass<FAVFX_crystalVS,FAVFX_crystalPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("splash")) AVFXDrawPass<FAVFX_splashVS,FAVFX_splashPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("ribbon")) AVFXDrawPass<FAVFX_ribbonVS,FAVFX_ribbonPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("wireBurst")) AVFXDrawPass<FAVFX_wireBurstVS,FAVFX_wireBurstPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("arc")) AVFXDrawPass<FAVFX_arcVS,FAVFX_arcPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("streak")) AVFXDrawPass<FAVFX_streakVS,FAVFX_streakPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("sheet")) AVFXDrawPass<FAVFX_sheetVS,FAVFX_sheetPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("crescent")) AVFXDrawPass<FAVFX_crescentVS,FAVFX_crescentPS>(Graph,View,P,Draw);
+if(Draw.Program==TEXT("lick")) AVFXDrawPass<FAVFX_lickVS,FAVFX_lickPS>(Graph,View,P,Draw);

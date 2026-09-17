@@ -64,7 +64,8 @@ export default function ProjectDialog({ selection, onClose, onSaved }: {
   useEffect(() => {
     if (selection.mode !== "create") return;
     const controller = new AbortController();
-    fetch(`${VFX_PRESET_BASE}/manifest.json`, { signal: controller.signal })
+    // The catalog is replaced in place; bypass older browser-cached manifests.
+    fetch(`${VFX_PRESET_BASE}/manifest.json`, { signal: controller.signal, cache: "no-store" })
       .then(response => { if (!response.ok) throw new Error(); return response.json(); })
       .then(manifest => setPresets((manifest.trials as Preset[]).filter(preset => preset.latest && preset.selected)))
       .catch(() => { if (!controller.signal.aborted) setPresets([]); })

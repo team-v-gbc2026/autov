@@ -1,0 +1,205 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static bool gl_FrontFacing;
+static float vAge;
+static float2 vUv;
+static float vSeed;
+static float3 vN;
+static float3 vW;
+static float4 avfxColor;
+
+struct SPIRV_Cross_Input
+{
+    float3 vN : TEXCOORD0;
+    float3 vW : TEXCOORD1;
+    float2 vUv : TEXCOORD2;
+    float vSeed : TEXCOORD3;
+    float vAge : TEXCOORD4;
+    bool gl_FrontFacing : SV_IsFrontFace;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+void avfxMain()
+{
+    if (asfloat(AVFXData.Load(160)) > 0.0f)
+    {
+        float tear = asfloat(AVFXData.Load(160)) * (0.699999988079071044921875f + (0.60000002384185791015625f * vAge));
+        float3 param = float3(vUv.x * asfloat(AVFXData.Load(176)), (vUv.y * asfloat(AVFXData.Load(176))) * 0.64999997615814208984375f, vSeed);
+        float fld = 0.5f + (0.5f * snoise(param));
+        float edge = min(min(vUv.x, 1.0f - vUv.x) * 2.2000000476837158203125f, min(vUv.y, 1.0f - vUv.y) * 1.5f);
+        if ((edge + (fld * 0.550000011920928955078125f)) < tear)
+        {
+            discard;
+        }
+    }
+    float3 N = normalize(vN);
+    if (!gl_FrontFacing)
+    {
+        N = -N;
+    }
+    float ndl = (dot(N, normalize(asfloat(AVFXData.Load4(64)).xyz)) * 0.5f) + 0.5f;
+    float3 _495;
+    if (asfloat(AVFXData.Load(192)) > 2.5f)
+    {
+        float3 _505;
+        if (ndl < asfloat(AVFXData.Load4(96)).xy.x)
+        {
+            _505 = asfloat(AVFXData.Load4(0)).xyz;
+        }
+        else
+        {
+            float3 _518;
+            if (ndl < asfloat(AVFXData.Load4(96)).xy.y)
+            {
+                _518 = asfloat(AVFXData.Load4(16)).xyz;
+            }
+            else
+            {
+                _518 = asfloat(AVFXData.Load4(32)).xyz;
+            }
+            _505 = _518;
+        }
+        _495 = _505;
+    }
+    else
+    {
+        float3 _539;
+        if (ndl < asfloat(AVFXData.Load4(96)).xy.x)
+        {
+            _539 = asfloat(AVFXData.Load4(0)).xyz;
+        }
+        else
+        {
+            _539 = asfloat(AVFXData.Load4(32)).xyz;
+        }
+        _495 = _539;
+    }
+    float3 c = _495;
+    float3 V = normalize(asfloat(AVFXData.Load4(80)).xyz - vW);
+    float rim = pow(max(1.0f - clamp(dot(N, V), 0.0f, 1.0f), 9.9999997473787516355514526367188e-05f), asfloat(AVFXData.Load(112)));
+    c += ((asfloat(AVFXData.Load4(48)).xyz * rim) * asfloat(AVFXData.Load(128)));
+    if (int(asfloat(AVFXData.Load(208))) == 1)
+    {
+        avfxColor = float4(c, asfloat(AVFXData.Load(144)));
+    }
+    else
+    {
+        avfxColor = float4(c * asfloat(AVFXData.Load(144)), asfloat(AVFXData.Load(144)));
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _616 = avfxColor;
+    float3 _618 = _616.xyz * asfloat(AVFXData.Load(544));
+    avfxColor.x = _618.x;
+    avfxColor.y = _618.y;
+    avfxColor.z = _618.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    gl_FrontFacing = stage_input.gl_FrontFacing;
+    vAge = stage_input.vAge;
+    vUv = stage_input.vUv;
+    vSeed = stage_input.vSeed;
+    vN = stage_input.vN;
+    vW = stage_input.vW;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

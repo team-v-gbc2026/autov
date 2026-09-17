@@ -1,0 +1,66 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float2 vUv;
+static float4 avfxColor;
+
+struct SPIRV_Cross_Input
+{
+    float2 vUv : TEXCOORD0;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+void avfxMain()
+{
+    float3 c = lerp(asfloat(AVFXData.Load4(64)).xyz, asfloat(AVFXData.Load4(48)).xyz, smoothstep(0.0f, 0.550000011920928955078125f, vUv.y).xxx);
+    if (int(asfloat(AVFXData.Load(96))) == 1)
+    {
+        avfxColor = float4(c, asfloat(AVFXData.Load(80)));
+    }
+    else
+    {
+        avfxColor = float4(c * asfloat(AVFXData.Load(80)), asfloat(AVFXData.Load(80)));
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _77 = avfxColor;
+    float3 _79 = _77.xyz * asfloat(AVFXData.Load(432));
+    avfxColor.x = _79.x;
+    avfxColor.y = _79.y;
+    avfxColor.z = _79.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vUv = stage_input.vUv;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

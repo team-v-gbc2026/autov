@@ -311,7 +311,7 @@ function lcg(seed: number) {
 class TextureCacheV2 {
   private readonly loader = new THREE.TextureLoader();
 
-  constructor() {
+  constructor(private readonly deferredImages = false) {
     // The library is cross-origin (Supabase Storage). WebGL refuses to sample
     // a tainted image, so the request has to be an anonymous CORS request.
     this.loader.setCrossOrigin("anonymous");
@@ -329,8 +329,8 @@ class TextureCacheV2 {
     const key = `${url}:${repeat ? "r" : "c"}`;
     const cached = this.cache.get(key);
     if (cached) return cached;
-    this.pending++;
-    const texture = this.loader.load(
+    if (!this.deferredImages) this.pending++;
+    const texture = this.deferredImages ? new THREE.Texture() : this.loader.load(
       url,
       () => this.settle(),
       undefined,
@@ -343,6 +343,7 @@ class TextureCacheV2 {
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = 4;
+    texture.userData.avfxSource = url;
     this.cache.set(key, texture);
     return texture;
   }
@@ -2052,6 +2053,14 @@ function createParticleLayer(
     emitter.render.sortMode === "byDistance" &&
     count <= SORT_LIMIT &&
     material.blend !== "additive";
+  // Secondary sliver instances have their own buffer and are not reordered by
+  // the primary draw's CPU sort. Export the actual policy rather than guessing
+  // it from the document on the adapter side.
+  for (const child of group.children) {
+    const geometry = (child as THREE.Mesh).geometry;
+    child.userData.avfxSort = sortable && geometry?.getAttribute("aSeed") === instances.attributes.aSeed
+      ? "back-to-front-instances" : "authored-seed-order";
+  }
   const order = Array.from({ length: count }, (_, i) => i);
   const depths = new Float32Array(count);
   const scratch = new THREE.Vector3();
@@ -5100,6 +5109,42 @@ function buildLayerObject(
 // ---------------------------------------------------------------------------
 // Runtime
 // ---------------------------------------------------------------------------
+
+/** CPU-only export seam. Uses the production factories/evaluator but does not
+ * create a renderer or issue image requests. The bundle writer owns asset I/O.
+ * Call dispose even if serialization fails. Instance attributes should be read
+ * before sample(), since the renderer may sort them for the reference camera.
+ */
+export function createV2ExportScene(input: VfxDocumentV2) {
+  const doc = resolveEventWindows(applyStyle(validateDocumentV2(input)));
+  const textures = new TextureCacheV2(true);
+  const depth = new THREE.DepthTexture(1, 1);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(doc.camera.fov, 16 / 9, CAMERA_NEAR, CAMERA_FAR);
+  const objects: LayerObject[] = [];
+  const dispose = () => {
+    for (const object of objects) object.dispose();
+    textures.dispose();
+    depth.dispose();
+    scene.clear();
+  };
+  try {
+    doc.layers.forEach((layer, index) => {
+      const object = buildLayerObject(doc, layer, index, textures, depth);
+      objects.push(object);
+      scene.add(object.object);
+    });
+  } catch (error) { dispose(); throw error; }
+  return {
+    document: doc, objects, camera,
+    sample(time: number) {
+      for (const object of objects) object.update(time, DEFAULT_FLAGS, camera);
+      scene.updateMatrixWorld(true);
+      updateSmokeLighting(scene, camera, doc.environment.ambient);
+    },
+    dispose,
+  };
+}
 
 export class VfxRuntimeV2 {
   readonly renderer: THREE.WebGPURenderer;

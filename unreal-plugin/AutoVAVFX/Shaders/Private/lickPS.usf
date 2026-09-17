@@ -1,0 +1,83 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float vA;
+static float vS;
+static float4 avfxColor;
+
+struct SPIRV_Cross_Input
+{
+    float vS : TEXCOORD0;
+    float vA : TEXCOORD1;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 avfxColor : SV_Target0;
+};
+
+void avfxMain()
+{
+    float a = vA * asfloat(AVFXData.Load(224));
+    if (a <= 0.0040000001899898052215576171875f)
+    {
+        discard;
+    }
+    float3 _42;
+    if (vS < 0.4199999868869781494140625f)
+    {
+        _42 = asfloat(AVFXData.Load4(192)).xyz;
+    }
+    else
+    {
+        _42 = asfloat(AVFXData.Load4(208)).xyz;
+    }
+    float3 col = _42;
+    if (int(asfloat(AVFXData.Load(240))) == 1)
+    {
+        avfxColor = float4(col, a);
+    }
+    else
+    {
+        avfxColor = float4(col * a, a);
+    }
+}
+
+void frag_main()
+{
+    avfxMain();
+    float4 _85 = avfxColor;
+    float3 _87 = _85.xyz * asfloat(AVFXData.Load(576));
+    avfxColor.x = _87.x;
+    avfxColor.y = _87.y;
+    avfxColor.z = _87.z;
+}
+
+SPIRV_Cross_Output MainPS(SPIRV_Cross_Input stage_input)
+{
+    vA = stage_input.vA;
+    vS = stage_input.vS;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.avfxColor = avfxColor;
+    return stage_output;
+}

@@ -1,0 +1,229 @@
+// Generated from trusted autoV sources; do not edit.
+#ifndef AVFX_STANDALONE
+#include "/Engine/Public/Platform.ush"
+#endif
+ByteAddressBuffer AVFXData;
+ByteAddressBuffer AVFXVertices;
+ByteAddressBuffer AVFXIndices;
+ByteAddressBuffer AVFXInstances;
+Texture2D<float4> uTexture;
+SamplerState _uTexture_sampler;
+Texture2D<float4> uNoise;
+SamplerState _uNoise_sampler;
+Texture2D<float4> uAlphaTexture;
+SamplerState _uAlphaTexture_sampler;
+Texture2D<float4> uMask;
+SamplerState _uMask_sampler;
+Texture2D<float4> uNormalMap;
+SamplerState _uNormalMap_sampler;
+Texture2D<float4> uSites;
+SamplerState _uSites_sampler;
+Texture2D<float4> uTrail;
+SamplerState _uTrail_sampler;
+Texture2D<float4> tDepth;
+SamplerState _tDepth_sampler;
+
+static float4 gl_Position;
+static int gl_VertexIndex;
+static float vA;
+static float2 vUv;
+
+struct SPIRV_Cross_Input
+{
+    uint gl_VertexIndex : SV_VertexID;
+};
+
+struct SPIRV_Cross_Output
+{
+    float2 vUv : TEXCOORD0;
+    float vA : TEXCOORD1;
+    float4 gl_Position : SV_Position;
+};
+
+float arcHash(inout float p)
+{
+    p = frac(p * 0.103100001811981201171875f);
+    p *= (p + 33.3300018310546875f);
+    p *= (p + p);
+    return frac(p);
+}
+
+float3 mod289v3(float3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 mod289v4(float4 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375f) * 289.0f);
+}
+
+float4 permute289(float4 x)
+{
+    float4 param = ((x * 34.0f) + 1.0f.xxxx) * x;
+    return mod289v4(param);
+}
+
+float4 taylorInvSqrtV(float4 r)
+{
+    return 1.792842864990234375f.xxxx - (r * 0.8537347316741943359375f);
+}
+
+float snoise(float3 v)
+{
+    float3 i = floor(v + dot(v, 0.3333333432674407958984375f.xxx).xxx);
+    float3 x0 = (v - i) + dot(i, 0.16666667163372039794921875f.xxx).xxx;
+    float3 g = step(x0.yzx, x0);
+    float3 l = 1.0f.xxx - g;
+    float3 i1 = min(g, l.zxy);
+    float3 i2 = max(g, l.zxy);
+    float3 x1 = (x0 - i1) + 0.16666667163372039794921875f.xxx;
+    float3 x2 = (x0 - i2) + 0.3333333432674407958984375f.xxx;
+    float3 x3 = x0 - 0.5f.xxx;
+    float3 param = i;
+    i = mod289v3(param);
+    float4 param_1 = i.z.xxxx + float4(0.0f, i1.z, i2.z, 1.0f);
+    float4 param_2 = (permute289(param_1) + i.y.xxxx) + float4(0.0f, i1.y, i2.y, 1.0f);
+    float4 param_3 = (permute289(param_2) + i.x.xxxx) + float4(0.0f, i1.x, i2.x, 1.0f);
+    float4 p = permute289(param_3);
+    float n_ = 0.14285714924335479736328125f;
+    float3 ns = (float3(2.0f, 0.5f, 1.0f) * n_) - float3(0.0f, 1.0f, 0.0f);
+    float4 j = p - (floor((p * ns.z) * ns.z) * 49.0f);
+    float4 x_ = floor(j * ns.z);
+    float4 y_ = floor(j - (x_ * 7.0f));
+    float4 x = (x_ * ns.x) + ns.yyyy;
+    float4 y = (y_ * ns.x) + ns.yyyy;
+    float4 h = (1.0f.xxxx - abs(x)) - abs(y);
+    float4 b0 = float4(x.xy, y.xy);
+    float4 b1 = float4(x.zw, y.zw);
+    float4 s0 = (floor(b0) * 2.0f) + 1.0f.xxxx;
+    float4 s1 = (floor(b1) * 2.0f) + 1.0f.xxxx;
+    float4 sh = -step(h, 0.0f.xxxx);
+    float4 a0 = b0.xzyw + (s0.xzyw * sh.xxyy);
+    float4 a1 = b1.xzyw + (s1.xzyw * sh.zzww);
+    float3 p0 = float3(a0.xy, h.x);
+    float3 p1 = float3(a0.zw, h.y);
+    float3 p2 = float3(a1.xy, h.z);
+    float3 p3 = float3(a1.zw, h.w);
+    float4 param_4 = float4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3));
+    float4 norm = taylorInvSqrtV(param_4);
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    float4 m = max(0.60000002384185791015625f.xxxx - float4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f.xxxx);
+    m *= m;
+    return 42.0f * dot(m * m, float4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+
+float fbm3(float3 p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.019999980926513671875f) + 7.0f.xxx;
+    float3 param_2 = (p * 4.05000019073486328125f) + 3.0f.xxx;
+    float3 param_3 = (p * 8.1000003814697265625f) + 1.0f.xxx;
+    return (((0.5f * snoise(param)) + (0.25f * snoise(param_1))) + (0.125f * snoise(param_2))) + (0.0625f * snoise(param_3));
+}
+
+float arcNoise(float a, float b)
+{
+    float3 param = float3(a, b, 1.7000000476837158203125f);
+    float n = fbm3(param);
+    return lerp(n, (abs(n) * 2.0f) - 1.0f, clamp(asfloat(AVFXData.Load(128)), 0.0f, 1.0f));
+}
+
+float3 arcPoint(float u, float s, float k)
+{
+    float param = (s * 3.1099998950958251953125f) + (k * 1.7000000476837158203125f);
+    float _505 = arcHash(param);
+    float r = lerp(asfloat(AVFXData.Load4(160)).xy.x, asfloat(AVFXData.Load4(160)).xy.y, _505) * asfloat(AVFXData.Load(32));
+    float param_1 = (s * 7.730000019073486328125f) + (k * 2.2999999523162841796875f);
+    float _529 = arcHash(param_1);
+    float pv = lerp(asfloat(AVFXData.Load4(176)).xy.x, asfloat(AVFXData.Load4(176)).xy.y, _529);
+    float param_2 = (s * 5.309999942779541015625f) + (k * 3.099999904632568359375f);
+    float _540 = arcHash(param_2);
+    float y0 = (_540 * asfloat(AVFXData.Load(48))) * 0.7400000095367431640625f;
+    float param_3 = (s * 11.1000003814697265625f) + (k * 0.699999988079071044921875f);
+    float _560 = arcHash(param_3);
+    float ln = asfloat(AVFXData.Load(48)) * (0.180000007152557373046875f + (0.37000000476837158203125f * _560));
+    float param_4 = (s * 13.69999980926513671875f) + (k * 4.900000095367431640625f);
+    float _573 = arcHash(param_4);
+    float ph = _573 * 6.283185482025146484375f;
+    float y = (y0 + (u * ln)) * asfloat(AVFXData.Load(16));
+    float a = ph + ((u * pv) * 6.283185482025146484375f);
+    float param_5 = u * asfloat(AVFXData.Load(112));
+    float param_6 = (s * 3.099999904632568359375f) + (k * 0.310000002384185791015625f);
+    float j1 = arcNoise(param_5, param_6);
+    float param_7 = ((u * asfloat(AVFXData.Load(112))) * 2.400000095367431640625f) + 7.0f;
+    float param_8 = (s * 5.69999980926513671875f) + (k * 0.730000019073486328125f);
+    float j2 = arcNoise(param_7, param_8);
+    float3 param_9 = float3(((u * asfloat(AVFXData.Load(112))) * 4.19999980926513671875f) + 3.0f, (s * 7.900000095367431640625f) + (k * 1.12999999523162841796875f), 0.89999997615814208984375f);
+    float j3 = fbm3(param_9) * 0.5f;
+    r *= (1.0f + (asfloat(AVFXData.Load(96)) * ((0.699999988079071044921875f * j1) + (0.2199999988079071044921875f * j3))));
+    a += (asfloat(AVFXData.Load(96)) * ((1.4500000476837158203125f * j2) + (0.4000000059604644775390625f * j3)));
+    return float3(cos(a) * r, y, sin(a) * r);
+}
+
+void vert_main()
+{
+    float s = asfloat(AVFXVertices.Load(((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 4u) + 3u) * 16 + 0));
+    float u = asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 4u) * 16 + 0));
+    float side = asfloat(AVFXVertices.Load((AVFXIndices.Load(gl_VertexIndex * 4 + 0) * 4u) * 16 + 4));
+    float param = s * 1.71000003814697265625f;
+    float _731 = arcHash(param);
+    float per = lerp(asfloat(AVFXData.Load4(192)).xy.x, asfloat(AVFXData.Load4(192)).xy.y, _731);
+    float param_1 = s * 2.9300000667572021484375f;
+    float _747 = arcHash(param_1);
+    float onT = lerp(asfloat(AVFXData.Load4(208)).xy.x, asfloat(AVFXData.Load4(208)).xy.y, _747);
+    float param_2 = s * 4.36999988555908203125f;
+    float _754 = arcHash(param_2);
+    float off = _754 * per;
+    float k = floor((asfloat(AVFXData.Load(0)) - off) / max(per, 9.9999997473787516355514526367188e-05f));
+    float loc = (asfloat(AVFXData.Load(0)) - off) - (k * max(per, 9.9999997473787516355514526367188e-05f));
+    float param_3 = (k * 1.37300002574920654296875f) + (s * 9.10999965667724609375f);
+    float _792 = arcHash(param_3);
+    float live = step(loc, onT) * step(asfloat(AVFXData.Load(144)), _792);
+    float w = sin(3.1415927410125732421875f * clamp(loc / max(onT, 9.9999997473787516355514526367188e-05f), 0.0f, 1.0f));
+    float param_4 = (k * 2.1099998950958251953125f) + (s * 5.5f);
+    float _819 = arcHash(param_4);
+    vA = (live * w) * (0.550000011920928955078125f + (0.449999988079071044921875f * _819));
+    vUv = float2(u, (side * 0.5f) + 0.5f);
+    float param_5 = u;
+    float param_6 = s;
+    float param_7 = k;
+    float3 a3 = arcPoint(param_5, param_6, param_7);
+    float param_8 = min(u + 0.0350000001490116119384765625f, 1.0f) + ((u > 0.964999973773956298828125f) ? (-0.070000000298023223876953125f) : 0.0f);
+    float param_9 = s;
+    float param_10 = k;
+    float3 b3 = arcPoint(param_8, param_9, param_10);
+    float4 mv = mul(float4(a3, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(432))), float4(asfloat(AVFXData.Load4(448))), float4(asfloat(AVFXData.Load4(464))), float4(asfloat(AVFXData.Load4(480)))));
+    float4 mb = mul(float4(b3, 1.0f), float4x4(float4(asfloat(AVFXData.Load4(432))), float4(asfloat(AVFXData.Load4(448))), float4(asfloat(AVFXData.Load4(464))), float4(asfloat(AVFXData.Load4(480)))));
+    float2 d = mb.xy - mv.xy;
+    float2 _945;
+    if (length(d) > 9.9999997473787516355514526367188e-06f)
+    {
+        _945 = normalize(float2(-d.y, d.x));
+    }
+    else
+    {
+        _945 = float2(1.0f, 0.0f);
+    }
+    float2 pp = _945;
+    float wid = max((asfloat(AVFXData.Load(64)) * 0.5f) * (0.550000011920928955078125f + (0.449999988079071044921875f * sin(3.1415927410125732421875f * u))), (-mv.z) * asfloat(AVFXData.Load(80)));
+    float4 _982 = mv;
+    float2 _984 = _982.xy + ((pp * side) * wid);
+    mv.x = _984.x;
+    mv.y = _984.y;
+    gl_Position = mul(mv, float4x4(float4(asfloat(AVFXData.Load4(496))), float4(asfloat(AVFXData.Load4(512))), float4(asfloat(AVFXData.Load4(528))), float4(asfloat(AVFXData.Load4(544)))));
+}
+
+SPIRV_Cross_Output MainVS(SPIRV_Cross_Input stage_input)
+{
+    gl_VertexIndex = int(stage_input.gl_VertexIndex);
+    vert_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.gl_Position = gl_Position;
+    stage_output.vA = vA;
+    stage_output.vUv = vUv;
+    return stage_output;
+}
