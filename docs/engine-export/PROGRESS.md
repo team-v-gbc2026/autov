@@ -114,3 +114,12 @@ Initial tsc reported only missing generated Next LayoutProps; run Next typegen b
 - Re-ran 0/90/180 captures with HUD disabled: Fire MAE 1.4077 / 2.0568 / 3.3139; Shield 0.2094 / 0.2087 / 0.2001. Identical to the earlier measurements.
 - Updated launcher generator to request presentation mode and copy the latest demo controls. Shell syntax and Godot headless import passed.
 - Requested Windows Codex work status asynchronously to avoid conflicting Unreal implementation; no reply at the time of this entry. Unreal runtime integration remains incomplete; other work has continued.
+
+
+## 2026-09-17 — Integrate Windows Unreal implementation
+
+- Retrieved Windows branch `feature/unreal-5.8-vfx-import` at `a40a64e0ac1cd00d55d4da097ace5f3c88ccb2b6` and merged with both histories preserved. Includes C++ import factory, dependency-embedding asset, native particle/surface renderer, demo and build/import/launch scripts.
+- Runtime sources and regenerated shaders exactly match the Windows source commit. Disabled unrelated Android file server defaults in the demo configuration. Existing Python/standalone-HLSL experiments remain documented separately.
+- Windows comparison JSON reports Fire foreground MAE 1.4732 / 2.1372 / 3.4481 and Shield .2370 / .2409 / .2289. These are Windows-side reports, not independent UE execution on this Mac. Dedicated render target is a reference viewer; world depth/lighting/Niagara and packaged executable remain unverified.
+- Integration TypeScript noEmit passed; five compact geometry/data/sampling tests passed. Shader regeneration produced no runtime-source changes. Imported shader whitespace is retained to preserve validated source.
+- Updated Japanese Windows handoff and downloadable archive with the actual C++ plugin, two bundles and comparison evidence. No PR publication or main merge.

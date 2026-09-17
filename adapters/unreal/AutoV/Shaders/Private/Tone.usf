@@ -1,0 +1,20 @@
+// Three.js ACES fit (MIT), preserved from the existing Auto V Unity adapter.
+#include "/Engine/Public/Platform.ush"
+Texture2D<float4> Source;
+SamplerState SourceSampler;
+float Exposure;
+struct FullVertex { float4 Position:SV_POSITION; float2 UV:TEXCOORD0; };
+FullVertex ToneVS(uint ID:SV_VertexID) {
+    FullVertex O;
+    O.UV=float2((ID<<1)&2,ID&2);
+    O.Position=float4(O.UV.x*2-1,1-O.UV.y*2,0,1);
+    return O;
+}
+float4 TonePS(FullVertex I):SV_Target0 {
+    float3 C=Source.SampleLevel(SourceSampler,I.UV,0).rgb*(Exposure/0.6);
+    C=mul(float3x3(.59719,.35458,.04823,.076,.90834,.01566,.02840,.13383,.83777),C);
+    C=(C*(C+.0245786)-.000090537)/(C*(.983729*C+.432951)+.238081);
+    C=saturate(mul(float3x3(1.60475,-.53108,-.07367,-.10208,1.10813,-.00605,-.00327,-.07276,1.07602),C));
+    C=float3(C.r<=.0031308?C.r*12.92:1.055*pow(C.r,1/2.4)-.055,C.g<=.0031308?C.g*12.92:1.055*pow(C.g,1/2.4)-.055,C.b<=.0031308?C.b*12.92:1.055*pow(C.b,1/2.4)-.055);
+    return float4(C,1);
+}

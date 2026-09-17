@@ -1,0 +1,7 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Modules": [{"Name":"AutoVDemo","Type":"Runtime","LoadingPhase":"Default"}],
+  "Plugins": [{"Name":"AutoV","Enabled":true}],
+  "AdditionalPluginDirectories": [".."]
+}

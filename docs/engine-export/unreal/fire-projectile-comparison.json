@@ -1,0 +1,34 @@
+{
+  "engine": "unreal",
+  "reference": "C:\\Users\\taiki\\dev\\hks\\AutoV-Handoff\\fire-projectile",
+  "candidate": "C:\\Users\\taiki\\dev\\hks\\autov-ue58\\.engine-validation\\unreal\\iteration-2\\fire-projectile",
+  "units": "absolute RGB byte error (0–255)",
+  "foreground": "union of pixels with max(R,G,B)>35",
+  "differencePreview": "absolute difference ×4, clamped",
+  "views": [
+    {
+      "angle": 0,
+      "width": 640,
+      "height": 360,
+      "wholeImageMAE": 0.11796875,
+      "foregroundUnionMAE": 1.473173550096627,
+      "foregroundPixels": 16731
+    },
+    {
+      "angle": 90,
+      "width": 640,
+      "height": 360,
+      "wholeImageMAE": 0.17488136574074073,
+      "foregroundUnionMAE": 2.137241321412081,
+      "foregroundPixels": 15882
+    },
+    {
+      "angle": 180,
+      "width": 640,
+      "height": 360,
+      "wholeImageMAE": 0.17093894675925925,
+      "foregroundUnionMAE": 3.44811338118903,
+      "foregroundPixels": 9055
+    }
+  ]
+}

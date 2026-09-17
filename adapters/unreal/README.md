@@ -1,67 +1,85 @@
-# Unreal 5.8 asset importer — ingestion stage
+# Auto V → Unreal Engine 5.8
 
-This directory implements the first, separately verifiable stage of AVFX import. It **does not yet implement mesh playback, particle/surface shaders, Niagara systems, or a presentation map**. Do not treat a successful texture import as VFX reproduction.
+Experimental C++ AVFX importer and native 3D reference renderer for `particle`
+and `surface`. The renderer executes the original kernel math over real indexed
+geometry and compact per-particle attributes. It is not a video or a baked card.
 
-## What is implemented
+## Current scope
 
-- Read an extracted `avfx/0.1` bundle and resolve shared base geometry and compact attribute references.
-- Check referenced files, topology indices, sample timing, dimensions and float data; reject non-finite values and external/traversing paths.
-- Convert raw RGBA32F attribute/data textures to uncompressed, full FLOAT OpenEXR without changing rows, channel values or precision. Ordinary PNGs remain unchanged.
-- Produce a portable import plan mapping each draw/geometry/uniform texture to its import source.
-- UE Editor Python script imports textures to a new Content folder, applies linear sampling/compression/address settings, saves assets and writes a result report. Sources are copied into `Saved/AutoVImports` for stable reimport.
+- Editor factory: import an extracted `effect.avfx.json` through Content Browser.
+- Dependencies are embedded in `UAutoVAsset`; no source-directory or network access
+  is needed at runtime. Unsupported formats/programs/blends fail explicitly.
+- `UAutoVPlayer`: Blueprint component, loop/pause/seek and arbitrary orbit/zoom.
+- A dedicated 640×360 HDR/depth target plus explicit Three.js ACES/sRGB conversion
+  makes reference comparison independent of the game's post-processing.
+- **The output is a reference-viewer render target. It does not yet participate in
+  a game world's scene depth, shadows, lighting, Niagara, or mesh renderer.**
+  Do not advertise this milestone as a production scene-integrated VFX plugin.
+- Import currently consumes an extracted bundle, not the ZIP directly.
 
-## Verification status
+## Build and run
 
-The pure Python preparation was executed on the actual **Fire Projectile** and **Shield** bundles. Fire: 8 draws, 120 texture bindings/sources (111 float). Shield: 7 draws, 8 float sources. An independent OpenEXR 3.4.15 decoder read all **119** generated float textures; every float32 bit matched the original binary, including signed values and HDR range.
-
-**UE 5.8 is not installed on the authoring Mac.** `avfx_import.py` has syntax validation only. Its Unreal API execution, import pipeline selection, resulting source/GPU precision, and texture orientation remain to be validated on Windows. `TC_HDR_F32` is explicitly selected, but this is not proof that Unreal's EXR import/cook path retains all source bits; verify with GPU/readback or a diagnostic material before building the VFX renderer.
-
-## Windows usage
-
-1. Extract each `.avfx.zip` to a separate folder.
-2. Prepare data using Python 3.9+ (standard library only):
+Prerequisites: UE 5.8, MSVC 14.50 (servicing version 14.50.35723 or later),
+Windows SDK, .NET Framework 4.8 SDK. The local verification machine uses UE 5.8.2,
+MSVC 14.50.35738, Windows SDK 10.0.22621.0 and RTX 5070.
 
 ```powershell
-py -3 adapters/unreal/avfx_prepare.py C:\Dev\Bundles\fire-projectile C:\Dev\Prepared\fire-projectile
-py -3 adapters/unreal/avfx_prepare.py C:\Dev\Bundles\shield C:\Dev\Prepared\shield
+.\Build.ps1
+.\Import-Demo.ps1 -BundlesRoot C:\path\to\extracted-handoff
+.\Launch-Demo.ps1
 ```
 
-The output folder must not already exist. The preparation does not overwrite previous results.
+`BundlesRoot` must contain `fire-projectile/effect.avfx.json` and
+`shield/effect.avfx.json`, with all their dependency folders. The import command
+refuses to overwrite existing packages. The demo references `/Game/AutoV/Fire`
+and `/Game/AutoV/Shield`; generated assets are local, not checked into Git.
 
-3. In UE 5.8 enable **Python Editor Script Plugin** and **Editor Scripting Utilities**, then restart as required. In the Editor's Python console:
+Double-click `Launch-Demo.cmd` to reopen the demo. Controls: **1/2** effect,
+**Space** pause, **left drag** orbit, **wheel** zoom, **R** restart, **F** reference
+time. `UAutoVPlayer` is also available to Blueprints in another project; copy
+the `AutoV` directory into that project's `Plugins` and rebuild.
 
-```python
-import sys
-sys.path.insert(0, r'C:\Dev\autov-ue58\adapters\unreal')
-import avfx_import
-fire = avfx_import.import_prepared(r'C:\Dev\Prepared\fire-projectile', '/Game/AutoV/Fire')
-shield = avfx_import.import_prepared(r'C:\Dev\Prepared\shield', '/Game/AutoV/Shield')
+## Verification loop
+
+```powershell
+.\Launch-Demo.ps1 -CaptureDirectory C:\path\to\captures
+# Install the small comparison dependency with npm install in this directory.
+node compare.mjs C:\bundles\fire-projectile C:\captures\fire-projectile unreal
+node compare.mjs C:\bundles\shield C:\captures\shield unreal
 ```
 
-Choose new destination folders; existing Content/source-staging folders are preserved. On partial failure the script records the error and leaves imported assets for inspection. Resolve the error and use a fresh destination; no destructive cleanup is automatic.
+The capture mode reads the fixed time and camera from the imported manifest,
+renders 0/90/180 degrees about source Y, writes six PNGs and exits. The comparison
+uses the same foreground-union threshold as the Unity/Godot verification script.
+Source-coordinate shader evaluation preserves right-handed Y-up metres; the
+reference camera uses the same basis and OpenGL→D3D clip-depth conversion. There
+is currently no conversion to UE scene-world centimetres because scene integration
+is not implemented.
 
-`Saved/AutoVImports/<destination>/unreal-import-result.json` records the engine version and imported asset paths. `import-plan.json` holds draw-to-asset-source bindings; `Source/effect.avfx.json` retains geometry, animation and uniforms. Saved data is **not** automatically cooked or a runtime asset. The Windows runtime implementation must create proper cookable data/assets and keep texture references alive.
+`node generate-shaders.mjs` deterministically regenerates HLSL and its matching
+float4 binding table from the existing SPIRV-Cross-generated Unity kernel bodies.
+Shader bodies are retained, Unity wrappers are removed, integer casts and explicit
+array strides are preserved. See `AutoV/THREE-LICENSE.txt` for Three.js attribution.
 
-## Next work
+## Validation status and provenance
 
-Continue with the main [Windows handoff](../../docs/engine-export/WINDOWS-UE58-HANDOFF.ja.md): implement the particle and surface shaders and AVFX player, verify coordinates/blending/depth/color, compare the 3 reference angles, then create a launchable UE demo. Exported base mesh positions alone do not contain the final shader-deformed effect.
+Integrated from Windows branch `feature/unreal-5.8-vfx-import`, commit
+`a40a64e0ac1cd00d55d4da097ace5f3c88ccb2b6`, into the shared exporter branch.
+The Windows implementation records a successful UE 5.8.2 C++ build and checks in
+three-angle image comparison reports under `docs/engine-export/unreal/`:
 
-Official API references used for this draft: [texture factory](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/TextureFactory), [float32 compression setting](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/TextureCompressionSettings), [asset import task](https://dev.epicgames.com/documentation/en-us/unreal-engine/python-api/class/AssetImportTask?application_version=5.7). Consult the installed 5.8 API when validating the editor script.
+| Case | Foreground-union RGB MAE, 0/90/180 degrees (0-255) |
+|---|---|
+| Fire Projectile | 1.4732 / 2.1372 / 3.4481 |
+| Shield | 0.2370 / 0.2409 / 0.2289 |
 
-## Standalone HLSL kernels
+These are the Windows branch's reported results. This Mac integration did not
+rerun Unreal or independently inspect its PNGs; the reports do not establish
+packaged-game or scene-world integration. The renderer source and metadata are
+preserved from the Windows commit. Follow the capture commands to reproduce.
 
-`Shaders/particle.vert.usf`, `particle.frag.usf`, `surface.vert.usf`, and `surface.frag.usf` contain the source shader arithmetic without Unity ShaderLab wrappers. `Shaders/kernels.json` records input semantics, uniform types, compact-attribute field order, matrix/array conventions, and source SHA256.
-
-These are **independent shader entry points**, not a finished Unreal Material or a snippet that can be pasted into a Material Custom node. Unreal still needs its shader registration/parameter bindings, mesh/render path, sampler setup, blend/depth/cull state, source-to-engine coordinate conversion, player and color-output integration. Do not bind the source matrices with an unchecked memory copy or assume the automatic bindings from a standalone compiler are Unreal bindings.
-
-`AVFX_INVERT_FRONT_FACE` defaults to 0 (source facing). Unity's unconditional face inversion was deliberately made configurable; determine UE's setting from the actual coordinate and winding conversion. Numeric arrays use float4 rows, as listed in the manifest. Vertex TEXCOORD1 carries the compact attribute row, not vertex ID.
-
-Regenerate/check from `frontend`:
-
-```sh
-node --import tsx scripts/engine-export/extract-unreal-kernels.mjs
-# Set AVFX_HLSL_VALIDATOR to the local glslang executable, then:
-node scripts/engine-export/verify-unreal-kernels.mjs
-```
-
-Verification performed with [Khronos glslang](https://github.com/KhronosGroup/glslang) 16.5.0, commit `a8d28bd082bff18ffbe80996e922b012f915cf07`, built with HLSL enabled. Both vertex programs and both fragment programs with face inversion 0/1 compiled: **6 configurations**. This exposed a source local named `half2` colliding with an HLSL type name; the standalone extraction now renames it. Compile verification is not a UE shader compilation or render test. The generated report stays in `.autov-local/unreal-hlsl-check/report.json`.
+The separate Python ingestion scripts, root `Shaders/`, and
+[INGESTION-EXPERIMENT.md](INGESTION-EXPERIMENT.md) are earlier supporting
+experiments. They are **not prerequisites for this C++ plugin**. The plugin reads
+raw RGBA32F directly, so it does not need the EXR conversion path. Use
+`AutoV/Shaders/Private` and `generate-shaders.mjs` for the actual runtime shaders.
